@@ -426,6 +426,10 @@ export function UpdateWorkspaceLastProvider(arg1:string,arg2:string):Promise<voi
 
 export function ValidateHookCommand(arg1:string):Promise<main.HookValidationResult>;
 
+export function WatchGitWorkspace(arg1:string):Promise<void>;
+
 export function WriteFile(arg1:string,arg2:string):Promise<void>;
 
 export function WriteToPty(arg1:string,arg2:string):Promise<void>;
+
+export function UnwatchGitWorkspace(arg1:string):Promise<void>;

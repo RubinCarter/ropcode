@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { useGitChanged } from '@/hooks';
 
 export interface GitFileChange {
   path: string;
@@ -13,6 +14,48 @@ interface GitStatusPaneProps {
   className?: string;
   onFileClick?: (file: GitFileChange) => void;
 }
+
+// 辅助函数：将 status 对象转换为 GitFileChange 数组
+const parseGitStatus = (statusMap: Record<string, string>): GitFileChange[] => {
+  const files: GitFileChange[] = [];
+
+  for (const [filePath, statusCode] of Object.entries(statusMap)) {
+    if (!filePath || !statusCode || statusCode.length < 2) continue;
+
+    let status: GitFileChange['status'] = 'modified';
+    let staged = false;
+
+    // 解析状态码
+    const stagedChar = statusCode[0];
+    const unstagedChar = statusCode[1];
+
+    // 判断是否暂存
+    if (stagedChar !== ' ' && stagedChar !== '?') {
+      staged = true;
+    }
+
+    // 确定文件状态
+    if (statusCode === '??') {
+      status = 'untracked';
+    } else if (stagedChar === 'A' || unstagedChar === 'A') {
+      status = 'added';
+    } else if (stagedChar === 'D' || unstagedChar === 'D') {
+      status = 'deleted';
+    } else if (stagedChar === 'R' || unstagedChar === 'R') {
+      status = 'renamed';
+    } else {
+      status = 'modified';
+    }
+
+    files.push({
+      path: filePath,
+      status,
+      staged
+    });
+  }
+
+  return files;
+};
 
 export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
   workspacePath,
@@ -102,15 +145,25 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
     }
   }, [workspacePath]);
 
-  // 初始加载和定期刷新
+  // 管理 Git 监听器的生命周期
   useEffect(() => {
-    fetchGitStatus();
+    if (workspacePath) {
+      api.WatchGitWorkspace(workspacePath);
+      return () => {
+        api.UnwatchGitWorkspace(workspacePath);
+      };
+    }
+  }, [workspacePath]);
 
-    // 每 500ms 刷新一次，以便快速检测文件变化
-    const interval = setInterval(fetchGitStatus, 500);
+  // 订阅 Git 变化事件
+  useGitChanged(workspacePath, (event) => {
+    // 更新分支信息
+    setCurrentBranch(event.branch);
 
-    return () => clearInterval(interval);
-  }, [fetchGitStatus]);
+    // 解析文件状态
+    const parsedFiles = parseGitStatus(event.status);
+    setFiles(parsedFiles);
+  });
 
   // 获取状态图标和颜色
   const getStatusDisplay = (file: GitFileChange) => {

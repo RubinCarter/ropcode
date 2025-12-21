@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Minus, Square, X, ChevronRight, GitBranch, Upload, Folder, Trash2 } from 'lucide-react';
 import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
 import { motion } from 'framer-motion';
-import { useFullscreen } from '@/hooks';
+import { useFullscreen, useGitChanged } from '@/hooks';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ContainerTabManager } from '@/components/containers';
@@ -155,7 +155,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     updateWorkspaceInfo();
   }, [currentProjectPath, hasGitSupport]);
 
-  // 检测是否为 worktree 子分支并获取未推送提交数
+  // 检测是否为 worktree 子分支（初始化）
   useEffect(() => {
     if (!currentProjectPath || !hasGitSupport) {
       setIsWorktreeChild(false);
@@ -182,12 +182,9 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     };
 
     checkWorktree();
-    // 每 5 秒刷新一次
-    const interval = setInterval(checkWorktree, 5000);
-    return () => clearInterval(interval);
   }, [currentProjectPath, hasGitSupport]);
 
-  // 检测未推送到远程的提交数
+  // 检测未推送到远程的提交数（初始化）
   useEffect(() => {
     if (!currentProjectPath || !hasGitSupport) {
       setUnpushedToRemoteCount(0);
@@ -205,10 +202,37 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     };
 
     checkUnpushedToRemote();
-    // 每 5 秒刷新一次
-    const interval = setInterval(checkUnpushedToRemote, 5000);
-    return () => clearInterval(interval);
   }, [currentProjectPath, hasGitSupport]);
+
+  // Git 监听器生命周期管理
+  useEffect(() => {
+    if (!currentProjectPath || !hasGitSupport) {
+      return;
+    }
+
+    api.WatchGitWorkspace(currentProjectPath);
+    return () => {
+      api.UnwatchGitWorkspace(currentProjectPath);
+    };
+  }, [currentProjectPath, hasGitSupport]);
+
+  // 订阅 Git 变化事件
+  useGitChanged(currentProjectPath, async (event) => {
+    if (!currentProjectPath || !hasGitSupport) return;
+
+    // 更新未推送到远程的提交数（对所有仓库生效）
+    setUnpushedToRemoteCount(event.ahead);
+
+    // 如果是 worktree 子分支，更新 worktree 相关数据
+    if (isWorktreeChild) {
+      try {
+        const count = await api.getUnpushedCommitsCount(currentProjectPath);
+        setUnpushedCount(count);
+      } catch (error) {
+        console.error('Failed to update worktree unpushed count:', error);
+      }
+    }
+  });
 
   // 推送到主分支
   const handlePushToMain = async () => {

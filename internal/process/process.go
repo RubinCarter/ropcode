@@ -120,3 +120,18 @@ func (p *Process) Wait() {
 func (p *Process) Done() <-chan struct{} {
 	return p.done
 }
+
+// Pid returns the process ID
+func (p *Process) Pid() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.PID
+}
+
+// ExitCode returns the process exit code
+func (p *Process) ExitCode() int {
+	if p.Cmd.ProcessState == nil {
+		return -1
+	}
+	return p.Cmd.ProcessState.ExitCode()
+}

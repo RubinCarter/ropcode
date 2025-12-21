@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FolderOpen, Plus, Bot, BarChart3, Settings, MoreVertical, FileText, Network, Info, GitBranch, Server, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 import { SyncFromSSHDialog } from '@/components/SyncFromSSHDialog';
 import { CloneFromURLDialog } from '@/components/CloneFromURLDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
+import { useGitChanged } from '@/hooks';
 
 interface SidebarProps {
   /**
@@ -199,79 +200,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [isCollapsed, onCollapse]);
 
-  // Poll for git branch changes every 2 seconds
+  // Watch/Unwatch Git workspace lifecycle
   useEffect(() => {
     if (!activeProjectPath) {
-      console.log('[Sidebar] No active project path, skipping git branch polling');
+      console.log('[Sidebar] No active project path, skipping git watch');
       return;
     }
 
-    console.log('[Sidebar] 🔄 Starting git branch polling for:', activeProjectPath);
+    console.log('[Sidebar] 🔄 Starting git watch for:', activeProjectPath);
 
-    let lastKnownBranch: string | null = null;
-
-    const checkBranchChange = async () => {
-      try {
-        // Get current branch from git
-        const currentBranch = await api.getCurrentBranch(activeProjectPath);
-
-        if (currentBranch && lastKnownBranch === null) {
-          // First check, store the branch AND sync to workspace/project
-          lastKnownBranch = currentBranch;
-          console.log('[Sidebar] Initial branch:', currentBranch);
-
-          // Check if this is a workspace (contains .ropcode/) or a regular project
-          const isWorkspace = activeProjectPath.includes('/.ropcode/');
-
-          if (isWorkspace) {
-            // Update workspace branch using new unified interface
-            await api.updateWorkspaceFields(activeProjectPath, { branch: currentBranch });
-            console.log(`[Sidebar] ✅ Synced workspace branch to: ${currentBranch}`);
-          } else {
-            // For regular projects, we don't store branch info in projects.json
-            // Just log it for reference
-            console.log(`[Sidebar] ℹ️ Project branch (not persisted): ${currentBranch}`);
-          }
-
-          await loadProjects();
-        } else if (currentBranch && lastKnownBranch !== null && currentBranch !== lastKnownBranch) {
-          // Branch changed!
-          console.log(`[Sidebar] 🔔 Branch changed: ${lastKnownBranch} -> ${currentBranch}`);
-
-          // Check if this is a workspace or a regular project
-          const isWorkspace = activeProjectPath.includes('/.ropcode/');
-
-          if (isWorkspace) {
-            // Update workspace branch using new unified interface
-            await api.updateWorkspaceFields(activeProjectPath, { branch: currentBranch });
-            console.log(`[Sidebar] ✅ Updated workspace branch to: ${currentBranch}`);
-          } else {
-            // For regular projects, we don't store branch info
-            console.log(`[Sidebar] ℹ️ Project branch changed (not persisted): ${currentBranch}`);
-          }
-
-          // Refresh projects list
-          await loadProjects();
-
-          // Update last known branch
-          lastKnownBranch = currentBranch;
-        }
-      } catch (error) {
-        console.error('[Sidebar] ❌ Failed to check branch:', error);
-      }
-    };
-
-    // Check immediately
-    checkBranchChange();
-
-    // Then check every 2 seconds
-    const intervalId = setInterval(checkBranchChange, 2000);
+    // Start watching
+    api.WatchGitWorkspace(activeProjectPath).catch((error) => {
+      console.error('[Sidebar] ❌ Failed to start git watch:', error);
+    });
 
     return () => {
-      console.log('[Sidebar] 🗑️ Stopping git branch polling');
-      clearInterval(intervalId);
+      console.log('[Sidebar] 🗑️ Stopping git watch for:', activeProjectPath);
+      api.UnwatchGitWorkspace(activeProjectPath);
     };
   }, [activeProjectPath]);
+
+  // Handle Git change events with stable callback
+  const handleGitChanged = useCallback(async (event: any) => {
+    console.log('[Sidebar] 🔔 Git changed event received:', event);
+
+    // Check if this is a workspace (contains .ropcode/) or a regular project
+    const isWorkspace = event.path.includes('/.ropcode/');
+
+    if (isWorkspace) {
+      // Update workspace branch using new unified interface
+      await api.updateWorkspaceFields(event.path, { branch: event.branch });
+      console.log(`[Sidebar] ✅ Updated workspace branch to: ${event.branch}`);
+    } else {
+      // For regular projects, we don't store branch info in projects.json
+      console.log(`[Sidebar] ℹ️ Project branch (not persisted): ${event.branch}`);
+    }
+
+    // Refresh projects list to update UI
+    await loadProjects();
+  }, []);
+
+  // Subscribe to Git change events
+  useGitChanged(activeProjectPath || undefined, handleGitChanged);
 
   return (
     <motion.div

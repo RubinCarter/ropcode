@@ -10,6 +10,7 @@ import { api, listen } from "@/lib/api";
 import { useTabContext } from "@/contexts/TabContext";
 import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
 import { useContainerContext } from "@/contexts/ContainerContext";
+import { useProcessChanged } from "@/hooks";
 
 interface ProjectListProps {
   /**
@@ -214,7 +215,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     };
   }, []);
 
-  // Collect all workspace paths for global polling
+  // Collect all workspace paths for initial loading
   // Check ALL providers (claude, codex, etc.), not just 'claude'
   const allWorkspacePaths = useMemo(() => {
     const paths: string[] = [];
@@ -234,14 +235,14 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return paths;
   }, [projects]);
 
-  // Poll running state for ALL workspaces (not just active)
+  // Initial loading of running state for ALL workspaces
   useEffect(() => {
     if (allWorkspacePaths.length === 0) {
       setWorkspaceRunningStates(new Map());
       return;
     }
 
-    const checkAllRunning = async () => {
+    const loadInitialStates = async () => {
       try {
         const results = await Promise.all(
           allWorkspacePaths.map(async (path) => {
@@ -258,18 +259,27 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         const newStates = new Map(results);
         setWorkspaceRunningStates(newStates);
       } catch (err) {
-        console.error('[ProjectList] Failed to check running states:', err);
+        console.error('[ProjectList] Failed to load initial running states:', err);
       }
     };
 
-    // Check immediately
-    checkAllRunning();
-
-    // Poll every 200ms (reduced from 500ms for faster status updates)
-    // Combined with 100ms backend monitor, max delay is ~300ms
-    const interval = setInterval(checkAllRunning, 200);
-    return () => clearInterval(interval);
+    // Load initial states once
+    loadInitialStates();
   }, [allWorkspacePaths]);
+
+  // Subscribe to process change events (replaces 200ms polling)
+  useProcessChanged(undefined, (event) => {
+    // Update running state based on event
+    setWorkspaceRunningStates(prev => {
+      const newStates = new Map(prev);
+      if (event.state === 'running') {
+        newStates.set(event.cwd, true);
+      } else if (event.state === 'stopped') {
+        newStates.set(event.cwd, false);
+      }
+      return newStates;
+    });
+  });
 
   // Sync WorkspaceTodoContext status based on actual process state
   // When process is not running but status shows 'working' or 'active', force it to 'idle'

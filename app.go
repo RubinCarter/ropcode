@@ -12,7 +12,9 @@ import (
 	"ropcode/internal/codex"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
+	"ropcode/internal/eventhub"
 	"ropcode/internal/gemini"
+	"ropcode/internal/git"
 	"ropcode/internal/mcp"
 	"ropcode/internal/plugin"
 	"ropcode/internal/process"
@@ -41,6 +43,8 @@ type App struct {
 	sshManager         *ssh.Manager
 	pluginManager      *plugin.Manager
 	sessionManager     *session.HistoryManager
+	eventHub           *eventhub.EventHub
+	gitWatcher         *git.GitWatcher
 }
 
 // NewApp creates a new App application struct
@@ -70,11 +74,15 @@ func (a *App) startup(ctx context.Context) {
 		a.dbManager = db
 	}
 
+	// Initialize EventHub (before managers that need it)
+	a.eventHub = eventhub.New(ctx)
+
 	// Initialize PTY manager with event emitter
 	a.ptyManager = pty.NewManager(ctx, &wailsEventEmitter{ctx: ctx})
 
 	// Initialize process manager
 	a.processManager = process.NewManager(ctx)
+	a.processManager.SetEventHub(a.eventHub)
 
 	// Initialize checkpoint storage
 	a.checkpointStorage = checkpoint.NewStorage(cfg.RopcodeDir, 3)
@@ -102,12 +110,20 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize session history manager
 	a.sessionManager = session.NewHistoryManager(cfg.ClaudeDir)
 
+	// Initialize GitWatcher (EventHub already initialized above)
+	a.gitWatcher = git.NewGitWatcher(a.eventHub)
+
 	runtime.LogDebug(ctx, "DEBUG: All managers initialized")
 	runtime.LogInfo(ctx, "ropcode started successfully")
 }
 
 // shutdown is called when the app is shutting down
 func (a *App) shutdown(ctx context.Context) {
+	// Close GitWatcher
+	if a.gitWatcher != nil {
+		a.gitWatcher.Close()
+	}
+
 	// Close PTY sessions
 	if a.ptyManager != nil {
 		a.ptyManager.CloseAll()
@@ -167,4 +183,20 @@ func (a *App) getCheckpointManager(projectID string) *checkpoint.CheckpointManag
 // Greet returns a greeting for the given name (keep for testing)
 func (a *App) Greet(name string) string {
 	return "Hello " + name + ", Welcome to ropcode!"
+}
+
+// WatchGitWorkspace 开始监听指定工作区的 Git 变化
+func (a *App) WatchGitWorkspace(workspacePath string) error {
+	if a.gitWatcher == nil {
+		return nil
+	}
+	return a.gitWatcher.Watch(workspacePath)
+}
+
+// UnwatchGitWorkspace 停止监听指定工作区的 Git 变化
+func (a *App) UnwatchGitWorkspace(workspacePath string) {
+	if a.gitWatcher == nil {
+		return
+	}
+	a.gitWatcher.Unwatch(workspacePath)
 }

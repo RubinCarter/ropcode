@@ -4,12 +4,13 @@
  * Manages process execution state including:
  * - Loading/execution state
  * - Pending send state
- * - Process state polling
+ * - Process state event subscription
  * - State synchronization with backend
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
+import { useProcessChanged } from "@/hooks";
 
 export interface UseProcessStateOptions {
   projectPath: string;
@@ -75,17 +76,16 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
     syncProcessState();
   }, [syncProcessState]);
 
-  // Fallback polling when isLoading is true (every 200ms)
-  useEffect(() => {
-    // Don't poll if pending send or not loading
-    if (!isLoading || !projectPath || isPendingSend) return;
-
-    const interval = setInterval(() => {
-      syncProcessState();
-    }, 200); // Check every 200ms
-
-    return () => clearInterval(interval);
-  }, [isLoading, projectPath, isPendingSend, syncProcessState]);
+  // Subscribe to process state changes via event system
+  useProcessChanged(projectPath, (event) => {
+    if (event.state === "running") {
+      setIsLoading(true);
+      hasActiveSessionRef.current = true;
+    } else if (event.state === "stopped") {
+      setIsLoading(false);
+      hasActiveSessionRef.current = false;
+    }
+  });
 
   return {
     isLoading,

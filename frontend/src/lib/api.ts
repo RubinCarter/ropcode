@@ -2255,6 +2255,15 @@ export const api = {
   async readFile(path: string): Promise<string> {
     return App.ReadFile(path);
   },
+
+  // Git Watcher (✓ Implemented)
+  async WatchGitWorkspace(path: string): Promise<void> {
+    return App.WatchGitWorkspace(path);
+  },
+
+  async UnwatchGitWorkspace(path: string): Promise<void> {
+    return App.UnwatchGitWorkspace(path);
+  },
 };
 
 // Export runtime functions

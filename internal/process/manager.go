@@ -5,14 +5,21 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"ropcode/internal/eventhub"
 	"sync"
 )
+
+// EventEmitter defines the interface for emitting process events
+type EventEmitter interface {
+	EmitProcessChanged(event eventhub.ProcessChangedEvent)
+}
 
 // Manager manages multiple processes
 type Manager struct {
 	ctx       context.Context
 	processes map[string]*Process
 	mu        sync.RWMutex
+	eventHub  EventEmitter
 }
 
 // NewManager creates a new process manager
@@ -21,6 +28,13 @@ func NewManager(ctx context.Context) *Manager {
 		ctx:       ctx,
 		processes: make(map[string]*Process),
 	}
+}
+
+// SetEventHub sets the event hub for emitting process events
+func (m *Manager) SetEventHub(hub EventEmitter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventHub = hub
 }
 
 // Spawn starts a new process
@@ -47,9 +61,30 @@ func (m *Manager) Spawn(key, command string, args []string, cwd string, env []st
 
 	m.processes[key] = proc
 
+	// Emit process started event
+	if m.eventHub != nil {
+		m.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
+			PID:   proc.Pid(),
+			Cwd:   cwd,
+			State: "running",
+		})
+	}
+
 	// Cleanup goroutine
 	go func() {
 		proc.Wait()
+		exitCode := proc.ExitCode()
+
+		// Emit process stopped event
+		if m.eventHub != nil {
+			m.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
+				PID:      proc.Pid(),
+				Cwd:      cwd,
+				State:    "stopped",
+				ExitCode: &exitCode,
+			})
+		}
+
 		m.mu.Lock()
 		delete(m.processes, key)
 		m.mu.Unlock()

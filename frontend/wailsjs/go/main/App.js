@@ -838,10 +838,18 @@ export function ValidateHookCommand(arg1) {
   return window['go']['main']['App']['ValidateHookCommand'](arg1);
 }
 
+export function WatchGitWorkspace(arg1) {
+  return window['go']['main']['App']['WatchGitWorkspace'](arg1);
+}
+
 export function WriteFile(arg1, arg2) {
   return window['go']['main']['App']['WriteFile'](arg1, arg2);
 }
 
 export function WriteToPty(arg1, arg2) {
   return window['go']['main']['App']['WriteToPty'](arg1, arg2);
+}
+
+export function UnwatchGitWorkspace(arg1) {
+  return window['go']['main']['App']['UnwatchGitWorkspace'](arg1);
 }
