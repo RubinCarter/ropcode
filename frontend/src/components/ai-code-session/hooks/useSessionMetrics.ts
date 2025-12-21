@@ -25,7 +25,6 @@ export interface UseSessionMetricsReturn {
   trackFileOperation: (operation: 'create' | 'modify' | 'delete') => void;
   trackCodeBlock: () => void;
   trackError: () => void;
-  trackCheckpoint: () => void;
   trackModelChange: (from: string, to: string) => void;
   resetMetrics: () => void;
 }
@@ -50,7 +49,6 @@ export function useSessionMetrics(options: UseSessionMetricsOptions): UseSession
     errorsEncountered: 0,
     lastActivityTime: Date.now(),
     toolExecutionTimes: [],
-    checkpointCount: 0,
     wasResumed,
     modelChanges: [],
   });
@@ -112,11 +110,6 @@ export function useSessionMetrics(options: UseSessionMetricsOptions): UseSession
     metrics.errorsEncountered += 1;
   };
 
-  const trackCheckpoint = () => {
-    const metrics = sessionMetrics.current;
-    metrics.checkpointCount += 1;
-  };
-
   const trackModelChange = (from: string, to: string) => {
     const metrics = sessionMetrics.current;
     metrics.modelChanges.push({
@@ -139,7 +132,6 @@ export function useSessionMetrics(options: UseSessionMetricsOptions): UseSession
       errorsEncountered: 0,
       lastActivityTime: Date.now(),
       toolExecutionTimes: [],
-      checkpointCount: 0,
       wasResumed: false,
       modelChanges: [],
     };
@@ -155,7 +147,6 @@ export function useSessionMetrics(options: UseSessionMetricsOptions): UseSession
     trackFileOperation,
     trackCodeBlock,
     trackError,
-    trackCheckpoint,
     trackModelChange,
     resetMetrics,
   };

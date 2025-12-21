@@ -81,7 +81,6 @@ export interface SessionMetrics {
   errorsEncountered: number;
   lastActivityTime: number;
   toolExecutionTimes: number[];
-  checkpointCount: number;
   wasResumed: boolean;
   modelChanges: Array<{ from: string; to: string; timestamp: number }>;
 }

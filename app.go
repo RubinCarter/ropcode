@@ -7,7 +7,6 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"ropcode/internal/checkpoint"
 	"ropcode/internal/claude"
 	"ropcode/internal/codex"
 	"ropcode/internal/config"
@@ -30,28 +29,23 @@ type App struct {
 	config *config.Config
 
 	// Core managers
-	ptyManager         *pty.Manager
-	processManager     *process.Manager
-	dbManager          *database.Database
-	checkpointStorage  *checkpoint.Storage
-	checkpointManagers map[string]*checkpoint.CheckpointManager // keyed by projectID
-	checkpointMu       sync.RWMutex
-	claudeManager      *claude.SessionManager
-	geminiManager      *gemini.SessionManager
-	codexManager       *codex.SessionManager
-	mcpManager         *mcp.Manager
-	sshManager         *ssh.Manager
-	pluginManager      *plugin.Manager
-	sessionManager     *session.HistoryManager
-	eventHub           *eventhub.EventHub
-	gitWatcher         *git.GitWatcher
+	ptyManager     *pty.Manager
+	processManager *process.Manager
+	dbManager      *database.Database
+	claudeManager  *claude.SessionManager
+	geminiManager  *gemini.SessionManager
+	codexManager   *codex.SessionManager
+	mcpManager     *mcp.Manager
+	sshManager     *ssh.Manager
+	pluginManager  *plugin.Manager
+	sessionManager *session.HistoryManager
+	eventHub       *eventhub.EventHub
+	gitWatcher     *git.GitWatcher
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{
-		checkpointManagers: make(map[string]*checkpoint.CheckpointManager),
-	}
+	return &App{}
 }
 
 // startup is called when the app starts
@@ -83,9 +77,6 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize process manager
 	a.processManager = process.NewManager(ctx)
 	a.processManager.SetEventHub(a.eventHub)
-
-	// Initialize checkpoint storage
-	a.checkpointStorage = checkpoint.NewStorage(cfg.RopcodeDir, 3)
 
 	// Initialize Claude session manager
 	a.claudeManager = claude.NewSessionManager(ctx, &wailsEventEmitter{ctx: ctx})
@@ -164,20 +155,6 @@ type wailsEventEmitter struct {
 
 func (e *wailsEventEmitter) Emit(eventName string, data interface{}) {
 	runtime.EventsEmit(e.ctx, eventName, data)
-}
-
-// getCheckpointManager returns or creates a checkpoint manager for a project
-func (a *App) getCheckpointManager(projectID string) *checkpoint.CheckpointManager {
-	a.checkpointMu.Lock()
-	defer a.checkpointMu.Unlock()
-
-	if manager, exists := a.checkpointManagers[projectID]; exists {
-		return manager
-	}
-
-	manager := checkpoint.NewManager(a.checkpointStorage, projectID)
-	a.checkpointManagers[projectID] = manager
-	return manager
 }
 
 // Greet returns a greeting for the given name (keep for testing)

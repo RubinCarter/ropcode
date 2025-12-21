@@ -638,124 +638,6 @@ export interface UsageStats {
 }
 
 /**
- * Represents a checkpoint in the session timeline
- */
-export interface Checkpoint {
-  id: string;
-  sessionId: string;
-  projectId: string;
-  messageIndex: number;
-  timestamp: string;
-  description?: string;
-  parentCheckpointId?: string;
-  metadata: CheckpointMetadata;
-}
-
-/**
- * Metadata associated with a checkpoint
- */
-export interface CheckpointMetadata {
-  totalTokens: number;
-  modelUsed: string;
-  userPrompt: string;
-  fileChanges: number;
-  snapshotSize: number;
-}
-
-/**
- * Represents a file snapshot at a checkpoint
- */
-export interface FileSnapshot {
-  checkpointId: string;
-  filePath: string;
-  content: string;
-  hash: string;
-  isDeleted: boolean;
-  permissions?: number;
-  size: number;
-}
-
-/**
- * Represents a node in the timeline tree
- */
-export interface TimelineNode {
-  checkpoint: Checkpoint;
-  children: TimelineNode[];
-  fileSnapshotIds: string[];
-}
-
-/**
- * The complete timeline for a session
- */
-export interface SessionTimeline {
-  session_id: string;
-  root_node?: TimelineNode;
-  current_checkpoint_id?: string;
-  total_checkpoints: number;
-  // Optional fields for UI compatibility
-  sessionId?: string;
-  rootNode?: TimelineNode;
-  currentCheckpointId?: string;
-  autoCheckpointEnabled?: boolean;
-  checkpointStrategy?: CheckpointStrategy;
-  totalCheckpoints?: number;
-}
-
-/**
- * Strategy for automatic checkpoint creation
- */
-export type CheckpointStrategy = 'manual' | 'per_prompt' | 'per_tool_use' | 'smart';
-
-/**
- * Configuration for checkpoint behavior
- */
-export interface CheckpointConfig {
-  auto_checkpoint_enabled: boolean;
-  checkpoint_strategy: string;
-  max_checkpoints: number;
-  checkpoint_interval: number;
-}
-
-/**
- * Result of a checkpoint operation
- */
-export interface CheckpointResult {
-  checkpoint?: Checkpoint;
-  files_processed: number;
-  warnings?: string[];
-  // Optional fields for UI compatibility
-  filesProcessed?: number;
-}
-
-/**
- * Diff between two checkpoints
- */
-export interface CheckpointDiff {
-  from_checkpoint_id?: string;
-  to_checkpoint_id?: string;
-  modified_files?: FileDiff[];
-  added_files?: string[];
-  deleted_files?: string[];
-  // Backwards compatibility
-  fromCheckpointId?: string;
-  toCheckpointId?: string;
-  modifiedFiles?: FileDiff[];
-  addedFiles?: string[];
-  deletedFiles?: string[];
-  tokenDelta?: number;
-}
-
-/**
- * Diff for a single file
- */
-export interface FileDiff {
-  path: string;
-  additions: number;
-  deletions: number;
-  diffContent?: string;
-}
-
-/**
  * Represents an MCP server configuration
  */
 export interface MCPServer {
@@ -1054,27 +936,6 @@ export const api = {
 
   async listProviderApiConfigs(): Promise<any[]> {
     return App.GetAllProviderApiConfigs();
-  },
-
-  // Checkpoints (✓ Implemented)
-  async createCheckpoint(projectId: string, sessionId: string, checkpoint: any, files: any[], messages: string): Promise<any> {
-    return App.CreateCheckpoint(projectId, sessionId, checkpoint, files, messages);
-  },
-
-  async loadCheckpoint(projectId: string, sessionId: string, checkpointId: string): Promise<any> {
-    return App.LoadCheckpoint(projectId, sessionId, checkpointId);
-  },
-
-  async listCheckpoints(projectId: string, sessionId: string): Promise<any[]> {
-    return App.ListCheckpoints(projectId, sessionId);
-  },
-
-  async deleteCheckpoint(projectId: string, sessionId: string, checkpointId: string): Promise<void> {
-    return App.DeleteCheckpoint(projectId, sessionId, checkpointId);
-  },
-
-  async generateCheckpointId(): Promise<string> {
-    return App.GenerateCheckpointID();
   },
 
   // Config
@@ -1740,39 +1601,6 @@ export const api = {
   async getUsageDetails(limit?: number): Promise<UsageEntry[]> {
     const entries = await App.GetUsageDetails(limit || 100);
     return entries || [];
-  },
-  async restoreCheckpoint(checkpointId: string, sessionId: string, projectId: string, projectPath: string): Promise<CheckpointResult> {
-    return App.RestoreCheckpoint(checkpointId, sessionId, projectId, projectPath);
-  },
-  async forkFromCheckpoint(checkpointId: string, oldSessionId: string, newSessionId: string, projectId: string): Promise<CheckpointResult> {
-    return App.ForkFromCheckpoint(checkpointId, oldSessionId, newSessionId, projectId);
-  },
-  async getSessionTimeline(sessionId: string, projectId: string): Promise<SessionTimeline> {
-    return App.GetSessionTimeline(sessionId, projectId);
-  },
-  async updateCheckpointSettings(sessionId: string, projectId: string, settings: any): Promise<void> {
-    return App.UpdateCheckpointSettings(sessionId, projectId, settings);
-  },
-  async getCheckpointDiff(fromId: string, toId: string, sessionId: string, projectId: string): Promise<CheckpointDiff> {
-    return App.GetCheckpointDiff(fromId, toId, sessionId, projectId);
-  },
-  async trackCheckpointMessage(sessionId: string, projectId: string, messageIndex: number): Promise<void> {
-    return App.TrackCheckpointMessage(sessionId, projectId, messageIndex);
-  },
-  async checkAutoCheckpoint(sessionId: string, projectId: string): Promise<boolean> {
-    return App.CheckAutoCheckpoint(sessionId, projectId);
-  },
-  async cleanupOldCheckpoints(sessionId: string, projectId: string): Promise<number> {
-    return App.CleanupOldCheckpoints(sessionId, projectId);
-  },
-  async getCheckpointSettings(sessionId: string, projectId: string): Promise<CheckpointConfig> {
-    return App.GetCheckpointSettings(sessionId, projectId);
-  },
-  async clearCheckpointManager(sessionId: string, projectId: string): Promise<void> {
-    return App.ClearCheckpointManager(sessionId, projectId);
-  },
-  async trackSessionMessages(sessionId: string, projectId: string, messages: any[]): Promise<void> {
-    return App.TrackSessionMessages(sessionId, projectId, messages);
   },
 
   // MCP Server Management (✓ Implemented)

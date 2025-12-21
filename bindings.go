@@ -18,7 +18,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
-	"ropcode/internal/checkpoint"
 	"ropcode/internal/claude"
 	"ropcode/internal/codex"
 	"ropcode/internal/database"
@@ -358,47 +357,6 @@ func (a *App) UpdateProviderSession(path, provider, session string) error {
 	return nil
 }
 
-// ===== Checkpoint Bindings =====
-
-// CreateCheckpoint creates a new checkpoint
-func (a *App) CreateCheckpoint(projectID, sessionID string, cp *checkpoint.Checkpoint, files []checkpoint.FileSnapshot, messages string) (*checkpoint.CheckpointResult, error) {
-	if a.checkpointStorage == nil {
-		return nil, nil
-	}
-	return a.checkpointStorage.Save(projectID, sessionID, cp, files, messages)
-}
-
-// LoadCheckpoint loads a checkpoint
-func (a *App) LoadCheckpoint(projectID, sessionID, checkpointID string) (*checkpoint.Checkpoint, []checkpoint.FileSnapshot, string, error) {
-	if a.checkpointStorage == nil {
-		return nil, nil, "", nil
-	}
-	return a.checkpointStorage.Load(projectID, sessionID, checkpointID)
-}
-
-// ListCheckpoints lists all checkpoints for a session
-func (a *App) ListCheckpoints(projectID, sessionID string) ([]checkpoint.Checkpoint, error) {
-	if a.checkpointStorage == nil {
-		return nil, nil
-	}
-	return a.checkpointStorage.List(projectID, sessionID)
-}
-
-// DeleteCheckpoint deletes a checkpoint
-func (a *App) DeleteCheckpoint(projectID, sessionID, checkpointID string) error {
-	if a.checkpointStorage == nil {
-		return nil
-	}
-	return a.checkpointStorage.Delete(projectID, sessionID, checkpointID)
-}
-
-// GenerateCheckpointID generates a new checkpoint ID
-func (a *App) GenerateCheckpointID() string {
-	return checkpoint.GenerateID()
-}
-
-// ===== Session History Bindings =====
-
 // ===== Session History Bindings =====
 
 // GetSessionMessageIndex returns the message index for a session
@@ -560,94 +518,6 @@ func (a *App) ListProviderSessions(projectPath, provider string) ([]ProviderSess
 		log.Printf("[ListProviderSessions] Claude sessions should use getProjectSessions API")
 		return []ProviderSession{}, nil
 	}
-}
-
-// ===== Advanced Checkpoint Operations =====
-
-// RestoreCheckpoint restores a checkpoint with options
-func (a *App) RestoreCheckpoint(checkpointId, sessionId, projectId, projectPath string) (*checkpoint.CheckpointResult, error) {
-	manager := a.getCheckpointManager(projectId)
-	opts := map[string]interface{}{
-		"restore_files": true,
-		"project_path":  projectPath,
-	}
-	return manager.RestoreCheckpoint(projectId, sessionId, checkpointId, opts)
-}
-
-// ForkFromCheckpoint creates a new session forked from a checkpoint
-func (a *App) ForkFromCheckpoint(checkpointId, oldSessionId, newSessionId, projectId string) (*checkpoint.CheckpointResult, error) {
-	manager := a.getCheckpointManager(projectId)
-	return manager.ForkFromCheckpoint(projectId, checkpointId, oldSessionId, newSessionId)
-}
-
-// GetSessionTimeline returns the timeline tree for a session
-func (a *App) GetSessionTimeline(sessionId, projectId string) (*checkpoint.SessionTimeline, error) {
-	manager := a.getCheckpointManager(projectId)
-	return manager.GetTimeline(projectId, sessionId)
-}
-
-// UpdateCheckpointSettings updates checkpoint settings
-func (a *App) UpdateCheckpointSettings(sessionId, projectId string, settings map[string]interface{}) error {
-	manager := a.getCheckpointManager(projectId)
-	config := checkpoint.DefaultConfig()
-
-	if v, ok := settings["auto_checkpoint_enabled"].(bool); ok {
-		config.AutoCheckpointEnabled = v
-	}
-	if v, ok := settings["checkpoint_strategy"].(string); ok {
-		config.CheckpointStrategy = v
-	}
-	if v, ok := settings["max_checkpoints"].(float64); ok {
-		config.MaxCheckpoints = int(v)
-	}
-	if v, ok := settings["checkpoint_interval"].(float64); ok {
-		config.CheckpointInterval = int(v)
-	}
-
-	return manager.UpdateConfig(sessionId, config)
-}
-
-// GetCheckpointDiff returns the diff between two checkpoints
-func (a *App) GetCheckpointDiff(fromId, toId, sessionId, projectId string) (map[string]interface{}, error) {
-	manager := a.getCheckpointManager(projectId)
-	return manager.GetDiff(projectId, sessionId, fromId, toId)
-}
-
-// TrackCheckpointMessage tracks a message for checkpoint creation
-func (a *App) TrackCheckpointMessage(sessionId, projectId string, messageIndex int) error {
-	manager := a.getCheckpointManager(projectId)
-	return manager.TrackMessage(sessionId, messageIndex)
-}
-
-// CheckAutoCheckpoint checks if an auto-checkpoint should be created
-func (a *App) CheckAutoCheckpoint(sessionId, projectId string) (bool, error) {
-	manager := a.getCheckpointManager(projectId)
-	return manager.ShouldAutoCheckpoint(sessionId)
-}
-
-// CleanupOldCheckpoints removes old checkpoints based on retention policy
-func (a *App) CleanupOldCheckpoints(sessionId, projectId string) (int, error) {
-	manager := a.getCheckpointManager(projectId)
-	return manager.CleanupOld(projectId, sessionId)
-}
-
-// GetCheckpointSettings returns the checkpoint settings for a session
-func (a *App) GetCheckpointSettings(sessionId, projectId string) (*checkpoint.CheckpointConfig, error) {
-	manager := a.getCheckpointManager(projectId)
-	config := manager.GetConfig(sessionId)
-	return config, nil
-}
-
-// ClearCheckpointManager clears the checkpoint manager for a session
-func (a *App) ClearCheckpointManager(sessionId, projectId string) error {
-	manager := a.getCheckpointManager(projectId)
-	return manager.ClearSession(sessionId)
-}
-
-// TrackSessionMessages tracks multiple messages for a session
-func (a *App) TrackSessionMessages(sessionId, projectId string, messages []interface{}) error {
-	manager := a.getCheckpointManager(projectId)
-	return manager.TrackMessages(sessionId, messages)
 }
 
 // ===== Utility Bindings =====

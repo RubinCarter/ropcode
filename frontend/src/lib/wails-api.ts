@@ -109,36 +109,6 @@ export async function invoke<T = any>(command: InvokeCommand, args?: Record<stri
     case 'get_setting':
       return App.GetSetting(params.key) as Promise<T>;
 
-    // 检查点命令
-    case 'create_checkpoint':
-      return App.CreateCheckpoint(
-        params.project_id,
-        params.session_id,
-        params.checkpoint,
-        params.files,
-        params.messages
-      ) as Promise<T>;
-
-    case 'load_checkpoint':
-      return App.LoadCheckpoint(
-        params.project_id,
-        params.session_id,
-        params.checkpoint_id
-      ) as Promise<T>;
-
-    case 'list_checkpoints':
-      return App.ListCheckpoints(params.project_id, params.session_id) as Promise<T>;
-
-    case 'delete_checkpoint':
-      return App.DeleteCheckpoint(
-        params.project_id,
-        params.session_id,
-        params.checkpoint_id
-      ) as Promise<T>;
-
-    case 'generate_checkpoint_id':
-      return App.GenerateCheckpointID() as Promise<T>;
-
     // 实用命令
     case 'get_config':
       return App.GetConfig() as Promise<T>;

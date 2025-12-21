@@ -675,8 +675,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
         model: metrics.modelChanges.length > 0
           ? metrics.modelChanges[metrics.modelChanges.length - 1].to
           : 'sonnet',
-        has_checkpoints: metrics.checkpointCount > 0,
-        checkpoint_count: metrics.checkpointCount,
         was_resumed: metrics.wasResumed,
         agent_type: undefined,
         agent_name: undefined,
