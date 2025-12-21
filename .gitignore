@@ -1,4 +1,10 @@
-build/
+# Build output
+build/bin/
+
+# Keep icon source and platform configs
+!build/appicon.png
+!build/darwin/
+
 node_modules
 frontend/dist
 ropcode
