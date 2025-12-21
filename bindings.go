@@ -880,44 +880,113 @@ func (a *App) DetectWorktree(path string) (*WorktreeInfo, error) {
 	}, nil
 }
 
-// PushToMainWorktree pushes changes to the main worktree
+// PushToMainWorktree merges the current worktree branch into the main worktree's branch
+// This is a local merge operation, not a push to remote
 func (a *App) PushToMainWorktree(path string) (string, error) {
-	repo, err := git.Open(path)
+	// 1. Detect worktree info
+	worktreeInfo, err := a.DetectWorktree(path)
 	if err != nil {
 		return "", err
 	}
 
-	// Get current branch
-	branch, err := repo.CurrentBranch()
-	if err != nil {
-		return "", err
+	if !worktreeInfo.IsWorktreeChild {
+		return "", fmt.Errorf("current directory is not a worktree child")
 	}
 
-	// Push to main worktree (assumes main branch is the parent)
-	output, err := repo.RunGitCommand("push", "origin", branch)
+	// 2. Get current branch name
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = path
+	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+	currentBranch := strings.TrimSpace(string(output))
+
+	// 3. Check if main worktree has uncommitted changes
+	cmd = exec.Command("git", "status", "--porcelain")
+	cmd.Dir = worktreeInfo.RootPath
+	output, err = cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to check main worktree status: %w", err)
+	}
+	if len(strings.TrimSpace(string(output))) > 0 {
+		return "", fmt.Errorf("main worktree has uncommitted changes. Please commit or stash them first")
 	}
 
-	return output, nil
+	// 4. Check for merge conflicts (dry run)
+	cmd = exec.Command("git", "merge", "--no-commit", "--no-ff", currentBranch)
+	cmd.Dir = worktreeInfo.RootPath
+	err = cmd.Run()
+	if err != nil {
+		// Abort the failed merge attempt
+		abortCmd := exec.Command("git", "merge", "--abort")
+		abortCmd.Dir = worktreeInfo.RootPath
+		abortCmd.Run()
+
+		return "", fmt.Errorf("cannot push to main: merge would result in conflicts.\n\n" +
+			"The main branch has changes that conflict with your worktree branch.\n\n" +
+			"To resolve this:\n" +
+			"1. In your worktree, merge the main branch first:\n" +
+			"   cd " + path + "\n" +
+			"   git merge " + worktreeInfo.MainBranch + "\n" +
+			"2. Resolve any conflicts\n" +
+			"3. Commit the merge\n" +
+			"4. Then try pushing to main again")
+	}
+
+	// Abort the test merge
+	abortCmd := exec.Command("git", "merge", "--abort")
+	abortCmd.Dir = worktreeInfo.RootPath
+	abortCmd.Run()
+
+	// 5. Perform the actual merge
+	cmd = exec.Command("git", "merge", "--no-edit", currentBranch, "-m", "Merge from worktree: "+currentBranch)
+	cmd.Dir = worktreeInfo.RootPath
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to merge: %s", string(output))
+	}
+
+	return fmt.Sprintf("Successfully pushed %s to %s at %s", currentBranch, worktreeInfo.MainBranch, worktreeInfo.RootPath), nil
 }
 
 // GetUnpushedCommitsCount returns the count of commits not pushed to main worktree
+// This compares the current branch against the main worktree's branch (not remote)
 func (a *App) GetUnpushedCommitsCount(path string) (int, error) {
-	repo, err := git.Open(path)
+	// 1. Detect worktree info
+	worktreeInfo, err := a.DetectWorktree(path)
 	if err != nil {
 		return 0, err
 	}
 
-	// Get the count of commits ahead of origin
-	output, err := repo.RunGitCommand("rev-list", "--count", "@{u}..")
+	// If not a worktree child, return 0
+	if !worktreeInfo.IsWorktreeChild {
+		return 0, nil
+	}
+
+	// 2. Get current branch
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = path
+	output, err := cmd.Output()
 	if err != nil {
-		// If there's no upstream, return 0
+		return 0, nil
+	}
+	currentBranch := strings.TrimSpace(string(output))
+	if currentBranch == "" || currentBranch == "HEAD" {
+		return 0, nil
+	}
+
+	// 3. Count commits between main branch and current branch
+	// This counts commits in current branch that are not in main branch
+	cmd = exec.Command("git", "rev-list", "--count", fmt.Sprintf("%s..%s", worktreeInfo.MainBranch, currentBranch))
+	cmd.Dir = path
+	output, err = cmd.Output()
+	if err != nil {
 		return 0, nil
 	}
 
 	var count int
-	_, err = fmt.Sscanf(output, "%d", &count)
+	_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
 	if err != nil {
 		return 0, err
 	}
@@ -926,43 +995,112 @@ func (a *App) GetUnpushedCommitsCount(path string) (int, error) {
 }
 
 // PushToRemote pushes changes to the remote repository
+// Handles upstream setup for new branches and provides helpful error messages
 func (a *App) PushToRemote(path string) (string, error) {
-	repo, err := git.Open(path)
+	// 1. Get current branch
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = path
+	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+	currentBranch := strings.TrimSpace(string(output))
+	if currentBranch == "" || currentBranch == "HEAD" {
+		return "", fmt.Errorf("not on a valid branch")
 	}
 
-	// Get current branch
-	branch, err := repo.CurrentBranch()
-	if err != nil {
-		return "", err
+	// 2. Check if remote 'origin' exists
+	cmd = exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = path
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("no remote 'origin' configured")
 	}
 
-	// Push to remote
-	output, err := repo.RunGitCommand("push", "origin", branch)
-	if err != nil {
-		return "", err
+	// 3. Fetch latest from remote
+	cmd = exec.Command("git", "fetch", "origin")
+	cmd.Dir = path
+	cmd.Run() // Ignore fetch errors, push might still work
+
+	// 4. Check if remote branch exists
+	remoteBranch := fmt.Sprintf("refs/remotes/origin/%s", currentBranch)
+	cmd = exec.Command("git", "rev-parse", "--verify", "--quiet", remoteBranch)
+	cmd.Dir = path
+	remoteBranchExists := cmd.Run() == nil
+
+	// 5. Push with or without upstream setup
+	var pushArgs []string
+	if remoteBranchExists {
+		pushArgs = []string{"push", "origin", currentBranch}
+	} else {
+		// Set upstream for new branch
+		pushArgs = []string{"push", "-u", "origin", currentBranch}
 	}
 
-	return output, nil
+	cmd = exec.Command("git", pushArgs...)
+	cmd.Dir = path
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		outputStr := string(output)
+		if strings.Contains(outputStr, "non-fast-forward") || strings.Contains(outputStr, "rejected") {
+			return "", fmt.Errorf("push rejected. The remote contains work you don't have locally.\n" +
+				"Please pull the latest changes first:\n" +
+				"  git pull origin " + currentBranch + "\n" +
+				"Then try pushing again")
+		}
+		return "", fmt.Errorf("push failed: %s", outputStr)
+	}
+
+	return fmt.Sprintf("Successfully pushed %s to origin", currentBranch), nil
 }
 
 // GetUnpushedToRemoteCount returns the count of commits not pushed to remote
+// If the remote branch doesn't exist, returns the total number of commits on the branch
 func (a *App) GetUnpushedToRemoteCount(path string) (int, error) {
-	repo, err := git.Open(path)
+	// 1. Get current branch
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = path
+	output, err := cmd.Output()
 	if err != nil {
-		return 0, err
+		return 0, nil
+	}
+	currentBranch := strings.TrimSpace(string(output))
+	if currentBranch == "" || currentBranch == "HEAD" {
+		return 0, nil
 	}
 
-	// Get the count of commits ahead of origin
-	output, err := repo.RunGitCommand("rev-list", "--count", "@{u}..")
+	// 2. Check if remote branch exists
+	remoteBranch := fmt.Sprintf("refs/remotes/origin/%s", currentBranch)
+	cmd = exec.Command("git", "rev-parse", "--verify", "--quiet", remoteBranch)
+	cmd.Dir = path
+	err = cmd.Run()
+
 	if err != nil {
-		// If there's no upstream, return 0
+		// Remote branch doesn't exist, count total commits on this branch
+		cmd = exec.Command("git", "rev-list", "--count", currentBranch)
+		cmd.Dir = path
+		output, err = cmd.Output()
+		if err != nil {
+			return 0, nil
+		}
+
+		var count int
+		_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
+		if err != nil {
+			return 0, err
+		}
+		return count, nil
+	}
+
+	// 3. Remote branch exists, count commits ahead of remote
+	cmd = exec.Command("git", "rev-list", "--count", fmt.Sprintf("%s..HEAD", remoteBranch))
+	cmd.Dir = path
+	output, err = cmd.Output()
+	if err != nil {
 		return 0, nil
 	}
 
 	var count int
-	_, err = fmt.Sscanf(output, "%d", &count)
+	_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &count)
 	if err != nil {
 		return 0, err
 	}
@@ -971,18 +1109,20 @@ func (a *App) GetUnpushedToRemoteCount(path string) (int, error) {
 }
 
 // CheckWorkspaceClean checks if the workspace is clean (no uncommitted changes)
+// Uses git command instead of go-git because go-git doesn't handle worktrees correctly
 func (a *App) CheckWorkspaceClean(path string) error {
-	repo, err := git.Open(path)
+	// Use git status --porcelain to check for changes
+	// This is more reliable than go-git for linked worktrees
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = path
+
+	output, err := cmd.Output()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to check workspace status: %w", err)
 	}
 
-	status, err := repo.Status()
-	if err != nil {
-		return err
-	}
-
-	if !status.IsClean {
+	// If output is empty, workspace is clean
+	if len(strings.TrimSpace(string(output))) > 0 {
 		return fmt.Errorf("workspace has uncommitted changes")
 	}
 
