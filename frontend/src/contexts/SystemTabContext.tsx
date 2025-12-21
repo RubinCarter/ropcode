@@ -36,25 +36,31 @@ const TAB_CONFIG: Record<SystemTabType, { title: string; icon: string }> = {
 };
 
 export const SystemTabProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [tabs, setTabs] = useState<SystemTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  // 只有一个共用的 Tab slot
+  const [currentTab, setCurrentTab] = useState<SystemTab | null>(null);
 
   const generateTabId = () => {
     return `systab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   };
 
-  // 激活或创建系统 Tab（全局工具 Tab 采用单例模式）
+  // 激活系统 Tab（所有工具 Tab 共用同一个 slot，切换时替换内容）
   const activateTab = useCallback((type: SystemTabType): string => {
-    // 查找是否已存在该类型的 Tab
-    const existingTab = tabs.find(tab => tab.type === type);
+    const config = TAB_CONFIG[type];
 
-    if (existingTab) {
-      setActiveTabId(existingTab.id);
-      return existingTab.id;
+    // 如果当前已有 Tab，更新其内容
+    if (currentTab) {
+      const updatedTab: SystemTab = {
+        ...currentTab,
+        type,
+        title: config.title,
+        icon: config.icon,
+        updatedAt: new Date(),
+      };
+      setCurrentTab(updatedTab);
+      return updatedTab.id;
     }
 
-    // 创建新 Tab
-    const config = TAB_CONFIG[type];
+    // 首次创建 Tab
     const newTab: SystemTab = {
       id: generateTabId(),
       type,
@@ -65,10 +71,13 @@ export const SystemTabProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       updatedAt: new Date(),
     };
 
-    setTabs(prev => [...prev, newTab]);
-    setActiveTabId(newTab.id);
+    setCurrentTab(newTab);
     return newTab.id;
-  }, [tabs]);
+  }, [currentTab]);
+
+  // 兼容性：tabs 数组只有一个元素或为空
+  const tabs = currentTab ? [currentTab] : [];
+  const activeTabId = currentTab?.id || null;
 
   const getTabById = useCallback((id: string): SystemTab | undefined => {
     return tabs.find(tab => tab.id === id);
