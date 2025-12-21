@@ -1117,11 +1117,10 @@ func (a *App) GetUnpushedToRemoteCount(path string) (int, error) {
 	return count, nil
 }
 
-// CheckWorkspaceClean checks if the workspace is clean (no uncommitted changes)
+// CheckWorkspaceClean checks if the workspace is clean (no uncommitted changes and no unpushed commits)
 // Uses git command instead of go-git because go-git doesn't handle worktrees correctly
 func (a *App) CheckWorkspaceClean(path string) error {
-	// Use git status --porcelain to check for changes
-	// This is more reliable than go-git for linked worktrees
+	// 1. Check for uncommitted changes using git status --porcelain
 	cmd := exec.Command("git", "status", "--porcelain")
 	cmd.Dir = path
 
@@ -1130,28 +1129,89 @@ func (a *App) CheckWorkspaceClean(path string) error {
 		return fmt.Errorf("failed to check workspace status: %w", err)
 	}
 
-	// If output is empty, workspace is clean
 	if len(strings.TrimSpace(string(output))) > 0 {
 		return fmt.Errorf("workspace has uncommitted changes")
+	}
+
+	// 2. Check for unpushed commits (commits not merged to main branch)
+	unpushedCount, err := a.GetUnpushedCommitsCount(path)
+	if err != nil {
+		// If we can't check unpushed commits, don't block deletion
+		return nil
+	}
+
+	if unpushedCount > 0 {
+		return fmt.Errorf("workspace has %d unpushed commit(s) not merged to main branch", unpushedCount)
 	}
 
 	return nil
 }
 
-// CleanupWorkspace cleans up the workspace by removing untracked files
+// CleanupWorkspace cleans up the workspace by:
+// 1. Resetting all uncommitted changes (staged and unstaged)
+// 2. Removing all untracked files and directories
+// 3. Resetting to remote branch (if exists) or main branch (if worktree)
 func (a *App) CleanupWorkspace(path string) (string, error) {
 	repo, err := git.Open(path)
 	if err != nil {
 		return "", err
 	}
 
-	// Clean untracked files and directories
-	output, err := repo.RunGitCommand("clean", "-fd")
-	if err != nil {
-		return "", err
+	var cleanupOperations []string
+
+	// 1. Get current branch
+	currentBranch, err := repo.CurrentBranch()
+	if err != nil || currentBranch == "" || currentBranch == "HEAD" {
+		return "", fmt.Errorf("not on a valid branch")
 	}
 
-	return output, nil
+	// 2. Reset all uncommitted changes (git reset --hard HEAD)
+	_, err = repo.RunGitCommand("reset", "--hard", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to reset changes: %w", err)
+	}
+	cleanupOperations = append(cleanupOperations, "Reset all uncommitted changes")
+
+	// 3. Clean untracked files and directories (git clean -fd)
+	_, err = repo.RunGitCommand("clean", "-fd")
+	if err != nil {
+		return "", fmt.Errorf("failed to clean untracked files: %w", err)
+	}
+	cleanupOperations = append(cleanupOperations, "Removed all untracked files and directories")
+
+	// 4. Check if remote branch exists
+	remoteBranch := fmt.Sprintf("origin/%s", currentBranch)
+	remoteBranchFull := fmt.Sprintf("refs/remotes/%s", remoteBranch)
+
+	// Check if remote branch exists using git rev-parse
+	cmd := exec.Command("git", "rev-parse", "--verify", remoteBranchFull)
+	cmd.Dir = path
+	remoteBranchExists := cmd.Run() == nil
+
+	if remoteBranchExists {
+		// 5. Reset to remote branch to delete unpushed commits
+		_, err = repo.RunGitCommand("reset", "--hard", remoteBranchFull)
+		if err != nil {
+			return "", fmt.Errorf("failed to reset to remote branch: %w", err)
+		}
+		cleanupOperations = append(cleanupOperations, fmt.Sprintf("Reset branch '%s' to match remote '%s'", currentBranch, remoteBranch))
+	} else {
+		// 6. Check if this is a worktree child
+		worktreeInfo, err := a.DetectWorktree(path)
+		if err == nil && worktreeInfo.IsWorktreeChild {
+			// Reset to main branch
+			_, err = repo.RunGitCommand("reset", "--hard", worktreeInfo.MainBranch)
+			if err != nil {
+				return "", fmt.Errorf("failed to reset to main branch: %w", err)
+			}
+			cleanupOperations = append(cleanupOperations, fmt.Sprintf("Reset worktree branch '%s' to match main branch '%s'", currentBranch, worktreeInfo.MainBranch))
+		} else {
+			cleanupOperations = append(cleanupOperations, "No remote branch found, keeping local commits")
+		}
+	}
+
+	cleanupSummary := strings.Join(cleanupOperations, "\n")
+	return fmt.Sprintf("Workspace cleanup completed successfully:\n%s", cleanupSummary), nil
 }
 
 // UpdateWorkspaceBranch updates the workspace branch information
