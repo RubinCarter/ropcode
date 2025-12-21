@@ -17,6 +17,7 @@ import { open as openDialog, save } from '@/lib/dialog';
 import { GitHubAgentBrowser } from '@/components/GitHubAgentBrowser';
 import { CreateAgent } from '@/components/CreateAgent';
 import { useTabState } from '@/hooks/useTabState';
+import { useProcessChanged } from '@/hooks';
 // Note: ExportAgentToFile will use api.exportAgentToFile instead of direct Wails binding
 
 export const Agents: React.FC = () => {
@@ -38,14 +39,10 @@ export const Agents: React.FC = () => {
     loadRunningAgents();
   }, []);
 
-  // Refresh running agents periodically
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadRunningAgents();
-    }, 3000); // Refresh every 3 seconds
-
-    return () => clearInterval(interval);
-  }, []);
+  // Subscribe to process change events to update agent list
+  useProcessChanged(undefined, (event) => {
+    loadRunningAgents();
+  });
 
   const loadAgents = async () => {
     try {

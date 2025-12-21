@@ -24,6 +24,7 @@ import { useTabState } from '@/hooks/useTabState';
 import { formatISOTimestamp } from '@/lib/date-utils';
 import { open as openDialog, save } from '@/lib/dialog';
 import { GitHubAgentBrowser } from '@/components/GitHubAgentBrowser';
+import { useProcessChanged } from '@/hooks';
 // Note: WriteFile will use api.writeFile instead of direct Wails binding
 
 interface AgentsModalProps {
@@ -50,16 +51,12 @@ export const AgentsModal: React.FC<AgentsModalProps> = ({ open, onOpenChange }) 
     }
   }, [open]);
 
-  // Refresh running agents periodically
-  useEffect(() => {
-    if (!open) return;
-    
-    const interval = setInterval(() => {
+  // Subscribe to process change events to update agent list
+  useProcessChanged(undefined, (event) => {
+    if (open) {
       loadRunningAgents();
-    }, 3000); // Refresh every 3 seconds
-
-    return () => clearInterval(interval);
-  }, [open]);
+    }
+  });
 
   const loadAgents = async () => {
     try {

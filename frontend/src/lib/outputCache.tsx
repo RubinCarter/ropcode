@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { api } from './api';
+import { useProcessChanged } from '@/hooks';
 
 // Use the same message interface as AgentExecution for consistency
 export interface ClaudeStreamMessage {
@@ -52,7 +53,6 @@ interface OutputCacheProviderProps {
 export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
   const [cache, setCache] = useState<Map<number, CachedSessionOutput>>(new Map());
   const [isPolling, setIsPolling] = useState(false);
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const getCachedOutput = useCallback((sessionId: number): CachedSessionOutput | null => {
     return cache.get(sessionId) || null;
@@ -154,32 +154,26 @@ export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
   }, [updateSessionCache]);
 
   const startBackgroundPolling = useCallback(() => {
-    if (pollingIntervalRef.current) return;
-
     setIsPolling(true);
-    const interval = setInterval(pollRunningSessions, 3000); // Poll every 3 seconds
-    pollingIntervalRef.current = interval;
-  }, [pollRunningSessions]);
+  }, []);
 
   const stopBackgroundPolling = useCallback(() => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
     setIsPolling(false);
   }, []);
 
   // Auto-start polling when provider mounts
   useEffect(() => {
     startBackgroundPolling();
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run once on mount
+
+  // Subscribe to process state changes - triggers polling when any process state changes
+  useProcessChanged(undefined, () => {
+    // When a process state changes, trigger session polling if polling is enabled
+    if (isPolling) {
+      pollRunningSessions();
+    }
+  });
 
   const value: OutputCacheContextType = {
     getCachedOutput,

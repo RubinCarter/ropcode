@@ -6,6 +6,7 @@ import { api, type ProcessInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatISOTimestamp } from "@/lib/date-utils";
 import { shortenPath } from "@/lib/pathUtils";
+import { useProcessChanged } from "@/hooks";
 
 interface RunningClaudeSessionsProps {
   /**
@@ -26,11 +27,13 @@ export const RunningClaudeSessions: React.FC<RunningClaudeSessionsProps> = ({
 
   useEffect(() => {
     loadRunningSessions();
-    
-    // Poll for updates every 5 seconds
-    const interval = setInterval(loadRunningSessions, 5000);
-    return () => clearInterval(interval);
   }, []);
+
+  // Subscribe to process state changes
+  useProcessChanged(undefined, (event) => {
+    // When process state changes, reload session list
+    loadRunningSessions();
+  });
 
   const loadRunningSessions = async () => {
     try {
