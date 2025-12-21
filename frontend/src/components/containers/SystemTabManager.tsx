@@ -8,9 +8,10 @@ interface TabItemProps {
   tab: SystemTab;
   isActive: boolean;
   onClick: (id: string) => void;
+  onClose: () => void;
 }
 
-const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClick }) => {
+const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClick, onClose }) => {
   const [isHovered, setIsHovered] = useState(false);
 
   const getIcon = () => {
@@ -58,9 +59,26 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClick }) => {
       </div>
 
       {/* Tab Title */}
-      <span className="truncate text-xs font-medium">
+      <span className="truncate text-xs font-medium flex-1">
         {tab.title}
       </span>
+
+      {/* Close Button */}
+      <button
+        className={cn(
+          "flex-shrink-0 p-0.5 rounded-sm transition-all",
+          isHovered || isActive
+            ? "opacity-100 hover:bg-muted"
+            : "opacity-0"
+        )}
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose();
+        }}
+        title="Close tab"
+      >
+        <X className="w-3 h-3" />
+      </button>
     </div>
   );
 };
@@ -70,7 +88,7 @@ interface SystemTabManagerProps {
 }
 
 export const SystemTabManager: React.FC<SystemTabManagerProps> = ({ className }) => {
-  const { tabs, activeTabId, activateTab } = useSystemTabContext();
+  const { tabs, activeTabId, activateTab, closeTab } = useSystemTabContext();
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showLeftScroll, setShowLeftScroll] = useState(false);
@@ -184,6 +202,7 @@ export const SystemTabManager: React.FC<SystemTabManagerProps> = ({ className })
                 tab={tab}
                 isActive={tab.id === activeTabId}
                 onClick={handleTabClick}
+                onClose={closeTab}
               />
             ))}
           </div>

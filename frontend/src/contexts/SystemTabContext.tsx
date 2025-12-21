@@ -18,6 +18,7 @@ interface SystemTabContextType {
   tabs: SystemTab[];
   activeTabId: string | null;
   activateTab: (type: SystemTabType) => string;
+  closeTab: () => void;
   getTabById: (id: string) => SystemTab | undefined;
   getActiveTab: () => SystemTab | undefined;
 }
@@ -75,6 +76,11 @@ export const SystemTabProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return newTab.id;
   }, [currentTab]);
 
+  // 关闭当前 Tab
+  const closeTab = useCallback(() => {
+    setCurrentTab(null);
+  }, []);
+
   // 兼容性：tabs 数组只有一个元素或为空
   const tabs = currentTab ? [currentTab] : [];
   const activeTabId = currentTab?.id || null;
@@ -92,6 +98,7 @@ export const SystemTabProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     tabs,
     activeTabId,
     activateTab,
+    closeTab,
     getTabById,
     getActiveTab,
   };
