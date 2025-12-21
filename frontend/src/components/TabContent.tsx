@@ -223,7 +223,9 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
         );
 
       case 'diff':
-        if (!tab.diffFilePath || !tab.projectPath) {
+        // 支持 filePath 和 diffFilePath 两种字段名（向后兼容）
+        const diffPath = tab.diffFilePath || tab.filePath;
+        if (!diffPath || !tab.projectPath) {
           return (
             <div className="h-full w-full flex items-center justify-center">
               <div className="p-4 text-muted-foreground">No file path or project path specified</div>
@@ -233,7 +235,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
         return (
           <div className="h-full w-full flex flex-col">
             <DiffViewer
-              filePath={tab.diffFilePath}
+              filePath={diffPath}
               workspacePath={tab.projectPath}
             />
           </div>

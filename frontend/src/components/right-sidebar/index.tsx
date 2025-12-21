@@ -105,7 +105,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         icon: 'file-diff',
         filePath: filePath,
         projectPath: projectPath,
-        diffFilePath: undefined,
         status: 'idle',
         hasUnsavedChanges: false
       });
