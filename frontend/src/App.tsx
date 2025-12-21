@@ -4,6 +4,8 @@ import { OutputCacheProvider } from "@/lib/outputCache";
 import { TabProvider } from "@/contexts/TabContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { WorkspaceTodoProvider } from "@/contexts/WorkspaceTodoContext";
+import { ContainerProvider } from "@/contexts/ContainerContext";
+import { SystemTabProvider } from "@/contexts/SystemTabContext";
 import { CustomTitlebar } from "@/components/CustomTitlebar";
 import { NFOCredits } from "@/components/NFOCredits";
 import { ClaudeBinaryDialog } from "@/components/ClaudeBinaryDialog";
@@ -341,16 +343,20 @@ function App() {
   }, []);
 
   return (
-    <ThemeProvider>
-      <OutputCacheProvider>
-        <TabProvider>
-          <WorkspaceTodoProvider>
-            <AppContent />
-            <StartupIntro visible={showIntro} />
-          </WorkspaceTodoProvider>
-        </TabProvider>
-      </OutputCacheProvider>
-    </ThemeProvider>
+    <ContainerProvider>
+      <SystemTabProvider>
+        <ThemeProvider>
+          <OutputCacheProvider>
+            <TabProvider>
+              <WorkspaceTodoProvider>
+                <AppContent />
+                <StartupIntro visible={showIntro} />
+              </WorkspaceTodoProvider>
+            </TabProvider>
+          </OutputCacheProvider>
+        </ThemeProvider>
+      </SystemTabProvider>
+    </ContainerProvider>
   );
 }
 

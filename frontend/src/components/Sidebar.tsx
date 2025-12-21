@@ -12,6 +12,7 @@ import { ProjectList } from '@/components/ProjectList';
 import { api, type Project } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useTabContext } from '@/contexts/TabContext';
+import { useContainerContext } from '@/contexts/ContainerContext';
 import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 import { SyncFromSSHDialog } from '@/components/SyncFromSSHDialog';
 import { CloneFromURLDialog } from '@/components/CloneFromURLDialog';
@@ -64,10 +65,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [showOpenDialog, setShowOpenDialog] = useState(false);
 
-  // 🔥 关键：使用 getActiveChatTab 来确定侧边栏高亮的 project
-  const { getActiveChatTab, tabs, activeTabId } = useTabContext();
-  const activeChatTab = getActiveChatTab();
-  const activeProjectPath = activeChatTab?.initialProjectPath;
+  // 🔥 关键：使用容器上下文来确定侧边栏高亮的 project
+  const { tabs, activeTabId } = useTabContext();
+  const { switchToWorkspace, activeWorkspaceId, activeType } = useContainerContext();
+  const activeProjectPath = activeType === 'workspace' ? activeWorkspaceId : null;
 
   // 获取实际当前激活的 Tab（用于按钮高亮）
   const activeTab = tabs.find(tab => tab.id === activeTabId);
@@ -98,15 +99,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   /**
-   * Handle project click - dispatch event to open in tab
+   * Handle project click - switch to workspace using container context
    */
   const handleProjectClick = async (project: Project) => {
-    // Dispatch custom event for TabContent to handle
-    window.dispatchEvent(
-      new CustomEvent('sidebar-project-selected', {
-        detail: { project }
-      })
-    );
+    // 直接调用容器上下文的 switchToWorkspace
+    switchToWorkspace(project.path);
   };
 
   /**

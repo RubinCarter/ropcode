@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
 import { Sidebar } from '@/components/Sidebar';
-import { TabContent } from '@/components/TabContent';
-import { RightSidebar } from '@/components/right-sidebar';
-import { useTabContext } from '@/contexts/TabContext';
-import { STATELESS_TAB_TYPES } from '@/lib/tabUtils';
+import { ContainerManager } from '@/components/containers';
+import { useContainerContext } from '@/contexts/ContainerContext';
+import { useSystemTabContext } from '@/contexts/SystemTabContext';
 
 interface MainLayoutProps {
   /**
@@ -22,17 +21,17 @@ interface MainLayoutProps {
 }
 
 /**
- * MainLayout component - Main application layout with sidebar and content area
+ * MainLayout component - Main application layout with sidebar and container management
  *
  * Layout structure:
  * ┌────────────────────────────────────────────────┐
- * │ Sidebar  │  Content Area  │  RightSidebar      │
- * │          │  ┌──────────┐  │  ┌──────────────┐  │
- * │ Nav Icons│  │TabManager│  │  │  Terminal    │  │
- * │          │  ├──────────┤  │  ├──────────────┤  │
- * │ - Proj1  │  │TabContent│  │  │  $ command   │  │
- * │ - Proj2  │  │          │  │  │  output...   │  │
- * │          │  │          │  │  │              │  │
+ * │ Sidebar  │  Container Area                     │
+ * │          │  ┌────────────────────────────────┐ │
+ * │ Nav Icons│  │  SystemContainer / Workspace   │ │
+ * │          │  │  Container                     │ │
+ * │ - Proj1  │  │  (with tabs and right sidebar) │ │
+ * │ - Proj2  │  │                                │ │
+ * │          │  │                                │ │
  * └────────────────────────────────────────────────┘
  */
 export const MainLayout: React.FC<MainLayoutProps> = ({
@@ -45,65 +44,39 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   onInfoClick
 }) => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
-  const { activeTabId, getTabById } = useTabContext();
+  const { switchToSystem } = useContainerContext();
+  const { activateTab } = useSystemTabContext();
 
-  // Get current active tab
-  const activeTab = activeTabId ? getTabById(activeTabId) : undefined;
+  // Wrap navigation callbacks to use container system
+  const handleSettingsClick = () => {
+    switchToSystem();
+    activateTab('settings');
+    onSettingsClick?.();
+  };
 
-  // 持久化上一次有效的项目路径，避免在 Settings 等无状态标签页切换时重置终端状态
-  const lastProjectPathRef = React.useRef<string | undefined>(undefined);
-  React.useEffect(() => {
-    if (!activeTab) return;
-    const path = activeTab.projectPath || activeTab.initialProjectPath;
-    if (path) {
-      lastProjectPathRef.current = path;
-    }
-  }, [activeTab]);
+  const handleAgentsClick = () => {
+    switchToSystem();
+    activateTab('agents');
+    onAgentsClick?.();
+  };
 
-  // 计算右侧栏是否应该真正显示（统一的显示逻辑）
-  const shouldShowRightSidebar = React.useMemo(() => {
-    return !!(
-      activeTab &&
-      !STATELESS_TAB_TYPES.has(activeTab.type) &&
-      rightSidebarOpen
-    );
-  }, [activeTab, rightSidebarOpen]);
+  const handleUsageClick = () => {
+    switchToSystem();
+    activateTab('usage');
+    onUsageClick?.();
+  };
 
-  // 监听活跃 tab 变化
-  React.useEffect(() => {
-    if (activeTab) {
-      const projectPath = activeTab.projectPath || activeTab.initialProjectPath;
-      console.log('[MainLayout] 📑 活跃 tab 变化:', {
-        tabId: activeTab.id,
-        tabType: activeTab.type,
-        projectPath,
-        shouldShowRightSidebar
-      });
-    }
-  }, [activeTab, shouldShowRightSidebar]);
+  const handleClaudeClick = () => {
+    switchToSystem();
+    activateTab('claude-md');
+    onClaudeClick?.();
+  };
 
-  // 监听右侧栏切换事件
-  React.useEffect(() => {
-    const handleToggleRightSidebar = () => {
-      setRightSidebarOpen(prev => !prev);
-    };
-
-    window.addEventListener('toggle-right-sidebar', handleToggleRightSidebar);
-    return () => {
-      window.removeEventListener('toggle-right-sidebar', handleToggleRightSidebar);
-    };
-  }, []);
-
-  // 广播右侧栏状态变化（包含真实的显示状态）
-  React.useEffect(() => {
-    window.dispatchEvent(new CustomEvent('right-sidebar-state-changed', {
-      detail: {
-        isOpen: rightSidebarOpen,
-        shouldShow: shouldShowRightSidebar // 添加实际显示状态
-      }
-    }));
-  }, [rightSidebarOpen, shouldShowRightSidebar]);
+  const handleMCPClick = () => {
+    switchToSystem();
+    activateTab('mcp');
+    onMCPClick?.();
+  };
 
   return (
     <div className={`h-full flex ${className || ''}`}>
@@ -111,26 +84,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       <Sidebar
         isCollapsed={sidebarCollapsed}
         onCollapse={setSidebarCollapsed}
-        onSettingsClick={onSettingsClick}
-        onAgentsClick={onAgentsClick}
-        onUsageClick={onUsageClick}
-        onClaudeClick={onClaudeClick}
-        onMCPClick={onMCPClick}
-        onInfoClick={onInfoClick}
+        onSettingsClick={handleSettingsClick}
+        onAgentsClick={handleAgentsClick}
+        onUsageClick={handleUsageClick}
+        onClaudeClick={handleClaudeClick}
+        onMCPClick={handleMCPClick}
+        onInfoClick={handleInfoClick}
       />
 
-      {/* Center Content Area - Tab Content Only */}
+      {/* Container Area - Manages System and Workspace containers */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TabContent />
+        <ContainerManager />
       </div>
-
-      {/* Right Sidebar - Interactive Terminal */}
-      {/* 保持挂载，仅在需要时显示，避免切到 Settings 时重新初始化 */}
-      <RightSidebar
-        isOpen={shouldShowRightSidebar}
-        onToggle={() => setRightSidebarOpen(!rightSidebarOpen)}
-        currentProjectPath={lastProjectPathRef.current}
-      />
     </div>
   );
 };
