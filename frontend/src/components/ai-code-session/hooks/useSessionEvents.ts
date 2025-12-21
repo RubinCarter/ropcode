@@ -113,7 +113,10 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         if (currentProjectPath && message.session_id) {
           api.updateProviderSession(currentProjectPath, provider, message.session_id)
             .catch((err) => {
-              console.error('[useSessionEvents] Failed to update session_id in ProjectList:', err);
+              // Silently ignore "no rows" errors - workspace might not be in database yet
+              if (!err.toString().includes('no rows in result set')) {
+                console.error('[useSessionEvents] Failed to update session_id in ProjectList:', err);
+              }
             });
         }
 
