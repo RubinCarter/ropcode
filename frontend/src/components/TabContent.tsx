@@ -1,11 +1,10 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTabState } from '@/hooks/useTabState';
-import { useTabContext } from '@/contexts/TabContext';
 import { useScreenTracking } from '@/hooks/useAnalytics';
 import { Tab } from '@/contexts/TabContext';
 import { Loader2 } from 'lucide-react';
-import { api, type Project } from '@/lib/api';
+import { api } from '@/lib/api';
 import { providers } from '@/lib/providers';
 import { shouldKeepTabMounted } from '@/lib/tabUtils';
 
@@ -383,121 +382,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
 });
 
 export const TabContent: React.FC = () => {
-  const { tabs, activeTabId, createChatTab, findTabByProjectPath, switchToTab, createClaudeFileTab, createAgentExecutionTab, createCreateAgentTab, createImportAgentTab, closeTab, updateTab } = useTabState();
-  const { setCurrentWorkspace } = useTabContext();
-
-  // Listen for sidebar project selection
-  useEffect(() => {
-    const handleSidebarProjectSelected = async (event: CustomEvent) => {
-      const { project } = event.detail as { project: Project };
-
-      try {
-        // Set current workspace to this project
-        setCurrentWorkspace(project.path);
-
-        // Check if this project is already open in a tab
-        const existingTab = findTabByProjectPath(project.path);
-        if (existingTab) {
-          // Project already open, switch to that tab
-          switchToTab(existingTab.id);
-          return;
-        }
-
-        // Update project access time
-        try {
-          await api.updateProjectAccessTime(project.id);
-        } catch (accessTimeError) {
-          console.warn('Failed to update project access time:', accessTimeError);
-        }
-
-        // Determine which provider to use based on last_provider
-        const providerId = project.last_provider || 'claude';
-
-        // Find the current provider info from project.providers array
-        // This is crucial for checking if we have a saved session_id
-        const currentProvider = (project as any).providers?.find(
-          (p: any) => p.provider_id === providerId && p.path === project.path
-        );
-
-        console.log(`[TabContent] Opening project:`, {
-          path: project.path,
-          last_provider: project.last_provider,
-          providerId: providerId,
-          saved_session_id: currentProvider?.session_id,
-          project: project
-        });
-
-        // Load sessions for this project using the last provider
-        let sessionList: any[] = [];
-        try {
-          if (providerId === 'claude') {
-            sessionList = await api.getProjectSessions(project.id);
-          } else {
-            // For other providers like codex, use provider-specific session listing
-            sessionList = await providers.listSessions(project.path, providerId);
-          }
-        } catch (err) {
-          console.warn(`Failed to load sessions for provider ${providerId}:`, err);
-          sessionList = [];
-        }
-
-        // Determine which session to use
-        let selectedSession: any = null;
-
-        // 场景二：Priority - use saved session_id if available
-        if (currentProvider?.session_id && sessionList.length > 0) {
-          // Try to find the session matching the saved session_id
-          selectedSession = sessionList.find(s => s.id === currentProvider.session_id);
-          if (selectedSession) {
-            console.log(`[TabContent] Using saved session_id: ${currentProvider.session_id}`);
-          } else {
-            console.warn(`[TabContent] Saved session_id ${currentProvider.session_id} not found in sessions, will use latest`);
-          }
-        }
-
-        // 场景一：Fallback - select latest session if no saved session or saved session not found
-        if (!selectedSession && sessionList.length > 0) {
-          const sortedSessions = [...sessionList].sort((a, b) => {
-            const timeA = a.message_timestamp ? new Date(a.message_timestamp).getTime() : a.created_at * 1000;
-            const timeB = b.message_timestamp ? new Date(b.message_timestamp).getTime() : b.created_at * 1000;
-            return timeB - timeA;
-          });
-          selectedSession = sortedSessions[0];
-          console.log(`[TabContent] Selected latest session: ${selectedSession.id}`);
-
-          // Save this session_id to projects.json for future use
-          try {
-            await api.updateProviderSession(project.path, providerId, selectedSession.id);
-            console.log(`[TabContent] Saved new session_id to projects.json`);
-          } catch (saveError) {
-            console.warn('Failed to save session_id:', saveError);
-          }
-        }
-
-        // Create tab based on selected session
-        if (!selectedSession) {
-          // No sessions exist - create a new chat tab with providerId at creation time
-          createChatTab(undefined, 'Chat', project.path, providerId, undefined);
-        } else {
-          // Add provider info to session
-          const sessionWithProvider = {
-            ...selectedSession,
-            provider: providerId
-          };
-
-          // Create new tab with the selected session, providerId, and sessionData at creation time
-          createChatTab(selectedSession.id, 'Chat', selectedSession.project_path, providerId, sessionWithProvider);
-        }
-      } catch (err) {
-        console.error('Failed to load sessions for project:', err);
-      }
-    };
-
-    window.addEventListener('sidebar-project-selected', handleSidebarProjectSelected as any);
-    return () => {
-      window.removeEventListener('sidebar-project-selected', handleSidebarProjectSelected as any);
-    };
-  }, [createChatTab, updateTab, findTabByProjectPath, switchToTab]);
+  const { tabs, activeTabId, createClaudeFileTab, createAgentExecutionTab, createCreateAgentTab, createImportAgentTab, closeTab } = useTabState();
 
   // Listen for events to open other tab types (but not sessions directly)
   useEffect(() => {
