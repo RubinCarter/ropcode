@@ -5,6 +5,7 @@ build/bin/
 !build/appicon.png
 !build/darwin/
 
+.ropcode/
 node_modules
 frontend/dist
 ropcode
