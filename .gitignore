@@ -1,4 +1,5 @@
 build/
+.ropcode/
 node_modules
 frontend/dist
 ropcode
