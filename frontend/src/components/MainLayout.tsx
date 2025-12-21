@@ -89,7 +89,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         onUsageClick={handleUsageClick}
         onClaudeClick={handleClaudeClick}
         onMCPClick={handleMCPClick}
-        onInfoClick={handleInfoClick}
+        onInfoClick={onInfoClick}
       />
 
       {/* Container Area - Manages System and Workspace containers */}
