@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw } from "lucide-react";
+import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Project, AutoSyncStatus } from "@/lib/api";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { api, listen } from "@/lib/api";
 import { useTabContext } from "@/contexts/TabContext";
 import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
+import { useContainerContext } from "@/contexts/ContainerContext";
 
 interface ProjectListProps {
   /**
@@ -130,6 +131,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 }) => {
   const { tabs, removeTab } = useTabContext();
   const { getInProgressTodos, getWorkspaceStatus, setWorkspaceStatus, markAsRead, clearWorkspace } = useWorkspaceTodo();
+  const { closeWorkspace, isWorkspaceOpen } = useContainerContext();
   const [showAll, setShowAll] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
@@ -703,6 +705,19 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                   </div>
                                 </div>
                               </button>
+                              {/* Close workspace button - only show when workspace is open */}
+                              {!isRemoving && isWorkspaceOpen(claudeProvider.path) && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeWorkspace(claudeProvider.path);
+                                  }}
+                                  className="flex-shrink-0 transition-all p-1 rounded opacity-0 group-hover/workspace:opacity-100 hover:bg-accent"
+                                  title="Close workspace"
+                                >
+                                  <X className="h-3 w-3 text-muted-foreground" />
+                                </button>
+                              )}
                               {!isRemoving && (
                                 <button
                                   onClick={(e) => {
