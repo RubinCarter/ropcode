@@ -30,10 +30,6 @@ export function CancelSshSync(arg1) {
   return window['go']['main']['App']['CancelSshSync'](arg1);
 }
 
-export function CheckAutoCheckpoint(arg1, arg2) {
-  return window['go']['main']['App']['CheckAutoCheckpoint'](arg1, arg2);
-}
-
 export function CheckClaudeVersion() {
   return window['go']['main']['App']['CheckClaudeVersion']();
 }
@@ -46,16 +42,8 @@ export function CleanupFinishedProcesses() {
   return window['go']['main']['App']['CleanupFinishedProcesses']();
 }
 
-export function CleanupOldCheckpoints(arg1, arg2) {
-  return window['go']['main']['App']['CleanupOldCheckpoints'](arg1, arg2);
-}
-
 export function CleanupWorkspace(arg1) {
   return window['go']['main']['App']['CleanupWorkspace'](arg1);
-}
-
-export function ClearCheckpointManager(arg1, arg2) {
-  return window['go']['main']['App']['ClearCheckpointManager'](arg1, arg2);
 }
 
 export function CloneRepository(arg1, arg2, arg3) {
@@ -72,10 +60,6 @@ export function ContinueClaudeCode(arg1, arg2, arg3, arg4, arg5) {
 
 export function CreateAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['main']['App']['CreateAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
-}
-
-export function CreateCheckpoint(arg1, arg2, arg3, arg4, arg5) {
-  return window['go']['main']['App']['CreateCheckpoint'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function CreateProject(arg1) {
@@ -100,10 +84,6 @@ export function DeleteAgent(arg1) {
 
 export function DeleteAgentRun(arg1) {
   return window['go']['main']['App']['DeleteAgentRun'](arg1);
-}
-
-export function DeleteCheckpoint(arg1, arg2, arg3) {
-  return window['go']['main']['App']['DeleteCheckpoint'](arg1, arg2, arg3);
 }
 
 export function DeleteClaudeConfigAgent(arg1, arg2, arg3) {
@@ -174,14 +154,6 @@ export function FindClaudeMdFiles(arg1) {
   return window['go']['main']['App']['FindClaudeMdFiles'](arg1);
 }
 
-export function ForkFromCheckpoint(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['ForkFromCheckpoint'](arg1, arg2, arg3, arg4);
-}
-
-export function GenerateCheckpointID() {
-  return window['go']['main']['App']['GenerateCheckpointID']();
-}
-
 export function GetActions(arg1, arg2) {
   return window['go']['main']['App']['GetActions'](arg1, arg2);
 }
@@ -208,14 +180,6 @@ export function GetAllProviderApiConfigs() {
 
 export function GetAutoSyncStatus(arg1) {
   return window['go']['main']['App']['GetAutoSyncStatus'](arg1);
-}
-
-export function GetCheckpointDiff(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['GetCheckpointDiff'](arg1, arg2, arg3, arg4);
-}
-
-export function GetCheckpointSettings(arg1, arg2) {
-  return window['go']['main']['App']['GetCheckpointSettings'](arg1, arg2);
 }
 
 export function GetClaudeBinaryPath() {
@@ -330,10 +294,6 @@ export function GetSessionStats(arg1, arg2) {
   return window['go']['main']['App']['GetSessionStats'](arg1, arg2);
 }
 
-export function GetSessionTimeline(arg1, arg2) {
-  return window['go']['main']['App']['GetSessionTimeline'](arg1, arg2);
-}
-
 export function GetSetting(arg1) {
   return window['go']['main']['App']['GetSetting'](arg1);
 }
@@ -430,10 +390,6 @@ export function ListAgents() {
   return window['go']['main']['App']['ListAgents']();
 }
 
-export function ListCheckpoints(arg1, arg2) {
-  return window['go']['main']['App']['ListCheckpoints'](arg1, arg2);
-}
-
 export function ListClaudeAgents() {
   return window['go']['main']['App']['ListClaudeAgents']();
 }
@@ -508,10 +464,6 @@ export function ListSlashCommands(arg1) {
 
 export function LoadAgentSessionHistory(arg1) {
   return window['go']['main']['App']['LoadAgentSessionHistory'](arg1);
-}
-
-export function LoadCheckpoint(arg1, arg2, arg3) {
-  return window['go']['main']['App']['LoadCheckpoint'](arg1, arg2, arg3);
 }
 
 export function LoadProviderSessionHistory(arg1, arg2, arg3) {
@@ -616,10 +568,6 @@ export function RemoveWorkspace(arg1) {
 
 export function ResizePty(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResizePty'](arg1, arg2, arg3);
-}
-
-export function RestoreCheckpoint(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['RestoreCheckpoint'](arg1, arg2, arg3, arg4);
 }
 
 export function ResumeClaudeCode(arg1, arg2, arg3, arg4, arg5) {
@@ -774,24 +722,12 @@ export function ToggleFullscreen() {
   return window['go']['main']['App']['ToggleFullscreen']();
 }
 
-export function TrackCheckpointMessage(arg1, arg2, arg3) {
-  return window['go']['main']['App']['TrackCheckpointMessage'](arg1, arg2, arg3);
-}
-
-export function TrackSessionMessages(arg1, arg2, arg3) {
-  return window['go']['main']['App']['TrackSessionMessages'](arg1, arg2, arg3);
-}
-
 export function UnwatchGitWorkspace(arg1) {
   return window['go']['main']['App']['UnwatchGitWorkspace'](arg1);
 }
 
 export function UpdateAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
   return window['go']['main']['App']['UpdateAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
-}
-
-export function UpdateCheckpointSettings(arg1, arg2, arg3) {
-  return window['go']['main']['App']['UpdateCheckpointSettings'](arg1, arg2, arg3);
 }
 
 export function UpdateGlobalActions(arg1) {
