@@ -95,53 +95,188 @@ func (f *FileOps) MoveFile(src, dst string) error
 
 ---
 
+## 详细移植方案
+
 ### Phase 1: Terminal Widget 增强 [workspace: terminal-enhance]
 
 **目标**: 增强现有 Terminal，借鉴 waveterm 特性
 
 **当前状态**: `XtermTerminal.tsx` 基础功能完整
 
-**移植内容**:
+#### waveterm Terminal 核心实现分析
 
-#### 1.1 添加 xterm addons
-```typescript
-// 新增依赖
-"@xterm/addon-webgl": "^0.18.0"    // GPU 加速
-"@xterm/addon-search": "^0.15.0"   // 搜索功能
-"@xterm/addon-serialize": "^0.13.0" // 状态持久化
+**源文件**: `waveterm/frontend/app/view/term/term-model.ts`, `termwrap.ts`
+
+**关键组件**:
+
+1. **TermViewModel** (term-model.ts:40-918)
+   - 实现 `ViewModel` 接口
+   - 管理 terminal 状态：主题、字体大小、透明度
+   - 提供设置菜单 (`getSettingsMenuItems`)
+   - 键盘事件处理 (`keyDownHandler`, `handleTerminalKeydown`)
+   - Shell 进程状态监控 (`shellProcStatus`)
+
+2. **TermWrap** (termwrap.ts:365-807)
+   - xterm.js Terminal 实例封装
+   - 加载多个 addons: WebGL, Search, Serialize, WebLinks, Fit
+   - OSC 命令处理 (7, 9283, 16162)
+   - IME 输入法处理 (`handleComposition*`)
+   - 粘贴处理 (`pasteHandler`)
+   - 数据缓存和序列化 (`processAndCacheData`)
+
+#### 移植步骤
+
+**Step 1: 添加 xterm addons**
+```bash
+npm install @xterm/addon-webgl @xterm/addon-search @xterm/addon-serialize @xterm/addon-web-links
 ```
 
-#### 1.2 创建 TerminalModel
+**Step 2: 创建 TermWrap 适配层**
 ```typescript
-// widgets/terminal/TerminalModel.ts
-interface TerminalModel extends WidgetModel {
-  widgetType: 'terminal';
+// widgets/terminal/TermWrap.ts
+import { Terminal } from '@xterm/xterm';
+import { WebglAddon } from '@xterm/addon-webgl';
+import { SearchAddon } from '@xterm/addon-search';
+import { SerializeAddon } from '@xterm/addon-serialize';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { FitAddon } from '@xterm/addon-fit';
 
-  // xterm 引用
-  termRef: React.RefObject<Terminal>;
+export class TermWrap {
+  terminal: Terminal;
+  fitAddon: FitAddon;
+  searchAddon: SearchAddon;
+  serializeAddon: SerializeAddon;
 
-  // 状态
-  fontSize: number;
-  themeName: string;
+  constructor(container: HTMLDivElement, options: ITerminalOptions) {
+    this.terminal = new Terminal(options);
+    this.fitAddon = new FitAddon();
+    this.searchAddon = new SearchAddon();
+    this.serializeAddon = new SerializeAddon();
 
-  // 方法
-  write(data: string): void;
-  resize(rows: number, cols: number): void;
-  search(query: string): void;
-  serialize(): string;
-  restore(state: string): void;
+    this.terminal.loadAddon(this.fitAddon);
+    this.terminal.loadAddon(this.searchAddon);
+    this.terminal.loadAddon(this.serializeAddon);
+    this.terminal.loadAddon(new WebLinksAddon());
+
+    // WebGL 检测和加载
+    if (this.detectWebGLSupport()) {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => webglAddon.dispose());
+      this.terminal.loadAddon(webglAddon);
+    }
+
+    this.terminal.open(container);
+  }
+
+  private detectWebGLSupport(): boolean {
+    try {
+      const canvas = document.createElement('canvas');
+      return !!canvas.getContext('webgl');
+    } catch {
+      return false;
+    }
+  }
+
+  // 搜索功能
+  search(query: string): void {
+    this.searchAddon.findNext(query);
+  }
+
+  // 序列化状态
+  serialize(): string {
+    return this.serializeAddon.serialize();
+  }
+
+  // 自适应大小
+  fit(): void {
+    this.fitAddon.fit();
+  }
+
+  dispose(): void {
+    this.terminal.dispose();
+  }
 }
 ```
 
-#### 1.3 特性迁移清单
-| waveterm 特性 | 优先级 | 说明 |
-|--------------|--------|------|
-| WebGL 加速 | P0 | 性能关键 |
-| 搜索功能 | P1 | 用户体验 |
-| 主题系统 | P1 | 可配置性 |
-| 字体大小控制 | P1 | 可配置性 |
-| 序列化/恢复 | P2 | 会话持久化 |
-| Shell Integration | P3 | 高级功能 |
+**Step 3: 创建 TerminalModel (Zustand store)**
+```typescript
+// widgets/terminal/TerminalModel.ts
+import { create } from 'zustand';
+
+interface TerminalState {
+  // 配置
+  fontSize: number;
+  themeName: string;
+  transparency: number;
+  allowBracketedPaste: boolean;
+
+  // 状态
+  isLoading: boolean;
+  shellStatus: 'init' | 'running' | 'done';
+
+  // Actions
+  setFontSize: (size: number) => void;
+  setTheme: (name: string) => void;
+  setTransparency: (value: number) => void;
+}
+
+export const useTerminalStore = create<TerminalState>((set) => ({
+  fontSize: 12,
+  themeName: 'default',
+  transparency: 0.5,
+  allowBracketedPaste: true,
+  isLoading: false,
+  shellStatus: 'init',
+
+  setFontSize: (size) => set({ fontSize: size }),
+  setTheme: (name) => set({ themeName: name }),
+  setTransparency: (value) => set({ transparency: value }),
+}));
+```
+
+**Step 4: 集成到现有 XtermTerminal.tsx**
+```typescript
+// 在现有组件中使用 TermWrap
+import { TermWrap } from '@/widgets/terminal/TermWrap';
+import { useTerminalStore } from '@/widgets/terminal/TerminalModel';
+
+export function XtermTerminal({ sessionId }: Props) {
+  const termWrapRef = useRef<TermWrap | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { fontSize, themeName } = useTerminalStore();
+
+  useEffect(() => {
+    if (containerRef.current && !termWrapRef.current) {
+      termWrapRef.current = new TermWrap(containerRef.current, {
+        fontSize,
+        theme: getTheme(themeName),
+      });
+    }
+    return () => termWrapRef.current?.dispose();
+  }, []);
+
+  // 字体大小变化时更新
+  useEffect(() => {
+    if (termWrapRef.current) {
+      termWrapRef.current.terminal.options.fontSize = fontSize;
+      termWrapRef.current.fit();
+    }
+  }, [fontSize]);
+
+  return <div ref={containerRef} className="terminal-container" />;
+}
+```
+
+#### 特性迁移清单
+| waveterm 特性 | 优先级 | 移植方案 |
+|--------------|--------|----------|
+| WebGL 加速 | P0 | 直接使用 @xterm/addon-webgl |
+| 搜索功能 | P1 | 使用 @xterm/addon-search |
+| 主题系统 | P1 | 从 waveterm 提取主题配置 |
+| 字体大小控制 | P1 | Zustand store 管理 |
+| 序列化/恢复 | P2 | 使用 @xterm/addon-serialize |
+| Shell Integration (OSC 16162) | P3 | 参考 termwrap.ts:247-363 实现 |
+| IME 输入处理 | P1 | 参考 termwrap.ts:491-508 |
 
 ---
 
@@ -151,60 +286,283 @@ interface TerminalModel extends WidgetModel {
 
 **当前状态**: `FilePicker.tsx` 仅支持简单选择
 
-**移植内容**:
+#### waveterm Files 核心实现分析
 
-#### 2.1 Go 后端文件服务
+**源文件**: `waveterm/frontend/app/view/preview/preview-directory.tsx`
+
+**关键组件**:
+
+1. **DirectoryPreview** (preview-directory.tsx:566-910)
+   - 主组件，管理目录浏览状态
+   - 搜索过滤 (`searchText`, `filteredData`)
+   - 键盘导航 (`directoryKeyDownHandler`)
+   - 拖放支持 (`useDrag`, `useDrop`)
+
+2. **DirectoryTable** (preview-directory.tsx:99-300)
+   - 使用 @tanstack/react-table
+   - 列定义：图标、名称、权限、修改时间、大小、类型
+   - 列宽调整 (`columnResizeMode`)
+   - 排序功能 (`getSortedRowModel`)
+
+3. **TableRow** (preview-directory.tsx:496-555)
+   - 单行渲染
+   - 拖拽支持
+   - 双击打开、右键菜单
+
+#### 移植步骤
+
+**Step 1: Go 后端文件服务**
 ```go
-// bindings.go 新增方法
-func (a *App) FileList(path string, showHidden bool) ([]FileInfo, error)
-func (a *App) FileInfo(path string) (*FileInfo, error)
-func (a *App) FileRead(path string) (*FileData, error)
-func (a *App) FileWrite(path string, content []byte) error
-func (a *App) FileCreate(path string) error
-func (a *App) FileDelete(path string) error
-func (a *App) FileRename(oldPath, newPath string) error
-func (a *App) FileCopy(src, dst string) error
-func (a *App) FileMove(src, dst string) error
-func (a *App) DirCreate(path string) error
-```
+// internal/fileops/fileops.go
+package fileops
 
-#### 2.2 前端 FilesWidget
-```typescript
-// widgets/files/FilesModel.ts
-interface FilesModel extends WidgetModel {
-  widgetType: 'files';
+import (
+    "io/fs"
+    "mime"
+    "os"
+    "path/filepath"
+    "time"
+)
 
-  // 状态
-  currentPath: string;
-  entries: FileInfo[];
-  selectedIndex: number;
-  showHidden: boolean;
+type FileInfo struct {
+    Name     string    `json:"name"`
+    Path     string    `json:"path"`
+    Dir      string    `json:"dir"`
+    Size     int64     `json:"size"`
+    ModeStr  string    `json:"modestr"`
+    ModTime  time.Time `json:"modtime"`
+    IsDir    bool      `json:"isdir"`
+    MimeType string    `json:"mimetype"`
+    Readonly bool      `json:"readonly"`
+}
 
-  // 方法
-  navigate(path: string): Promise<void>;
-  refresh(): Promise<void>;
-  createFile(name: string): Promise<void>;
-  createDirectory(name: string): Promise<void>;
-  deleteSelected(): Promise<void>;
-  renameSelected(newName: string): Promise<void>;
+type FileOps struct{}
+
+func (f *FileOps) ListDirectory(path string, showHidden bool) ([]FileInfo, error) {
+    entries, err := os.ReadDir(path)
+    if err != nil {
+        return nil, err
+    }
+
+    var files []FileInfo
+    for _, entry := range entries {
+        if !showHidden && entry.Name()[0] == '.' {
+            continue
+        }
+
+        info, err := entry.Info()
+        if err != nil {
+            continue
+        }
+
+        fullPath := filepath.Join(path, entry.Name())
+        mimeType := ""
+        if !entry.IsDir() {
+            mimeType = mime.TypeByExtension(filepath.Ext(entry.Name()))
+        } else {
+            mimeType = "directory"
+        }
+
+        files = append(files, FileInfo{
+            Name:     entry.Name(),
+            Path:     fullPath,
+            Dir:      path,
+            Size:     info.Size(),
+            ModeStr:  info.Mode().String(),
+            ModTime:  info.ModTime(),
+            IsDir:    entry.IsDir(),
+            MimeType: mimeType,
+            Readonly: info.Mode()&0200 == 0,
+        })
+    }
+
+    return files, nil
+}
+
+func (f *FileOps) CreateFile(path string) error {
+    file, err := os.Create(path)
+    if err != nil {
+        return err
+    }
+    return file.Close()
+}
+
+func (f *FileOps) CreateDirectory(path string) error {
+    return os.MkdirAll(path, 0755)
+}
+
+func (f *FileOps) DeleteFile(path string, recursive bool) error {
+    if recursive {
+        return os.RemoveAll(path)
+    }
+    return os.Remove(path)
+}
+
+func (f *FileOps) Rename(oldPath, newPath string) error {
+    return os.Rename(oldPath, newPath)
+}
+
+func (f *FileOps) Copy(src, dst string) error {
+    // 实现文件/目录复制
+    // ...
 }
 ```
 
-#### 2.3 依赖添加
+**Step 2: 前端 FilesWidget**
 ```typescript
-"@tanstack/react-table": "^8.21.0"  // 表格组件
+// widgets/files/FilesWidget.tsx
+import { useReactTable, getCoreRowModel, getSortedRowModel } from '@tanstack/react-table';
+import { useDrag, useDrop } from 'react-dnd';
+
+interface FileInfo {
+  name: string;
+  path: string;
+  dir: string;
+  size: number;
+  modestr: string;
+  modtime: string;
+  isdir: boolean;
+  mimetype: string;
+  readonly: boolean;
+}
+
+export function FilesWidget({ initialPath = '~' }: Props) {
+  const [currentPath, setCurrentPath] = useState(initialPath);
+  const [entries, setEntries] = useState<FileInfo[]>([]);
+  const [focusIndex, setFocusIndex] = useState(0);
+  const [searchText, setSearchText] = useState('');
+  const [showHidden, setShowHidden] = useState(false);
+
+  // 加载目录
+  const loadDirectory = useCallback(async (path: string) => {
+    const files = await window.go.main.App.FileList(path, { showHidden });
+    setEntries(files);
+    setCurrentPath(path);
+    setFocusIndex(0);
+  }, [showHidden]);
+
+  // 过滤数据
+  const filteredData = useMemo(() => {
+    return entries.filter(f =>
+      f.name.toLowerCase().includes(searchText.toLowerCase())
+    );
+  }, [entries, searchText]);
+
+  // 键盘导航
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowUp':
+          setFocusIndex(i => Math.max(0, i - 1));
+          break;
+        case 'ArrowDown':
+          setFocusIndex(i => Math.min(filteredData.length - 1, i + 1));
+          break;
+        case 'Enter':
+          const selected = filteredData[focusIndex];
+          if (selected?.isdir) {
+            loadDirectory(selected.path);
+          }
+          break;
+        case 'Backspace':
+          if (searchText) {
+            setSearchText(s => s.slice(0, -1));
+          } else {
+            // 返回上级目录
+            const parentDir = currentPath.split('/').slice(0, -1).join('/') || '/';
+            loadDirectory(parentDir);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredData, focusIndex, searchText, currentPath]);
+
+  // 表格定义
+  const columns = useMemo(() => [
+    { accessorKey: 'mimetype', header: '', size: 25, cell: IconCell },
+    { accessorKey: 'name', header: 'Name', size: 200 },
+    { accessorKey: 'modestr', header: 'Perm', size: 91 },
+    { accessorKey: 'modtime', header: 'Modified', size: 91 },
+    { accessorKey: 'size', header: 'Size', size: 55 },
+  ], []);
+
+  const table = useReactTable({
+    data: filteredData,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    columnResizeMode: 'onChange',
+  });
+
+  return (
+    <div className="files-widget">
+      <FilesToolbar
+        path={currentPath}
+        showHidden={showHidden}
+        onToggleHidden={() => setShowHidden(!showHidden)}
+        onRefresh={() => loadDirectory(currentPath)}
+      />
+      {searchText && (
+        <div className="search-indicator">
+          Searching: "{searchText}"
+        </div>
+      )}
+      <FilesTable
+        table={table}
+        focusIndex={focusIndex}
+        onRowClick={setFocusIndex}
+        onRowDoubleClick={(row) => {
+          if (row.original.isdir) {
+            loadDirectory(row.original.path);
+          }
+        }}
+      />
+    </div>
+  );
+}
 ```
 
-#### 2.4 特性迁移清单
-| waveterm 特性 | 优先级 | 说明 |
-|--------------|--------|------|
-| 目录浏览 | P0 | 核心功能 |
-| 文件操作 (CRUD) | P0 | 核心功能 |
-| 拖拽排序 | P1 | 用户体验 |
-| 右键菜单 | P1 | 用户体验 |
-| 书签系统 | P2 | 便捷导航 |
-| 键盘导航 | P1 | 效率 |
-| MIME 类型图标 | P2 | 视觉体验 |
+**Step 3: 右键菜单**
+```typescript
+// widgets/files/FileContextMenu.tsx
+export function useFileContextMenu(
+  onNewFile: () => void,
+  onNewFolder: () => void,
+  onRename: (file: FileInfo) => void,
+  onDelete: (file: FileInfo) => void,
+) {
+  return useCallback((e: React.MouseEvent, file: FileInfo) => {
+    e.preventDefault();
+
+    const menu: ContextMenuItem[] = [
+      { label: 'New File', onClick: onNewFile },
+      { label: 'New Folder', onClick: onNewFolder },
+      { type: 'separator' },
+      { label: 'Rename', onClick: () => onRename(file) },
+      { label: 'Copy Path', onClick: () => navigator.clipboard.writeText(file.path) },
+      { type: 'separator' },
+      { label: 'Delete', onClick: () => onDelete(file), className: 'danger' },
+    ];
+
+    showContextMenu(menu, { x: e.clientX, y: e.clientY });
+  }, [onNewFile, onNewFolder, onRename, onDelete]);
+}
+```
+
+#### 特性迁移清单
+| waveterm 特性 | 优先级 | 移植方案 |
+|--------------|--------|----------|
+| 目录浏览 | P0 | Go FileOps.ListDirectory |
+| 文件 CRUD | P0 | Go FileOps.Create/Delete/Rename |
+| 键盘导航 | P0 | useEffect 监听 keydown |
+| 排序功能 | P1 | @tanstack/react-table getSortedRowModel |
+| 右键菜单 | P1 | 自定义 ContextMenu 组件 |
+| 拖拽复制 | P2 | react-dnd |
+| 书签导航 | P2 | Zustand store 保存常用路径 |
+| MIME 图标 | P2 | 根据 mimetype 映射图标 |
 
 ---
 
@@ -216,42 +574,78 @@ interface FilesModel extends WidgetModel {
 - `FileViewer.tsx` 仅支持代码高亮
 - `WebViewer.tsx` 支持 HTML 预览
 
-**移植内容**:
+#### waveterm Preview 核心实现分析
 
-#### 3.1 Preview 类型系统
-```typescript
-// widgets/preview/types.ts
-type PreviewType =
-  | 'code'      // 代码文件 (Monaco)
-  | 'markdown'  // Markdown 渲染
-  | 'image'     // 图片预览
-  | 'video'     // 视频播放
-  | 'audio'     // 音频播放
-  | 'pdf'       // PDF 查看
-  | 'csv'       // CSV 表格
-  | 'unknown';  // 未知类型
+**源文件**: `waveterm/frontend/app/view/preview/preview-model.tsx`
 
-interface PreviewModel extends WidgetModel {
-  widgetType: 'preview';
+**关键组件**:
 
-  // 状态
-  filePath: string;
-  mimeType: string;
-  previewType: PreviewType;
-  content: string | null;
-  editMode: boolean;
+1. **PreviewModel** (preview-model.tsx:118-500+)
+   - MIME 类型检测 (`isTextFile`, `isStreamingType`, `isMarkdownLike`)
+   - 文件图标映射 (`iconForFile`)
+   - 编辑模式切换 (`editMode`)
+   - 文件保存 (`handleFileSave`)
 
-  // 方法
-  loadFile(path: string): Promise<void>;
-  save(): Promise<void>;
-  toggleEditMode(): void;
-}
-```
+2. **预览类型**:
+   - `codeedit` - Monaco Editor
+   - `markdown` - Markdown 渲染
+   - `directory` - 目录浏览 (→ Phase 2)
+   - `image` - 图片预览
+   - `video/audio` - 媒体播放
+   - `pdf` - PDF 查看
+   - `csv` - CSV 表格
 
-#### 3.2 MIME 类型检测
+#### 移植步骤
+
+**Step 1: MIME 类型工具**
 ```typescript
 // widgets/preview/mime-utils.ts
-function detectPreviewType(mimeType: string, fileName: string): PreviewType {
+const textApplicationMimetypes = [
+  'application/json',
+  'application/javascript',
+  'application/typescript',
+  'application/xml',
+  'application/yaml',
+  'application/sql',
+  'application/x-sh',
+  'application/x-python',
+];
+
+export function isTextFile(mimeType: string): boolean {
+  if (!mimeType) return false;
+  return (
+    mimeType.startsWith('text/') ||
+    textApplicationMimetypes.includes(mimeType) ||
+    mimeType.includes('json') ||
+    mimeType.includes('yaml') ||
+    mimeType.includes('xml')
+  );
+}
+
+export function isStreamingType(mimeType: string): boolean {
+  if (!mimeType) return false;
+  return (
+    mimeType.startsWith('application/pdf') ||
+    mimeType.startsWith('video/') ||
+    mimeType.startsWith('audio/') ||
+    mimeType.startsWith('image/')
+  );
+}
+
+export type PreviewType =
+  | 'code'
+  | 'markdown'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'pdf'
+  | 'csv'
+  | 'directory'
+  | 'unknown';
+
+export function detectPreviewType(mimeType: string): PreviewType {
+  if (!mimeType) return 'unknown';
+  if (mimeType === 'directory') return 'directory';
   if (mimeType.startsWith('text/markdown')) return 'markdown';
   if (mimeType.startsWith('image/')) return 'image';
   if (mimeType.startsWith('video/')) return 'video';
@@ -261,18 +655,188 @@ function detectPreviewType(mimeType: string, fileName: string): PreviewType {
   if (isTextFile(mimeType)) return 'code';
   return 'unknown';
 }
+
+export function iconForFile(mimeType: string): string {
+  const type = detectPreviewType(mimeType);
+  const iconMap: Record<PreviewType, string> = {
+    directory: 'folder',
+    markdown: 'file-lines',
+    image: 'image',
+    video: 'film',
+    audio: 'headphones',
+    pdf: 'file-pdf',
+    csv: 'file-csv',
+    code: 'file-code',
+    unknown: 'file',
+  };
+  return iconMap[type];
+}
 ```
 
-#### 3.3 特性迁移清单
-| waveterm 特性 | 优先级 | 说明 |
-|--------------|--------|------|
-| 代码预览/编辑 | P0 | 核心功能 |
-| Markdown 渲染 | P0 | 常用 |
-| 图片预览 | P0 | 常用 |
-| PDF 查看 | P1 | 常用 |
-| 视频/音频 | P2 | 媒体支持 |
-| CSV 表格 | P2 | 数据查看 |
-| 编辑模式切换 | P1 | 实用功能 |
+**Step 2: PreviewWidget 主组件**
+```typescript
+// widgets/preview/PreviewWidget.tsx
+import { CodePreview } from './previews/CodePreview';
+import { MarkdownPreview } from './previews/MarkdownPreview';
+import { ImagePreview } from './previews/ImagePreview';
+import { MediaPreview } from './previews/MediaPreview';
+import { PdfPreview } from './previews/PdfPreview';
+import { CsvPreview } from './previews/CsvPreview';
+
+interface PreviewWidgetProps {
+  filePath: string;
+  onEdit?: (content: string) => void;
+}
+
+export function PreviewWidget({ filePath, onEdit }: PreviewWidgetProps) {
+  const [fileInfo, setFileInfo] = useState<FileInfo | null>(null);
+  const [content, setContent] = useState<string | null>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadFile() {
+      setLoading(true);
+      setError(null);
+      try {
+        const info = await window.go.main.App.FileInfo(filePath);
+        setFileInfo(info);
+
+        // 只有文本类型才加载内容
+        if (isTextFile(info.mimetype) && info.size < 10 * 1024 * 1024) {
+          const data = await window.go.main.App.FileRead(filePath);
+          setContent(data.content);
+        }
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadFile();
+  }, [filePath]);
+
+  if (loading) return <div className="preview-loading">Loading...</div>;
+  if (error) return <div className="preview-error">{error}</div>;
+  if (!fileInfo) return null;
+
+  const previewType = detectPreviewType(fileInfo.mimetype);
+
+  const previewComponents: Record<PreviewType, React.FC<any>> = {
+    code: CodePreview,
+    markdown: MarkdownPreview,
+    image: ImagePreview,
+    video: MediaPreview,
+    audio: MediaPreview,
+    pdf: PdfPreview,
+    csv: CsvPreview,
+    directory: () => null, // 使用 FilesWidget
+    unknown: () => <div>Cannot preview this file type</div>,
+  };
+
+  const PreviewComponent = previewComponents[previewType];
+
+  return (
+    <div className="preview-widget">
+      <PreviewToolbar
+        fileInfo={fileInfo}
+        editMode={editMode}
+        canEdit={previewType === 'code' || previewType === 'markdown'}
+        onToggleEdit={() => setEditMode(!editMode)}
+        onSave={() => {/* save logic */}}
+      />
+      <PreviewComponent
+        fileInfo={fileInfo}
+        content={content}
+        editMode={editMode}
+        onChange={setContent}
+      />
+    </div>
+  );
+}
+```
+
+**Step 3: 各类型预览组件**
+
+```typescript
+// widgets/preview/previews/CodePreview.tsx
+import MonacoEditor from '@monaco-editor/react';
+
+export function CodePreview({ content, editMode, onChange, fileInfo }) {
+  const language = detectLanguage(fileInfo.name);
+
+  return (
+    <MonacoEditor
+      value={content}
+      language={language}
+      options={{
+        readOnly: !editMode,
+        minimap: { enabled: false },
+        lineNumbers: 'on',
+        wordWrap: 'on',
+      }}
+      onChange={onChange}
+    />
+  );
+}
+
+// widgets/preview/previews/MarkdownPreview.tsx
+import ReactMarkdown from 'react-markdown';
+import rehypeHighlight from 'rehype-highlight';
+
+export function MarkdownPreview({ content, editMode, onChange }) {
+  if (editMode) {
+    return (
+      <textarea
+        className="markdown-editor"
+        value={content}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
+  }
+
+  return (
+    <div className="markdown-preview">
+      <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+// widgets/preview/previews/ImagePreview.tsx
+export function ImagePreview({ fileInfo }) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // 通过 Go 后端读取图片并转为 data URL
+    async function loadImage() {
+      const data = await window.go.main.App.FileReadBase64(fileInfo.path);
+      setImageUrl(`data:${fileInfo.mimetype};base64,${data}`);
+    }
+    loadImage();
+  }, [fileInfo.path]);
+
+  return (
+    <div className="image-preview">
+      {imageUrl && <img src={imageUrl} alt={fileInfo.name} />}
+    </div>
+  );
+}
+```
+
+#### 特性迁移清单
+| waveterm 特性 | 优先级 | 移植方案 |
+|--------------|--------|----------|
+| 代码预览 | P0 | Monaco Editor |
+| 代码编辑 | P0 | Monaco Editor + editMode |
+| Markdown 渲染 | P0 | react-markdown + rehype-highlight |
+| 图片预览 | P0 | Go 读取 + base64 |
+| 文件保存 | P1 | Go FileOps.WriteFile |
+| PDF 查看 | P1 | react-pdf 或 pdfjs |
+| 视频/音频 | P2 | HTML5 video/audio |
+| CSV 表格 | P2 | @tanstack/react-table |
 
 ---
 
@@ -282,42 +846,182 @@ function detectPreviewType(mimeType: string, fileName: string): PreviewType {
 
 **当前状态**: `WebViewer.tsx` 基于 iframe
 
-**移植内容**:
+#### waveterm Web 核心实现分析
 
-#### 4.1 WebModel
+**源文件**: `waveterm/frontend/app/view/webview/webview.tsx`
+
+**关键组件**:
+
+1. **WebViewModel** (webview.tsx:45-500+)
+   - URL 管理 (`url`, `homepageUrl`)
+   - 导航控制 (`handleBack`, `handleForward`, `handleHome`)
+   - 加载状态 (`isLoading`, `refreshIcon`)
+   - 媒体控制 (`mediaPlaying`, `mediaMuted`)
+   - User Agent 模拟 (Electron 特有)
+   - 书签建议 (`fetchBookmarkSuggestions`)
+
+2. **导航栏元素**:
+   - 后退/前进/主页按钮
+   - URL 输入框
+   - 刷新/停止按钮
+   - 外部浏览器打开按钮
+
+#### 移植限制
+
+由于 Wails 使用系统 WebView 而非 Electron webview，以下特性**无法移植**：
+- `setAudioMuted()` - 媒体静音控制
+- `setUserAgent()` - User Agent 模拟
+- `openDevTools()` - 开发者工具
+
+#### 移植步骤
+
+**Step 1: WebModel (Zustand store)**
 ```typescript
 // widgets/web/WebModel.ts
-interface WebModel extends WidgetModel {
-  widgetType: 'web';
+import { create } from 'zustand';
 
-  // 状态
+interface WebState {
   url: string;
+  homepageUrl: string;
   isLoading: boolean;
   canGoBack: boolean;
   canGoForward: boolean;
 
-  // 方法
-  loadUrl(url: string): void;
-  goBack(): void;
-  goForward(): void;
-  refresh(): void;
+  setUrl: (url: string) => void;
+  setHomepage: (url: string) => void;
+  setLoading: (loading: boolean) => void;
+}
+
+export const useWebStore = create<WebState>((set) => ({
+  url: '',
+  homepageUrl: 'https://www.google.com',
+  isLoading: false,
+  canGoBack: false,
+  canGoForward: false,
+
+  setUrl: (url) => set({ url }),
+  setHomepage: (url) => set({ homepageUrl: url }),
+  setLoading: (loading) => set({ isLoading: loading }),
+}));
+```
+
+**Step 2: WebWidget 组件**
+```typescript
+// widgets/web/WebWidget.tsx
+import { useWebStore } from './WebModel';
+
+export function WebWidget({ initialUrl }: Props) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const { url, setUrl, isLoading, setLoading, homepageUrl } = useWebStore();
+  const [urlInput, setUrlInput] = useState(initialUrl || homepageUrl);
+
+  // 确保 URL 有协议
+  const ensureScheme = (inputUrl: string): string => {
+    if (/^https?:\/\//.test(inputUrl)) return inputUrl;
+    if (/^localhost|^\d{1,3}\.\d{1,3}/.test(inputUrl)) {
+      return `http://${inputUrl}`;
+    }
+    if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(inputUrl.split('/')[0])) {
+      return `https://${inputUrl}`;
+    }
+    // 搜索查询
+    return `https://www.google.com/search?q=${encodeURIComponent(inputUrl)}`;
+  };
+
+  const loadUrl = useCallback((newUrl: string) => {
+    const finalUrl = ensureScheme(newUrl);
+    setUrl(finalUrl);
+    setUrlInput(finalUrl);
+  }, []);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      loadUrl(urlInput);
+    }
+  };
+
+  // iframe 加载事件
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+
+    const handleLoad = () => setLoading(false);
+    iframe.addEventListener('load', handleLoad);
+    return () => iframe.removeEventListener('load', handleLoad);
+  }, []);
+
+  return (
+    <div className="web-widget">
+      <WebToolbar
+        url={urlInput}
+        onUrlChange={setUrlInput}
+        onUrlSubmit={() => loadUrl(urlInput)}
+        onBack={() => {/* iframe history.back 受限 */}}
+        onForward={() => {/* iframe history.forward 受限 */}}
+        onHome={() => loadUrl(homepageUrl)}
+        onRefresh={() => iframeRef.current?.contentWindow?.location.reload()}
+        isLoading={isLoading}
+      />
+      <iframe
+        ref={iframeRef}
+        src={url}
+        className="web-iframe"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        onLoadStart={() => setLoading(true)}
+      />
+    </div>
+  );
 }
 ```
 
-#### 4.2 限制说明
-由于 Wails 使用系统 WebView 而非 Electron，以下 waveterm 特性**无法直接移植**：
-- User Agent 模拟 (需要系统级 API)
-- 媒体控制 (静音/播放)
-- 完整的 DevTools
+**Step 3: 书签系统**
+```typescript
+// widgets/web/bookmarks.ts
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
-#### 4.3 可移植特性
-| waveterm 特性 | 可行性 | 说明 |
-|--------------|--------|------|
-| URL 导航 | ✓ | iframe 支持 |
-| 历史导航 | ✓ | 使用 postMessage |
-| 书签系统 | ✓ | 前端实现 |
-| 本地文件预览 | ✓ | 通过 Go 中转 |
-| 搜索功能 | 部分 | iframe 限制 |
+interface Bookmark {
+  id: string;
+  url: string;
+  title: string;
+  favicon?: string;
+}
+
+interface BookmarkState {
+  bookmarks: Bookmark[];
+  addBookmark: (bookmark: Omit<Bookmark, 'id'>) => void;
+  removeBookmark: (id: string) => void;
+}
+
+export const useBookmarkStore = create<BookmarkState>()(
+  persist(
+    (set) => ({
+      bookmarks: [],
+      addBookmark: (bookmark) => set((state) => ({
+        bookmarks: [...state.bookmarks, { ...bookmark, id: Date.now().toString() }],
+      })),
+      removeBookmark: (id) => set((state) => ({
+        bookmarks: state.bookmarks.filter(b => b.id !== id),
+      })),
+    }),
+    { name: 'web-bookmarks' }
+  )
+);
+```
+
+#### 特性迁移清单
+| waveterm 特性 | 可行性 | 移植方案 |
+|--------------|--------|----------|
+| URL 导航 | ✓ | iframe src |
+| URL 输入框 | ✓ | 自定义组件 |
+| 刷新按钮 | ✓ | contentWindow.location.reload |
+| 主页按钮 | ✓ | 加载 homepageUrl |
+| 书签系统 | ✓ | Zustand + persist |
+| 外部打开 | ✓ | Wails runtime.BrowserOpenURL |
+| 历史导航 | 部分 | iframe 跨域限制 |
+| 媒体静音 | ✗ | Electron 特有 API |
+| User Agent | ✗ | Electron 特有 API |
+| DevTools | ✗ | Electron 特有 API |
 
 ---
 
@@ -394,6 +1098,7 @@ type FileListOptions struct {
 func (a *App) FileList(path string, opts FileListOptions) ([]FileInfo, error)
 func (a *App) FileInfo(path string) (*FileInfo, error)
 func (a *App) FileRead(path string, maxSize int64) (*FileData, error)
+func (a *App) FileReadBase64(path string) (string, error)  // 用于图片
 func (a *App) FileWrite(path string, content []byte) error
 func (a *App) FileCreate(path string, content []byte) error
 func (a *App) FileDelete(path string, recursive bool) error
@@ -434,26 +1139,26 @@ frontend/src/
 │   ├── terminal/
 │   │   ├── index.ts                # 导出
 │   │   ├── TerminalWidget.tsx      # 主组件
-│   │   ├── TerminalModel.ts        # Model
+│   │   ├── TermWrap.ts             # xterm 封装
+│   │   ├── TerminalModel.ts        # Zustand store
 │   │   ├── TerminalToolbar.tsx     # 工具栏
-│   │   ├── useTerminal.ts          # Hooks
 │   │   ├── themes/                 # 主题定义
 │   │   └── terminal.scss           # 样式
 │   │
 │   ├── files/
 │   │   ├── index.ts
 │   │   ├── FilesWidget.tsx         # 主组件
-│   │   ├── FilesModel.ts           # Model
+│   │   ├── FilesModel.ts           # Zustand store
 │   │   ├── FilesTable.tsx          # 表格组件
 │   │   ├── FileContextMenu.tsx     # 右键菜单
 │   │   ├── Bookmarks.tsx           # 书签
-│   │   ├── useFiles.ts             # Hooks
 │   │   └── files.scss
 │   │
 │   ├── preview/
 │   │   ├── index.ts
 │   │   ├── PreviewWidget.tsx       # 主组件
-│   │   ├── PreviewModel.ts         # Model
+│   │   ├── PreviewModel.ts         # Zustand store
+│   │   ├── mime-utils.ts           # MIME 工具
 │   │   ├── previews/
 │   │   │   ├── CodePreview.tsx     # 代码
 │   │   │   ├── MarkdownPreview.tsx # Markdown
@@ -461,19 +1166,18 @@ frontend/src/
 │   │   │   ├── MediaPreview.tsx    # 视频/音频
 │   │   │   ├── PdfPreview.tsx      # PDF
 │   │   │   └── CsvPreview.tsx      # CSV
-│   │   ├── usePreview.ts
 │   │   └── preview.scss
 │   │
 │   └── web/
 │       ├── index.ts
 │       ├── WebWidget.tsx           # 主组件
-│       ├── WebModel.ts             # Model
+│       ├── WebModel.ts             # Zustand store
 │       ├── WebToolbar.tsx          # 导航栏
-│       ├── useWeb.ts
+│       ├── bookmarks.ts            # 书签存储
 │       └── web.scss
 │
 └── store/
-    └── widgets.ts                  # Widget 状态管理 (Zustand)
+    └── widgets.ts                  # Widget 公共状态
 ```
 
 ---
@@ -498,39 +1202,18 @@ frontend/src/
 
 ---
 
-## 实施建议
-
-### 立即可开始的工作
-
-1. **Phase 0 (infra-prep)**:
-   - 创建 `widgets/` 目录结构
-   - 定义 TypeScript 类型
-   - 添加依赖
-
-2. **Phase 1 (terminal-enhance)**:
-   - 添加 xterm addons
-   - 实现 TerminalModel
-
-### 需要设计决策的问题
-
-1. **状态持久化**: 是否需要保存 terminal 状态到数据库？
-2. **多窗口同步**: widget 状态是否需要跨 tab 同步？
-3. **wsh 命令**: 是否需要类似 wsh 的命令行接口？
-
----
-
 ## 参考资源
 
 ### waveterm 关键文件
 
-| 功能 | 文件路径 |
-|------|----------|
-| Terminal Model | `waveterm/frontend/app/view/term/term-model.ts` |
-| Terminal Wrap | `waveterm/frontend/app/view/term/termwrap.ts` |
-| Web Widget | `waveterm/frontend/app/view/webview/webview.tsx` |
-| Preview Model | `waveterm/frontend/app/view/preview/preview-model.tsx` |
-| Files Table | `waveterm/frontend/app/view/preview/preview-directory.tsx` |
-| RPC API | `waveterm/frontend/app/store/wshclientapi.ts` |
+| 功能 | 文件路径 | 行数范围 |
+|------|----------|----------|
+| Terminal ViewModel | `waveterm/frontend/app/view/term/term-model.ts` | 40-918 |
+| Terminal Wrap | `waveterm/frontend/app/view/term/termwrap.ts` | 365-807 |
+| Web ViewModel | `waveterm/frontend/app/view/webview/webview.tsx` | 45-500 |
+| Preview Model | `waveterm/frontend/app/view/preview/preview-model.tsx` | 118-400 |
+| Files Table | `waveterm/frontend/app/view/preview/preview-directory.tsx` | 99-555 |
+| RPC API | `waveterm/frontend/app/store/wshclientapi.ts` | 全文件 |
 
 ### 推荐依赖版本
 
@@ -543,10 +1226,32 @@ frontend/src/
   "@xterm/addon-fit": "^0.10.0",
   "@xterm/addon-web-links": "^0.11.0",
   "@tanstack/react-table": "^8.21.0",
+  "@monaco-editor/react": "^4.6.0",
   "react-markdown": "^9.0.0",
-  "rehype-highlight": "^7.0.0"
+  "rehype-highlight": "^7.0.0",
+  "react-dnd": "^16.0.0",
+  "react-dnd-html5-backend": "^16.0.0"
 }
 ```
+
+---
+
+## 远期愿景：rsh 项目管理系统
+
+> **注意**: 本节描述的是远期规划，当前阶段仅需在架构设计中预留扩展点。
+> 详细设计请参阅 [rsh 项目管理系统设计文档](./2025-12-22-rsh-project-manager-design.md)
+
+Widget 移植完成后，可以基于这些组件构建 rsh 项目管理系统：
+
+- **Terminal Widget** → 运行 AI CLI (Claude/Codex/Gemini)
+- **Files Widget** → 浏览 worktree 文件
+- **Preview Widget** → 查看代码变更、审核提交
+- **Web Widget** → 显示文档、PR 预览
+
+rsh 的核心理念：
+- Main Project 作为"项目经理"角色
+- Sub Workspaces 使用 git worktree + AI Provider 并行开发
+- 任务拆解、分配、验收的完整工作流
 
 ---
 
@@ -558,5 +1263,6 @@ frontend/src/
 2. **支持并行开发**: 4 个 widget 可以在不同 workspace 同时开发
 3. **模块化设计**: 每个 widget 独立，易于测试和维护
 4. **渐进式交付**: 每个 phase 都有可交付的成果
+5. **预留扩展**: 为 rsh 项目管理系统预留架构支持
 
 下一步：在 main 分支创建 `infra-prep` workspace，开始 Phase 0 的基础设施准备工作。

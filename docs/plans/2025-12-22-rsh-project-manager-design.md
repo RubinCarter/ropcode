@@ -1,5 +1,13 @@
 # rsh 项目管理系统设计文档
 
+> ⚠️ **远期愿景文档**
+>
+> 本文档描述的是 rsh 项目管理系统的远期规划。当前阶段的重点是完成 [Widget 移植工作](./2025-12-22-waveterm-widget-migration-design.md)，rsh 的实现将在 Widget 基础设施就绪后进行。
+>
+> 本文档的目的是预先规划架构，确保 Widget 移植时预留必要的扩展点。
+
+---
+
 ## 概述
 
 rsh (ropcode shell helper) 是一个 **AI 多代理编排系统**，设计用于在软件开发项目中实现：
