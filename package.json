@@ -1,0 +1,11 @@
+{
+  "name": "ropcode",
+  "version": "0.2.1",
+  "private": true,
+  "description": "GUI app and Toolkit for Claude Code - Wails Edition",
+  "scripts": {
+    "dev": "wails dev",
+    "build": "wails build -clean",
+    "build:dmg": "./scripts/build-dmg.sh"
+  }
+}
