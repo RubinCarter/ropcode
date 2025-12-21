@@ -27,7 +27,7 @@ function AppContent() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(400);
+  const [rightSidebarWidthPercent, setRightSidebarWidthPercent] = useState(35);
 
   // Initialize analytics lifecycle tracking
   useAppLifecycle();
@@ -48,8 +48,8 @@ function AppContent() {
     };
 
     const handleRightSidebarWidthChange = (event: Event) => {
-      const customEvent = event as CustomEvent<{ width: number }>;
-      setRightSidebarWidth(customEvent.detail.width);
+      const customEvent = event as CustomEvent<{ widthPercent: number }>;
+      setRightSidebarWidthPercent(customEvent.detail.widthPercent);
     };
 
     const handleShowToast = (event: Event) => {
@@ -256,7 +256,7 @@ function AppContent() {
       <CustomTitlebar
         sidebarCollapsed={sidebarCollapsed}
         rightSidebarOpen={rightSidebarOpen}
-        rightSidebarWidth={rightSidebarWidth}
+        rightSidebarWidthPercent={rightSidebarWidthPercent}
       />
 
       {/* Main Layout - Sidebar + Content Area */}

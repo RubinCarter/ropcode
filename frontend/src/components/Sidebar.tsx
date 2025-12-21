@@ -247,13 +247,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <motion.div
       initial={false}
       animate={{
-        width: isCollapsed ? 48 : 280
+        width: isCollapsed ? '8%' : '25%'
       }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
       className={cn(
-        'h-full bg-background border-r border-border/50 flex flex-col',
+        'h-full bg-background border-r border-border/50 flex flex-col min-w-[48px]',
         className
       )}
+      style={{ flexShrink: 0 }}
     >
       {/* Sidebar Header */}
       <TooltipProvider>

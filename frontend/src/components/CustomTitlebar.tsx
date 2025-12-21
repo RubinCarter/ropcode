@@ -28,13 +28,13 @@ import {
 interface CustomTitlebarProps {
   sidebarCollapsed?: boolean;
   rightSidebarOpen?: boolean;
-  rightSidebarWidth?: number;
+  rightSidebarWidthPercent?: number; // 右侧栏宽度百分比
 }
 
 export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   sidebarCollapsed = false,
   rightSidebarOpen: rightSidebarOpenProp = true,
-  rightSidebarWidth = 400
+  rightSidebarWidthPercent = 35
 }) => {
   // 从 ContainerContext 获取当前 workspace 路径
   const { activeType, activeWorkspaceId } = useContainerContext();
@@ -44,6 +44,8 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   const [rightSidebarOpen, setRightSidebarOpen] = useState(rightSidebarOpenProp);
   // 真实的右侧栏显示状态（考虑了 tab 类型等所有条件）
   const [shouldShowRightSidebar, setShouldShowRightSidebar] = useState(rightSidebarOpenProp);
+  // 右侧栏宽度百分比
+  const [currentWidthPercent, setCurrentWidthPercent] = useState(rightSidebarWidthPercent);
   const { toggleFullscreen, isSupported, isFullscreen } = useFullscreen();
 
   // 双击标题栏最大化处理
@@ -99,6 +101,24 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     window.addEventListener('right-sidebar-state-changed', handleStateChange);
     return () => {
       window.removeEventListener('right-sidebar-state-changed', handleStateChange);
+    };
+  }, []);
+
+  // 同步外部传入的右侧栏宽度百分比
+  useEffect(() => {
+    setCurrentWidthPercent(rightSidebarWidthPercent);
+  }, [rightSidebarWidthPercent]);
+
+  // 监听右侧栏宽度百分比变化
+  useEffect(() => {
+    const handleWidthChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ widthPercent: number }>;
+      setCurrentWidthPercent(customEvent.detail.widthPercent);
+    };
+
+    window.addEventListener('right-sidebar-width-changed', handleWidthChange);
+    return () => {
+      window.removeEventListener('right-sidebar-width-changed', handleWidthChange);
     };
   }, []);
 
@@ -454,14 +474,15 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onDoubleClick={handleDoubleClick}
     >
-      {/* 左侧区域 - 对应左侧边栏 */}
+      {/* 左侧区域 - 对应左侧边栏 (25% / 8%) */}
       <motion.div
         initial={false}
         animate={{
-          width: sidebarCollapsed ? 48 : 280
+          width: sidebarCollapsed ? '8%' : '25%'
         }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
-        className="flex items-center border-r border-border/50 wails-drag"
+        className="flex items-center border-r border-border/50 wails-drag min-w-[48px]"
+        style={{ flexShrink: 0 }}
       >
         {/* macOS Traffic Light buttons (hidden in fullscreen) */}
         {!isFullscreen && (
@@ -512,7 +533,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       </motion.div>
 
       {/* 中间区域 - TabManager + Titlebar Controls */}
-      <div className="flex-1 flex items-stretch gap-2 px-2 wails-drag">
+      <div className="flex-1 flex items-stretch gap-2 px-2 wails-drag min-w-0">
         {/* ContainerTabManager - 根据 activeType 显示对应的 TabManager */}
         <ContainerTabManager className="self-stretch" />
 
@@ -603,9 +624,17 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
       {/* 右侧区域 - 对应右侧边栏 */}
       <div
-        className={`transition-none flex items-center justify-end wails-drag ${shouldShowRightSidebar ? 'border-l border-border/50' : ''}`}
+        className={`transition-none flex items-center justify-end wails-drag overflow-hidden ${shouldShowRightSidebar ? 'border-l border-border/50' : ''}`}
         style={{
-          width: shouldShowRightSidebar ? rightSidebarWidth : 0
+          // 计算相对于整个标题栏的百分比
+          // 下方: WorkspaceContainer宽度 = (100% - Sidebar%)
+          // RightSidebar占WorkspaceContainer的35%
+          // 所以实际占窗口: (100% - Sidebar%) × 35%
+          // 标题栏右侧应该占: (100% - Sidebar%) × (currentWidthPercent / 100)
+          width: shouldShowRightSidebar
+            ? `${(100 - (sidebarCollapsed ? 8 : 25)) * currentWidthPercent / 100}%`
+            : 0,
+          flexShrink: 0
         }}
       >
         {/* Worktree 推送按钮组 - 只在是 worktree 子分支且有 Git 支持时显示 */}

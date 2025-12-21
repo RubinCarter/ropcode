@@ -268,12 +268,15 @@ export const WorkspaceContainer: React.FC<WorkspaceContainerProps> = ({ workspac
       <WorkspaceTabManagerPortal visible={visible} />
 
       <div className={`h-full w-full flex ${visible ? '' : 'hidden'}`}>
-        <div className="flex-1 flex flex-col overflow-hidden">
+        {/* 中间栏 - 使用 flex-1 占据剩余空间 */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <WorkspaceContent workspaceId={workspaceId} />
         </div>
+        {/* 右侧栏 - 默认 35% 宽度 */}
         <RightSidebar
           isOpen={rightSidebarOpen}
           onToggle={() => setRightSidebarOpen(!rightSidebarOpen)}
+          defaultWidthPercent={35}
           currentProjectPath={workspaceId}
         />
       </div>

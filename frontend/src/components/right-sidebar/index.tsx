@@ -24,7 +24,7 @@ import {
 interface RightSidebarProps {
   isOpen?: boolean;
   onToggle?: () => void;
-  defaultWidth?: number;
+  defaultWidthPercent?: number; // 默认宽度百分比
   className?: string;
   currentProjectPath?: string; // 当前 workspace/project 路径
 }
@@ -48,20 +48,20 @@ interface WorkspaceTerminalState {
 export const RightSidebar: React.FC<RightSidebarProps> = ({
   isOpen = true,
   onToggle,
-  defaultWidth = 400,
+  defaultWidthPercent = 35,
   className,
   currentProjectPath
 }) => {
-  const [width, setWidth] = useState(defaultWidth);
+  const [widthPercent, setWidthPercent] = useState(defaultWidthPercent);
   const [hasGitSupport, setHasGitSupport] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<'console' | 'files'>('console');
 
   // 广播右侧栏宽度变化
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('right-sidebar-width-changed', {
-      detail: { width }
+      detail: { widthPercent }
     }));
-  }, [width]);
+  }, [widthPercent]);
 
   // 检测 Git 支持
   useEffect(() => {
@@ -744,11 +744,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         "relative h-full border-l bg-background/95 backdrop-blur-md flex flex-col",
         className
       )}
-      style={{ width }}
+      style={{ width: `${widthPercent}%`, minWidth: '200px', flexShrink: 0 }}
       tabIndex={-1}
     >
       {/* 水平调整大小手柄 */}
-      <ResizeHandle onResize={setWidth} />
+      <ResizeHandle
+        onResize={(newWidth) => {
+          // 将像素宽度转换为百分比
+          const percent = (newWidth / window.innerWidth) * 100;
+          // 限制在 15% - 50% 之间
+          setWidthPercent(Math.max(15, Math.min(50, percent)));
+        }}
+      />
 
       {/* Tab 切换栏 */}
       <div className="flex items-center border-b bg-muted/10">
