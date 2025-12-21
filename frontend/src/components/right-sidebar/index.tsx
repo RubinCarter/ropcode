@@ -12,7 +12,7 @@ import { XtermTerminal } from './XtermTerminal';
 import { RunTabPane } from './RunTabPane';
 import { FileTreeBrowser } from './FileTreeBrowser';
 import { api, listen, type Action } from '@/lib/api';
-import { useTabState } from '@/hooks/useTabState';
+import { useWorkspaceTabContext } from '@/contexts/WorkspaceTabContext';
 import {
   generateTerminalId,
   generateTerminalTitle,
@@ -85,7 +85,121 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const [gitPaneHeight, setGitPaneHeight] = useState(250); // Git 面板高度
   const terminalContainerRef = useRef<HTMLDivElement>(null);
-  const { createDiffTab, createFileTab, createWebViewerTab } = useTabState();
+  const { tabs, addTab, updateTab, setActiveTab } = useWorkspaceTabContext();
+
+  // 创建 Diff Tab（与 File Tab 共用同一个 slot）
+  const createDiffTab = useCallback((filePath: string, projectPath: string): string | null => {
+    const fileName = filePath.split('/').pop() || filePath;
+
+    // 查找现有的 file 或 diff tab
+    const existingTab = tabs.find(tab =>
+      (tab.type === 'diff' || tab.type === 'file') &&
+      tab.projectPath === projectPath
+    );
+
+    if (existingTab) {
+      // 更新现有 tab 为 diff
+      updateTab(existingTab.id, {
+        type: 'diff',
+        title: `Diff: ${fileName}`,
+        icon: 'file-diff',
+        filePath: filePath,
+        projectPath: projectPath,
+        diffFilePath: undefined,
+        status: 'idle',
+        hasUnsavedChanges: false
+      });
+      setActiveTab(existingTab.id);
+      return existingTab.id;
+    }
+
+    // 创建新 tab
+    return addTab({
+      type: 'diff',
+      title: `Diff: ${fileName}`,
+      filePath: filePath,
+      projectPath: projectPath,
+      status: 'idle',
+      hasUnsavedChanges: false,
+      icon: 'file-diff'
+    });
+  }, [tabs, addTab, updateTab, setActiveTab]);
+
+  // 创建 File Tab（与 Diff Tab 共用同一个 slot）
+  const createFileTab = useCallback((filePath: string, projectPath: string): string | null => {
+    const fileName = filePath.split('/').pop() || filePath;
+
+    // 查找现有的 file 或 diff tab
+    const existingTab = tabs.find(tab =>
+      (tab.type === 'file' || tab.type === 'diff') &&
+      tab.projectPath === projectPath
+    );
+
+    if (existingTab) {
+      // 更新现有 tab 为 file
+      updateTab(existingTab.id, {
+        type: 'file',
+        title: fileName,
+        icon: 'file',
+        filePath: filePath,
+        projectPath: projectPath,
+        diffFilePath: undefined,
+        status: 'idle',
+        hasUnsavedChanges: false
+      });
+      setActiveTab(existingTab.id);
+      return existingTab.id;
+    }
+
+    // 创建新 tab
+    return addTab({
+      type: 'file',
+      title: fileName,
+      filePath: filePath,
+      projectPath: projectPath,
+      status: 'idle',
+      hasUnsavedChanges: false,
+      icon: 'file'
+    });
+  }, [tabs, addTab, updateTab, setActiveTab]);
+
+  // 创建 WebViewer Tab
+  const createWebViewerTab = useCallback((url: string, projectPath: string): string | null => {
+    let displayName = 'Web';
+    try {
+      const urlObj = new URL(url);
+      displayName = urlObj.hostname || displayName;
+    } catch {
+      displayName = 'Web';
+    }
+
+    // 查找现有的 webview tab
+    const existingTab = tabs.find(tab =>
+      tab.type === 'webview' &&
+      tab.projectPath === projectPath
+    );
+
+    if (existingTab) {
+      updateTab(existingTab.id, {
+        title: displayName,
+        webviewUrl: url,
+        status: 'idle',
+        hasUnsavedChanges: false
+      });
+      setActiveTab(existingTab.id);
+      return existingTab.id;
+    }
+
+    return addTab({
+      type: 'webview',
+      title: displayName,
+      webviewUrl: url,
+      projectPath: projectPath,
+      status: 'idle',
+      hasUnsavedChanges: false,
+      icon: 'globe'
+    });
+  }, [tabs, addTab, updateTab, setActiveTab]);
 
   // Actions 状态
   const [actions, setActions] = useState<Action[]>([]);
