@@ -3,19 +3,27 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import type { StateCreator } from 'zustand';
 import { api } from '@/lib/api';
 import type { AgentRunWithMetrics } from '@/lib/api';
+import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+
+interface ProcessChangedEvent {
+  pid: number;
+  cwd: string;
+  state: string;
+  exitCode?: number;
+}
 
 interface AgentState {
   // Agent runs data
   agentRuns: AgentRunWithMetrics[];
   runningAgents: Set<string>;
   sessionOutputs: Record<string, string>;
-  
+
   // UI state
   isLoadingRuns: boolean;
   isLoadingOutput: boolean;
   error: string | null;
   lastFetchTime: number;
-  
+
   // Actions
   fetchAgentRuns: (forceRefresh?: boolean) => Promise<void>;
   fetchSessionOutput: (runId: number) => Promise<void>;
@@ -23,14 +31,12 @@ interface AgentState {
   cancelAgentRun: (runId: number) => Promise<void>;
   deleteAgentRun: (runId: number) => Promise<void>;
   clearError: () => void;
-  
+
   // Real-time updates
   handleAgentRunUpdate: (run: AgentRunWithMetrics) => void;
-  
-  // Polling management
-  startPolling: (interval?: number) => void;
-  stopPolling: () => void;
-  pollingInterval: NodeJS.Timeout | null;
+
+  // Event subscription management
+  subscribeToProcessEvents: () => () => void;
 }
 
 const agentStore: StateCreator<
@@ -47,7 +53,6 @@ const agentStore: StateCreator<
     isLoadingOutput: false,
     error: null,
     lastFetchTime: 0,
-    pollingInterval: null,
     
     // Fetch agent runs with caching
     fetchAgentRuns: async (forceRefresh = false) => {
@@ -186,52 +191,39 @@ const agentStore: StateCreator<
       set((state) => {
         const existingIndex = state.agentRuns.findIndex((r) => r.id === run.id);
         const updatedRuns = [...state.agentRuns];
-        
+
         if (existingIndex >= 0) {
           updatedRuns[existingIndex] = run;
         } else {
           updatedRuns.unshift(run);
         }
-        
+
         const runningIds = updatedRuns
           .filter((r) => r.status === 'running' || r.status === 'pending')
           .map((r) => r.id?.toString() || '')
           .filter(Boolean);
-        
+
         return {
           agentRuns: updatedRuns,
           runningAgents: new Set(runningIds)
         };
       });
     },
-    
-    // Start polling for updates
-    startPolling: (interval = 3000) => {
-      const { pollingInterval, stopPolling } = get();
-      
-      // Clear existing interval
-      if (pollingInterval) {
-        stopPolling();
-      }
-      
-      // Start new interval
-      const newInterval = setInterval(() => {
-        const { runningAgents } = get();
-        if (runningAgents.size > 0) {
-          get().fetchAgentRuns();
-        }
-      }, interval);
-      
-      set({ pollingInterval: newInterval });
-    },
-    
-    // Stop polling
-    stopPolling: () => {
-      const { pollingInterval } = get();
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-        set({ pollingInterval: null });
-      }
+
+    // Subscribe to process events for real-time updates
+    subscribeToProcessEvents: () => {
+      const handleProcessChange = (_event: ProcessChangedEvent) => {
+        // When any process state changes, refresh agent runs
+        // This ensures we catch new agent runs starting and existing ones completing
+        get().fetchAgentRuns();
+      };
+
+      EventsOn('process:changed', handleProcessChange);
+
+      // Return cleanup function
+      return () => {
+        EventsOff('process:changed');
+      };
     }
   });
 

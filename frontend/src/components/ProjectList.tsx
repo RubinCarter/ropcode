@@ -180,10 +180,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       setAutoSyncStatuses(statuses);
     };
 
+    // Initial status check when component mounts or projects change
     checkAutoSyncStatuses();
 
-    // Refresh statuses every 5 seconds
-    const interval = setInterval(checkAutoSyncStatuses, 5000);
+    // Use a longer interval (30s) for SSH status checks since they involve remote connections
+    // Future improvement: Backend should emit auto-sync events to eliminate polling
+    const interval = setInterval(checkAutoSyncStatuses, 30000);
     return () => clearInterval(interval);
   }, [projects]);
 

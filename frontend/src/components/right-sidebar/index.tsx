@@ -681,27 +681,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     return unlisten;
   }, [getCurrentState]);
 
-  // 定期检查并清理僵死的命令状态
-  useEffect(() => {
-    const checkInterval = setInterval(() => {
-      const currentState = getCurrentState();
-
-      // 清理孤立的运行状态（没有对应命令ID的）
-      currentState.sessionRunningState.forEach((isRunning, sessionId) => {
-        if (isRunning) {
-          const commandId = currentState.sessionCommandId.get(sessionId);
-          if (!commandId || !currentState.commandToSessionMap.has(commandId)) {
-            console.warn('[RightSidebar] ⚠️ 发现孤立的运行状态，清理:', sessionId);
-            currentState.sessionRunningState.set(sessionId, false);
-            currentState.sessionCommandId.delete(sessionId);
-            triggerUpdate();
-          }
-        }
-      });
-    }, 2000); // 每 2 秒检查一次
-
-    return () => clearInterval(checkInterval);
-  }, [getCurrentState, triggerUpdate]);
+  // 注意：不再需要轮询清理僵死的命令状态
+  // terminal-output 事件的 exit 处理（line 670-677）已经负责清理会话运行状态
+  // 如果出现异常情况，应该通过事件机制处理，而不是依赖轮询
 
   // 先定义所有变量和回调（在任何条件 return 之前）
   const currentOutputs = state.outputs[state.activeSessionId] || [];
