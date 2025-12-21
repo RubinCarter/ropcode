@@ -6,6 +6,7 @@ import { useFullscreen } from '@/hooks';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ContainerTabManager } from '@/components/containers';
+import { useContainerContext } from '@/contexts/ContainerContext';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,18 +26,20 @@ import {
 } from '@/components/ui/alert-dialog';
 
 interface CustomTitlebarProps {
-  currentProjectPath?: string;
   sidebarCollapsed?: boolean;
   rightSidebarOpen?: boolean;
   rightSidebarWidth?: number;
 }
 
 export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
-  currentProjectPath,
   sidebarCollapsed = false,
   rightSidebarOpen: rightSidebarOpenProp = true,
   rightSidebarWidth = 400
 }) => {
+  // 从 ContainerContext 获取当前 workspace 路径
+  const { activeType, activeWorkspaceId } = useContainerContext();
+  const currentProjectPath = activeType === 'workspace' ? activeWorkspaceId : undefined;
+
   const [isHovered, setIsHovered] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(rightSidebarOpenProp);
   // 真实的右侧栏显示状态（考虑了 tab 类型等所有条件）

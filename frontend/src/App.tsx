@@ -21,7 +21,7 @@ import { StartupIntro } from "@/components/StartupIntro";
  * AppContent component - Contains the main app logic, wrapped by providers
  */
 function AppContent() {
-  const { createClaudeMdTab, createSettingsTab, createUsageTab, createMCPTab, createAgentsTab, activeTabId, getTabById } = useTabState();
+  const { createClaudeMdTab, createSettingsTab, createUsageTab, createMCPTab, createAgentsTab } = useTabState();
   const [showNFO, setShowNFO] = useState(false);
   const [showClaudeBinaryDialog, setShowClaudeBinaryDialog] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
@@ -32,9 +32,7 @@ function AppContent() {
   // Initialize analytics lifecycle tracking
   useAppLifecycle();
 
-  // Get current active tab's project path
-  const activeTab = activeTabId ? getTabById(activeTabId) : undefined;
-  const currentProjectPath = activeTab?.projectPath || activeTab?.initialProjectPath;
+  // Note: currentProjectPath is now managed by ContainerContext, used directly in CustomTitlebar
 
   // Listen for sidebar state changes
   useEffect(() => {
@@ -256,7 +254,6 @@ function AppContent() {
     <div className="h-screen flex flex-col">
       {/* Custom Titlebar with integrated TabManager */}
       <CustomTitlebar
-        currentProjectPath={currentProjectPath}
         sidebarCollapsed={sidebarCollapsed}
         rightSidebarOpen={rightSidebarOpen}
         rightSidebarWidth={rightSidebarWidth}
