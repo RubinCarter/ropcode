@@ -913,38 +913,47 @@ func (a *App) PushToMainWorktree(path string) (string, error) {
 		return "", fmt.Errorf("main worktree has uncommitted changes. Please commit or stash them first")
 	}
 
-	// 4. Check for merge conflicts (dry run)
-	cmd = exec.Command("git", "merge", "--no-commit", "--no-ff", currentBranch)
-	cmd.Dir = worktreeInfo.RootPath
-	err = cmd.Run()
+	// 4. Get the SHA of current branch (to avoid "branch is checked out" error)
+	cmd = exec.Command("git", "rev-parse", currentBranch)
+	cmd.Dir = path
+	output, err = cmd.Output()
 	if err != nil {
-		// Abort the failed merge attempt
-		abortCmd := exec.Command("git", "merge", "--abort")
-		abortCmd.Dir = worktreeInfo.RootPath
-		abortCmd.Run()
-
-		return "", fmt.Errorf("cannot push to main: merge would result in conflicts.\n\n" +
-			"The main branch has changes that conflict with your worktree branch.\n\n" +
-			"To resolve this:\n" +
-			"1. In your worktree, merge the main branch first:\n" +
-			"   cd " + path + "\n" +
-			"   git merge " + worktreeInfo.MainBranch + "\n" +
-			"2. Resolve any conflicts\n" +
-			"3. Commit the merge\n" +
-			"4. Then try pushing to main again")
+		return "", fmt.Errorf("failed to get branch SHA: %w", err)
 	}
+	branchSHA := strings.TrimSpace(string(output))
 
-	// Abort the test merge
-	abortCmd := exec.Command("git", "merge", "--abort")
-	abortCmd.Dir = worktreeInfo.RootPath
-	abortCmd.Run()
-
-	// 5. Perform the actual merge
-	cmd = exec.Command("git", "merge", "--no-edit", currentBranch, "-m", "Merge from worktree: "+currentBranch)
+	// 5. Perform merge in main worktree using SHA instead of branch name
+	// This avoids the "cannot merge branch that is checked out in a worktree" error
+	cmd = exec.Command("git", "merge", "--no-edit", branchSHA, "-m", "Merge from worktree: "+currentBranch)
 	cmd.Dir = worktreeInfo.RootPath
 	output, err = cmd.CombinedOutput()
+	outputStr := string(output)
+
 	if err != nil {
-		return "", fmt.Errorf("failed to merge: %s", string(output))
+		// Check if it's a conflict
+		if strings.Contains(outputStr, "CONFLICT") || strings.Contains(outputStr, "conflict") {
+			// Abort the merge
+			abortCmd := exec.Command("git", "merge", "--abort")
+			abortCmd.Dir = worktreeInfo.RootPath
+			abortCmd.Run()
+
+			return "", fmt.Errorf("cannot push to main: merge would result in conflicts.\n\n" +
+				"The main branch has changes that conflict with your worktree branch.\n\n" +
+				"To resolve this:\n" +
+				"1. In your worktree, merge the main branch first:\n" +
+				"   cd " + path + "\n" +
+				"   git merge " + worktreeInfo.MainBranch + "\n" +
+				"2. Resolve any conflicts\n" +
+				"3. Commit the merge\n" +
+				"4. Then try pushing to main again")
+		}
+
+		// Check if already up to date
+		if strings.Contains(outputStr, "Already up to date") {
+			return "Already up to date. Nothing to push.", nil
+		}
+
+		return "", fmt.Errorf("failed to merge: %s", outputStr)
 	}
 
 	return fmt.Sprintf("Successfully pushed %s to %s at %s", currentBranch, worktreeInfo.MainBranch, worktreeInfo.RootPath), nil
