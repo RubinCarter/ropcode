@@ -782,6 +782,10 @@ export function TrackSessionMessages(arg1, arg2, arg3) {
   return window['go']['main']['App']['TrackSessionMessages'](arg1, arg2, arg3);
 }
 
+export function UnwatchGitWorkspace(arg1) {
+  return window['go']['main']['App']['UnwatchGitWorkspace'](arg1);
+}
+
 export function UpdateAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
   return window['go']['main']['App']['UpdateAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
@@ -848,8 +852,4 @@ export function WriteFile(arg1, arg2) {
 
 export function WriteToPty(arg1, arg2) {
   return window['go']['main']['App']['WriteToPty'](arg1, arg2);
-}
-
-export function UnwatchGitWorkspace(arg1) {
-  return window['go']['main']['App']['UnwatchGitWorkspace'](arg1);
 }

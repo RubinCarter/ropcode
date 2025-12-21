@@ -398,6 +398,8 @@ export function TrackCheckpointMessage(arg1:string,arg2:string,arg3:number):Prom
 
 export function TrackSessionMessages(arg1:string,arg2:string,arg3:Array<any>):Promise<void>;
 
+export function UnwatchGitWorkspace(arg1:string):Promise<void>;
+
 export function UpdateAgent(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string):Promise<void>;
 
 export function UpdateCheckpointSettings(arg1:string,arg2:string,arg3:Record<string, any>):Promise<void>;
@@ -431,5 +433,3 @@ export function WatchGitWorkspace(arg1:string):Promise<void>;
 export function WriteFile(arg1:string,arg2:string):Promise<void>;
 
 export function WriteToPty(arg1:string,arg2:string):Promise<void>;
-
-export function UnwatchGitWorkspace(arg1:string):Promise<void>;

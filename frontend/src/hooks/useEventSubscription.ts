@@ -46,6 +46,9 @@ export interface WorktreeChangedEvent {
 
 /**
  * 通用事件订阅 hook
+ *
+ * 使用 queueMicrotask 延迟回调执行，避免在 React 渲染周期内触发状态更新
+ * 导致的 flushSync 警告（特别是当组件使用 @tanstack/react-virtual 时）
  */
 export function useEventSubscription<T>(
   eventName: string,
@@ -59,7 +62,11 @@ export function useEventSubscription<T>(
     if (!enabled) return;
 
     const wrappedHandler = (event: T) => {
-      handlerRef.current(event);
+      // 使用 queueMicrotask 延迟到下一个微任务队列
+      // 避免在当前渲染周期内触发状态更新
+      queueMicrotask(() => {
+        handlerRef.current(event);
+      });
     };
 
     EventsOn(eventName, wrappedHandler);

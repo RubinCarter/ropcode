@@ -77,6 +77,7 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
   }, [syncProcessState]);
 
   // Subscribe to process state changes via event system
+  // Note: useEventSubscription internally uses queueMicrotask to avoid flushSync warnings
   useProcessChanged(projectPath, (event) => {
     if (event.state === "running") {
       setIsLoading(true);
