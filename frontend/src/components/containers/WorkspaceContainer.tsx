@@ -250,6 +250,18 @@ const WorkspaceTabManagerPortal: React.FC<{ visible: boolean }> = ({ visible }) 
 export const WorkspaceContainer: React.FC<WorkspaceContainerProps> = ({ workspaceId, visible }) => {
   const [rightSidebarOpen, setRightSidebarOpen] = React.useState(true);
 
+  // 监听全局 toggle-right-sidebar 事件
+  React.useEffect(() => {
+    const handleToggle = () => {
+      if (visible) {
+        setRightSidebarOpen(prev => !prev);
+      }
+    };
+
+    window.addEventListener('toggle-right-sidebar', handleToggle);
+    return () => window.removeEventListener('toggle-right-sidebar', handleToggle);
+  }, [visible]);
+
   return (
     <WorkspaceTabProvider workspaceId={workspaceId}>
       {/* Portal: 将 TabManager 渲染到标题栏 */}
