@@ -1,8 +1,10 @@
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { WorkspaceTabProvider, useWorkspaceTabContext } from '@/contexts/WorkspaceTabContext';
 import { RightSidebar } from '@/components/right-sidebar';
 import { Loader2 } from 'lucide-react';
 import { providers } from '@/lib/providers';
+import { WorkspaceTabManager } from './WorkspaceTabManager';
 
 // Lazy load heavy components
 const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
@@ -20,10 +22,27 @@ interface WorkspaceContainerProps {
 const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
   const { tabs, activeTabId, addTab, updateTab, removeTab, getTabById } = useWorkspaceTabContext();
   const activeTab = activeTabId ? getTabById(activeTabId) : undefined;
+  const activeTabIdRef = React.useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+
+  // Track initialization to prevent double-init in StrictMode
+  const initializingRef = React.useRef(false);
+  const initializedRef = React.useRef(false);
 
   useEffect(() => {
+    // Prevent double initialization
+    if (initializedRef.current || initializingRef.current) {
+      return;
+    }
     if (tabs.length === 0) {
-      initializeWorkspace();
+      initializingRef.current = true;
+      initializeWorkspace().finally(() => {
+        initializingRef.current = false;
+        initializedRef.current = true;
+      });
+    } else {
+      // Already has tabs, mark as initialized
+      initializedRef.current = true;
     }
   }, []);
 
@@ -64,6 +83,35 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     }
   };
 
+  // Stable callbacks to prevent infinite re-renders
+  const handleStreamingChange = useCallback((isStreaming: boolean, sessionId?: string) => {
+    const tabId = activeTabIdRef.current;
+    if (tabId) {
+      updateTab(tabId, {
+        status: isStreaming ? 'running' : 'idle',
+        sessionId: sessionId,
+      });
+    }
+  }, [updateTab]);
+
+  const handleProjectPathChange = useCallback((path: string) => {
+    const tabId = activeTabIdRef.current;
+    if (tabId) {
+      updateTab(tabId, { projectPath: path });
+    }
+  }, [updateTab]);
+
+  const handleProviderChange = useCallback((providerId: string) => {
+    const tabId = activeTabIdRef.current;
+    if (tabId) {
+      updateTab(tabId, { providerId });
+    }
+  }, [updateTab]);
+
+  const handleBack = useCallback(() => {
+    // Chat tab doesn't have a back button, this is a no-op
+  }, []);
+
   const renderTabContent = () => {
     if (!activeTab) {
       return (
@@ -80,27 +128,10 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             session={activeTab.sessionData}
             initialProjectPath={activeTab.projectPath}
             defaultProvider={activeTab.providerId}
-            onBack={() => {
-              // Chat tab doesn't have a back button, this is a no-op
-            }}
-            onStreamingChange={(isStreaming, sessionId) => {
-              if (activeTab.id) {
-                updateTab(activeTab.id, {
-                  status: isStreaming ? 'running' : 'idle',
-                  sessionId: sessionId || activeTab.sessionId,
-                });
-              }
-            }}
-            onProjectPathChange={(path) => {
-              if (activeTab.id) {
-                updateTab(activeTab.id, { projectPath: path });
-              }
-            }}
-            onProviderChange={(providerId) => {
-              if (activeTab.id) {
-                updateTab(activeTab.id, { providerId });
-              }
-            }}
+            onBack={handleBack}
+            onStreamingChange={handleStreamingChange}
+            onProjectPathChange={handleProjectPathChange}
+            onProviderChange={handleProviderChange}
           />
         );
 
@@ -195,11 +226,35 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   );
 };
 
+// 将 WorkspaceTabManager 渲染到标题栏的 Portal 组件
+const WorkspaceTabManagerPortal: React.FC<{ visible: boolean }> = ({ visible }) => {
+  const [portalTarget, setPortalTarget] = React.useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    // 查找标题栏中的插槽
+    const slot = document.getElementById('workspace-tab-manager-slot');
+    setPortalTarget(slot);
+  }, []);
+
+  // 只有当 visible 且有目标时才渲染
+  if (!visible || !portalTarget) {
+    return null;
+  }
+
+  return createPortal(
+    <WorkspaceTabManager className="self-stretch" />,
+    portalTarget
+  );
+};
+
 export const WorkspaceContainer: React.FC<WorkspaceContainerProps> = ({ workspaceId, visible }) => {
   const [rightSidebarOpen, setRightSidebarOpen] = React.useState(true);
 
   return (
     <WorkspaceTabProvider workspaceId={workspaceId}>
+      {/* Portal: 将 TabManager 渲染到标题栏 */}
+      <WorkspaceTabManagerPortal visible={visible} />
+
       <div className={`h-full w-full flex ${visible ? '' : 'hidden'}`}>
         <div className="flex-1 flex flex-col overflow-hidden">
           <WorkspaceContent workspaceId={workspaceId} />

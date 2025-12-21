@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import { useFullscreen } from '@/hooks';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { TabManager } from '@/components/TabManager';
+import { ContainerTabManager } from '@/components/containers';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -486,8 +486,8 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
       {/* 中间区域 - TabManager + Titlebar Controls */}
       <div className="flex-1 flex items-stretch gap-2 px-2 wails-drag">
-        {/* TabManager - 仅占据内容宽度 */}
-        <TabManager className="self-stretch" />
+        {/* ContainerTabManager - 根据 activeType 显示对应的 TabManager */}
+        <ContainerTabManager className="self-stretch" />
 
         {/* 右侧 - Workspace Name 和 Open in 按钮 */}
         <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
