@@ -3,20 +3,17 @@ import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { 
-  X, 
-  Folder, 
-  File, 
+import {
+  X,
   ArrowLeft,
-  FileCode,
-  FileText,
-  FileImage,
   Search,
   ChevronRight,
   Bot
 } from "lucide-react";
 import type { FileEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useFilesStore } from "@/widgets/files/FilesModel";
+import { getFileIconConfig } from "@/lib/file-icons";
 
 // Global caches that persist across component instances
 const globalDirectoryCache = new Map<string, FileEntry[]>();
@@ -61,34 +58,14 @@ interface FilePickerProps {
   anchorRef?: React.RefObject<HTMLElement>;
 }
 
-// File icon mapping based on entry type and extension
+// Get file icon with color using the centralized icon system
 const getFileIcon = (entry: FileEntry) => {
   // Handle agents first
   if (entry.entry_type === "agent") {
-    return Bot;
+    return { icon: Bot, color: '#61dafb' };
   }
-  
-  if (entry.is_directory) return Folder;
-  
-  const ext = entry.extension?.toLowerCase();
-  if (!ext) return File;
-  
-  // Code files
-  if (['ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go', 'java', 'cpp', 'c', 'h'].includes(ext)) {
-    return FileCode;
-  }
-  
-  // Text/Markdown files
-  if (['md', 'txt', 'json', 'yaml', 'yml', 'toml', 'xml', 'html', 'css'].includes(ext)) {
-    return FileText;
-  }
-  
-  // Image files
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext)) {
-    return FileImage;
-  }
-  
-  return File;
+
+  return getFileIconConfig(entry.name, entry.is_directory);
 };
 
 // Format file size to human readable
@@ -119,20 +96,53 @@ export const FilePicker: React.FC<FilePickerProps> = ({
   showAgents = false,
   anchorRef,
 }) => {
-  const searchQuery = initialQuery;
+  // Use store for UI state management
+  const searchText = useFilesStore((state) => state.searchText);
+  const setSearchText = useFilesStore((state) => state.setSearchText);
+  const focusIndex = useFilesStore((state) => state.focusIndex);
+  const setFocusIndex = useFilesStore((state) => state.setFocusIndex);
+  const showHidden = useFilesStore((state) => state.showHidden);
+  const toggleShowHidden = useFilesStore((state) => state.toggleShowHidden);
+  const isLoading = useFilesStore((state) => state.isLoading);
+  const setLoading = useFilesStore((state) => state.setLoading);
+  const storeCurrentPath = useFilesStore((state) => state.currentPath);
+  const setStoreCurrentPath = useFilesStore((state) => state.setCurrentPath);
+  const storeReset = useFilesStore((state) => state.reset);
 
+  // Initialize search text from initialQuery
+  useEffect(() => {
+    if (initialQuery) {
+      setSearchText(initialQuery);
+    }
+    // Cleanup on unmount
+    return () => {
+      storeReset();
+    };
+  }, []);
+
+  // Local state for FilePicker-specific data (not in store)
   const [currentPath, setCurrentPath] = useState(basePath);
   const [entries, setEntries] = useState<FileEntry[]>(() =>
-    searchQuery.trim() ? [] : globalDirectoryCache.get(basePath) || []
+    initialQuery.trim() ? [] : globalDirectoryCache.get(basePath) || []
   );
   const [searchResults, setSearchResults] = useState<FileEntry[]>(() => {
-    if (searchQuery.trim()) {
-      const cacheKey = `${basePath}:${searchQuery}`;
+    if (initialQuery.trim()) {
+      const cacheKey = `${basePath}:${initialQuery}`;
       return globalSearchCache.get(cacheKey) || [];
     }
     return [];
   });
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pathHistory, setPathHistory] = useState<string[]>([basePath]);
+  const [isShowingCached, setIsShowingCached] = useState(() => {
+    // Check if we're showing cached data on mount
+    if (initialQuery.trim()) {
+      const cacheKey = `${basePath || 'agents'}:${initialQuery}`;
+      return globalSearchCache.has(cacheKey);
+    }
+    return globalDirectoryCache.has(basePath);
+  });
 
   // Calculate position based on anchor element
   useEffect(() => {
@@ -145,28 +155,16 @@ export const FilePicker: React.FC<FilePickerProps> = ({
       });
     }
   }, [anchorRef]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [pathHistory, setPathHistory] = useState<string[]>([basePath]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [isShowingCached, setIsShowingCached] = useState(() => {
-    // Check if we're showing cached data on mount
-    if (searchQuery.trim()) {
-      const cacheKey = `${basePath || 'agents'}:${searchQuery}`;
-      return globalSearchCache.has(cacheKey);
-    }
-    return globalDirectoryCache.has(basePath);
-  });
-  
+
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const fileListRef = useRef<HTMLDivElement>(null);
-  
-  // Computed values
-  const displayEntries = searchQuery.trim() ? searchResults : entries;
+
+  // Computed values - now using store's searchText instead of local searchQuery
+  const displayEntries = searchText.trim() ? searchResults : entries;
   const canGoBack = pathHistory.length > 1;
-  
+
   // Get relative path for display
-  const relativePath = basePath && currentPath.startsWith(basePath) 
+  const relativePath = basePath && currentPath.startsWith(basePath)
     ? currentPath.slice(basePath.length) || '/'
     : currentPath;
 
@@ -175,26 +173,26 @@ export const FilePicker: React.FC<FilePickerProps> = ({
     loadDirectory(currentPath);
   }, [currentPath]);
 
-  // Debounced search
+  // Debounced search - now using store's searchText
   useEffect(() => {
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
     }
 
-    if (searchQuery.trim()) {
-      const cacheKey = `${basePath}:${searchQuery}`;
-      
+    if (searchText.trim()) {
+      const cacheKey = `${basePath}:${searchText}`;
+
       // Immediately show cached results if available
       if (globalSearchCache.has(cacheKey)) {
-        console.log('[FilePicker] Immediately showing cached search results for:', searchQuery);
+        console.log('[FilePicker] Immediately showing cached search results for:', searchText);
         setSearchResults(globalSearchCache.get(cacheKey) || []);
         setIsShowingCached(true);
         setError(null);
       }
-      
+
       // Schedule fresh search after debounce
       searchDebounceRef.current = setTimeout(() => {
-        performSearch(searchQuery);
+        performSearch(searchText);
       }, 300);
     } else {
       setSearchResults([]);
@@ -206,53 +204,55 @@ export const FilePicker: React.FC<FilePickerProps> = ({
         clearTimeout(searchDebounceRef.current);
       }
     };
-  }, [searchQuery, basePath]);
+  }, [searchText, basePath]);
 
-  // Reset selected index when entries change
+  // Reset focus index when entries change
   useEffect(() => {
-    setSelectedIndex(0);
+    setFocusIndex(0);
   }, [entries, searchResults]);
 
-  // Keyboard navigation
+  // Keyboard navigation - now using store's focusIndex
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const displayEntries = searchQuery.trim() ? searchResults : entries;
-      
+      const displayEntries = searchText.trim() ? searchResults : entries;
+
       switch (e.key) {
         case 'Escape':
           e.preventDefault();
           onClose();
           break;
-          
+
         case 'Enter':
           e.preventDefault();
           // Enter always selects the current item (file or directory)
-          if (displayEntries.length > 0 && selectedIndex < displayEntries.length) {
-            onSelect(displayEntries[selectedIndex]);
+          if (displayEntries.length > 0 && focusIndex < displayEntries.length) {
+            onSelect(displayEntries[focusIndex]);
           }
           break;
-          
+
         case 'ArrowUp':
           e.preventDefault();
-          setSelectedIndex(prev => Math.max(0, prev - 1));
+          // Move focus up in FilePicker's displayEntries
+          setFocusIndex(Math.max(0, focusIndex - 1));
           break;
-          
+
         case 'ArrowDown':
           e.preventDefault();
-          setSelectedIndex(prev => Math.min(displayEntries.length - 1, prev + 1));
+          // Move focus down in FilePicker's displayEntries
+          setFocusIndex(Math.min(displayEntries.length - 1, focusIndex + 1));
           break;
-          
+
         case 'ArrowRight':
           e.preventDefault();
           // Right arrow enters directories
-          if (displayEntries.length > 0 && selectedIndex < displayEntries.length) {
-            const entry = displayEntries[selectedIndex];
+          if (displayEntries.length > 0 && focusIndex < displayEntries.length) {
+            const entry = displayEntries[focusIndex];
             if (entry.is_directory) {
               navigateToDirectory(entry.path);
             }
           }
           break;
-          
+
         case 'ArrowLeft':
           e.preventDefault();
           // Left arrow goes back to parent directory
@@ -265,22 +265,22 @@ export const FilePicker: React.FC<FilePickerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [entries, searchResults, selectedIndex, searchQuery, canGoBack]);
+  }, [entries, searchResults, focusIndex, searchText, canGoBack]);
 
-  // Scroll selected item into view
+  // Scroll selected item into view - now using focusIndex
   useEffect(() => {
     if (fileListRef.current) {
-      const selectedElement = fileListRef.current.querySelector(`[data-index="${selectedIndex}"]`);
+      const selectedElement = fileListRef.current.querySelector(`[data-index="${focusIndex}"]`);
       if (selectedElement) {
         selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     }
-  }, [selectedIndex]);
+  }, [focusIndex]);
 
   const loadDirectory = async (path: string) => {
     try {
       console.log('[FilePicker] Loading directory:', path);
-      
+
       // Check cache first and show immediately
       if (globalDirectoryCache.has(path)) {
         console.log('[FilePicker] Showing cached contents for:', path);
@@ -289,47 +289,47 @@ export const FilePicker: React.FC<FilePickerProps> = ({
         setError(null);
       } else {
         // Only show loading if we don't have cached data
-        setIsLoading(true);
+        setLoading(true);
       }
-      
+
       // Fetch contents from different sources
       const promises: Promise<FileEntry[]>[] = [];
-      
+
       // Always fetch directory contents if path is provided
       if (path) {
         promises.push(api.listDirectoryContents(path));
       }
-      
+
       // Add agents if we're showing them and at base path (root level browsing)
       if (showAgents && path === basePath) {
         promises.push(api.listClaudeAgents());
       }
-      
+
       // Wait for all content loading to complete
       const resultsArrays = await Promise.all(promises);
-      
+
       // Combine all results
       const contents = resultsArrays.flat();
-      
+
       console.log('[FilePicker] Loaded fresh contents:', contents.length, 'items');
-      
+
       // Sort entries: agents first, then directories, then files
       const sortedContents = [...contents].sort((a, b) => {
         // Agents come first
         if (a.entry_type === "agent" && b.entry_type !== "agent") return -1;
         if (a.entry_type !== "agent" && b.entry_type === "agent") return 1;
-        
+
         // Then directories vs files
         if (a.is_directory && !b.is_directory) return -1;
         if (!a.is_directory && b.is_directory) return 1;
-        
+
         // Alphabetical within each group
         return a.name.localeCompare(b.name);
       });
-      
+
       // Cache the results
       globalDirectoryCache.set(path, sortedContents);
-      
+
       // Update with fresh data
       setEntries(sortedContents);
       setIsShowingCached(false);
@@ -342,17 +342,17 @@ export const FilePicker: React.FC<FilePickerProps> = ({
         setError(err instanceof Error ? err.message : 'Failed to load directory');
       }
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   const performSearch = async (query: string) => {
     try {
       console.log('[FilePicker] Searching for:', query, 'in:', basePath);
-      
+
       // Create cache key that includes both query and basePath
       const cacheKey = `${basePath}:${query}`;
-      
+
       // Check cache first and show immediately
       if (globalSearchCache.has(cacheKey)) {
         console.log('[FilePicker] Showing cached search results for:', query);
@@ -361,47 +361,47 @@ export const FilePicker: React.FC<FilePickerProps> = ({
         setError(null);
       } else {
         // Only show loading if we don't have cached data
-        setIsLoading(true);
+        setLoading(true);
       }
-      
+
       // Fetch results from different sources in parallel
       const promises: Promise<FileEntry[]>[] = [];
-      
+
       // Add file search if basePath is provided
       if (basePath) {
         promises.push(api.searchFiles(basePath, query));
       }
-      
+
       // Add agent search if enabled
       if (showAgents) {
         promises.push(api.searchClaudeAgents(query));
       }
-      
+
       // Wait for all searches to complete
       const resultsArrays = await Promise.all(promises);
-      
+
       // Combine all results
       const results = resultsArrays.flat();
-      
+
       // Sort search results: agents first, then directories, then files
       const sortedResults = [...results].sort((a, b) => {
         // Agents come first
         if (a.entry_type === "agent" && b.entry_type !== "agent") return -1;
         if (a.entry_type !== "agent" && b.entry_type === "agent") return 1;
-        
+
         // Then directories vs files
         if (a.is_directory && !b.is_directory) return -1;
         if (!a.is_directory && b.is_directory) return 1;
-        
+
         // Alphabetical within each group
         return a.name.localeCompare(b.name);
       });
-      
+
       console.log('[FilePicker] Fresh search results:', results.length, 'items');
-      
+
       // Cache the results
       globalSearchCache.set(cacheKey, sortedResults);
-      
+
       // Update with fresh results
       setSearchResults(sortedResults);
       setIsShowingCached(false);
@@ -414,7 +414,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
         setError(err instanceof Error ? err.message : 'Search failed');
       }
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -520,7 +520,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
           <div className="flex flex-col items-center justify-center h-full">
             <Search className="h-8 w-8 text-muted-foreground mb-2" />
             <span className="text-sm text-muted-foreground">
-              {searchQuery.trim() ? 'No files found' : 'Empty directory'}
+              {searchText.trim() ? 'No files found' : 'Empty directory'}
             </span>
           </div>
         )}
@@ -528,31 +528,31 @@ export const FilePicker: React.FC<FilePickerProps> = ({
         {displayEntries.length > 0 && (
           <div className="p-2 space-y-0.5" ref={fileListRef}>
             {displayEntries.map((entry, index) => {
-              const Icon = getFileIcon(entry);
-              const isSearching = searchQuery.trim() !== '';
-              const isSelected = index === selectedIndex;
-              
+              const iconConfig = getFileIcon(entry);
+              const IconComponent = iconConfig.icon;
+              const isSearching = searchText.trim() !== '';
+              const isSelected = index === focusIndex;
+
               return (
                 <button
                   key={entry.path}
                   data-index={index}
                   onClick={() => handleEntryClick(entry)}
                   onDoubleClick={() => handleEntryDoubleClick(entry)}
-                  onMouseEnter={() => setSelectedIndex(index)}
+                  onMouseEnter={() => setFocusIndex(index)}
                   className={cn(
                     "w-full flex items-center gap-2 px-2 py-1.5 rounded-md",
-                    "hover:bg-accent transition-colors",
+                    "hover:bg-white/10 transition-colors",
                     "text-left text-sm",
-                    isSelected && "bg-accent"
+                    isSelected && "bg-white/15"
                   )}
                   title={entry.is_directory ? "Click to select • Double-click to enter" : "Click to select"}
                 >
-                  <Icon className={cn(
-                    "h-4 w-4 flex-shrink-0",
-                    entry.entry_type === "agent" ? "text-blue-500" : 
-                    entry.is_directory ? "text-blue-500" : "text-muted-foreground"
-                  )} />
-                  
+                  <IconComponent
+                    className="h-4 w-4 flex-shrink-0"
+                    style={{ color: iconConfig.color }}
+                  />
+
                   <div className="flex-1 flex items-center gap-2 truncate">
                     <span className="truncate">
                       {entry.name}
@@ -561,17 +561,17 @@ export const FilePicker: React.FC<FilePickerProps> = ({
                       <span className="text-sm">{entry.icon}</span>
                     )}
                   </div>
-                  
+
                   {!entry.is_directory && entry.size > 0 && (
                     <span className="text-xs text-muted-foreground">
                       {formatFileSize(entry.size)}
                     </span>
                   )}
-                  
+
                   {entry.is_directory && (
                     <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   )}
-                  
+
                   {isSearching && (
                     <span className="text-xs text-muted-foreground font-mono truncate max-w-[150px]">
                       {entry.path.replace(basePath, '').replace(/^\//, '')}
