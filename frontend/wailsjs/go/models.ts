@@ -357,6 +357,76 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class ThinkingLevel {
+	    id: string;
+	    name: string;
+	    budget: any;
+	    is_default: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ThinkingLevel(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.budget = source["budget"];
+	        this.is_default = source["is_default"];
+	    }
+	}
+	export class ModelConfig {
+	    id: string;
+	    model_id: string;
+	    provider_id: string;
+	    display_name: string;
+	    description: string;
+	    is_builtin: boolean;
+	    is_enabled: boolean;
+	    is_default: boolean;
+	    thinking_levels: ThinkingLevel[];
+	    // Go type: time
+	    created_at: any;
+	    // Go type: time
+	    updated_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ModelConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.model_id = source["model_id"];
+	        this.provider_id = source["provider_id"];
+	        this.display_name = source["display_name"];
+	        this.description = source["description"];
+	        this.is_builtin = source["is_builtin"];
+	        this.is_enabled = source["is_enabled"];
+	        this.is_default = source["is_default"];
+	        this.thinking_levels = this.convertValues(source["thinking_levels"], ThinkingLevel);
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.updated_at = this.convertValues(source["updated_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class WorkspaceIndex {
 	    name: string;
 	    added_at: number;
@@ -528,6 +598,7 @@ export namespace database {
 	        this.page_size = source["page_size"];
 	    }
 	}
+	
 
 }
 

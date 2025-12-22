@@ -29,6 +29,7 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Toast, ToastContainer } from "@/components/ui/toast";
+import { ModelManager } from "./ModelManager";
 
 interface ProviderApiManagerProps {
   className?: string;
@@ -438,6 +439,12 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Separator */}
+      <div className="border-t border-border my-8" />
+
+      {/* Model Configuration Section */}
+      <ModelManager setToast={setToast || ((t) => setLocalToast(t))} />
 
       {/* Toast Notification (if not using parent toast) */}
       {!setToast && (

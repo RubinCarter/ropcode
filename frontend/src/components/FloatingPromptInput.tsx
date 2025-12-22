@@ -25,7 +25,7 @@ import { SlashCommandPicker } from "./SlashCommandPicker";
 import { SkillPicker } from "./SkillPicker";
 import { ImagePreview } from "./ImagePreview";
 import { ProviderApiQuickSelector } from "./ProviderApiQuickSelector";
-import { api, type FileEntry, type SlashCommand, type Skill } from "@/lib/api";
+import { api, type FileEntry, type SlashCommand, type Skill, type ModelConfig, type ThinkingLevel } from "@/lib/api";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
@@ -511,12 +511,72 @@ const FloatingPromptInputInner = (
   const [embeddedImages, setEmbeddedImages] = useState<string[]>([]);
   const [dragActive, setDragActive] = useState(false);
 
+  // Model configs from API
+  const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([]);
+  const [modelConfigsLoaded, setModelConfigsLoaded] = useState(false);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const expandedTextareaRef = useRef<HTMLTextAreaElement>(null);
   const unlistenDragDropRef = useRef<(() => void) | null>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null); // For picker positioning via portal
   const [textareaHeight, setTextareaHeight] = useState<number>(48);
   const isIMEComposingRef = useRef(false);
+
+  // Helper: Get icon for a model based on its ID and provider
+  const getModelIcon = (modelId: string, providerId: string): React.ReactNode => {
+    // Use hardcoded model icons if available
+    const hardcodedModel = PROVIDER_MODELS[providerId]?.find(m => m.id === modelId);
+    if (hardcodedModel?.icon) {
+      return hardcodedModel.icon;
+    }
+    // Default icons based on provider
+    switch (providerId) {
+      case 'claude':
+        return <ClaudeIcon className="h-3.5 w-3.5" />;
+      case 'codex':
+        return <OpenAIIcon className="h-3.5 w-3.5" />;
+      case 'gemini':
+        return <GeminiIcon className="h-3.5 w-3.5" />;
+      default:
+        return <Sparkles className="h-3.5 w-3.5" />;
+    }
+  };
+
+  // Helper: Get short name for a model
+  const getModelShortName = (modelId: string): string => {
+    // Check hardcoded models first
+    for (const provider in PROVIDER_MODELS) {
+      const model = PROVIDER_MODELS[provider].find(m => m.id === modelId);
+      if (model?.shortName) {
+        return model.shortName;
+      }
+    }
+    // Generate from model ID
+    return modelId.substring(0, 2).toUpperCase();
+  };
+
+  // Helper: Get icon for thinking mode
+  const getThinkingModeIcon = (modeId: string): React.ReactNode => {
+    switch (modeId) {
+      case 'auto':
+        return <Sparkles className="h-3.5 w-3.5" />;
+      case 'think':
+      case 'minimal':
+        return <Lightbulb className="h-3.5 w-3.5" />;
+      case 'think_hard':
+      case 'low':
+        return <Brain className="h-3.5 w-3.5" />;
+      case 'think_harder':
+      case 'medium':
+        return <Cpu className="h-3.5 w-3.5" />;
+      case 'ultrathink':
+      case 'high':
+      case 'xhigh':
+        return <Rocket className="h-3.5 w-3.5" />;
+      default:
+        return <Sparkles className="h-3.5 w-3.5" />;
+    }
+  };
 
   // Calculate and set textarea height based on content
   const updateTextareaHeight = useCallback((textarea: HTMLTextAreaElement, content: string) => {
@@ -570,28 +630,117 @@ const FloatingPromptInputInner = (
     textarea.style.height = `${newHeight}px`;
   }, []);
 
-  // Get current thinking modes - model-specific takes precedence over provider-level
-  const currentThinkingModes = MODEL_THINKING_MODES[selectedModel] || PROVIDER_THINKING_MODES[selectedProvider] || CLAUDE_THINKING_MODES;
+  // Load model configs from API on mount
+  useEffect(() => {
+    const loadModelConfigs = async () => {
+      try {
+        const configs = await api.getEnabledModelConfigs();
+        setModelConfigs(configs);
+        setModelConfigsLoaded(true);
+
+        // Set default model for current provider if available
+        const providerConfigs = configs.filter(c => c.provider_id === selectedProvider && c.is_enabled);
+        const defaultConfig = providerConfigs.find(c => c.is_default) || providerConfigs[0];
+        if (defaultConfig) {
+          setSelectedModel(defaultConfig.model_id);
+          // Set default thinking mode from config
+          const defaultThinking = defaultConfig.thinking_levels?.find(t => t.is_default);
+          if (defaultThinking) {
+            setSelectedThinkingMode(defaultThinking.id as ThinkingMode);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load model configs:', error);
+        // Keep using hardcoded fallbacks
+      }
+    };
+    loadModelConfigs();
+  }, []);
+
+  // Helper: Get enabled models for a provider from API configs, with fallback to hardcoded
+  const getProviderModels = useCallback((providerId: string): Model[] => {
+    if (modelConfigsLoaded && modelConfigs.length > 0) {
+      const providerConfigs = modelConfigs.filter(c => c.provider_id === providerId && c.is_enabled);
+      if (providerConfigs.length > 0) {
+        // Convert ModelConfig to Model format for UI compatibility
+        return providerConfigs.map(c => ({
+          id: c.model_id,
+          name: c.display_name,
+          description: c.description,
+          icon: getModelIcon(c.model_id, providerId),
+          shortName: getModelShortName(c.model_id),
+          color: "text-primary",
+          provider: providerId,
+        }));
+      }
+    }
+    // Fallback to hardcoded models
+    return PROVIDER_MODELS[providerId] || CLAUDE_MODELS;
+  }, [modelConfigs, modelConfigsLoaded]);
+
+  // Helper: Get thinking modes for a model from API configs, with fallback to hardcoded
+  const getModelThinkingModes = useCallback((modelId: string, providerId: string): ThinkingModeConfig[] => {
+    if (modelConfigsLoaded && modelConfigs.length > 0) {
+      const modelConfig = modelConfigs.find(c => c.model_id === modelId && c.provider_id === providerId);
+      if (modelConfig && modelConfig.thinking_levels && modelConfig.thinking_levels.length > 0) {
+        // Convert ThinkingLevel to ThinkingModeConfig format
+        return modelConfig.thinking_levels.map((t, index) => ({
+          id: t.id as ThinkingMode,
+          name: t.name,
+          description: t.name,
+          level: index,
+          phrase: providerId === 'claude' || providerId === 'gemini' ? (t.budget as string) : undefined,
+          value: providerId === 'codex' ? (t.budget as string) : undefined,
+          icon: getThinkingModeIcon(t.id),
+          color: t.is_default ? "text-muted-foreground" : "text-primary",
+          shortName: t.name.substring(0, 2),
+        }));
+      }
+    }
+    // Fallback to hardcoded thinking modes
+    return MODEL_THINKING_MODES[modelId] || PROVIDER_THINKING_MODES[providerId] || CLAUDE_THINKING_MODES;
+  }, [modelConfigs, modelConfigsLoaded]);
+
+  // Get current thinking modes using the helper
+  const currentThinkingModes = getModelThinkingModes(selectedModel, selectedProvider);
 
   // Auto-switch to provider's default model when provider changes
   useEffect(() => {
-    const providerModels = PROVIDER_MODELS[selectedProvider] || CLAUDE_MODELS;
+    const providerModels = getProviderModels(selectedProvider);
     const currentModelExists = providerModels.some(m => m.id === selectedModel);
     if (!currentModelExists) {
-      // Current model doesn't exist for new provider, switch to first model
+      // Try to find default model from API configs
+      if (modelConfigsLoaded) {
+        const providerConfigs = modelConfigs.filter(c => c.provider_id === selectedProvider && c.is_enabled);
+        const defaultConfig = providerConfigs.find(c => c.is_default);
+        if (defaultConfig) {
+          setSelectedModel(defaultConfig.model_id);
+          return;
+        }
+      }
+      // Fallback to first model
       setSelectedModel(providerModels[0].id);
     }
-  }, [selectedProvider]);
+  }, [selectedProvider, modelConfigs, modelConfigsLoaded, getProviderModels]);
 
   // Reset thinking mode when provider or model changes
   useEffect(() => {
-    const modes = MODEL_THINKING_MODES[selectedModel] || PROVIDER_THINKING_MODES[selectedProvider] || CLAUDE_THINKING_MODES;
+    const modes = getModelThinkingModes(selectedModel, selectedProvider);
     const currentModeExists = modes.some(m => m.id === selectedThinkingMode);
     if (!currentModeExists) {
-      // Switch to default thinking mode for new provider/model
+      // Try to find default thinking mode from API configs
+      if (modelConfigsLoaded) {
+        const modelConfig = modelConfigs.find(c => c.model_id === selectedModel && c.provider_id === selectedProvider);
+        const defaultThinking = modelConfig?.thinking_levels?.find(t => t.is_default);
+        if (defaultThinking) {
+          setSelectedThinkingMode(defaultThinking.id as ThinkingMode);
+          return;
+        }
+      }
+      // Fallback to first mode
       setSelectedThinkingMode(modes[0].id as ThinkingMode);
     }
-  }, [selectedProvider, selectedModel]);
+  }, [selectedProvider, selectedModel, modelConfigs, modelConfigsLoaded, getModelThinkingModes]);
 
   // Expose a method to add images programmatically
   React.useImperativeHandle(
@@ -1352,8 +1501,8 @@ const FloatingPromptInputInner = (
     setPrompt(newPrompt.trim());
   };
 
-  // Get models for current provider
-  const currentProviderModels = PROVIDER_MODELS[selectedProvider] || CLAUDE_MODELS;
+  // Get models for current provider (from API or fallback to hardcoded)
+  const currentProviderModels = getProviderModels(selectedProvider);
   const selectedModelData = currentProviderModels.find(m => m.id === selectedModel) || currentProviderModels[0];
   const selectedProviderData = PROVIDERS.find(p => p.id === selectedProvider) || PROVIDERS[0];
 

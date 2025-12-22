@@ -62,6 +62,10 @@ export function CreateAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['main']['App']['CreateAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
 
+export function CreateModelConfig(arg1) {
+  return window['go']['main']['App']['CreateModelConfig'](arg1);
+}
+
 export function CreateProject(arg1) {
   return window['go']['main']['App']['CreateProject'](arg1);
 }
@@ -96,6 +100,10 @@ export function DeleteGlobalSshConnection(arg1) {
 
 export function DeleteMcpServer(arg1) {
   return window['go']['main']['App']['DeleteMcpServer'](arg1);
+}
+
+export function DeleteModelConfig(arg1) {
+  return window['go']['main']['App']['DeleteModelConfig'](arg1);
 }
 
 export function DeleteProjectIndex(arg1) {
@@ -174,6 +182,10 @@ export function GetAgentRunOutput(arg1) {
   return window['go']['main']['App']['GetAgentRunOutput'](arg1);
 }
 
+export function GetAllModelConfigs() {
+  return window['go']['main']['App']['GetAllModelConfigs']();
+}
+
 export function GetAllProviderApiConfigs() {
   return window['go']['main']['App']['GetAllProviderApiConfigs']();
 }
@@ -204,6 +216,18 @@ export function GetConfig() {
 
 export function GetCurrentBranch(arg1) {
   return window['go']['main']['App']['GetCurrentBranch'](arg1);
+}
+
+export function GetDefaultModelConfig(arg1) {
+  return window['go']['main']['App']['GetDefaultModelConfig'](arg1);
+}
+
+export function GetDefaultThinkingLevel(arg1) {
+  return window['go']['main']['App']['GetDefaultThinkingLevel'](arg1);
+}
+
+export function GetEnabledModelConfigs() {
+  return window['go']['main']['App']['GetEnabledModelConfigs']();
 }
 
 export function GetGitDiff(arg1, arg2) {
@@ -240,6 +264,22 @@ export function GetMcpServerStatus(arg1) {
 
 export function GetMergedHooksConfig(arg1) {
   return window['go']['main']['App']['GetMergedHooksConfig'](arg1);
+}
+
+export function GetModelConfig(arg1) {
+  return window['go']['main']['App']['GetModelConfig'](arg1);
+}
+
+export function GetModelConfigByModelID(arg1) {
+  return window['go']['main']['App']['GetModelConfigByModelID'](arg1);
+}
+
+export function GetModelConfigsByProvider(arg1) {
+  return window['go']['main']['App']['GetModelConfigsByProvider'](arg1);
+}
+
+export function GetModelThinkingLevels(arg1) {
+  return window['go']['main']['App']['GetModelThinkingLevels'](arg1);
 }
 
 export function GetPluginAgent(arg1, arg2) {
@@ -642,6 +682,14 @@ export function SetClaudeBinaryPath(arg1) {
   return window['go']['main']['App']['SetClaudeBinaryPath'](arg1);
 }
 
+export function SetModelConfigDefault(arg1) {
+  return window['go']['main']['App']['SetModelConfigDefault'](arg1);
+}
+
+export function SetModelConfigEnabled(arg1, arg2) {
+  return window['go']['main']['App']['SetModelConfigEnabled'](arg1, arg2);
+}
+
 export function SetProjectProviderApiConfig(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetProjectProviderApiConfig'](arg1, arg2, arg3);
 }
@@ -732,6 +780,10 @@ export function UpdateAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
 
 export function UpdateGlobalActions(arg1) {
   return window['go']['main']['App']['UpdateGlobalActions'](arg1);
+}
+
+export function UpdateModelConfig(arg1, arg2) {
+  return window['go']['main']['App']['UpdateModelConfig'](arg1, arg2);
 }
 
 export function UpdateProjectAccessTime(arg1) {

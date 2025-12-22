@@ -15,6 +15,7 @@ import (
 	"ropcode/internal/gemini"
 	"ropcode/internal/git"
 	"ropcode/internal/mcp"
+	"ropcode/internal/models"
 	"ropcode/internal/plugin"
 	"ropcode/internal/process"
 	"ropcode/internal/pty"
@@ -41,6 +42,7 @@ type App struct {
 	sessionManager *session.HistoryManager
 	eventHub       *eventhub.EventHub
 	gitWatcher     *git.GitWatcher
+	modelRegistry  *models.Registry
 }
 
 // NewApp creates a new App application struct
@@ -66,6 +68,12 @@ func (a *App) startup(ctx context.Context) {
 		runtime.LogError(ctx, "Failed to open database: "+err.Error())
 	} else {
 		a.dbManager = db
+
+		// Initialize model registry and sync builtin models
+		a.modelRegistry = models.NewRegistry(db)
+		if err := a.modelRegistry.Initialize(); err != nil {
+			runtime.LogError(ctx, "Failed to initialize model registry: "+err.Error())
+		}
 	}
 
 	// Initialize EventHub (before managers that need it)

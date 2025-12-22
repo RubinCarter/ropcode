@@ -84,3 +84,26 @@ type AgentRun struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	CompletedAt      *time.Time `json:"completed_at,omitempty"`
 }
+
+// ThinkingLevel represents a thinking depth configuration for a model
+type ThinkingLevel struct {
+	ID        string `json:"id"`         // Unique identifier: "auto", "think", "ultrathink"
+	Name      string `json:"name"`       // Display name
+	Budget    any    `json:"budget"`     // Provider-specific: phrase for Claude/Gemini ("think", "ultrathink"), reasoning_effort for Codex ("low", "high")
+	IsDefault bool   `json:"is_default"` // Whether this is the default level for the model
+}
+
+// ModelConfig stores model configuration with thinking levels
+type ModelConfig struct {
+	ID             string          `json:"id"`              // UUID
+	ModelID        string          `json:"model_id"`        // Model identifier: "sonnet", "opus", or full model ID
+	ProviderID     string          `json:"provider_id"`     // Provider: "claude", "openai", "gemini"
+	DisplayName    string          `json:"display_name"`    // User-friendly display name
+	Description    string          `json:"description"`     // Model description
+	IsBuiltin      bool            `json:"is_builtin"`      // Built-in models cannot be modified or deleted
+	IsEnabled      bool            `json:"is_enabled"`      // User can disable models
+	IsDefault      bool            `json:"is_default"`      // Default model for the provider
+	ThinkingLevels []ThinkingLevel `json:"thinking_levels"` // Available thinking levels (empty = no thinking support)
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
