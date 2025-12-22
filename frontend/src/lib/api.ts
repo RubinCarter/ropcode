@@ -2095,8 +2095,10 @@ export const api = {
     }
   },
 
-  async setProjectProviderApiConfig(path: string, provider: string, config: ProviderApiConfig): Promise<void> {
-    return App.SetProjectProviderApiConfig(path, provider, config);
+  async setProjectProviderApiConfig(path: string, provider: string, configId: string): Promise<void> {
+    // 后端期望 ProviderApiConfig 对象，但实际只使用 config.ID
+    // 所以这里构造一个只包含 ID 的对象
+    return App.SetProjectProviderApiConfig(path, provider, { id: configId } as any);
   },
 
   async isPtySessionAlive(sessionId: string): Promise<boolean> {

@@ -587,7 +587,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
           await api.resumeClaudeCode(sessionState.projectPath, currentEffectiveSession.id, wrappedPrompt, model, undefined, providerApiId);
         } else {
           // For all other providers (codex, etc.), resumeProviderSession now takes prompt and model
-          await api.resumeProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id);
+          await api.resumeProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined);
         }
       } else {
         console.log('[AiCodeSession] Starting new session');
