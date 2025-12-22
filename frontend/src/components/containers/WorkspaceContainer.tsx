@@ -101,12 +101,90 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     }
   }, [updateTab]);
 
-  const handleProviderChange = useCallback((providerId: string) => {
+  const handleProviderChange = useCallback(async (providerId: string) => {
     const tabId = activeTabIdRef.current;
-    if (tabId) {
-      updateTab(tabId, { providerId });
+    const tab = tabId ? getTabById(tabId) : undefined;
+
+    if (!tabId || !tab || tab.type !== 'chat') {
+      console.warn('[WorkspaceContainer] Cannot change provider: no active chat tab');
+      return;
     }
-  }, [updateTab]);
+
+    try {
+      // Save current provider's session before switching
+      const currentProviderSessions = tab.providerSessions || {};
+      if (tab.providerId && tab.sessionId && tab.sessionData) {
+        currentProviderSessions[tab.providerId] = {
+          sessionId: tab.sessionId,
+          sessionData: tab.sessionData
+        };
+      }
+
+      // Get the actual project path
+      const actualProjectPath = tab.sessionData?.project_path || tab.projectPath || workspaceId;
+
+      // Check if we have a previous session for this provider
+      const previousSession = currentProviderSessions[providerId];
+
+      if (previousSession) {
+        // Restore previous session for this provider
+        updateTab(tabId, {
+          providerId,
+          sessionData: previousSession.sessionData,
+          sessionId: previousSession.sessionId,
+          providerSessions: currentProviderSessions,
+        });
+      } else {
+        // No previous session - load sessions and pick the latest one
+        try {
+          const sessionList = await providers.listSessions(actualProjectPath, providerId);
+
+          if (sessionList.length === 0) {
+            // No sessions exist - clear current session and start fresh
+            updateTab(tabId, {
+              providerId,
+              sessionData: undefined,
+              sessionId: undefined,
+              providerSessions: currentProviderSessions,
+            });
+          } else {
+            // Sort sessions by timestamp and select the latest one
+            const sortedSessions = [...sessionList].sort((a, b) => {
+              const timeA = a.message_timestamp ? new Date(a.message_timestamp).getTime() : a.created_at * 1000;
+              const timeB = b.message_timestamp ? new Date(b.message_timestamp).getTime() : b.created_at * 1000;
+              return timeB - timeA;
+            });
+            const latestSession = sortedSessions[0];
+
+            // Add provider info to session
+            const sessionWithProvider = {
+              ...latestSession,
+              provider: providerId
+            };
+
+            // Update tab with the latest session
+            updateTab(tabId, {
+              providerId,
+              sessionData: sessionWithProvider,
+              sessionId: latestSession.id,
+              providerSessions: currentProviderSessions,
+            });
+          }
+        } catch (err) {
+          console.error(`[WorkspaceContainer] Failed to load sessions for provider ${providerId}:`, err);
+          // Fallback: start fresh
+          updateTab(tabId, {
+            providerId,
+            sessionData: undefined,
+            sessionId: undefined,
+            providerSessions: currentProviderSessions,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[WorkspaceContainer] Failed to change provider:', err);
+    }
+  }, [updateTab, getTabById, workspaceId]);
 
   const handleBack = useCallback(() => {
     // Chat tab doesn't have a back button, this is a no-op
@@ -125,6 +203,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       case 'chat':
         return (
           <AiCodeSession
+            key={`${activeTab.id}-${activeTab.providerId || 'claude'}`}
             session={activeTab.sessionData}
             initialProjectPath={activeTab.projectPath}
             defaultProvider={activeTab.providerId}
