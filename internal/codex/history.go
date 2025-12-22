@@ -572,17 +572,17 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 	}
 
 	// Check if this session matches the target project path
-	// If we couldn't determine the project path, skip this session
-	if targetProjectPath != "" && sessionProjectPath != "" && sessionProjectPath != targetProjectPath {
-		return nil, nil
-	}
-
-	// If we couldn't determine the project path from the file, try to match by checking
-	// if the session file is in a reasonable location relative to the project
-	if sessionProjectPath == "" {
-		// For now, include all sessions if we can't determine the project path
-		// This is a fallback that may include some irrelevant sessions
-		sessionProjectPath = targetProjectPath
+	// Only return sessions that explicitly match the target project
+	if targetProjectPath != "" {
+		if sessionProjectPath == "" {
+			// Cannot determine project path from session file - skip to avoid mixing sessions
+			log.Printf("[Codex History] Skipping session %s: cannot determine project path", sessionID)
+			return nil, nil
+		}
+		if sessionProjectPath != targetProjectPath {
+			// Session belongs to a different project - skip
+			return nil, nil
+		}
 	}
 
 	return &SessionInfo{

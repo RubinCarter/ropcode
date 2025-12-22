@@ -109,6 +109,11 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 		s.cmd.Dir = s.Config.ProjectPath
 	}
 
+	// Inherit environment variables from parent process
+	// This is critical for production (.app) builds where PATH and other env vars
+	// may not be automatically inherited
+	s.cmd.Env = os.Environ()
+
 	// Setup pipes
 	var err error
 	s.stdout, err = s.cmd.StdoutPipe()
@@ -159,6 +164,20 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 				emitter.Emit("claude-output", unified)
 			}
 		}
+	}
+
+	// Handle scanner errors - critical for production environment
+	if err := scanner.Err(); err != nil && emitter != nil {
+		errMsg := map[string]interface{}{
+			"type":       "error",
+			"error":      err.Error(),
+			"session_id": s.ID,
+			"cwd":        s.Config.ProjectPath,
+			"provider":   "gemini",
+		}
+		errJSON, _ := json.Marshal(errMsg)
+		log.Printf("[Gemini Session] Scanner error (%s): %s", outputType, err.Error())
+		emitter.Emit("claude-error", string(errJSON))
 	}
 }
 
