@@ -23,6 +23,8 @@ type SessionConfig struct {
 	ProviderApiID string `json:"provider_api_id,omitempty"`
 	SessionID     string `json:"session_id,omitempty"`
 	Resume        bool   `json:"resume,omitempty"`
+	// API configuration from ProviderApiConfig
+	AuthToken string `json:"auth_token,omitempty"`
 }
 
 type SessionStatus struct {
@@ -109,10 +111,19 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 		s.cmd.Dir = s.Config.ProjectPath
 	}
 
-	// Inherit environment variables from parent process
-	// This is critical for production (.app) builds where PATH and other env vars
-	// may not be automatically inherited
-	s.cmd.Env = os.Environ()
+	// Inherit environment variables from parent process and enhance PATH
+	// This is critical for production (.app) builds where PATH is very limited
+	// when launched via double-click (vs `open -a` from terminal)
+	enhancedEnv := enhanceEnvForProduction()
+
+	// If AuthToken is provided from database ProviderApiConfig, use it as GEMINI_API_KEY
+	// This takes priority over environment variables loaded from settings.json or system
+	if s.Config.AuthToken != "" {
+		log.Printf("[Gemini Session] Using AuthToken from ProviderApiConfig")
+		enhancedEnv = setEnvVar(enhancedEnv, "GEMINI_API_KEY", s.Config.AuthToken)
+	}
+
+	s.cmd.Env = enhancedEnv
 
 	// Setup pipes
 	var err error
@@ -160,13 +171,12 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 			// Transform Gemini output to unified format
 			unified := s.transformToUnified(line)
 			if unified != "" {
-				log.Printf("[Gemini Session] Emitting claude-output (%s)", outputType)
 				emitter.Emit("claude-output", unified)
 			}
 		}
 	}
 
-	// Handle scanner errors - critical for production environment
+	// Handle scanner errors
 	if err := scanner.Err(); err != nil && emitter != nil {
 		errMsg := map[string]interface{}{
 			"type":       "error",
@@ -176,7 +186,6 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 			"provider":   "gemini",
 		}
 		errJSON, _ := json.Marshal(errMsg)
-		log.Printf("[Gemini Session] Scanner error (%s): %s", outputType, err.Error())
 		emitter.Emit("claude-error", string(errJSON))
 	}
 }
@@ -412,4 +421,202 @@ func (s *Session) GetPID() int {
 		return s.cmd.Process.Pid
 	}
 	return 0
+}
+
+// enhanceEnvForProduction returns environment variables with enhanced PATH
+// and loads missing API keys from user's login shell environment.
+// This is critical for production .app builds where PATH is very limited
+// and API keys are not inherited when launched via double-click.
+func enhanceEnvForProduction() []string {
+	env := os.Environ()
+
+	// Additional paths to add for production builds
+	// These are common locations for CLI tools on macOS
+	additionalPaths := []string{
+		"/opt/homebrew/bin",
+		"/opt/homebrew/sbin",
+		"/usr/local/bin",
+		"/usr/local/sbin",
+		os.Getenv("HOME") + "/.local/bin",
+		os.Getenv("HOME") + "/.cargo/bin",
+		os.Getenv("HOME") + "/.npm-global/bin",
+		os.Getenv("HOME") + "/go/bin",
+		"/opt/homebrew/opt/node/bin",
+		"/opt/homebrew/opt/python/bin",
+	}
+
+	// Find existing PATH and enhance it
+	var existingPath string
+	var pathIndex = -1
+	for i, e := range env {
+		if len(e) > 5 && e[:5] == "PATH=" {
+			existingPath = e[5:]
+			pathIndex = i
+			break
+		}
+	}
+
+	// Build enhanced PATH by prepending additional paths
+	var newPath string
+	for _, p := range additionalPaths {
+		if _, err := os.Stat(p); err == nil {
+			if newPath == "" {
+				newPath = p
+			} else {
+				newPath = newPath + ":" + p
+			}
+		}
+	}
+
+	if existingPath != "" {
+		newPath = newPath + ":" + existingPath
+	}
+
+	// Update or append PATH
+	if pathIndex >= 0 {
+		env[pathIndex] = "PATH=" + newPath
+	} else {
+		env = append(env, "PATH="+newPath)
+	}
+
+	// Load API keys from Claude settings.json (like Tauri version does)
+	// This is the most reliable source for production builds
+	env = loadEnvFromClaudeSettings(env, map[string][]string{
+		"GEMINI_API_KEY": {"GEMINI_API_KEY"},
+		"GOOGLE_API_KEY": {"GOOGLE_API_KEY"},
+	})
+
+	// Fallback: Load missing API keys from launchctl or login shell
+	env = loadMissingEnvFromSystem(env, []string{
+		"GEMINI_API_KEY",
+		"GOOGLE_API_KEY",
+	})
+
+	return env
+}
+
+// loadEnvFromClaudeSettings loads environment variables from ~/.claude/settings.json
+func loadEnvFromClaudeSettings(env []string, varMappings map[string][]string) []string {
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		return env
+	}
+
+	settingsPath := homeDir + "/.claude/settings.json"
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		log.Printf("[Gemini Session] Could not read Claude settings: %v", err)
+		return env
+	}
+
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		log.Printf("[Gemini Session] Could not parse Claude settings: %v", err)
+		return env
+	}
+
+	envSection, ok := settings["env"].(map[string]interface{})
+	if !ok {
+		return env
+	}
+
+	// Check which vars are already set
+	existingVars := make(map[string]bool)
+	for _, e := range env {
+		for targetVar := range varMappings {
+			if len(e) > len(targetVar)+1 && e[:len(targetVar)+1] == targetVar+"=" {
+				existingVars[targetVar] = true
+				break
+			}
+		}
+	}
+
+	// Load missing vars from Claude settings
+	for targetVar, sourceVars := range varMappings {
+		if existingVars[targetVar] {
+			continue
+		}
+		for _, sourceVar := range sourceVars {
+			if value, ok := envSection[sourceVar].(string); ok && value != "" {
+				log.Printf("[Gemini Session] Loaded %s from Claude settings", targetVar)
+				env = append(env, targetVar+"="+value)
+				break
+			}
+		}
+	}
+
+	return env
+}
+
+// loadMissingEnvFromSystem loads missing environment variables from launchctl or login shell
+func loadMissingEnvFromSystem(env []string, vars []string) []string {
+	// Check which vars are already set
+	existingVars := make(map[string]bool)
+	for _, e := range env {
+		for _, v := range vars {
+			if len(e) > len(v)+1 && e[:len(v)+1] == v+"=" {
+				existingVars[v] = true
+				break
+			}
+		}
+	}
+
+	// Find missing vars
+	var missingVars []string
+	for _, v := range vars {
+		if !existingVars[v] {
+			missingVars = append(missingVars, v)
+		}
+	}
+
+	if len(missingVars) == 0 {
+		return env
+	}
+
+	for _, varName := range missingVars {
+		var value string
+
+		// First, try launchctl (macOS system-wide environment)
+		cmd := exec.Command("launchctl", "getenv", varName)
+		output, err := cmd.Output()
+		if err == nil && len(output) > 0 {
+			value = string(output)
+			if len(value) > 0 && value[len(value)-1] == '\n' {
+				value = value[:len(value)-1]
+			}
+		}
+
+		// If not in launchctl, try login shell
+		if value == "" {
+			shell := os.Getenv("SHELL")
+			if shell == "" {
+				shell = "/bin/zsh"
+			}
+			cmd = exec.Command(shell, "-l", "-c", "echo $"+varName)
+			output, err = cmd.Output()
+			if err == nil && len(output) > 1 {
+				value = string(output)
+				value = value[:len(value)-1] // Remove trailing newline
+			}
+		}
+
+		if value != "" {
+			log.Printf("[Gemini Session] Loaded %s from system environment", varName)
+			env = append(env, varName+"="+value)
+		}
+	}
+
+	return env
+}
+
+// setEnvVar sets or updates an environment variable in the env slice
+func setEnvVar(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, e := range env {
+		if len(e) >= len(prefix) && e[:len(prefix)] == prefix {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }

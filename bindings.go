@@ -1313,12 +1313,21 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 			Model:         model,
 			ProviderApiID: providerApiID,
 		}
+		// Fetch API configuration if providerApiID is specified
+		if providerApiID != "" && a.dbManager != nil {
+			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+			if err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+			}
+		}
 		return a.geminiManager.StartSession(config)
 
 	case "codex":
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
 		}
+		// Codex gets API key from ~/.claude/settings.json env.CRS_OAI_KEY
+		// It does not use database ProviderApiConfig
 		config := codex.SessionConfig{
 			ProjectPath:   projectPath,
 			Prompt:        prompt,
@@ -1351,12 +1360,21 @@ func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessio
 			SessionID:     sessionID,
 			Resume:        true,
 		}
+		// Fetch API configuration if providerApiID is specified
+		if providerApiID != "" && a.dbManager != nil {
+			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+			if err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+			}
+		}
 		return a.geminiManager.StartSession(config)
 
 	case "codex":
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
 		}
+		// Codex gets API key from ~/.claude/settings.json env.CRS_OAI_KEY
+		// It does not use database ProviderApiConfig
 		config := codex.SessionConfig{
 			ProjectPath:   projectPath,
 			Prompt:        prompt,

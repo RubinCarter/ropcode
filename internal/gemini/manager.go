@@ -50,23 +50,26 @@ func (m *SessionManager) GetBinaryPath() string {
 
 // discoverBinary attempts to find the Gemini binary in common locations
 func (m *SessionManager) discoverBinary() (string, error) {
-	// First, try to find it in PATH
-	if path, err := exec.LookPath("gemini"); err == nil {
-		return path, nil
-	}
-
-	// Common installation locations
+	// Check common installation locations FIRST
+	// This is critical for production .app builds where PATH is very limited
+	// when launched via double-click (vs `open -a` from terminal)
 	commonPaths := []string{
 		"/opt/homebrew/bin/gemini",
 		"/usr/local/bin/gemini",
 		"/usr/bin/gemini",
 		filepath.Join(os.Getenv("HOME"), ".local/bin/gemini"),
+		filepath.Join(os.Getenv("HOME"), ".npm-global/bin/gemini"),
 	}
 
 	for _, path := range commonPaths {
 		if _, err := os.Stat(path); err == nil {
 			return path, nil
 		}
+	}
+
+	// Fallback to PATH lookup (works when launched from terminal)
+	if path, err := exec.LookPath("gemini"); err == nil {
+		return path, nil
 	}
 
 	return "", fmt.Errorf("gemini binary not found in PATH or common locations")
