@@ -824,13 +824,13 @@ ${message ? `**说明**:\n${message}` : ''}`;
     <div className="relative flex-1">
       <div
         ref={parentRef}
-        className="h-full overflow-y-auto pb-20"
+        className="h-full overflow-y-auto pb-32"
         style={{
           contain: 'strict',
         }}
       >
         <div
-          className="relative w-full max-w-6xl mx-auto px-4 pt-8 pb-4"
+          className="relative w-full px-4 pt-8 pb-4"
           style={{
             height: `${Math.max(rowVirtualizer.getTotalSize(), 100)}px`,
             minHeight: '100px',
@@ -883,7 +883,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.15 }}
-            className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mb-20 w-full max-w-6xl mx-auto"
+            className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mb-20 mx-4"
           >
             {error}
           </motion.div>
@@ -1047,7 +1047,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
             />
           ) : (
             // Original layout when no preview
-            <div className="h-full flex flex-col max-w-6xl mx-auto px-6">
+            <div className="h-full flex flex-col w-full">
               {messagesList}
 
               {processState.isLoading && messagesState.messages.length === 0 && (
@@ -1073,7 +1073,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}
-                className="fixed bottom-24 left-1/2 -translate-x-1/2 z-30 w-full max-w-3xl px-4"
+                className="absolute bottom-24 left-4 right-4 z-30"
               >
                 <div className="bg-background/95 backdrop-blur-md border rounded-lg shadow-lg p-3 space-y-2">
                   <div className="flex items-center justify-between">
