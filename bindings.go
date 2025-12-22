@@ -1285,6 +1285,15 @@ func (a *App) ExecuteClaudeCode(projectPath, prompt, model string, sessionID, pr
 		SessionID:     sessionID,
 	}
 
+	// Fetch API configuration if providerApiID is specified
+	if providerApiID != "" && a.dbManager != nil {
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && apiConfig != nil {
+			config.BaseURL = apiConfig.BaseURL
+			config.AuthToken = apiConfig.AuthToken
+		}
+	}
+
 	return a.claudeManager.StartSession(config)
 }
 
@@ -1379,6 +1388,15 @@ func (a *App) ResumeClaudeCode(projectPath, prompt, model, sessionID, providerAp
 		Resume:        true,
 	}
 
+	// Fetch API configuration if providerApiID is specified
+	if providerApiID != "" && a.dbManager != nil {
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && apiConfig != nil {
+			config.BaseURL = apiConfig.BaseURL
+			config.AuthToken = apiConfig.AuthToken
+		}
+	}
+
 	return a.claudeManager.StartSession(config)
 }
 
@@ -1395,6 +1413,15 @@ func (a *App) ContinueClaudeCode(projectPath, prompt, model, sessionID, provider
 		ProviderApiID: providerApiID,
 		SessionID:     sessionID,
 		Continue:      true,
+	}
+
+	// Fetch API configuration if providerApiID is specified
+	if providerApiID != "" && a.dbManager != nil {
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && apiConfig != nil {
+			config.BaseURL = apiConfig.BaseURL
+			config.AuthToken = apiConfig.AuthToken
+		}
 	}
 
 	return a.claudeManager.StartSession(config)
