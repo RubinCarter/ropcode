@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { DiffEditor, loader, DiffOnMount } from '@monaco-editor/react';
+import React, { useState, useEffect } from 'react';
+import { DiffEditor, loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
-import { Columns2, Rows2 } from 'lucide-react';
 import { getLanguageByFilename } from '@/lib/file-icons';
 
 // 使用本地 monaco-editor 而非 CDN
@@ -40,29 +39,9 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const [isBinary, setIsBinary] = useState(false);
   const [fileSize, setFileSize] = useState<number>(0);
   const [isLargeFile, setIsLargeFile] = useState(false);
-  const [renderSideBySide, setRenderSideBySide] = useState(true);
-  const [editorMounted, setEditorMounted] = useState(false);
-
-  const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
 
   // 获取文件语言
   const language = getLanguageByFilename(filePath);
-
-  // 组件卸载时清理编辑器
-  useEffect(() => {
-    return () => {
-      if (editorRef.current) {
-        // 先重置模型，再销毁编辑器
-        try {
-          editorRef.current.setModel(null);
-        } catch (e) {
-          // 忽略模型清理错误
-        }
-        editorRef.current = null;
-      }
-      setEditorMounted(false);
-    };
-  }, []);
 
   // 获取文件的两个版本
   useEffect(() => {
@@ -129,17 +108,6 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
     fetchContent();
   }, [filePath, workspacePath]);
-
-  // 处理编辑器挂载
-  const handleEditorDidMount: DiffOnMount = useCallback((editor) => {
-    editorRef.current = editor;
-    setEditorMounted(true);
-  }, []);
-
-  // 切换视图模式
-  const toggleViewMode = () => {
-    setRenderSideBySide(!renderSideBySide);
-  };
 
   // 渲染二进制文件提示
   const renderBinaryNotice = () => (
@@ -213,21 +181,6 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
               </span>
             )}
           </div>
-
-          {/* 视图切换按钮 */}
-          {!loading && !error && !isBinary && !isLargeFile && (
-            <button
-              onClick={toggleViewMode}
-              className="p-1.5 hover:bg-muted rounded transition-colors"
-              title={renderSideBySide ? 'Switch to inline view' : 'Switch to side-by-side view'}
-            >
-              {renderSideBySide ? (
-                <Rows2 className="w-4 h-4" />
-              ) : (
-                <Columns2 className="w-4 h-4" />
-              )}
-            </button>
-          )}
         </div>
       </div>
 
@@ -254,19 +207,18 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       ) : isBinary ? (
         renderBinaryNotice()
       ) : (
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden [&_.editor.original_.margin-view-overlays_.line-numbers]:!hidden">
           <DiffEditor
-            key={`${filePath}-${renderSideBySide}`}
+            key={filePath}
             original={oldContent}
             modified={newContent}
             language={language}
             theme="vs-dark"
-            onMount={handleEditorDidMount}
             keepCurrentOriginalModel={false}
             keepCurrentModifiedModel={false}
             options={{
               readOnly: true,
-              renderSideBySide,
+              renderSideBySide: true,
               minimap: { enabled: false },
               scrollBeyondLastLine: false,
               fontSize: 12,
