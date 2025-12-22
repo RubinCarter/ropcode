@@ -519,7 +519,18 @@ const FloatingPromptInputInner = (
   const expandedTextareaRef = useRef<HTMLTextAreaElement>(null);
   const unlistenDragDropRef = useRef<(() => void) | null>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null); // For picker positioning via portal
-  const [textareaHeight, setTextareaHeight] = useState<number>(48);
+  // Use 8% of viewport height as default, with min 48px and max 30vh
+  const getDefaultHeight = useCallback(() => {
+    const vh8 = Math.round(window.innerHeight * 0.08);
+    return Math.max(48, vh8); // At least 48px
+  }, []);
+
+  const getMaxHeight = useCallback(() => {
+    const vh30 = Math.round(window.innerHeight * 0.30);
+    return Math.max(240, vh30); // At least 240px
+  }, []);
+
+  const [textareaHeight, setTextareaHeight] = useState<number>(getDefaultHeight);
   const isIMEComposingRef = useRef(false);
 
   // Helper: Get icon for a model based on its ID and provider
@@ -580,8 +591,8 @@ const FloatingPromptInputInner = (
 
   // Calculate and set textarea height based on content
   const updateTextareaHeight = useCallback((textarea: HTMLTextAreaElement, content: string) => {
-    const DEFAULT_HEIGHT = 48;
-    const MAX_HEIGHT = 240;
+    const DEFAULT_HEIGHT = getDefaultHeight();
+    const MAX_HEIGHT = getMaxHeight();
 
     // Reset to default height when content is empty
     if (!content.trim()) {
@@ -628,7 +639,20 @@ const FloatingPromptInputInner = (
     const newHeight = Math.min(Math.max(scrollHeight, DEFAULT_HEIGHT), MAX_HEIGHT);
     setTextareaHeight(newHeight);
     textarea.style.height = `${newHeight}px`;
-  }, []);
+  }, [getDefaultHeight, getMaxHeight]);
+
+  // Handle window resize to update height based on new viewport
+  useEffect(() => {
+    const handleResize = () => {
+      // Only update if content is empty (reset to new default)
+      if (!prompt.trim()) {
+        setTextareaHeight(getDefaultHeight());
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [prompt, getDefaultHeight]);
 
   // Load model configs from API on mount
   useEffect(() => {
@@ -1320,7 +1344,7 @@ const FloatingPromptInputInner = (
       onClear?.();
       setPrompt("");
       setEmbeddedImages([]);
-      setTextareaHeight(48);
+      setTextareaHeight(getDefaultHeight());
       return;
     }
 
@@ -1341,7 +1365,7 @@ const FloatingPromptInputInner = (
       onSend(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode);
       setPrompt("");
       setEmbeddedImages([]);
-      setTextareaHeight(48); // Reset height after sending
+      setTextareaHeight(getDefaultHeight()); // Reset height after sending
     }
   };
 
