@@ -228,22 +228,18 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
 
 // 将 WorkspaceTabManager 渲染到标题栏的 Portal 组件
 const WorkspaceTabManagerPortal: React.FC<{ visible: boolean }> = ({ visible }) => {
-  const [portalTarget, setPortalTarget] = React.useState<HTMLElement | null>(null);
+  // 每次渲染时动态查找 slot，避免 stale reference 问题
+  // 当 CustomTitlebar 重新渲染时，slot DOM 元素会被重建，
+  // 如果缓存 portalTarget，会指向已卸载的旧元素导致 Tab 选项栏消失
+  const slot = document.getElementById('workspace-tab-manager-slot');
 
-  useEffect(() => {
-    // 查找标题栏中的插槽
-    const slot = document.getElementById('workspace-tab-manager-slot');
-    setPortalTarget(slot);
-  }, []);
-
-  // 只有当 visible 且有目标时才渲染
-  if (!visible || !portalTarget) {
+  if (!visible || !slot) {
     return null;
   }
 
   return createPortal(
     <WorkspaceTabManager className="self-stretch" />,
-    portalTarget
+    slot
   );
 };
 
