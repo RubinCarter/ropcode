@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { DiffEditor, loader } from '@monaco-editor/react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { DiffEditor, loader, DiffOnMount } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
@@ -41,11 +41,28 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const [fileSize, setFileSize] = useState<number>(0);
   const [isLargeFile, setIsLargeFile] = useState(false);
   const [renderSideBySide, setRenderSideBySide] = useState(true);
+  const [editorMounted, setEditorMounted] = useState(false);
 
-  const editorRef = useRef<any>(null);
+  const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
 
   // 获取文件语言
   const language = getLanguageByFilename(filePath);
+
+  // 组件卸载时清理编辑器
+  useEffect(() => {
+    return () => {
+      if (editorRef.current) {
+        // 先重置模型，再销毁编辑器
+        try {
+          editorRef.current.setModel(null);
+        } catch (e) {
+          // 忽略模型清理错误
+        }
+        editorRef.current = null;
+      }
+      setEditorMounted(false);
+    };
+  }, []);
 
   // 获取文件的两个版本
   useEffect(() => {
@@ -114,9 +131,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   }, [filePath, workspacePath]);
 
   // 处理编辑器挂载
-  const handleEditorDidMount = (editor: any) => {
+  const handleEditorDidMount: DiffOnMount = useCallback((editor) => {
     editorRef.current = editor;
-  };
+    setEditorMounted(true);
+  }, []);
 
   // 切换视图模式
   const toggleViewMode = () => {
@@ -238,11 +256,14 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       ) : (
         <div className="flex-1 overflow-hidden">
           <DiffEditor
+            key={`${filePath}-${renderSideBySide}`}
             original={oldContent}
             modified={newContent}
             language={language}
             theme="vs-dark"
             onMount={handleEditorDidMount}
+            keepCurrentOriginalModel={false}
+            keepCurrentModifiedModel={false}
             options={{
               readOnly: true,
               renderSideBySide,

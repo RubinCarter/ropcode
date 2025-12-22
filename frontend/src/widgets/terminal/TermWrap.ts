@@ -17,16 +17,35 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { FitAddon } from '@xterm/addon-fit';
 
 /**
- * 检测浏览器是否支持 WebGL
+ * 缓存 WebGL 支持检测结果
+ */
+let webglSupportCached: boolean | null = null;
+
+/**
+ * 检测浏览器是否支持 WebGL（结果会被缓存）
  * @returns 如果支持 WebGL 返回 true，否则返回 false
  */
 function detectWebGLSupport(): boolean {
+  // 返回缓存的结果，避免重复创建 WebGL 上下文
+  if (webglSupportCached !== null) {
+    return webglSupportCached;
+  }
+
   try {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('webgl') || canvas.getContext('webgl2');
-    return !!ctx;
+    // 立即释放上下文
+    if (ctx) {
+      const ext = ctx.getExtension('WEBGL_lose_context');
+      if (ext) {
+        ext.loseContext();
+      }
+    }
+    webglSupportCached = !!ctx;
+    return webglSupportCached;
   } catch (e) {
     console.warn('WebGL detection failed:', e);
+    webglSupportCached = false;
     return false;
   }
 }
