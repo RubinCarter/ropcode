@@ -1063,8 +1063,8 @@ const FloatingPromptInputInner = (
       }
     }
 
-    // Check if we're typing after @ (for search query)
-    if (showFilePicker && newCursorPosition >= cursorPosition) {
+    // Check if we're typing after @ (for search query) - handles both typing and deletion
+    if (showFilePicker) {
       // Find the @ position before cursor
       let atPosition = -1;
       for (let i = newCursorPosition - 1; i >= 0; i--) {
@@ -1370,6 +1370,8 @@ const FloatingPromptInputInner = (
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // When FilePicker is open, only handle Escape here (like opcode does)
+    // Arrow keys and Enter are handled by FilePicker's window event listener
     if (showFilePicker && e.key === 'Escape') {
       e.preventDefault();
       setShowFilePicker(false);

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Editor, { loader } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
-import { FileText } from 'lucide-react';
+import { FileText, Save, Eye, Pencil } from 'lucide-react';
 import { isTextFile } from '@/widgets/preview/mime-utils';
 
 // 使用本地 monaco-editor 而非 CDN，避免 404 错误
@@ -13,6 +13,7 @@ interface FileViewerProps {
   filePath: string;
   workspacePath: string;
   className?: string;
+  onUnsavedChangesChange?: (hasChanges: boolean) => void;
 }
 
 // 配置常量
@@ -92,28 +93,51 @@ const getLanguage = (filePath: string): string => {
 };
 
 /**
- * FileViewer 组件 - 使用 Monaco Editor 只读预览
+ * FileViewer 组件 - 支持预览和编辑模式
  */
 export const FileViewer: React.FC<FileViewerProps> = ({
   filePath,
   workspacePath,
   className,
+  onUnsavedChangesChange,
 }) => {
+  // 基础状态
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState<string>('');
   const [isBinary, setIsBinary] = useState(false);
   const [fileSize, setFileSize] = useState<number>(0);
   const [isLargeFile, setIsLargeFile] = useState(false);
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const [isWritable, setIsWritable] = useState(false);
 
-  // 获取文件内容
+  // 编辑模式状态
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editedContent, setEditedContent] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const saveHandlerRef = useRef<(() => void) | null>(null);
+
+  // 计算是否有未保存的更改
+  const hasUnsavedChanges = editedContent !== null && editedContent !== content;
+
+  // 通知父组件未保存更改状态
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onUnsavedChangesChange]);
+
+  // 获取文件内容和检查可写性
   useEffect(() => {
     const fetchContent = async () => {
       setLoading(true);
       setError(null);
       setIsBinary(false);
       setIsLargeFile(false);
+      setIsWritable(false);
+      setIsEditMode(false);
+      setEditedContent(null);
+      setSaveError(null);
 
       try {
         // 1. 检查文件大小
@@ -131,7 +155,14 @@ export const FileViewer: React.FC<FileViewerProps> = ({
           return;
         }
 
-        // 2. 使用系统 file 命令获取 MIME 类型
+        // 2. 检查文件是否可写
+        const writableCheck = await api.executeCommand(
+          `test -w "${filePath}" && echo "writable" || echo "readonly"`,
+          workspacePath
+        );
+        setIsWritable(writableCheck.output?.trim() === 'writable');
+
+        // 3. 使用系统 file 命令获取 MIME 类型
         const mimeCheck = await api.executeCommand(
           `file --mime-type -b "${filePath}"`,
           workspacePath
@@ -149,7 +180,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
           }
         }
 
-        // 3. 获取文件内容
+        // 4. 获取文件内容
         const result = await api.executeCommand(
           `cat "${filePath}"`,
           workspacePath
@@ -183,9 +214,78 @@ export const FileViewer: React.FC<FileViewerProps> = ({
   }, [filePath]);
 
   // Monaco Editor mount handler
-  const handleEditorDidMount = (editor: monaco.editor.IStandaloneCodeEditor) => {
+  const handleEditorDidMount = useCallback((editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
-  };
+
+    // 添加 Cmd+S / Ctrl+S 快捷键
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      // 使用 ref 来获取最新的 save handler，避免闭包问题
+      saveHandlerRef.current?.();
+    });
+  }, []);
+
+  // 处理编辑器内容变化
+  const handleEditorChange = useCallback((value: string | undefined) => {
+    if (isEditMode) {
+      setEditedContent(value ?? '');
+      setSaveError(null);
+    }
+  }, [isEditMode]);
+
+  // 保存文件
+  const handleSave = useCallback(async () => {
+    if (!hasUnsavedChanges || editedContent === null) return;
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      await api.writeFile(filePath, editedContent);
+      setContent(editedContent);
+      setEditedContent(null);
+      console.log('[FileViewer] File saved:', filePath);
+    } catch (err) {
+      console.error('[FileViewer] Save failed:', err);
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [filePath, editedContent, hasUnsavedChanges]);
+
+  // 更新 saveHandlerRef 以便快捷键能获取最新的 handleSave
+  useEffect(() => {
+    saveHandlerRef.current = handleSave;
+  }, [handleSave]);
+
+  // 进入编辑模式
+  const enterEditMode = useCallback(() => {
+    if (isWritable && !isBinary && !isLargeFile) {
+      setIsEditMode(true);
+      setEditedContent(content);
+    }
+  }, [isWritable, isBinary, isLargeFile, content]);
+
+  // 退出编辑模式（预览模式）
+  const exitEditMode = useCallback(() => {
+    if (hasUnsavedChanges) {
+      // 如果有未保存的更改，询问用户
+      const confirmed = window.confirm('You have unsaved changes. Discard them?');
+      if (!confirmed) return;
+    }
+    setIsEditMode(false);
+    setEditedContent(null);
+    setSaveError(null);
+  }, [hasUnsavedChanges]);
+
+  // 恢复文件内容
+  const handleRevert = useCallback(() => {
+    if (hasUnsavedChanges) {
+      const confirmed = window.confirm('Revert all changes?');
+      if (!confirmed) return;
+    }
+    setEditedContent(content);
+    editorRef.current?.setValue(content);
+  }, [content, hasUnsavedChanges]);
 
   // 渲染二进制文件提示
   const renderBinaryNotice = () => {
@@ -232,13 +332,75 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     );
   };
 
+  // 渲染头部按钮
+  const renderHeaderButtons = () => {
+    if (loading || error || isBinary || isLargeFile) {
+      return null;
+    }
+
+    if (isEditMode) {
+      return (
+        <div className="flex items-center gap-1.5">
+          {/* Save 按钮 */}
+          <button
+            onClick={handleSave}
+            disabled={!hasUnsavedChanges || isSaving}
+            className={cn(
+              'px-2.5 py-1 text-[11px] font-medium rounded flex items-center gap-1.5 transition-colors border',
+              hasUnsavedChanges
+                ? 'bg-green-600 text-white border-green-500 hover:bg-green-700'
+                : 'bg-neutral-700 text-neutral-400 border-neutral-600 cursor-not-allowed'
+            )}
+          >
+            <Save className="w-3 h-3" />
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+          {/* Preview 按钮 */}
+          <button
+            onClick={exitEditMode}
+            className="px-2.5 py-1 text-[11px] font-medium bg-neutral-700 text-neutral-200 border border-neutral-600 rounded flex items-center gap-1.5 hover:bg-neutral-600 transition-colors"
+          >
+            <Eye className="w-3 h-3" />
+            Preview
+          </button>
+        </div>
+      );
+    }
+
+    // 预览模式
+    if (isWritable) {
+      return (
+        <button
+          onClick={enterEditMode}
+          className="px-2.5 py-1 text-[11px] font-medium bg-neutral-700 text-neutral-200 border border-neutral-600 rounded flex items-center gap-1.5 hover:bg-neutral-600 transition-colors"
+        >
+          <Pencil className="w-3 h-3" />
+          Edit
+        </button>
+      );
+    }
+
+    // 只读文件
+    return (
+      <span className="px-1.5 py-0.5 text-[10px] bg-yellow-500/20 text-yellow-400 rounded">
+        Read-only
+      </span>
+    );
+  };
+
+  // 当前显示的内容（编辑模式下使用 editedContent，否则使用 content）
+  const displayContent = isEditMode && editedContent !== null ? editedContent : content;
+
   return (
     <div className={cn('flex flex-col h-full', className)}>
       {/* 头部 - waveterm 风格 */}
       <div className="px-3 py-1.5 border-b border-white/10 bg-black/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-[13px] font-medium text-foreground/90">{fileName}</span>
+            <span className="text-[13px] font-medium text-foreground/90">
+              {fileName}
+              {hasUnsavedChanges && <span className="text-yellow-400 ml-1">*</span>}
+            </span>
             {language && language !== 'plaintext' && !isBinary && (
               <span className="px-1.5 py-0.5 text-[10px] bg-white/10 text-foreground/60 rounded font-mono">
                 {language}
@@ -249,11 +411,20 @@ export const FileViewer: React.FC<FileViewerProps> = ({
                 binary
               </span>
             )}
+            {isEditMode && (
+              <span className="px-1.5 py-0.5 text-[10px] bg-blue-500/20 text-blue-400 rounded">
+                editing
+              </span>
+            )}
           </div>
-          <div className="text-[11px] text-foreground/40">
-            Read-only
-          </div>
+          {renderHeaderButtons()}
         </div>
+        {/* 保存错误提示 */}
+        {saveError && (
+          <div className="mt-1 text-[11px] text-red-400">
+            Save failed: {saveError}
+          </div>
+        )}
       </div>
 
       {/* 内容区域 */}
@@ -275,7 +446,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
         renderLargeFileWarning()
       ) : isBinary ? (
         renderBinaryNotice()
-      ) : !content ? (
+      ) : !displayContent && !isEditMode ? (
         <div className="flex-1 flex items-center justify-center text-foreground/40">
           <div className="text-sm">Empty file</div>
         </div>
@@ -284,27 +455,28 @@ export const FileViewer: React.FC<FileViewerProps> = ({
           <Editor
             height="100%"
             language={language}
-            value={content}
+            value={displayContent}
             theme="vs-dark"
             onMount={handleEditorDidMount}
+            onChange={handleEditorChange}
             options={{
-              readOnly: true,
+              readOnly: !isEditMode,
               minimap: { enabled: true },
               scrollBeyondLastLine: false,
               fontSize: 12,
               fontFamily: '"Hack", "Fira Code", "JetBrains Mono", monospace',
               lineNumbers: 'on',
-              renderLineHighlight: 'none',
+              renderLineHighlight: isEditMode ? 'line' : 'none',
               scrollbar: {
                 useShadows: false,
                 verticalScrollbarSize: 8,
                 horizontalScrollbarSize: 8,
               },
               overviewRulerBorder: false,
-              hideCursorInOverviewRuler: true,
-              contextmenu: false,
+              hideCursorInOverviewRuler: !isEditMode,
+              contextmenu: isEditMode,
               smoothScrolling: true,
-              cursorBlinking: 'solid',
+              cursorBlinking: isEditMode ? 'blink' : 'solid',
               cursorStyle: 'line',
               wordWrap: 'off',
               folding: true,

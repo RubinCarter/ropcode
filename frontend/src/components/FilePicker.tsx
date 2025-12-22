@@ -96,29 +96,19 @@ export const FilePicker: React.FC<FilePickerProps> = ({
   showAgents = false,
   anchorRef,
 }) => {
-  // Use store for UI state management
-  const searchText = useFilesStore((state) => state.searchText);
-  const setSearchText = useFilesStore((state) => state.setSearchText);
-  const focusIndex = useFilesStore((state) => state.focusIndex);
-  const setFocusIndex = useFilesStore((state) => state.setFocusIndex);
-  const showHidden = useFilesStore((state) => state.showHidden);
-  const toggleShowHidden = useFilesStore((state) => state.toggleShowHidden);
+  // Local state for selected index
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Track if we're in directory browsing mode (entered a subdirectory)
+  // When browsing, we ignore the search query and show directory contents
+  const [isBrowsing, setIsBrowsing] = useState(false);
+
+  // Use initialQuery for search, but ignore it when browsing directories
+  const searchQuery = isBrowsing ? "" : initialQuery;
+
+  // Use store for loading state only
   const isLoading = useFilesStore((state) => state.isLoading);
   const setLoading = useFilesStore((state) => state.setLoading);
-  const storeCurrentPath = useFilesStore((state) => state.currentPath);
-  const setStoreCurrentPath = useFilesStore((state) => state.setCurrentPath);
-  const storeReset = useFilesStore((state) => state.reset);
-
-  // Initialize search text from initialQuery
-  useEffect(() => {
-    if (initialQuery) {
-      setSearchText(initialQuery);
-    }
-    // Cleanup on unmount
-    return () => {
-      storeReset();
-    };
-  }, []);
 
   // Local state for FilePicker-specific data (not in store)
   const [currentPath, setCurrentPath] = useState(basePath);
@@ -159,8 +149,8 @@ export const FilePicker: React.FC<FilePickerProps> = ({
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const fileListRef = useRef<HTMLDivElement>(null);
 
-  // Computed values - now using store's searchText instead of local searchQuery
-  const displayEntries = searchText.trim() ? searchResults : entries;
+  // Computed values
+  const displayEntries = searchQuery.trim() ? searchResults : entries;
   const canGoBack = pathHistory.length > 1;
 
   // Get relative path for display
@@ -173,18 +163,18 @@ export const FilePicker: React.FC<FilePickerProps> = ({
     loadDirectory(currentPath);
   }, [currentPath]);
 
-  // Debounced search - now using store's searchText
+  // Debounced search
   useEffect(() => {
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
     }
 
-    if (searchText.trim()) {
-      const cacheKey = `${basePath}:${searchText}`;
+    if (searchQuery.trim()) {
+      const cacheKey = `${basePath}:${searchQuery}`;
 
       // Immediately show cached results if available
       if (globalSearchCache.has(cacheKey)) {
-        console.log('[FilePicker] Immediately showing cached search results for:', searchText);
+        console.log('[FilePicker] Immediately showing cached search results for:', searchQuery);
         setSearchResults(globalSearchCache.get(cacheKey) || []);
         setIsShowingCached(true);
         setError(null);
@@ -192,7 +182,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
 
       // Schedule fresh search after debounce
       searchDebounceRef.current = setTimeout(() => {
-        performSearch(searchText);
+        performSearch(searchQuery);
       }, 300);
     } else {
       setSearchResults([]);
@@ -204,17 +194,17 @@ export const FilePicker: React.FC<FilePickerProps> = ({
         clearTimeout(searchDebounceRef.current);
       }
     };
-  }, [searchText, basePath]);
+  }, [searchQuery, basePath]);
 
-  // Reset focus index when entries change
+  // Reset selected index when entries change
   useEffect(() => {
-    setFocusIndex(0);
+    setSelectedIndex(0);
   }, [entries, searchResults]);
 
-  // Keyboard navigation - now using store's focusIndex
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const displayEntries = searchText.trim() ? searchResults : entries;
+      const currentDisplayEntries = searchQuery.trim() ? searchResults : entries;
 
       switch (e.key) {
         case 'Escape':
@@ -225,28 +215,26 @@ export const FilePicker: React.FC<FilePickerProps> = ({
         case 'Enter':
           e.preventDefault();
           // Enter always selects the current item (file or directory)
-          if (displayEntries.length > 0 && focusIndex < displayEntries.length) {
-            onSelect(displayEntries[focusIndex]);
+          if (currentDisplayEntries.length > 0 && selectedIndex < currentDisplayEntries.length) {
+            onSelect(currentDisplayEntries[selectedIndex]);
           }
           break;
 
         case 'ArrowUp':
           e.preventDefault();
-          // Move focus up in FilePicker's displayEntries
-          setFocusIndex(Math.max(0, focusIndex - 1));
+          setSelectedIndex(prev => Math.max(0, prev - 1));
           break;
 
         case 'ArrowDown':
           e.preventDefault();
-          // Move focus down in FilePicker's displayEntries
-          setFocusIndex(Math.min(displayEntries.length - 1, focusIndex + 1));
+          setSelectedIndex(prev => Math.min(currentDisplayEntries.length - 1, prev + 1));
           break;
 
         case 'ArrowRight':
           e.preventDefault();
           // Right arrow enters directories
-          if (displayEntries.length > 0 && focusIndex < displayEntries.length) {
-            const entry = displayEntries[focusIndex];
+          if (currentDisplayEntries.length > 0 && selectedIndex < currentDisplayEntries.length) {
+            const entry = currentDisplayEntries[selectedIndex];
             if (entry.is_directory) {
               navigateToDirectory(entry.path);
             }
@@ -265,17 +253,17 @@ export const FilePicker: React.FC<FilePickerProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [entries, searchResults, focusIndex, searchText, canGoBack]);
+  }, [entries, searchResults, selectedIndex, searchQuery, canGoBack, onClose, onSelect]);
 
-  // Scroll selected item into view - now using focusIndex
+  // Scroll selected item into view
   useEffect(() => {
     if (fileListRef.current) {
-      const selectedElement = fileListRef.current.querySelector(`[data-index="${focusIndex}"]`);
+      const selectedElement = fileListRef.current.querySelector(`[data-index="${selectedIndex}"]`);
       if (selectedElement) {
         selectedElement.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     }
-  }, [focusIndex]);
+  }, [selectedIndex]);
 
   const loadDirectory = async (path: string) => {
     try {
@@ -421,6 +409,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
   const navigateToDirectory = (path: string) => {
     setCurrentPath(path);
     setPathHistory(prev => [...prev, path]);
+    setIsBrowsing(true); // Switch to browsing mode, ignore search query
   };
 
   const navigateBack = () => {
@@ -428,11 +417,15 @@ export const FilePicker: React.FC<FilePickerProps> = ({
       const newHistory = [...pathHistory];
       newHistory.pop(); // Remove current
       const previousPath = newHistory[newHistory.length - 1];
-      
+
       // Don't go beyond the base path
       if (!basePath || previousPath.startsWith(basePath) || previousPath === basePath) {
         setCurrentPath(previousPath);
         setPathHistory(newHistory);
+        // If back to base path, exit browsing mode to restore search
+        if (previousPath === basePath) {
+          setIsBrowsing(false);
+        }
       }
     }
   };
@@ -520,7 +513,7 @@ export const FilePicker: React.FC<FilePickerProps> = ({
           <div className="flex flex-col items-center justify-center h-full">
             <Search className="h-8 w-8 text-muted-foreground mb-2" />
             <span className="text-sm text-muted-foreground">
-              {searchText.trim() ? 'No files found' : 'Empty directory'}
+              {searchQuery.trim() ? 'No files found' : 'Empty directory'}
             </span>
           </div>
         )}
@@ -530,8 +523,8 @@ export const FilePicker: React.FC<FilePickerProps> = ({
             {displayEntries.map((entry, index) => {
               const iconConfig = getFileIcon(entry);
               const IconComponent = iconConfig.icon;
-              const isSearching = searchText.trim() !== '';
-              const isSelected = index === focusIndex;
+              const isSearching = searchQuery.trim() !== '';
+              const isSelected = index === selectedIndex;
 
               return (
                 <button
@@ -539,12 +532,12 @@ export const FilePicker: React.FC<FilePickerProps> = ({
                   data-index={index}
                   onClick={() => handleEntryClick(entry)}
                   onDoubleClick={() => handleEntryDoubleClick(entry)}
-                  onMouseEnter={() => setFocusIndex(index)}
+                  onMouseEnter={() => setSelectedIndex(index)}
                   className={cn(
                     "w-full flex items-center gap-2 px-2 py-1.5 rounded-md",
-                    "hover:bg-white/10 transition-colors",
+                    "hover:bg-accent transition-colors",
                     "text-left text-sm",
-                    isSelected && "bg-white/15"
+                    isSelected && "bg-accent"
                   )}
                   title={entry.is_directory ? "Click to select • Double-click to enter" : "Click to select"}
                 >

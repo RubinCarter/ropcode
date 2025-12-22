@@ -254,6 +254,9 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
             <FileViewer
               filePath={tab.filePath}
               workspacePath={tab.projectPath}
+              onUnsavedChangesChange={(hasChanges) => {
+                updateTab(tab.id, { hasUnsavedChanges: hasChanges });
+              }}
             />
           </div>
         );
