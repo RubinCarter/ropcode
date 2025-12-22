@@ -228,31 +228,31 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
 
 // 将 WorkspaceTabManager 渲染到标题栏的 Portal 组件
 const WorkspaceTabManagerPortal: React.FC<{ visible: boolean }> = ({ visible }) => {
-  const [slot, setSlot] = React.useState<HTMLElement | null>(null);
+  const [slot, setSlot] = React.useState<HTMLElement | null>(() =>
+    visible ? document.getElementById('workspace-tab-manager-slot') : null
+  );
 
-  // 使用 useLayoutEffect 确保在 DOM 更新后同步获取 slot
-  // 这比 useEffect 更可靠，因为它在浏览器绘制前执行
+  // 每次渲染时同步检查 slot 是否仍然有效
+  // 无依赖数组 = 每次渲染后都执行，确保 slot 引用始终正确
   React.useLayoutEffect(() => {
     if (!visible) {
-      setSlot(null);
+      if (slot !== null) setSlot(null);
       return;
     }
 
     const element = document.getElementById('workspace-tab-manager-slot');
-    setSlot(element);
-  }, [visible]);
+    if (slot !== element) {
+      setSlot(element);
+    }
+  });
 
-  // 监听 DOM 变化，处理 slot 元素动态创建/销毁的情况
+  // MutationObserver 处理 slot 元素被异步创建/销毁的情况
   React.useEffect(() => {
     if (!visible) return;
 
     const observer = new MutationObserver(() => {
       const element = document.getElementById('workspace-tab-manager-slot');
-      setSlot(prev => {
-        // 只在值变化时更新，避免不必要的重渲染
-        if (prev !== element) return element;
-        return prev;
-      });
+      setSlot(prev => prev !== element ? element : prev);
     });
 
     observer.observe(document.body, {
