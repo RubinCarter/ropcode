@@ -331,3 +331,123 @@ export function getFileIcon(filename: string, isDirectory: boolean, isExpanded?:
 export function getFileIconColor(filename: string, isDirectory: boolean): string {
   return getFileIconConfig(filename, isDirectory).color;
 }
+
+// Extension to Monaco language ID mapping
+const extensionLanguageMap: Record<string, string> = {
+  // JavaScript/TypeScript
+  'js': 'javascript',
+  'jsx': 'javascript',
+  'mjs': 'javascript',
+  'cjs': 'javascript',
+  'ts': 'typescript',
+  'tsx': 'typescript',
+  'mts': 'typescript',
+  'cts': 'typescript',
+
+  // Web
+  'html': 'html',
+  'htm': 'html',
+  'css': 'css',
+  'scss': 'scss',
+  'sass': 'scss',
+  'less': 'less',
+  'vue': 'html',
+  'svelte': 'html',
+
+  // Data formats
+  'json': 'json',
+  'json5': 'json',
+  'jsonc': 'json',
+  'yaml': 'yaml',
+  'yml': 'yaml',
+  'toml': 'ini',
+  'xml': 'xml',
+  'csv': 'plaintext',
+
+  // Programming languages
+  'py': 'python',
+  'pyw': 'python',
+  'pyi': 'python',
+  'rb': 'ruby',
+  'go': 'go',
+  'rs': 'rust',
+  'java': 'java',
+  'kt': 'kotlin',
+  'kts': 'kotlin',
+  'scala': 'scala',
+  'swift': 'swift',
+  'c': 'c',
+  'h': 'c',
+  'cpp': 'cpp',
+  'hpp': 'cpp',
+  'cc': 'cpp',
+  'cxx': 'cpp',
+  'cs': 'csharp',
+  'php': 'php',
+  'lua': 'lua',
+  'r': 'r',
+  'pl': 'perl',
+  'pm': 'perl',
+  'sh': 'shell',
+  'bash': 'shell',
+  'zsh': 'shell',
+  'fish': 'shell',
+  'ps1': 'powershell',
+  'bat': 'bat',
+  'cmd': 'bat',
+
+  // Markup & docs
+  'md': 'markdown',
+  'mdx': 'markdown',
+  'txt': 'plaintext',
+  'tex': 'latex',
+  'rst': 'restructuredtext',
+
+  // Config files
+  'ini': 'ini',
+  'conf': 'ini',
+  'cfg': 'ini',
+  'properties': 'properties',
+
+  // Database
+  'sql': 'sql',
+
+  // Misc
+  'dockerfile': 'dockerfile',
+  'diff': 'diff',
+  'patch': 'diff',
+  'graphql': 'graphql',
+  'gql': 'graphql',
+};
+
+// Special filenames to language mapping
+const filenameLanguageMap: Record<string, string> = {
+  'Dockerfile': 'dockerfile',
+  'Makefile': 'makefile',
+  'CMakeLists.txt': 'cmake',
+  '.gitignore': 'ignore',
+  '.dockerignore': 'ignore',
+  '.editorconfig': 'ini',
+};
+
+/**
+ * Get Monaco language ID for a file
+ */
+export function getLanguageByFilename(filePath: string): string {
+  const filename = filePath.split('/').pop() || filePath;
+  const lowerFilename = filename.toLowerCase();
+
+  // Check filename-specific mapping first
+  if (filenameLanguageMap[filename]) {
+    return filenameLanguageMap[filename];
+  }
+
+  // Get extension
+  const ext = filename.split('.').pop()?.toLowerCase();
+  if (ext && extensionLanguageMap[ext]) {
+    return extensionLanguageMap[ext];
+  }
+
+  // Default to plaintext
+  return 'plaintext';
+}
