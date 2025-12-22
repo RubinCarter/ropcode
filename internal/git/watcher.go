@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -50,6 +51,27 @@ func (g *GitWatcher) Watch(workspacePath string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to watch git dir: %w", err)
+	}
+
+	// 添加关键的 git 子目录到监听列表
+	// fsnotify 不支持递归监听，需要手动添加子目录
+	gitSubDirs := []string{
+		"refs",        // 分支和标签引用
+		"refs/heads",  // 本地分支（提交后变化）
+		"refs/remotes", // 远程分支引用
+		"refs/tags",   // 标签
+		"objects",     // git 对象（可选，变化频繁）
+		"logs",        // reflog
+		"logs/refs",
+		"logs/refs/heads",
+	}
+
+	for _, subDir := range gitSubDirs {
+		subPath := filepath.Join(gitDir, subDir)
+		// 只添加存在的目录
+		if info, err := os.Stat(subPath); err == nil && info.IsDir() {
+			_ = w.AddPath(subPath) // 忽略错误，某些目录可能不存在
+		}
 	}
 
 	if err := w.Start(); err != nil {

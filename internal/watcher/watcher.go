@@ -61,6 +61,18 @@ func New(path string, debounce time.Duration, callback func(Event)) (*Watcher, e
 	}, nil
 }
 
+// AddPath adds an additional path to watch
+func (w *Watcher) AddPath(path string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.closed {
+		return fmt.Errorf("watcher is closed")
+	}
+
+	return w.watcher.Add(path)
+}
+
 // Start starts watching for events
 func (w *Watcher) Start() error {
 	w.mu.Lock()
