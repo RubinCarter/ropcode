@@ -247,7 +247,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <motion.div
       initial={false}
       animate={{
-        width: isCollapsed ? '3%' : '25%'
+        width: isCollapsed ? '3%' : '20%'
       }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
       className={cn(

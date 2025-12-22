@@ -474,11 +474,11 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onDoubleClick={handleDoubleClick}
     >
-      {/* 左侧区域 - 对应左侧边栏 (25% / 8%) */}
+      {/* 左侧区域 - 对应左侧边栏 (20% / 3%) */}
       <motion.div
         initial={false}
         animate={{
-          width: sidebarCollapsed ? '8%' : '25%'
+          width: sidebarCollapsed ? '3%' : '20%'
         }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className="flex items-center border-r border-border/50 wails-drag min-w-[48px]"
