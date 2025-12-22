@@ -24,6 +24,9 @@ type SessionConfig struct {
 	SessionID     string `json:"session_id,omitempty"`
 	Resume        bool   `json:"resume,omitempty"`
 	Continue      bool   `json:"continue,omitempty"`
+	// ThinkingLevel specifies the thinking depth for extended thinking models
+	// Can be "auto" or a specific budget number as string
+	ThinkingLevel string `json:"thinking_level,omitempty"`
 }
 
 type SessionStatus struct {
@@ -106,6 +109,10 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	if s.Config.Model != "" {
 		args = append(args, "--model", s.Config.Model)
 	}
+
+	// Note: Thinking depth for Claude is handled via prompt engineering in frontend
+	// The frontend appends phrases like "think", "think hard", "ultrathink" to the prompt
+	// ThinkingLevel field is kept for compatibility but not used in CLI args for Claude
 
 	// Add output format for JSONL streaming
 	args = append(args, "--output-format", "stream-json")

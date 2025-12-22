@@ -92,6 +92,24 @@ func (d *Database) init() error {
 		completed_at INTEGER,
 		FOREIGN KEY (agent_id) REFERENCES agents(id)
 	);
+
+	CREATE TABLE IF NOT EXISTS model_configs (
+		id TEXT PRIMARY KEY,
+		model_id TEXT NOT NULL,
+		provider_id TEXT NOT NULL,
+		display_name TEXT NOT NULL,
+		description TEXT,
+		is_builtin INTEGER DEFAULT 0,
+		is_enabled INTEGER DEFAULT 1,
+		is_default INTEGER DEFAULT 0,
+		thinking_levels TEXT,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_model_configs_provider ON model_configs(provider_id);
+	CREATE INDEX IF NOT EXISTS idx_model_configs_model_id ON model_configs(model_id);
+	CREATE INDEX IF NOT EXISTS idx_model_configs_default ON model_configs(is_default);
 	`
 
 	_, err := d.db.Exec(schema)
@@ -892,6 +910,228 @@ func (d *Database) ResetDatabase() error {
 
 	// Reinitialize schema
 	return d.init()
+}
+
+// ===== ModelConfig CRUD =====
+
+// SaveModelConfig saves or updates a model config
+func (d *Database) SaveModelConfig(config *ModelConfig) error {
+	now := time.Now()
+	config.UpdatedAt = now
+	if config.CreatedAt.IsZero() {
+		config.CreatedAt = now
+	}
+
+	// Serialize thinking levels to JSON
+	thinkingLevelsJSON, err := json.Marshal(config.ThinkingLevels)
+	if err != nil {
+		return err
+	}
+
+	_, err = d.db.Exec(`
+		INSERT OR REPLACE INTO model_configs
+		(id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		config.ID, config.ModelID, config.ProviderID, config.DisplayName, config.Description,
+		config.IsBuiltin, config.IsEnabled, config.IsDefault, string(thinkingLevelsJSON),
+		config.CreatedAt, config.UpdatedAt)
+	return err
+}
+
+// GetModelConfig retrieves a model config by ID
+func (d *Database) GetModelConfig(id string) (*ModelConfig, error) {
+	row := d.db.QueryRow(`
+		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
+		FROM model_configs WHERE id = ?`, id)
+
+	return scanModelConfig(row)
+}
+
+// GetModelConfigByModelID retrieves a model config by model_id
+func (d *Database) GetModelConfigByModelID(modelID string) (*ModelConfig, error) {
+	row := d.db.QueryRow(`
+		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
+		FROM model_configs WHERE model_id = ?`, modelID)
+
+	return scanModelConfig(row)
+}
+
+// GetAllModelConfigs retrieves all model configs
+func (d *Database) GetAllModelConfigs() ([]*ModelConfig, error) {
+	rows, err := d.db.Query(`
+		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
+		FROM model_configs ORDER BY provider_id, display_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var configs []*ModelConfig
+	for rows.Next() {
+		config, err := scanModelConfigRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		configs = append(configs, config)
+	}
+	return configs, rows.Err()
+}
+
+// GetModelConfigsByProvider retrieves all model configs for a provider
+func (d *Database) GetModelConfigsByProvider(providerID string) ([]*ModelConfig, error) {
+	rows, err := d.db.Query(`
+		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
+		FROM model_configs WHERE provider_id = ? ORDER BY display_name`, providerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var configs []*ModelConfig
+	for rows.Next() {
+		config, err := scanModelConfigRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		configs = append(configs, config)
+	}
+	return configs, rows.Err()
+}
+
+// GetEnabledModelConfigs retrieves all enabled model configs
+func (d *Database) GetEnabledModelConfigs() ([]*ModelConfig, error) {
+	rows, err := d.db.Query(`
+		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
+		FROM model_configs WHERE is_enabled = 1 ORDER BY provider_id, display_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var configs []*ModelConfig
+	for rows.Next() {
+		config, err := scanModelConfigRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		configs = append(configs, config)
+	}
+	return configs, rows.Err()
+}
+
+// GetDefaultModelConfig retrieves the default model config for a provider
+func (d *Database) GetDefaultModelConfig(providerID string) (*ModelConfig, error) {
+	row := d.db.QueryRow(`
+		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
+		FROM model_configs WHERE provider_id = ? AND is_default = 1 AND is_enabled = 1`, providerID)
+
+	return scanModelConfig(row)
+}
+
+// ClearDefaultModelConfig clears the is_default flag for all models of a given provider
+func (d *Database) ClearDefaultModelConfig(providerID string) error {
+	_, err := d.db.Exec(`UPDATE model_configs SET is_default = 0 WHERE provider_id = ?`, providerID)
+	return err
+}
+
+// SetModelConfigEnabled sets the enabled state of a model config
+func (d *Database) SetModelConfigEnabled(id string, enabled bool) error {
+	_, err := d.db.Exec(`UPDATE model_configs SET is_enabled = ?, updated_at = ? WHERE id = ?`,
+		enabled, time.Now(), id)
+	return err
+}
+
+// SetModelConfigDefault sets a model as the default for its provider
+func (d *Database) SetModelConfigDefault(id string) error {
+	// First get the model to know its provider
+	config, err := d.GetModelConfig(id)
+	if err != nil {
+		return err
+	}
+
+	// Clear existing default
+	if err := d.ClearDefaultModelConfig(config.ProviderID); err != nil {
+		return err
+	}
+
+	// Set new default
+	_, err = d.db.Exec(`UPDATE model_configs SET is_default = 1, updated_at = ? WHERE id = ?`,
+		time.Now(), id)
+	return err
+}
+
+// DeleteModelConfig deletes a model config by ID (only if not builtin)
+func (d *Database) DeleteModelConfig(id string) error {
+	// Check if builtin
+	config, err := d.GetModelConfig(id)
+	if err != nil {
+		return err
+	}
+	if config.IsBuiltin {
+		return fmt.Errorf("cannot delete builtin model config")
+	}
+
+	_, err = d.db.Exec("DELETE FROM model_configs WHERE id = ? AND is_builtin = 0", id)
+	return err
+}
+
+// ModelConfigExists checks if a model config with the given model_id exists
+func (d *Database) ModelConfigExists(modelID string) (bool, error) {
+	var exists bool
+	err := d.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM model_configs WHERE model_id = ?)`, modelID).Scan(&exists)
+	return exists, err
+}
+
+// Helper functions for scanning ModelConfig
+
+func scanModelConfig(row *sql.Row) (*ModelConfig, error) {
+	config := &ModelConfig{}
+	var thinkingLevelsJSON sql.NullString
+	var description sql.NullString
+
+	err := row.Scan(&config.ID, &config.ModelID, &config.ProviderID, &config.DisplayName,
+		&description, &config.IsBuiltin, &config.IsEnabled, &config.IsDefault,
+		&thinkingLevelsJSON, &config.CreatedAt, &config.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if description.Valid {
+		config.Description = description.String
+	}
+
+	if thinkingLevelsJSON.Valid && thinkingLevelsJSON.String != "" {
+		if err := json.Unmarshal([]byte(thinkingLevelsJSON.String), &config.ThinkingLevels); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
+}
+
+func scanModelConfigRow(rows *sql.Rows) (*ModelConfig, error) {
+	config := &ModelConfig{}
+	var thinkingLevelsJSON sql.NullString
+	var description sql.NullString
+
+	err := rows.Scan(&config.ID, &config.ModelID, &config.ProviderID, &config.DisplayName,
+		&description, &config.IsBuiltin, &config.IsEnabled, &config.IsDefault,
+		&thinkingLevelsJSON, &config.CreatedAt, &config.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+
+	if description.Valid {
+		config.Description = description.String
+	}
+
+	if thinkingLevelsJSON.Valid && thinkingLevelsJSON.String != "" {
+		if err := json.Unmarshal([]byte(thinkingLevelsJSON.String), &config.ThinkingLevels); err != nil {
+			return nil, err
+		}
+	}
+
+	return config, nil
 }
 
 // Helper function to join strings

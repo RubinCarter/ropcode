@@ -218,6 +218,53 @@ export interface ProviderApiConfig {
 }
 
 /**
+ * Represents a thinking level configuration for a model
+ */
+export interface ThinkingLevel {
+  /** Unique identifier (e.g., "auto", "think", "ultrathink") */
+  id: string;
+  /** Display name */
+  name: string;
+  /**
+   * Budget/phrase value:
+   * - For Claude/Gemini: phrase to append to prompt (e.g., "think", "think hard", "ultrathink")
+   * - For Codex: reasoning_effort value (e.g., "low", "medium", "high")
+   * - Empty string or "auto" for automatic mode
+   */
+  budget: string | number;
+  /** Whether this is the default level for the model */
+  is_default: boolean;
+}
+
+/**
+ * Represents a model configuration with thinking levels
+ */
+export interface ModelConfig {
+  /** Unique identifier (UUID) */
+  id: string;
+  /** Model identifier (e.g., "sonnet", "opus") */
+  model_id: string;
+  /** Provider this model belongs to (e.g., "claude", "openai", "gemini") */
+  provider_id: string;
+  /** Display name */
+  display_name: string;
+  /** Model description */
+  description: string;
+  /** Whether this is a built-in model (cannot be modified or deleted) */
+  is_builtin: boolean;
+  /** Whether this model is enabled */
+  is_enabled: boolean;
+  /** Whether this is the default model for its provider */
+  is_default: boolean;
+  /** Available thinking levels (empty = no thinking support) */
+  thinking_levels: ThinkingLevel[];
+  /** Created timestamp */
+  created_at: any;
+  /** Last updated timestamp */
+  updated_at: any;
+}
+
+/**
  * Represents an action (script/command) that can be executed
  */
 export interface Action {
@@ -936,6 +983,59 @@ export const api = {
 
   async listProviderApiConfigs(): Promise<any[]> {
     return App.GetAllProviderApiConfigs();
+  },
+
+  // Model Config API
+  async getAllModelConfigs(): Promise<ModelConfig[]> {
+    return App.GetAllModelConfigs();
+  },
+
+  async getEnabledModelConfigs(): Promise<ModelConfig[]> {
+    return App.GetEnabledModelConfigs();
+  },
+
+  async getModelConfigsByProvider(providerID: string): Promise<ModelConfig[]> {
+    return App.GetModelConfigsByProvider(providerID);
+  },
+
+  async getModelConfig(id: string): Promise<ModelConfig | null> {
+    return App.GetModelConfig(id);
+  },
+
+  async getModelConfigByModelID(modelID: string): Promise<ModelConfig | null> {
+    return App.GetModelConfigByModelID(modelID);
+  },
+
+  async getDefaultModelConfig(providerID: string): Promise<ModelConfig | null> {
+    return App.GetDefaultModelConfig(providerID);
+  },
+
+  async createModelConfig(config: Partial<ModelConfig>): Promise<void> {
+    return App.CreateModelConfig(config as any);
+  },
+
+  async updateModelConfig(id: string, config: Partial<ModelConfig>): Promise<void> {
+    return App.UpdateModelConfig(id, config as any);
+  },
+
+  async deleteModelConfig(id: string): Promise<void> {
+    return App.DeleteModelConfig(id);
+  },
+
+  async setModelConfigEnabled(id: string, enabled: boolean): Promise<void> {
+    return App.SetModelConfigEnabled(id, enabled);
+  },
+
+  async setModelConfigDefault(id: string): Promise<void> {
+    return App.SetModelConfigDefault(id);
+  },
+
+  async getModelThinkingLevels(modelID: string): Promise<ThinkingLevel[]> {
+    return App.GetModelThinkingLevels(modelID);
+  },
+
+  async getDefaultThinkingLevel(modelID: string): Promise<ThinkingLevel | null> {
+    return App.GetDefaultThinkingLevel(modelID);
   },
 
   // Config

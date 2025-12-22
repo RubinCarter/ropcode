@@ -1690,6 +1690,140 @@ func (a *App) DeleteClaudeConfigAgent(scope, name, projectPath string) error {
 	return claude.DeleteClaudeAgent(scope, name, projectPath)
 }
 
+// ===== Model Config Bindings =====
+
+// GetAllModelConfigs retrieves all model configurations
+func (a *App) GetAllModelConfigs() ([]*database.ModelConfig, error) {
+	if a.modelRegistry == nil {
+		return []*database.ModelConfig{}, nil
+	}
+	configs, err := a.modelRegistry.GetAllModels()
+	if err != nil {
+		return []*database.ModelConfig{}, err
+	}
+	if configs == nil {
+		return []*database.ModelConfig{}, nil
+	}
+	return configs, nil
+}
+
+// GetEnabledModelConfigs retrieves all enabled model configurations
+func (a *App) GetEnabledModelConfigs() ([]*database.ModelConfig, error) {
+	if a.modelRegistry == nil {
+		return []*database.ModelConfig{}, nil
+	}
+	configs, err := a.modelRegistry.GetEnabledModels()
+	if err != nil {
+		return []*database.ModelConfig{}, err
+	}
+	if configs == nil {
+		return []*database.ModelConfig{}, nil
+	}
+	return configs, nil
+}
+
+// GetModelConfigsByProvider retrieves all model configurations for a specific provider
+func (a *App) GetModelConfigsByProvider(providerID string) ([]*database.ModelConfig, error) {
+	if a.modelRegistry == nil {
+		return []*database.ModelConfig{}, nil
+	}
+	configs, err := a.modelRegistry.GetModelsByProvider(providerID)
+	if err != nil {
+		return []*database.ModelConfig{}, err
+	}
+	if configs == nil {
+		return []*database.ModelConfig{}, nil
+	}
+	return configs, nil
+}
+
+// GetModelConfig retrieves a model configuration by ID
+func (a *App) GetModelConfig(id string) (*database.ModelConfig, error) {
+	if a.modelRegistry == nil {
+		return nil, nil
+	}
+	return a.modelRegistry.GetModel(id)
+}
+
+// GetModelConfigByModelID retrieves a model configuration by model_id
+func (a *App) GetModelConfigByModelID(modelID string) (*database.ModelConfig, error) {
+	if a.modelRegistry == nil {
+		return nil, nil
+	}
+	return a.modelRegistry.GetModelByModelID(modelID)
+}
+
+// GetDefaultModelConfig retrieves the default model configuration for a provider
+func (a *App) GetDefaultModelConfig(providerID string) (*database.ModelConfig, error) {
+	if a.modelRegistry == nil {
+		return nil, nil
+	}
+	return a.modelRegistry.GetDefaultModel(providerID)
+}
+
+// CreateModelConfig creates a new user-defined model configuration
+func (a *App) CreateModelConfig(config *database.ModelConfig) error {
+	if a.modelRegistry == nil {
+		return nil
+	}
+	return a.modelRegistry.CreateModel(config)
+}
+
+// UpdateModelConfig updates a user-defined model configuration
+func (a *App) UpdateModelConfig(id string, config *database.ModelConfig) error {
+	if a.modelRegistry == nil {
+		return nil
+	}
+	return a.modelRegistry.UpdateModel(id, config)
+}
+
+// DeleteModelConfig deletes a user-defined model configuration
+func (a *App) DeleteModelConfig(id string) error {
+	if a.modelRegistry == nil {
+		return nil
+	}
+	return a.modelRegistry.DeleteModel(id)
+}
+
+// SetModelConfigEnabled enables or disables a model configuration
+func (a *App) SetModelConfigEnabled(id string, enabled bool) error {
+	if a.modelRegistry == nil {
+		return nil
+	}
+	return a.modelRegistry.SetModelEnabled(id, enabled)
+}
+
+// SetModelConfigDefault sets a model as the default for its provider
+func (a *App) SetModelConfigDefault(id string) error {
+	if a.modelRegistry == nil {
+		return nil
+	}
+	return a.modelRegistry.SetDefaultModel(id)
+}
+
+// GetModelThinkingLevels retrieves the thinking levels for a model
+func (a *App) GetModelThinkingLevels(modelID string) ([]database.ThinkingLevel, error) {
+	if a.modelRegistry == nil {
+		return []database.ThinkingLevel{}, nil
+	}
+	levels, err := a.modelRegistry.GetThinkingLevels(modelID)
+	if err != nil {
+		return []database.ThinkingLevel{}, err
+	}
+	if levels == nil {
+		return []database.ThinkingLevel{}, nil
+	}
+	return levels, nil
+}
+
+// GetDefaultThinkingLevel retrieves the default thinking level for a model
+func (a *App) GetDefaultThinkingLevel(modelID string) (*database.ThinkingLevel, error) {
+	if a.modelRegistry == nil {
+		return nil, nil
+	}
+	return a.modelRegistry.GetDefaultThinkingLevel(modelID)
+}
+
 // ===== Agent Run Bindings =====
 
 // ExecuteAgent starts an agent run with the specified parameters

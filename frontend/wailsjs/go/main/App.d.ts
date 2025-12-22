@@ -37,6 +37,8 @@ export function ContinueClaudeCode(arg1:string,arg2:string,arg3:string,arg4:stri
 
 export function CreateAgent(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string):Promise<number>;
 
+export function CreateModelConfig(arg1:database.ModelConfig):Promise<void>;
+
 export function CreateProject(arg1:string):Promise<void>;
 
 export function CreateProviderApiConfig(arg1:database.ProviderApiConfig):Promise<void>;
@@ -54,6 +56,8 @@ export function DeleteClaudeConfigAgent(arg1:string,arg2:string,arg3:string):Pro
 export function DeleteGlobalSshConnection(arg1:string):Promise<void>;
 
 export function DeleteMcpServer(arg1:string):Promise<void>;
+
+export function DeleteModelConfig(arg1:string):Promise<void>;
 
 export function DeleteProjectIndex(arg1:string):Promise<void>;
 
@@ -93,6 +97,8 @@ export function GetAgentRunBySessionID(arg1:string):Promise<database.AgentRun>;
 
 export function GetAgentRunOutput(arg1:number):Promise<string>;
 
+export function GetAllModelConfigs():Promise<Array<database.ModelConfig>>;
+
 export function GetAllProviderApiConfigs():Promise<Array<database.ProviderApiConfig>>;
 
 export function GetAutoSyncStatus(arg1:string):Promise<ssh.AutoSyncStatus>;
@@ -108,6 +114,12 @@ export function GetClaudeSettings():Promise<Record<string, any>>;
 export function GetConfig():Promise<Record<string, string>>;
 
 export function GetCurrentBranch(arg1:string):Promise<string>;
+
+export function GetDefaultModelConfig(arg1:string):Promise<database.ModelConfig>;
+
+export function GetDefaultThinkingLevel(arg1:string):Promise<database.ThinkingLevel>;
+
+export function GetEnabledModelConfigs():Promise<Array<database.ModelConfig>>;
 
 export function GetGitDiff(arg1:string,arg2:boolean):Promise<string>;
 
@@ -126,6 +138,14 @@ export function GetMcpServer(arg1:string):Promise<mcp.MCPServer>;
 export function GetMcpServerStatus(arg1:string):Promise<mcp.MCPServerStatus>;
 
 export function GetMergedHooksConfig(arg1:string):Promise<claude.HooksConfig>;
+
+export function GetModelConfig(arg1:string):Promise<database.ModelConfig>;
+
+export function GetModelConfigByModelID(arg1:string):Promise<database.ModelConfig>;
+
+export function GetModelConfigsByProvider(arg1:string):Promise<Array<database.ModelConfig>>;
+
+export function GetModelThinkingLevels(arg1:string):Promise<Array<database.ThinkingLevel>>;
 
 export function GetPluginAgent(arg1:string,arg2:string):Promise<plugin.PluginAgent>;
 
@@ -327,6 +347,10 @@ export function SearchFiles(arg1:string,arg2:string):Promise<Array<main.FileEntr
 
 export function SetClaudeBinaryPath(arg1:string):Promise<void>;
 
+export function SetModelConfigDefault(arg1:string):Promise<void>;
+
+export function SetModelConfigEnabled(arg1:string,arg2:boolean):Promise<void>;
+
 export function SetProjectProviderApiConfig(arg1:string,arg2:string,arg3:database.ProviderApiConfig):Promise<void>;
 
 export function SetWorkspaceProtectionEnabled(arg1:string,arg2:boolean):Promise<void>;
@@ -372,6 +396,8 @@ export function UnwatchGitWorkspace(arg1:string):Promise<void>;
 export function UpdateAgent(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string):Promise<void>;
 
 export function UpdateGlobalActions(arg1:Array<main.Action>):Promise<void>;
+
+export function UpdateModelConfig(arg1:string,arg2:database.ModelConfig):Promise<void>;
 
 export function UpdateProjectAccessTime(arg1:string):Promise<void>;
 
