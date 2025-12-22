@@ -27,6 +27,9 @@ type SessionConfig struct {
 	// ThinkingLevel specifies the thinking depth for extended thinking models
 	// Can be "auto" or a specific budget number as string
 	ThinkingLevel string `json:"thinking_level,omitempty"`
+	// API configuration from ProviderApiConfig
+	BaseURL   string `json:"base_url,omitempty"`
+	AuthToken string `json:"auth_token,omitempty"`
 }
 
 type SessionStatus struct {
@@ -140,6 +143,18 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// Set working directory to project path
 	if s.Config.ProjectPath != "" {
 		s.cmd.Dir = s.Config.ProjectPath
+	}
+
+	// Set environment variables for custom API configuration
+	// Inherit current environment and add/override API config
+	s.cmd.Env = os.Environ()
+	if s.Config.AuthToken != "" {
+		s.cmd.Env = append(s.cmd.Env, "ANTHROPIC_API_KEY="+s.Config.AuthToken)
+		log.Printf("[Session] Using custom API key from provider config")
+	}
+	if s.Config.BaseURL != "" {
+		s.cmd.Env = append(s.cmd.Env, "ANTHROPIC_BASE_URL="+s.Config.BaseURL)
+		log.Printf("[Session] Using custom base URL: %s", s.Config.BaseURL)
 	}
 
 	// Setup pipes

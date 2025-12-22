@@ -232,20 +232,53 @@ func (a *App) GetProjectProviderApiConfig(projectPath, providerName string) (*da
 	return a.dbManager.GetDefaultProviderApiConfig(providerName)
 }
 
-// SetProjectProviderApiConfig sets the provider API config for a project
+// SetProjectProviderApiConfig sets the provider API config for a project or workspace
 func (a *App) SetProjectProviderApiConfig(projectPath, providerName string, config *database.ProviderApiConfig) error {
 	if a.dbManager == nil {
 		return nil
 	}
 
-	// Get project index
+	// Get project index - try direct lookup first
 	name := filepath.Base(projectPath)
 	project, err := a.dbManager.GetProjectIndex(name)
 	if err != nil {
+		// If not found, try to find the project that contains this workspace
+		projects, err2 := a.dbManager.GetAllProjectIndexes()
+		if err2 != nil {
+			return err2
+		}
+
+		workspaceName := name
+		for _, p := range projects {
+			for i, workspace := range p.Workspaces {
+				if workspace.Name == workspaceName {
+					// Found workspace, update its provider info
+					providerFound := false
+					for j, provider := range p.Workspaces[i].Providers {
+						if provider.ProviderID == providerName {
+							p.Workspaces[i].Providers[j].ProviderApiID = config.ID
+							providerFound = true
+							break
+						}
+					}
+					if !providerFound {
+						// Add new provider info to workspace
+						p.Workspaces[i].Providers = append(p.Workspaces[i].Providers, database.ProviderInfo{
+							ID:            workspaceName,
+							ProviderID:    providerName,
+							Path:          projectPath,
+							ProviderApiID: config.ID,
+						})
+					}
+					return a.dbManager.SaveProjectIndex(p)
+				}
+			}
+		}
+		// Neither project nor workspace found
 		return err
 	}
 
-	// Find or create provider info for this provider
+	// Find or create provider info for this provider (project level)
 	found := false
 	for i, provider := range project.Providers {
 		if provider.ProviderID == providerName {
@@ -1252,6 +1285,15 @@ func (a *App) ExecuteClaudeCode(projectPath, prompt, model string, sessionID, pr
 		SessionID:     sessionID,
 	}
 
+	// Fetch API configuration if providerApiID is specified
+	if providerApiID != "" && a.dbManager != nil {
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && apiConfig != nil {
+			config.BaseURL = apiConfig.BaseURL
+			config.AuthToken = apiConfig.AuthToken
+		}
+	}
+
 	return a.claudeManager.StartSession(config)
 }
 
@@ -1346,6 +1388,15 @@ func (a *App) ResumeClaudeCode(projectPath, prompt, model, sessionID, providerAp
 		Resume:        true,
 	}
 
+	// Fetch API configuration if providerApiID is specified
+	if providerApiID != "" && a.dbManager != nil {
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && apiConfig != nil {
+			config.BaseURL = apiConfig.BaseURL
+			config.AuthToken = apiConfig.AuthToken
+		}
+	}
+
 	return a.claudeManager.StartSession(config)
 }
 
@@ -1362,6 +1413,15 @@ func (a *App) ContinueClaudeCode(projectPath, prompt, model, sessionID, provider
 		ProviderApiID: providerApiID,
 		SessionID:     sessionID,
 		Continue:      true,
+	}
+
+	// Fetch API configuration if providerApiID is specified
+	if providerApiID != "" && a.dbManager != nil {
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && apiConfig != nil {
+			config.BaseURL = apiConfig.BaseURL
+			config.AuthToken = apiConfig.AuthToken
+		}
 	}
 
 	return a.claudeManager.StartSession(config)
