@@ -1074,6 +1074,26 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
       return renderedCard;
     }
 
+    // Error message - display error to user
+    if (message.type === "error") {
+      const errorMessage = message.error?.message || message.error || "Unknown error";
+      return (
+        <Card className={cn("border-destructive/20 bg-destructive/5", className)}>
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <h4 className="font-semibold text-sm text-destructive">Error</h4>
+                <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap break-words">
+                  {typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage, null, 2)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
     // Result message - render with markdown
     if (message.type === "result") {
       const isError = message.is_error || message.subtype?.includes("error");

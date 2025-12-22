@@ -25,6 +25,7 @@ type SessionConfig struct {
 	Resume        bool   `json:"resume,omitempty"`
 	// API configuration from ProviderApiConfig
 	AuthToken string `json:"auth_token,omitempty"`
+	BaseURL   string `json:"base_url,omitempty"`
 }
 
 type SessionStatus struct {
@@ -116,11 +117,19 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// when launched via double-click (vs `open -a` from terminal)
 	enhancedEnv := enhanceEnvForProduction()
 
-	// If AuthToken is provided from database ProviderApiConfig, use it as GEMINI_API_KEY
+	// If AuthToken is provided from database ProviderApiConfig, use it as GOOGLE_API_KEY
 	// This takes priority over environment variables loaded from settings.json or system
+	// Note: Gemini CLI uses GOOGLE_API_KEY, not GEMINI_API_KEY
 	if s.Config.AuthToken != "" {
 		log.Printf("[Gemini Session] Using AuthToken from ProviderApiConfig")
-		enhancedEnv = setEnvVar(enhancedEnv, "GEMINI_API_KEY", s.Config.AuthToken)
+		enhancedEnv = setEnvVar(enhancedEnv, "GOOGLE_API_KEY", s.Config.AuthToken)
+	}
+
+	// If BaseURL is provided from database ProviderApiConfig, set GOOGLE_GEMINI_BASE_URL
+	if s.Config.BaseURL != "" {
+		log.Printf("[Gemini Session] Using BaseURL from ProviderApiConfig: %s", s.Config.BaseURL)
+		enhancedEnv = setEnvVar(enhancedEnv, "GOOGLE_GEMINI_BASE_URL", s.Config.BaseURL)
+		enhancedEnv = setEnvVar(enhancedEnv, "GOOGLE_GENAI_USE_GCA", "true")
 	}
 
 	s.cmd.Env = enhancedEnv
@@ -329,12 +338,66 @@ func (s *Session) transformToUnified(line string) string {
 	case "result":
 		// Session completion
 		status, _ := parsed["status"].(string)
+		log.Printf("[Gemini Session] Result event: status=%s, full=%v", status, parsed)
+
+		// Extract error message - error can be a string or a map with message field
+		var errorMsg string
+		if errData := parsed["error"]; errData != nil {
+			switch e := errData.(type) {
+			case string:
+				errorMsg = e
+			case map[string]interface{}:
+				if msg, ok := e["message"].(string); ok {
+					errorMsg = msg
+				}
+			}
+		}
+
+		// If status is error and we have an error message, emit as error type
+		// so frontend can display it to user
+		if status == "error" && errorMsg != "" {
+			log.Printf("[Gemini Session] Emitting error event: %s", errorMsg)
+			unified := map[string]interface{}{
+				"cwd":      s.Config.ProjectPath,
+				"provider": "gemini",
+				"type":     "error",
+				"error":    errorMsg,
+			}
+			result, _ := json.Marshal(unified)
+			return string(result)
+		}
+
+		// Normal result event
 		unified := map[string]interface{}{
 			"cwd":      s.Config.ProjectPath,
 			"provider": "gemini",
 			"type":     "result",
 			"subtype":  "session_complete",
 			"success":  status == "success",
+		}
+		result, _ := json.Marshal(unified)
+		return string(result)
+
+	case "error":
+		// Error event - display error to user
+		errorMsg, _ := parsed["message"].(string)
+		unified := map[string]interface{}{
+			"cwd":      s.Config.ProjectPath,
+			"provider": "gemini",
+			"type":     "error",
+			"error":    errorMsg,
+		}
+		result, _ := json.Marshal(unified)
+		return string(result)
+
+	case "turn.failed":
+		// Turn failed - display error to user
+		detailsJSON, _ := json.Marshal(parsed)
+		unified := map[string]interface{}{
+			"cwd":      s.Config.ProjectPath,
+			"provider": "gemini",
+			"type":     "error",
+			"error":    "Gemini turn failed: " + string(detailsJSON),
 		}
 		result, _ := json.Marshal(unified)
 		return string(result)
@@ -423,10 +486,11 @@ func (s *Session) GetPID() int {
 	return 0
 }
 
-// enhanceEnvForProduction returns environment variables with enhanced PATH
-// and loads missing API keys from user's login shell environment.
+// enhanceEnvForProduction returns environment variables with enhanced PATH.
 // This is critical for production .app builds where PATH is very limited
-// and API keys are not inherited when launched via double-click.
+// when launched via double-click.
+// Note: API keys (GOOGLE_API_KEY) are provided from ProviderApiConfig database,
+// not from settings.json or system environment.
 func enhanceEnvForProduction() []string {
 	env := os.Environ()
 
@@ -477,133 +541,6 @@ func enhanceEnvForProduction() []string {
 		env[pathIndex] = "PATH=" + newPath
 	} else {
 		env = append(env, "PATH="+newPath)
-	}
-
-	// Load API keys from Claude settings.json (like Tauri version does)
-	// This is the most reliable source for production builds
-	env = loadEnvFromClaudeSettings(env, map[string][]string{
-		"GEMINI_API_KEY": {"GEMINI_API_KEY"},
-		"GOOGLE_API_KEY": {"GOOGLE_API_KEY"},
-	})
-
-	// Fallback: Load missing API keys from launchctl or login shell
-	env = loadMissingEnvFromSystem(env, []string{
-		"GEMINI_API_KEY",
-		"GOOGLE_API_KEY",
-	})
-
-	return env
-}
-
-// loadEnvFromClaudeSettings loads environment variables from ~/.claude/settings.json
-func loadEnvFromClaudeSettings(env []string, varMappings map[string][]string) []string {
-	homeDir := os.Getenv("HOME")
-	if homeDir == "" {
-		return env
-	}
-
-	settingsPath := homeDir + "/.claude/settings.json"
-	data, err := os.ReadFile(settingsPath)
-	if err != nil {
-		log.Printf("[Gemini Session] Could not read Claude settings: %v", err)
-		return env
-	}
-
-	var settings map[string]interface{}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		log.Printf("[Gemini Session] Could not parse Claude settings: %v", err)
-		return env
-	}
-
-	envSection, ok := settings["env"].(map[string]interface{})
-	if !ok {
-		return env
-	}
-
-	// Check which vars are already set
-	existingVars := make(map[string]bool)
-	for _, e := range env {
-		for targetVar := range varMappings {
-			if len(e) > len(targetVar)+1 && e[:len(targetVar)+1] == targetVar+"=" {
-				existingVars[targetVar] = true
-				break
-			}
-		}
-	}
-
-	// Load missing vars from Claude settings
-	for targetVar, sourceVars := range varMappings {
-		if existingVars[targetVar] {
-			continue
-		}
-		for _, sourceVar := range sourceVars {
-			if value, ok := envSection[sourceVar].(string); ok && value != "" {
-				log.Printf("[Gemini Session] Loaded %s from Claude settings", targetVar)
-				env = append(env, targetVar+"="+value)
-				break
-			}
-		}
-	}
-
-	return env
-}
-
-// loadMissingEnvFromSystem loads missing environment variables from launchctl or login shell
-func loadMissingEnvFromSystem(env []string, vars []string) []string {
-	// Check which vars are already set
-	existingVars := make(map[string]bool)
-	for _, e := range env {
-		for _, v := range vars {
-			if len(e) > len(v)+1 && e[:len(v)+1] == v+"=" {
-				existingVars[v] = true
-				break
-			}
-		}
-	}
-
-	// Find missing vars
-	var missingVars []string
-	for _, v := range vars {
-		if !existingVars[v] {
-			missingVars = append(missingVars, v)
-		}
-	}
-
-	if len(missingVars) == 0 {
-		return env
-	}
-
-	for _, varName := range missingVars {
-		var value string
-
-		// First, try launchctl (macOS system-wide environment)
-		cmd := exec.Command("launchctl", "getenv", varName)
-		output, err := cmd.Output()
-		if err == nil && len(output) > 0 {
-			value = string(output)
-			if len(value) > 0 && value[len(value)-1] == '\n' {
-				value = value[:len(value)-1]
-			}
-		}
-
-		// If not in launchctl, try login shell
-		if value == "" {
-			shell := os.Getenv("SHELL")
-			if shell == "" {
-				shell = "/bin/zsh"
-			}
-			cmd = exec.Command(shell, "-l", "-c", "echo $"+varName)
-			output, err = cmd.Output()
-			if err == nil && len(output) > 1 {
-				value = string(output)
-				value = value[:len(value)-1] // Remove trailing newline
-			}
-		}
-
-		if value != "" {
-			log.Printf("[Gemini Session] Loaded %s from system environment", varName)
-			env = append(env, varName+"="+value)
-		}
 	}
 
 	return env

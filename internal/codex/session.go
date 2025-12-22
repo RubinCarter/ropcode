@@ -478,31 +478,25 @@ func (s *Session) transformToUnified(line string) string {
 		return string(result)
 
 	case "error":
-		// Error event
+		// Error event - use simple string format like Claude
 		errorMsg, _ := parsed["message"].(string)
-		errorCode, _ := parsed["code"].(string)
 		unified := map[string]interface{}{
 			"cwd":      s.Config.ProjectPath,
 			"provider": "codex",
 			"type":     "error",
-			"error": map[string]interface{}{
-				"code":    errorCode,
-				"message": errorMsg,
-			},
+			"error":    errorMsg,
 		}
 		result, _ := json.Marshal(unified)
 		return string(result)
 
 	case "turn.failed":
-		// Turn failed
+		// Turn failed - use simple string format like Claude
+		detailsJSON, _ := json.Marshal(parsed)
 		unified := map[string]interface{}{
 			"cwd":      s.Config.ProjectPath,
 			"provider": "codex",
 			"type":     "error",
-			"error": map[string]interface{}{
-				"message": "Codex turn failed",
-				"details": parsed,
-			},
+			"error":    "Codex turn failed: " + string(detailsJSON),
 		}
 		result, _ := json.Marshal(unified)
 		return string(result)

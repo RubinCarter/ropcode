@@ -220,7 +220,7 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 				log.Printf("[Session] Emitting claude-output (%s): type=%v", outputType, msg["type"])
 				emitter.Emit("claude-output", string(enrichedJSON))
 			} else {
-				// Not JSON - wrap as raw output message
+				// Not JSON - wrap as raw output message with source info
 				rawMsg := map[string]interface{}{
 					"type":       "raw",
 					"source":     outputType,
@@ -255,10 +255,13 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	var errorMsg string
 	if s.cancelled {
 		s.Status = "cancelled"
 	} else if err != nil {
 		s.Status = "failed"
+		errorMsg = err.Error()
+		log.Printf("[Session] Claude CLI failed with error: %s", errorMsg)
 	} else {
 		s.Status = "completed"
 	}
@@ -266,6 +269,19 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	close(s.done)
 
 	if emitter != nil {
+		// If failed, emit error event so frontend can display it
+		if s.Status == "failed" && errorMsg != "" {
+			errMsg := map[string]interface{}{
+				"type":       "error",
+				"error":      errorMsg,
+				"session_id": s.ID,
+				"cwd":        s.Config.ProjectPath,
+			}
+			errJSON, _ := json.Marshal(errMsg)
+			log.Printf("[Session] Emitting error event: %s", errorMsg)
+			emitter.Emit("claude-output", string(errJSON))
+		}
+
 		// Emit completion event with cwd for frontend routing
 		completeMsg := map[string]interface{}{
 			"cwd":        s.Config.ProjectPath,

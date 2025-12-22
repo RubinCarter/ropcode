@@ -1318,6 +1318,7 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
 			if err == nil && apiConfig != nil {
 				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
 			}
 		}
 		return a.geminiManager.StartSession(config)
@@ -1365,6 +1366,7 @@ func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessio
 			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
 			if err == nil && apiConfig != nil {
 				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
 			}
 		}
 		return a.geminiManager.StartSession(config)
