@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { convertFileSrc } from '@/lib/wails-api';
+import { useWebStore } from '@/widgets/web/WebModel';
 
 interface WebViewerProps {
   url: string;
@@ -334,10 +335,20 @@ export const WebViewer: React.FC<WebViewerProps> = ({
   className,
   onUrlChange,
 }) => {
+  // Use store for UI state management
+  const storeUrl = useWebStore((state) => state.url);
+  const setStoreUrl = useWebStore((state) => state.setUrl);
+  const isLoading = useWebStore((state) => state.isLoading);
+  const setLoading = useWebStore((state) => state.setLoading);
+  const storeError = useWebStore((state) => state.error);
+  const setError = useWebStore((state) => state.setError);
+  const title = useWebStore((state) => state.title);
+  const setTitle = useWebStore((state) => state.setTitle);
+  const storeReset = useWebStore((state) => state.reset);
+
+  // Local state for component-specific data
   const [currentUrl, setCurrentUrl] = useState<string>('');
   const [inputUrl, setInputUrl] = useState(url);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [iframeKey, setIframeKey] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // 保存原始 URL（用于在外部浏览器打开）
@@ -352,10 +363,18 @@ export const WebViewer: React.FC<WebViewerProps> = ({
   // 用于本地 HTML 文件的 srcdoc 内容
   const [srcdocContent, setSrcdocContent] = useState<string | null>(null);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      storeReset();
+    };
+  }, []);
+
   // 当外部 URL 变化时更新状态
   useEffect(() => {
     const updateUrl = async () => {
       originalUrlRef.current = url;
+      setStoreUrl(url); // Update store URL
       const processedUrl = await processUrl(url, workspacePath, setSrcdocContent);
       setLoading(true);
       setError(null);
@@ -646,7 +665,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             size="sm"
             variant="ghost"
             onClick={handleNavigate}
-            disabled={!inputUrl.trim() || loading}
+            disabled={!inputUrl.trim() || isLoading}
             className="h-8 px-3"
           >
             Go
@@ -657,11 +676,11 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             size="sm"
             variant="ghost"
             onClick={handleRefresh}
-            disabled={loading}
+            disabled={isLoading}
             className="h-8 w-8 p-0"
             title="Refresh"
           >
-            <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
+            <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
           </Button>
 
           {/* 复制 URL 按钮 */}
@@ -698,7 +717,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
       {/* 内容区域 */}
       <div className="flex-1 relative">
         {/* 加载指示器 */}
-        {loading && (
+        {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
             <div className="flex items-center gap-2 text-muted-foreground">
               <svg
@@ -720,7 +739,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
         )}
 
         {/* 错误提示 */}
-        {error && (
+        {storeError && (
           <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
             <div className="text-center p-8 max-w-md">
               <div className="w-16 h-16 mx-auto mb-4 text-red-500">
@@ -734,7 +753,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                 </svg>
               </div>
               <div className="text-sm font-medium mb-2 text-foreground">Failed to Load</div>
-              <div className="text-xs text-muted-foreground mb-4">{error}</div>
+              <div className="text-xs text-muted-foreground mb-4">{storeError}</div>
               <Button
                 size="sm"
                 variant="outline"
