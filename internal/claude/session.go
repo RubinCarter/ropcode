@@ -10,7 +10,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -48,8 +47,7 @@ type Session struct {
 	Status    string
 	StartedAt time.Time
 
-	cmd              *exec.Cmd
-	tempSettingsFile string // Temporary settings file path for cleanup
+	cmd    *exec.Cmd
 	stdout io.ReadCloser
 	stderr io.ReadCloser
 	// Note: No stdin - Claude CLI with -p flag doesn't need stdin input
@@ -137,45 +135,13 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 		}
 	}
 
-	// If custom API configuration is provided, create a temporary settings file
-	// to override ~/.claude/settings.json (workaround for Claude Code v2.0.1+ bug
-	// where env vars passed to the process don't override settings.json values)
-	var tempSettingsFile string
-	if s.Config.BaseURL != "" || s.Config.AuthToken != "" {
-		tempDir := os.TempDir()
-		tempSettingsFile = filepath.Join(tempDir, fmt.Sprintf("ropcode-claude-settings-%s.json", s.ID))
-
-		// Build custom env settings
-		envSettings := make(map[string]string)
-		if s.Config.BaseURL != "" {
-			envSettings["ANTHROPIC_BASE_URL"] = s.Config.BaseURL
-			log.Printf("[Session] Using custom base URL via --settings: %s", s.Config.BaseURL)
-		}
-		if s.Config.AuthToken != "" {
-			envSettings["ANTHROPIC_AUTH_TOKEN"] = s.Config.AuthToken
-			log.Printf("[Session] Using custom auth token via --settings")
-		}
-
-		// Create settings JSON
-		settings := map[string]interface{}{
-			"env": envSettings,
-		}
-		settingsJSON, err := json.Marshal(settings)
-		if err != nil {
-			return fmt.Errorf("failed to create settings JSON: %w", err)
-		}
-
-		// Write temporary settings file
-		if err := os.WriteFile(tempSettingsFile, settingsJSON, 0600); err != nil {
-			return fmt.Errorf("failed to write temporary settings file: %w", err)
-		}
-
-		// Add --settings flag to use our custom settings
-		args = append(args, "--settings", tempSettingsFile)
-		log.Printf("[Session] Using temporary settings file: %s", tempSettingsFile)
-
-		// Store for cleanup
-		s.tempSettingsFile = tempSettingsFile
+	// Log custom API configuration if provided
+	// Will be set as environment variables on the command
+	if s.Config.BaseURL != "" {
+		log.Printf("[Session] Using custom base URL via env var: %s", s.Config.BaseURL)
+	}
+	if s.Config.AuthToken != "" {
+		log.Printf("[Session] Using custom auth token via env var")
 	}
 
 	log.Printf("[Session] Starting Claude with args: %v", args)
@@ -190,6 +156,15 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 
 	// Inherit current environment
 	s.cmd.Env = os.Environ()
+
+	// Add custom API configuration via environment variables
+	// This is the recommended approach and avoids FSWatcher issues with --settings
+	if s.Config.BaseURL != "" {
+		s.cmd.Env = append(s.cmd.Env, fmt.Sprintf("ANTHROPIC_BASE_URL=%s", s.Config.BaseURL))
+	}
+	if s.Config.AuthToken != "" {
+		s.cmd.Env = append(s.cmd.Env, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", s.Config.AuthToken))
+	}
 
 	// Setup pipes
 	s.stdout, err = s.cmd.StdoutPipe()
@@ -288,15 +263,6 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	// Clean up temporary settings file if it was created
-	if s.tempSettingsFile != "" {
-		if removeErr := os.Remove(s.tempSettingsFile); removeErr != nil {
-			log.Printf("[Session] Warning: failed to remove temporary settings file %s: %v", s.tempSettingsFile, removeErr)
-		} else {
-			log.Printf("[Session] Cleaned up temporary settings file: %s", s.tempSettingsFile)
-		}
-	}
 
 	var errorMsg string
 	if s.cancelled {
