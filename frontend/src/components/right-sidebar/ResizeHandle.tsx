@@ -49,10 +49,9 @@ export const ResizeHandle: React.FC<ResizeHandleProps> = ({
   return (
     <div
       className={cn(
-        "absolute right-0 top-0 bottom-0 translate-x-full cursor-col-resize hover:bg-primary/20 transition-colors",
+        "absolute left-0 top-0 bottom-0 -translate-x-1/2 cursor-col-resize hover:bg-primary/20 transition-colors",
         "group flex items-center justify-center",
-        "-mr-1", // 向右偏移到容器外部，增加可触发区域
-        "w-2", // 手柄宽度
+        "w-2 z-10", // 手柄宽度，提升层级确保可点击
         className
       )}
       onMouseDown={handleMouseDown}
