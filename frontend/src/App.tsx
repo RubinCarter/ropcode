@@ -16,17 +16,33 @@ import { useAppLifecycle } from "@/hooks";
 import { StartupIntro } from "@/components/StartupIntro";
 import { wsClient } from "@/lib/ws-rpc-client";
 
-// 从 URL 参数获取 WebSocket 配置
+// 从 electronAPI 获取 WebSocket 配置（Electron 模式）
+// 从 URL 参数获取配置（Web 开发模式）
 const urlParams = new URLSearchParams(window.location.search);
-const wsPort = urlParams.get('wsPort');
-const authKey = urlParams.get('authKey');
+const wsPort = window.electronAPI?.wsPort || urlParams.get('wsPort');
+const authKey = window.electronAPI?.authKey || urlParams.get('authKey');
 
-// 初始化 WebSocket 连接（仅在 Electron 模式下）
+// WebSocket 连接 Promise（用于组件等待连接完成）
+let wsConnectionPromise: Promise<void> | null = null;
+
+// 初始化 WebSocket 连接（仅在 Electron 或有配置时）
 if (wsPort) {
-  wsClient.connect(parseInt(wsPort, 10), authKey || undefined)
+  wsConnectionPromise = wsClient.connect(parseInt(String(wsPort), 10), authKey || undefined)
     .then(() => console.log('[App] WebSocket connected'))
-    .catch((err) => console.error('[App] WebSocket connection failed:', err));
+    .catch((err) => {
+      console.error('[App] WebSocket connection failed:', err);
+      throw err;
+    });
 }
+
+// 导出等待连接的方法供其他组件使用
+export const waitForWebSocket = async (timeout: number = 10000): Promise<void> => {
+  if (!wsPort) {
+    // 没有配置 WebSocket，跳过等待
+    return;
+  }
+  return wsClient.waitForConnection(timeout);
+};
 
 // View type no longer needed - using MainLayout with tabs
 
@@ -159,7 +175,7 @@ function AppContent() {
     const sessionCwdMap = (window as any).__sessionCwdMap;
 
     const setupGlobalListeners = async () => {
-      const { EventsOn } = await import('../wailsjs/runtime/runtime');
+      const { EventsOn } = await import('@/lib/rpc-events');
 
       // Global output listener - routes to specific cwd via browser events
       const unlistenOutput = EventsOn('claude-output', (payload: string) => {

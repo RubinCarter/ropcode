@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ProjectList } from '@/components/ProjectList';
 import { api, type Project } from '@/lib/api';
+import { wsClient } from '@/lib/ws-rpc-client';
 import { cn } from '@/lib/utils';
 import { useTabContext } from '@/contexts/TabContext';
 import { useContainerContext } from '@/contexts/ContainerContext';
@@ -86,6 +87,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
    * Load all projects
    */
   const loadProjects = async () => {
+    // 等待 WebSocket 连接就绪
+    if (!wsClient.isConnected()) {
+      try {
+        await wsClient.waitForConnection(5000);
+      } catch {
+        // 连接超时，跳过加载
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       setLoading(true);
       setError(null);

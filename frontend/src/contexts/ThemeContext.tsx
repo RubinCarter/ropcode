@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
+import { wsClient } from '../lib/ws-rpc-client';
 
 export type ThemeMode = 'dark' | 'gray' | 'light' | 'system' | 'custom';
 
@@ -107,6 +108,17 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Load theme preference and custom colors from storage
   useEffect(() => {
     const loadTheme = async () => {
+      // 等待 WebSocket 连接就绪
+      if (!wsClient.isConnected()) {
+        try {
+          await wsClient.waitForConnection(5000);
+        } catch {
+          // 连接超时，使用默认主题
+          setIsLoading(false);
+          return;
+        }
+      }
+
       try {
         const root = document.documentElement;
 

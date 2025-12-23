@@ -2,8 +2,7 @@
  * useFullscreen Hook
  *
  * 提供 macOS 原生全屏功能的 React hook
- * 使用 CGO 直接调用 NSWindow.toggleFullScreen 方法，
- * 因为 Wails v2 的 WindowFullscreen() 在 Frameless 窗口上不工作
+ * 使用 Electron IPC 调用 BrowserWindow.setFullScreen 方法
  *
  * @example
  * ```tsx
@@ -16,7 +15,6 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
 
 interface UseFullscreenReturn {
   /** 当前是否处于全屏状态 */
@@ -50,12 +48,14 @@ export function useFullscreen(): UseFullscreenReturn {
   // 监听全屏状态变化
   useEffect(() => {
     const updateFullscreenState = async () => {
-      try {
-        // Use our CGO-based fullscreen check
-        const fullscreen = await api.isFullscreen();
-        setIsFullscreen(fullscreen);
-      } catch (error) {
-        console.error('Failed to get fullscreen state:', error);
+      // 使用 Electron API 获取全屏状态
+      if (window.electronAPI?.isFullscreen) {
+        try {
+          const fullscreen = await window.electronAPI.isFullscreen();
+          setIsFullscreen(fullscreen ?? false);
+        } catch (error) {
+          console.error('Failed to get fullscreen state:', error);
+        }
       }
     };
 
@@ -76,7 +76,7 @@ export function useFullscreen(): UseFullscreenReturn {
 
   /**
    * 切换全屏状态
-   * 使用 CGO 直接调用 macOS 原生全屏
+   * 使用 Electron API 切换全屏
    */
   const toggleFullscreen = useCallback(async () => {
     if (!isSupported) {
@@ -84,14 +84,20 @@ export function useFullscreen(): UseFullscreenReturn {
       return;
     }
 
+    if (!window.electronAPI?.isFullscreen || !window.electronAPI?.setFullscreen) {
+      console.warn('Electron API not available');
+      return;
+    }
+
     try {
-      // Toggle fullscreen using our CGO implementation
-      await api.toggleFullscreen();
+      // 获取当前全屏状态并切换
+      const currentFullscreen = await window.electronAPI.isFullscreen();
+      await window.electronAPI.setFullscreen(!currentFullscreen);
 
       // 更新状态（延迟一点以等待动画完成）
       setTimeout(async () => {
-        const fullscreen = await api.isFullscreen();
-        setIsFullscreen(fullscreen);
+        const fullscreen = await window.electronAPI!.isFullscreen();
+        setIsFullscreen(fullscreen ?? false);
       }, 300);
     } catch (error) {
       console.error('Failed to toggle fullscreen:', error);

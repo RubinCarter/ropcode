@@ -35,14 +35,64 @@ class WSRpcClient {
   private reconnectDelay = 1000;
   private wsUrl: string = '';
   private authKey: string = '';
+  private connectPromise: Promise<void> | null = null;
+  private connectResolvers: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
 
   /**
    * 初始化连接
    */
   async connect(port: number, authKey?: string): Promise<void> {
-    this.wsUrl = `ws://127.0.0.1:${port}/ws`;
+    const url = new URL(`ws://127.0.0.1:${port}/ws`);
+    if (authKey) {
+      url.searchParams.set('authKey', authKey);
+    }
+    this.wsUrl = url.toString();
     this.authKey = authKey || '';
-    return this.doConnect();
+    this.connectPromise = this.doConnect();
+    return this.connectPromise;
+  }
+
+  /**
+   * 等待连接就绪
+   * 如果已连接，立即返回；如果正在连接，等待连接完成
+   */
+  async waitForConnection(timeout: number = 10000): Promise<void> {
+    // 如果已经连接，直接返回
+    if (this.isConnected()) {
+      return;
+    }
+
+    // 如果正在连接，等待连接完成
+    if (this.connectPromise) {
+      return Promise.race([
+        this.connectPromise,
+        new Promise<void>((_, reject) => {
+          setTimeout(() => reject(new Error('Connection timeout')), timeout);
+        }),
+      ]);
+    }
+
+    // 如果还没开始连接，等待连接事件
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        const index = this.connectResolvers.findIndex(r => r.resolve === resolve);
+        if (index !== -1) {
+          this.connectResolvers.splice(index, 1);
+        }
+        reject(new Error('Connection timeout'));
+      }, timeout);
+
+      this.connectResolvers.push({
+        resolve: () => {
+          clearTimeout(timeoutId);
+          resolve();
+        },
+        reject: (err: Error) => {
+          clearTimeout(timeoutId);
+          reject(err);
+        },
+      });
+    });
   }
 
   private doConnect(): Promise<void> {
@@ -53,6 +103,9 @@ class WSRpcClient {
         this.ws.onopen = () => {
           console.log('[WSRpc] Connected');
           this.reconnectAttempts = 0;
+          // 通知所有等待连接的 resolvers
+          this.connectResolvers.forEach(r => r.resolve());
+          this.connectResolvers = [];
           resolve();
         };
 
