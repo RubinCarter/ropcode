@@ -661,7 +661,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
                             return (
                             <div
-                              key={claudeProvider.id}
+                              key={workspace.id}
                               className={cn(
                                 "group/workspace hover:bg-accent/50 transition-colors flex items-center rounded-md",
                                 isActive && "bg-accent border-l-2 border-primary",
