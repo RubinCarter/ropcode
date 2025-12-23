@@ -11,3 +11,9 @@ frontend/dist
 ropcode
 *.md5
 waveterm/
+
+# Electron build output
+bin/
+electron/dist/
+electron/package-lock.json
+package-lock.json
