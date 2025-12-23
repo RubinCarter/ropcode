@@ -17,3 +17,6 @@ bin/
 electron/dist/
 electron/package-lock.json
 package-lock.json
+
+# Electron release artifacts
+release/
