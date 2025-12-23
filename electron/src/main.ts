@@ -9,6 +9,10 @@ let goServerInfo: GoServerInfo | null = null;
 const isDev = !app.isPackaged;
 
 async function createWindow() {
+  // 设置环境变量供 preload 脚本使用
+  process.env.ROPCODE_WS_PORT = String(goServerInfo!.port);
+  process.env.ROPCODE_AUTH_KEY = goServerInfo!.authKey;
+
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 700,
@@ -26,14 +30,14 @@ async function createWindow() {
     trafficLightPosition: { x: 10, y: 10 },
   });
 
-  // 构建加载 URL
+  // 构建加载 URL（不再使用 URL 参数）
   let loadUrl: string;
   if (isDev) {
     // 开发模式：连接 Vite 开发服务器
-    loadUrl = `http://localhost:5173?wsPort=${goServerInfo!.port}&authKey=${goServerInfo!.authKey}`;
+    loadUrl = 'http://localhost:5173';
   } else {
     // 生产模式：加载打包的前端
-    loadUrl = `file://${path.join(__dirname, '..', 'frontend', 'index.html')}?wsPort=${goServerInfo!.port}&authKey=${goServerInfo!.authKey}`;
+    loadUrl = `file://${path.join(__dirname, '..', 'frontend', 'index.html')}`;
   }
 
   console.log('[Electron] Loading URL:', loadUrl);
