@@ -4,8 +4,10 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -217,6 +219,10 @@ func (a *App) GetProjectProviderApiConfig(projectPath, providerName string) (*da
 	name := filepath.Base(projectPath)
 	project, err := a.dbManager.GetProjectIndex(name)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Project not found - try to get default provider config
+			return a.dbManager.GetDefaultProviderApiConfig(providerName)
+		}
 		return nil, err
 	}
 

@@ -4,6 +4,7 @@ package database
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -189,6 +190,7 @@ func (d *Database) DeleteProviderApiConfig(id string) error {
 }
 
 // GetDefaultProviderApiConfig retrieves the default config for a provider
+// Returns nil if no default config found (no error)
 func (d *Database) GetDefaultProviderApiConfig(providerID string) (*ProviderApiConfig, error) {
 	row := d.db.QueryRow(`
 		SELECT id, name, provider_id, base_url, auth_token, is_default, is_builtin, created_at, updated_at
@@ -198,6 +200,10 @@ func (d *Database) GetDefaultProviderApiConfig(providerID string) (*ProviderApiC
 	err := row.Scan(&config.ID, &config.Name, &config.ProviderID, &config.BaseURL, &config.AuthToken,
 		&config.IsDefault, &config.IsBuiltin, &config.CreatedAt, &config.UpdatedAt)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// No default config found - return nil without error
+			return nil, nil
+		}
 		return nil, err
 	}
 	return config, nil
@@ -212,10 +218,18 @@ func (d *Database) SaveSetting(key, value string) error {
 }
 
 // GetSetting retrieves a setting by key
+// Returns empty string if key not found (no error)
 func (d *Database) GetSetting(key string) (string, error) {
 	var value string
 	err := d.db.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&value)
-	return value, err
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Key not found is not an error - return empty string
+			return "", nil
+		}
+		return "", err
+	}
+	return value, nil
 }
 
 // SaveProjectIndex saves a project index
