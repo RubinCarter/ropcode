@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -1126,19 +1127,75 @@ func (a *App) UpdateWorkspaceBranch(path, branch string) error {
 	return err
 }
 
-// InitLocalGit initializes a local git repository
+// InitLocalGit initializes a local git repository with a bare remote
+// This creates a bare repository in ~/.ropcode/local-git/$PROJECT_NAME-$HASH.git
+// and configures it as the origin remote for push operations
 func (a *App) InitLocalGit(path string, commitAll bool) error {
+	// Get project name from path
+	projectName := filepath.Base(path)
+	if projectName == "" || projectName == "." || projectName == "/" {
+		return fmt.Errorf("invalid project path: %s", path)
+	}
+
+	// Generate hash from the full path to ensure same project uses same bare repo
+	hash := sha256.Sum256([]byte(path))
+	pathHash := fmt.Sprintf("%x", hash)[:8]
+
+	// Create bare repository path: ~/.ropcode/local-git/$PROJECT_NAME-$HASH.git
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+	bareDir := filepath.Join(homeDir, ".ropcode", "local-git", fmt.Sprintf("%s-%s.git", projectName, pathHash))
+
+	// Create ~/.ropcode/local-git directory if it doesn't exist
+	bareParent := filepath.Dir(bareDir)
+	if err := os.MkdirAll(bareParent, 0755); err != nil {
+		return fmt.Errorf("failed to create local-git directory: %w", err)
+	}
+
+	// Create bare repository if it doesn't exist
+	if _, err := os.Stat(bareDir); os.IsNotExist(err) {
+		output, err := exec.Command("git", "init", "--bare", bareDir).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to create bare repository: %s, %w", string(output), err)
+		}
+	}
+
+	// Initialize or open the repository
 	repo, err := git.Open(path)
 	if err != nil {
 		// If repo doesn't exist, initialize it
-		_, err = exec.Command("git", "init", path).CombinedOutput()
+		output, err := exec.Command("git", "init", path).CombinedOutput()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to init repository: %s, %w", string(output), err)
 		}
 
 		repo, err = git.Open(path)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to open repository after init: %w", err)
+		}
+	}
+
+	// Check if origin remote already exists
+	output, err := repo.RunGitCommand("remote", "get-url", "origin")
+	if err != nil {
+		// No origin remote, add it
+		_, err = repo.RunGitCommand("remote", "add", "origin", bareDir)
+		if err != nil {
+			return fmt.Errorf("failed to add remote origin: %w", err)
+		}
+	} else if strings.TrimSpace(output) != bareDir {
+		// Origin exists but points to different URL, skip updating
+		// This allows users to keep their own remote configuration
+	}
+
+	// Create .gitignore file if it doesn't exist
+	gitignorePath := filepath.Join(path, ".gitignore")
+	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+		gitignoreContent := ".git\n.conductor\n.idea\n.ropcode\n"
+		if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
+			return fmt.Errorf("failed to create .gitignore: %w", err)
 		}
 	}
 
@@ -1146,13 +1203,34 @@ func (a *App) InitLocalGit(path string, commitAll bool) error {
 		// Add all files
 		_, err = repo.RunGitCommand("add", ".")
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to add files: %w", err)
 		}
 
-		// Commit
-		_, err = repo.RunGitCommand("commit", "-m", "Initial commit")
+		// Check if there are changes to commit
+		status, _ := repo.RunGitCommand("status", "--porcelain")
+		if strings.TrimSpace(status) != "" {
+			// Commit
+			_, err = repo.RunGitCommand("commit", "-m", "Initial commit")
+			if err != nil {
+				return fmt.Errorf("failed to commit: %w", err)
+			}
+		}
+
+		// Ensure we're on main branch
+		currentBranch, _ := repo.RunGitCommand("rev-parse", "--abbrev-ref", "HEAD")
+		currentBranch = strings.TrimSpace(currentBranch)
+		if currentBranch != "main" && currentBranch != "" {
+			// Try to rename to main or create main branch
+			repo.RunGitCommand("branch", "-M", "main")
+		}
+
+		// Push to bare repository
+		_, err = repo.RunGitCommand("push", "-u", "origin", "main")
 		if err != nil {
-			return err
+			// Push might fail if branch doesn't exist yet, try with current branch
+			if currentBranch != "" && currentBranch != "main" {
+				repo.RunGitCommand("push", "-u", "origin", currentBranch)
+			}
 		}
 	}
 
