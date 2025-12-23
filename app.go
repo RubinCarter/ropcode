@@ -50,8 +50,18 @@ func NewApp() *App {
 	return &App{}
 }
 
-// startup is called when the app starts
+// startup is called when the app starts (Wails callback)
 func (a *App) startup(ctx context.Context) {
+	a.startupCommon(ctx)
+}
+
+// Startup is the exported version for standalone server
+func (a *App) Startup(ctx context.Context) {
+	a.startupCommon(ctx)
+}
+
+// startupCommon contains the common startup logic
+func (a *App) startupCommon(ctx context.Context) {
 	a.ctx = ctx
 
 	// Load config
@@ -116,8 +126,18 @@ func (a *App) startup(ctx context.Context) {
 	runtime.LogInfo(ctx, "ropcode started successfully")
 }
 
-// shutdown is called when the app is shutting down
+// shutdown is called when the app is shutting down (Wails callback)
 func (a *App) shutdown(ctx context.Context) {
+	a.shutdownCommon(ctx)
+}
+
+// Shutdown is the exported version for standalone server
+func (a *App) Shutdown(ctx context.Context) {
+	a.shutdownCommon(ctx)
+}
+
+// shutdownCommon contains the common shutdown logic
+func (a *App) shutdownCommon(ctx context.Context) {
 	// Close GitWatcher
 	if a.gitWatcher != nil {
 		a.gitWatcher.Close()
@@ -184,4 +204,11 @@ func (a *App) UnwatchGitWorkspace(workspacePath string) {
 		return
 	}
 	a.gitWatcher.Unwatch(workspacePath)
+}
+
+// SetEventHubBroadcaster 设置 EventHub 的广播器（用于 WebSocket 模式）
+func (a *App) SetEventHubBroadcaster(broadcaster eventhub.Broadcaster) {
+	if a.eventHub != nil {
+		a.eventHub.SetBroadcaster(broadcaster)
+	}
 }
