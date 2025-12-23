@@ -60,9 +60,10 @@ export const Agents: React.FC = () => {
   const loadRunningAgents = async () => {
     try {
       const runs = await api.listAgentRunsWithMetrics();
-      setRunningAgents(runs);
+      setRunningAgents(runs ?? []);
     } catch (error) {
       console.error('Failed to load running agents:', error);
+      setRunningAgents([]);
     }
   };
 

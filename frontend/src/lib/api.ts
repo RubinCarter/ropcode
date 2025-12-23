@@ -77,7 +77,7 @@ const api = new Proxy({ ...rpcMethods }, {
       getAgentRunWithRealTimeMetrics: 'GetAgentRunOutput',
       loadAgentSessionHistory: 'LoadAgentSessionHistory',
       killAgentSession: 'CancelAgentRun',
-      listAgentRunsWithMetrics: 'ListAgentRuns',
+      listAgentRunsWithMetrics: 'ListRunningAgentRuns',
       // Plugin
       listInstalledPlugins: 'ListInstalledPlugins',
       getPluginContents: 'GetPluginContents',
@@ -112,6 +112,7 @@ const api = new Proxy({ ...rpcMethods }, {
       openInExternalApp: 'OpenInExternalApp',
       streamSessionOutput: 'StreamSessionOutput',
       // MCP
+      mcpList: 'ListMcpServers',
       mcpAdd: 'McpAdd',
       mcpAddJson: 'McpAddJson',
       mcpAddFromClaudeDesktop: 'McpAddFromClaudeDesktop',
