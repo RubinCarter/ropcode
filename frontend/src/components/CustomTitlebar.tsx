@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Minus, Square, X, ChevronRight, GitBranch, Upload, Folder, Trash2 } from 'lucide-react';
 import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
 import { motion } from 'framer-motion';
-import { useFullscreen, useGitChanged } from '@/hooks';
+import { useFullscreen, useGitChanged, usePageVisibilityPolling } from '@/hooks';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ContainerTabManager } from '@/components/containers';
@@ -253,6 +253,34 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       }
     }
   });
+
+  // 页面可见性轮询 - 定期检查未推送的提交数量
+  // 只在页面激活时轮询，用于捕获外部 git 操作导致的变化
+  usePageVisibilityPolling(
+    async () => {
+      if (!currentProjectPath || !hasGitSupport) return;
+
+      try {
+        // 更新未推送到远程的提交数
+        const unpushedToRemote = await api.getUnpushedToRemoteCount(currentProjectPath);
+        setUnpushedToRemoteCount(unpushedToRemote);
+
+        // 如果是 worktree 子分支，同时更新 worktree 相关数据
+        if (isWorktreeChild) {
+          const unpushedToMain = await api.getUnpushedCommitsCount(currentProjectPath);
+          setUnpushedCount(unpushedToMain);
+        }
+      } catch (error) {
+        // 静默处理错误，避免频繁的错误提示
+        console.error('[CustomTitlebar] Polling git status error:', error);
+      }
+    },
+    {
+      interval: 3000, // 每 3 秒轮询一次
+      enabled: !!currentProjectPath && hasGitSupport,
+      immediate: true,
+    }
+  );
 
   // 推送到主分支
   const handlePushToMain = async () => {

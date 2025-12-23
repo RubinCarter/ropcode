@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
-import { useGitChanged } from '@/hooks';
+import { useGitChanged, usePageVisibilityPolling } from '@/hooks';
 
 export interface GitFileChange {
   path: string;
@@ -164,6 +164,20 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
     const parsedFiles = parseGitStatus(event.status);
     setFiles(parsedFiles);
   });
+
+  // 页面可见性轮询 - 只在页面激活时定期刷新 Git 状态
+  // 这样可以捕获那些不会触发 .git 目录变化的操作（如修改文件但未 add）
+  usePageVisibilityPolling(
+    async () => {
+      if (!workspacePath) return;
+      await fetchGitStatus();
+    },
+    {
+      interval: 3000, // 每 3 秒轮询一次
+      enabled: !!workspacePath, // 只在有工作区路径时启用
+      immediate: true, // 页面可见时立即执行一次
+    }
+  );
 
   // 获取状态图标和颜色
   const getStatusDisplay = (file: GitFileChange) => {

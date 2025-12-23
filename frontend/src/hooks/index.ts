@@ -26,3 +26,4 @@ export {
 } from './usePerformanceMonitor';
 export { TAB_SCREEN_NAMES } from './useAnalytics';
 export * from './useEventSubscription';
+export * from './usePageVisibilityPolling';
