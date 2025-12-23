@@ -99,8 +99,6 @@ export const Settings: React.FC<SettingsProps> = ({
   const [tabPersistenceEnabled, setTabPersistenceEnabled] = useState(true);
   // Startup intro preference
   const [startupIntroEnabled, setStartupIntroEnabled] = useState(true);
-  // Workspace protection
-  const [workspaceProtectionEnabled, setWorkspaceProtectionEnabled] = useState(true);
 
   // Load settings on mount
   useEffect(() => {
@@ -113,11 +111,6 @@ export const Settings: React.FC<SettingsProps> = ({
     (async () => {
       const pref = await api.getSetting('startup_intro_enabled');
       setStartupIntroEnabled(pref === null ? true : pref === 'true');
-    })();
-    // Load workspace protection setting (default to true if not set)
-    (async () => {
-      const enabled = await api.getWorkspaceProtectionEnabled();
-      setWorkspaceProtectionEnabled(enabled);
     })();
   }, []);
 
@@ -793,37 +786,6 @@ export const Settings: React.FC<SettingsProps> = ({
                       />
                     </div>
 
-                    {/* Separator */}
-                    <div className="border-t border-border pt-4 mt-6" />
-
-                    {/* Workspace Protection Toggle */}
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-1">
-                        <Label htmlFor="workspace-protection">Workspace Protection</Label>
-                        <p className="text-caption text-muted-foreground">
-                          Prevent Claude from accessing files outside the workspace directory
-                        </p>
-                      </div>
-                      <Switch
-                        id="workspace-protection"
-                        checked={workspaceProtectionEnabled}
-                        onCheckedChange={async (checked) => {
-                          setWorkspaceProtectionEnabled(checked);
-                          try {
-                            await api.setWorkspaceProtectionEnabled(checked);
-                            trackEvent.settingsChanged('workspace_protection_enabled', checked);
-                            setToast({
-                              message: checked
-                                ? 'Workspace protection enabled'
-                                : 'Workspace protection disabled',
-                              type: 'success'
-                            });
-                          } catch (e) {
-                            setToast({ message: 'Failed to update workspace protection', type: 'error' });
-                          }
-                        }}
-                      />
-                    </div>
                   </div>
                 </div>
               </Card>

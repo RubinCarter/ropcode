@@ -3719,38 +3719,6 @@ func (a *App) KillCommand(id string) error {
 	return a.processManager.Kill(id)
 }
 
-// ===== Workspace Protection Bindings =====
-
-// GetWorkspaceProtectionEnabled checks if workspace protection is enabled for a path
-func (a *App) GetWorkspaceProtectionEnabled(path string) (bool, error) {
-	if a.dbManager == nil {
-		return true, nil // Default to enabled for safety
-	}
-
-	// Try to get the setting
-	value, err := a.dbManager.GetSetting("workspace_protection_" + path)
-	if err != nil {
-		// If setting doesn't exist, default to enabled
-		return true, nil
-	}
-
-	return value == "true", nil
-}
-
-// SetWorkspaceProtectionEnabled sets workspace protection for a path
-func (a *App) SetWorkspaceProtectionEnabled(path string, enabled bool) error {
-	if a.dbManager == nil {
-		return nil
-	}
-
-	value := "false"
-	if enabled {
-		value = "true"
-	}
-
-	return a.dbManager.SaveSetting("workspace_protection_"+path, value)
-}
-
 // ===== MCP Advanced Operations Bindings =====
 
 // MCPAddResult represents the result of adding an MCP server

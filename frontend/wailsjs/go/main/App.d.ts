@@ -189,8 +189,6 @@ export function GetUsageDetails(arg1:number):Promise<Array<any>>;
 
 export function GetUsageStats():Promise<main.UsageStats>;
 
-export function GetWorkspaceProtectionEnabled(arg1:string):Promise<boolean>;
-
 export function Greet(arg1:string):Promise<string>;
 
 export function ImportAgent(arg1:string):Promise<database.Agent>;
@@ -352,8 +350,6 @@ export function SetModelConfigDefault(arg1:string):Promise<void>;
 export function SetModelConfigEnabled(arg1:string,arg2:boolean):Promise<void>;
 
 export function SetProjectProviderApiConfig(arg1:string,arg2:string,arg3:database.ProviderApiConfig):Promise<void>;
-
-export function SetWorkspaceProtectionEnabled(arg1:string,arg2:boolean):Promise<void>;
 
 export function SkillGet(arg1:string,arg2:string):Promise<main.Skill>;
 

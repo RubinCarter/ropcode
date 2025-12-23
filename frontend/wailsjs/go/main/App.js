@@ -366,10 +366,6 @@ export function GetUsageStats() {
   return window['go']['main']['App']['GetUsageStats']();
 }
 
-export function GetWorkspaceProtectionEnabled(arg1) {
-  return window['go']['main']['App']['GetWorkspaceProtectionEnabled'](arg1);
-}
-
 export function Greet(arg1) {
   return window['go']['main']['App']['Greet'](arg1);
 }
@@ -692,10 +688,6 @@ export function SetModelConfigEnabled(arg1, arg2) {
 
 export function SetProjectProviderApiConfig(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetProjectProviderApiConfig'](arg1, arg2, arg3);
-}
-
-export function SetWorkspaceProtectionEnabled(arg1, arg2) {
-  return window['go']['main']['App']['SetWorkspaceProtectionEnabled'](arg1, arg2);
 }
 
 export function SkillGet(arg1, arg2) {

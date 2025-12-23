@@ -1815,20 +1815,6 @@ export const api = {
     return App.StorageResetDatabase();
   },
 
-  async getWorkspaceProtectionEnabled(path?: string): Promise<boolean> {
-    const result = await App.GetWorkspaceProtectionEnabled(path || 'global');
-    return result ?? true;
-  },
-  async setWorkspaceProtectionEnabled(pathOrEnabled?: string | boolean, enabled?: boolean): Promise<void> {
-    // Support both signatures:
-    // setWorkspaceProtectionEnabled(enabled: boolean) - for global setting
-    // setWorkspaceProtectionEnabled(path: string, enabled: boolean) - for path-specific setting
-    if (typeof pathOrEnabled === 'boolean') {
-      return App.SetWorkspaceProtectionEnabled('global', pathOrEnabled);
-    }
-    return App.SetWorkspaceProtectionEnabled(pathOrEnabled || 'global', enabled ?? true);
-  },
-
   // Hooks Management (✓ Implemented)
   async getHooksConfig(): Promise<HooksConfiguration> {
     const hooks = await App.GetHooks();
