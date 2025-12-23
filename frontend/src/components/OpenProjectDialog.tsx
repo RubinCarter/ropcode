@@ -38,14 +38,15 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   const handleSelectFolder = async () => {
     try {
       const { open } = await import('@/lib/dialog');
-      const selected = await open({
+      const result = await open({
         directory: true,
         multiple: false,
         title: 'Select Project Folder',
         defaultPath: await api.getHomeDirectory(),
       });
 
-      if (selected && typeof selected === 'string') {
+      if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
+        const selected = result.filePaths[0];
         setSelectedPath(selected);
         setError(null);
 

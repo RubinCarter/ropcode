@@ -30,14 +30,14 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
   const handleSelectLocalPath = async () => {
     try {
       const { open } = await import('@/lib/dialog');
-      const selected = await open({
+      const result = await open({
         directory: true,
         multiple: false,
         title: 'Select Target Directory',
       });
 
-      if (selected && typeof selected === 'string') {
-        setLocalPath(selected);
+      if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
+        setLocalPath(result.filePaths[0]);
       }
     } catch (err) {
       console.error('Failed to open folder picker:', err);

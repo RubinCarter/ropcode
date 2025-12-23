@@ -1,7 +1,7 @@
 /**
  * 对话框功能
  *
- * 在 Electron 模式下，对话框由前端处理
+ * 在 Electron 模式下，使用 Electron 的 dialog API
  * 在 Web 模式下，使用原生 HTML5 对话框
  */
 
@@ -17,22 +17,48 @@ export interface OpenReturnValue {
   filePaths?: string[];
 }
 
+// 声明 electronAPI 类型
+declare global {
+  interface Window {
+    electronAPI?: {
+      openDirectory?: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
+      openFile?: (options?: { multiple?: boolean }) => Promise<{ canceled: boolean; filePaths?: string[] }>;
+      [key: string]: any;
+    };
+  }
+}
+
+/**
+ * 检查是否在 Electron 环境中
+ */
+function isElectron(): boolean {
+  return typeof window !== 'undefined' && window.electronAPI?.openDirectory !== undefined;
+}
+
 /**
  * 打开文件或目录选择对话框
  */
 export async function open(options: OpenOptions = {}): Promise<OpenReturnValue> {
-  const { directory = false, multiple = false, title = '', defaultPath = '' } = options;
+  const { directory = false, multiple = false } = options;
 
-  // 使用 HTML5 file input
+  // 在 Electron 环境中使用 Electron 的 dialog API
+  if (isElectron()) {
+    if (directory) {
+      return await window.electronAPI!.openDirectory!();
+    } else {
+      return await window.electronAPI!.openFile!({ multiple });
+    }
+  }
+
+  // Web 模式：使用 HTML5 file input
   return new Promise((resolve) => {
-    // 创建隐藏的 input 元素
     const input = document.createElement('input');
     input.type = directory ? 'webkitdirectory' : 'file';
     if (multiple) {
       input.multiple = true;
     }
+    input.style.display = 'none';
 
-    // 触发文件选择
     input.onchange = (e) => {
       const target = e.target as HTMLInputElement;
       const files = Array.from(target.files || []);
@@ -40,22 +66,21 @@ export async function open(options: OpenOptions = {}): Promise<OpenReturnValue> 
       if (files.length > 0) {
         resolve({
           canceled: false,
-          filePaths: files.map(f => f.path),
+          filePaths: files.map(f => (f as any).path || f.name),
         });
       } else {
         resolve({ canceled: true });
       }
 
-      // 清理
       input.remove();
     };
 
-    // 取消时也要清理
     input.oncancel = () => {
       resolve({ canceled: true });
       input.remove();
     };
 
+    document.body.appendChild(input);
     input.click();
   });
 }

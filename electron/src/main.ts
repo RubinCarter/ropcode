@@ -1,5 +1,5 @@
 // electron/src/main.ts
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import { startGoServer, stopGoServer, GoServerInfo } from './go-server';
 
@@ -82,6 +82,29 @@ function registerIpcHandlers() {
 
   // 应用控制
   ipcMain.handle('app:quit', () => app.quit());
+
+  // 文件对话框
+  ipcMain.handle('dialog:openDirectory', async () => {
+    if (!mainWindow) return { canceled: true };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+    });
+    return {
+      canceled: result.canceled,
+      filePaths: result.filePaths,
+    };
+  });
+
+  ipcMain.handle('dialog:openFile', async (_, options: { multiple?: boolean } = {}) => {
+    if (!mainWindow) return { canceled: true };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: options.multiple ? ['openFile', 'multiSelections'] : ['openFile'],
+    });
+    return {
+      canceled: result.canceled,
+      filePaths: result.filePaths,
+    };
+  });
 }
 
 app.whenReady().then(async () => {

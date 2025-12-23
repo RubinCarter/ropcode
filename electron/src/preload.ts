@@ -37,5 +37,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 应用控制
   quit: () => ipcRenderer.invoke('app:quit'),
+
+  // 文件对话框
+  openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
+  openFile: (options?: { multiple?: boolean }) => ipcRenderer.invoke('dialog:openFile', options),
 });
 
