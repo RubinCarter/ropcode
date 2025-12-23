@@ -14,6 +14,19 @@ import { MainLayout } from "@/components/MainLayout";
 import { useTabState } from "@/hooks/useTabState";
 import { useAppLifecycle } from "@/hooks";
 import { StartupIntro } from "@/components/StartupIntro";
+import { wsClient } from "@/lib/ws-rpc-client";
+
+// 从 URL 参数获取 WebSocket 配置
+const urlParams = new URLSearchParams(window.location.search);
+const wsPort = urlParams.get('wsPort');
+const authKey = urlParams.get('authKey');
+
+// 初始化 WebSocket 连接（仅在 Electron 模式下）
+if (wsPort) {
+  wsClient.connect(parseInt(wsPort, 10), authKey || undefined)
+    .then(() => console.log('[App] WebSocket connected'))
+    .catch((err) => console.error('[App] WebSocket connection failed:', err));
+}
 
 // View type no longer needed - using MainLayout with tabs
 
