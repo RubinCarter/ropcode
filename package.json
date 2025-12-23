@@ -9,7 +9,6 @@
     "dev:electron": "cd electron && npm run build && npm run dev",
     "build:go": "go build -tags server -o bin/ropcode-server .",
     "build": "npm run build:go && cd frontend && npm run build && cd ../electron && npm run build",
-    "build:dmg": "./scripts/build-dmg.sh",
     "build:release": "./scripts/build-electron.sh"
   },
   "devDependencies": {
