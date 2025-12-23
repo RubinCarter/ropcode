@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FolderOpen, Plus, Bot, BarChart3, Settings, MoreVertical, FileText, Network, Info, GitBranch, Server, ChevronDown } from 'lucide-react';
+import { FolderOpen, Plus, Bot, BarChart3, Settings, MoreVertical, FileText, Network, Info, GitBranch, Server, ChevronDown, PanelLeft, PanelRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -258,170 +258,166 @@ export const Sidebar: React.FC<SidebarProps> = ({
     >
       {/* Sidebar Header */}
       <TooltipProvider>
-        <div className="flex items-center justify-between p-3 border-b border-border/50 flex-shrink-0">
-          <AnimatePresence mode="wait">
-            {!isCollapsed && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
+        <div className={cn(
+          "flex items-center p-3 border-b border-border/50 flex-shrink-0",
+          isCollapsed ? "justify-center" : "justify-between"
+        )}>
+          {/* Sidebar toggle buttons - always visible */}
+          <div className={cn(
+            "flex items-center gap-0.5",
+            isCollapsed && "flex-col"
+          )}>
+            <TooltipSimple content={isCollapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"} side="right">
+              <motion.button
+                onClick={toggleCollapse}
+                whileTap={{ scale: 0.97 }}
                 transition={{ duration: 0.15 }}
-                className="flex items-center gap-2 flex-1"
+                className="p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
               >
-                {/* Navigation icons */}
-                <div className="flex items-center gap-2">
-                  {/* Primary actions */}
-                  <div className="flex items-center gap-0.5">
-                    {onAgentsClick && (
-                      <TooltipSimple content="Agents" side="right">
-                        <motion.button
-                          onClick={onAgentsClick}
-                          whileTap={{ scale: 0.97 }}
-                          transition={{ duration: 0.15 }}
-                          className={cn(
-                            "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                            activeTab?.type === 'agents' && "bg-accent text-accent-foreground shadow-sm"
-                          )}
-                        >
-                          <Bot size={16} />
-                        </motion.button>
-                      </TooltipSimple>
-                    )}
+                <PanelLeft size={16} />
+              </motion.button>
+            </TooltipSimple>
+            <TooltipSimple content="Toggle right sidebar (⌘J)" side="right">
+              <motion.button
+                onClick={() => window.dispatchEvent(new CustomEvent('toggle-right-sidebar'))}
+                whileTap={{ scale: 0.97 }}
+                transition={{ duration: 0.15 }}
+                className="p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
+              >
+                <PanelRight size={16} />
+              </motion.button>
+            </TooltipSimple>
+          </div>
 
-                    {onUsageClick && (
-                      <TooltipSimple content="Usage Dashboard" side="right">
-                        <motion.button
-                          onClick={onUsageClick}
-                          whileTap={{ scale: 0.97 }}
-                          transition={{ duration: 0.15 }}
-                          className={cn(
-                            "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                            activeTab?.type === 'usage' && "bg-accent text-accent-foreground shadow-sm"
-                          )}
-                        >
-                          <BarChart3 size={16} />
-                        </motion.button>
-                      </TooltipSimple>
-                    )}
-                  </div>
-
-                  {/* Visual separator */}
-                  <div className="w-px h-4 bg-border/50" />
-
-                  {/* Secondary actions */}
-                  <div className="flex items-center gap-0.5">
-                    {onSettingsClick && (
-                      <TooltipSimple content="Settings" side="right">
-                        <motion.button
-                          onClick={onSettingsClick}
-                          whileTap={{ scale: 0.97 }}
-                          transition={{ duration: 0.15 }}
-                          className={cn(
-                            "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                            activeTab?.type === 'settings' && "bg-accent text-accent-foreground shadow-sm"
-                          )}
-                        >
-                          <Settings size={16} />
-                        </motion.button>
-                      </TooltipSimple>
-                    )}
-
-                    {/* More options dropdown */}
-                    <div className="relative">
-                      <TooltipSimple content="More options" side="right">
-                        <motion.button
-                          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                          whileTap={{ scale: 0.97 }}
-                          transition={{ duration: 0.15 }}
-                          className={cn(
-                            "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                            (activeTab?.type === 'claude-md' || activeTab?.type === 'mcp') && "bg-accent text-accent-foreground shadow-sm"
-                          )}
-                        >
-                          <MoreVertical size={16} />
-                        </motion.button>
-                      </TooltipSimple>
-
-                      {isDropdownOpen && (
-                        <div className="absolute left-0 top-full mt-1 w-48 bg-popover border border-border rounded-lg shadow-lg z-[250]">
-                          <div className="py-1">
-                            {onClaudeClick && (
-                              <button
-                                onClick={() => {
-                                  onClaudeClick();
-                                  setIsDropdownOpen(false);
-                                }}
-                                className={cn(
-                                  "w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3",
-                                  activeTab?.type === 'claude-md' && "bg-accent text-accent-foreground"
-                                )}
-                              >
-                                <FileText size={14} />
-                                <span>Memory</span>
-                              </button>
-                            )}
-
-                            {onMCPClick && (
-                              <button
-                                onClick={() => {
-                                  onMCPClick();
-                                  setIsDropdownOpen(false);
-                                }}
-                                className={cn(
-                                  "w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3",
-                                  activeTab?.type === 'mcp' && "bg-accent text-accent-foreground"
-                                )}
-                              >
-                                <Network size={14} />
-                                <span>MCP Servers</span>
-                              </button>
-                            )}
-
-                            {onInfoClick && (
-                              <button
-                                onClick={() => {
-                                  onInfoClick();
-                                  setIsDropdownOpen(false);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3"
-                              >
-                                <Info size={14} />
-                                <span>About</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
+          {/* Rest of menu - only when expanded */}
+          {!isCollapsed && (
+            <div className="flex items-center gap-2">
+              {/* Primary actions */}
+              <div className="flex items-center gap-0.5">
+                {onAgentsClick && (
+                  <TooltipSimple content="Agents" side="right">
+                    <motion.button
+                      onClick={onAgentsClick}
+                      whileTap={{ scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
+                      className={cn(
+                        "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
+                        activeTab?.type === 'agents' && "bg-accent text-accent-foreground shadow-sm"
                       )}
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                    >
+                      <Bot size={16} />
+                    </motion.button>
+                  </TooltipSimple>
+                )}
 
-          {/* Collapse/Expand button */}
-          <Button
-            onClick={toggleCollapse}
-            size="sm"
-            variant="ghost"
-            className="h-6 w-6 p-0 flex-shrink-0"
-            title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <svg
-              stroke="currentColor"
-              fill="currentColor"
-              strokeWidth="0"
-              viewBox="0 0 16 16"
-              className="h-4 w-4"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                fillRule="evenodd"
-                clipRule="evenodd"
-                d="M2 1L1 2V14L2 15H14L15 14V2L14 1H2ZM2 14V2H9V14H2Z"
-              />
-            </svg>
-          </Button>
+                {onUsageClick && (
+                  <TooltipSimple content="Usage Dashboard" side="right">
+                    <motion.button
+                      onClick={onUsageClick}
+                      whileTap={{ scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
+                      className={cn(
+                        "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
+                        activeTab?.type === 'usage' && "bg-accent text-accent-foreground shadow-sm"
+                      )}
+                    >
+                      <BarChart3 size={16} />
+                    </motion.button>
+                  </TooltipSimple>
+                )}
+              </div>
+
+              {/* Visual separator */}
+              <div className="w-px h-4 bg-border/50" />
+
+              {/* Secondary actions */}
+              <div className="flex items-center gap-0.5">
+                {onSettingsClick && (
+                  <TooltipSimple content="Settings" side="right">
+                    <motion.button
+                      onClick={onSettingsClick}
+                      whileTap={{ scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
+                      className={cn(
+                        "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
+                        activeTab?.type === 'settings' && "bg-accent text-accent-foreground shadow-sm"
+                      )}
+                    >
+                      <Settings size={16} />
+                    </motion.button>
+                  </TooltipSimple>
+                )}
+
+                {/* More options dropdown */}
+                <div className="relative">
+                  <TooltipSimple content="More options" side="right">
+                    <motion.button
+                      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                      whileTap={{ scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
+                      className={cn(
+                        "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
+                        (activeTab?.type === 'claude-md' || activeTab?.type === 'mcp') && "bg-accent text-accent-foreground shadow-sm"
+                      )}
+                    >
+                      <MoreVertical size={16} />
+                    </motion.button>
+                  </TooltipSimple>
+
+                  {isDropdownOpen && (
+                    <div className="absolute left-0 top-full mt-1 w-48 bg-popover border border-border rounded-lg shadow-lg z-[250]">
+                      <div className="py-1">
+                        {onClaudeClick && (
+                          <button
+                            onClick={() => {
+                              onClaudeClick();
+                              setIsDropdownOpen(false);
+                            }}
+                            className={cn(
+                              "w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3",
+                              activeTab?.type === 'claude-md' && "bg-accent text-accent-foreground"
+                            )}
+                          >
+                            <FileText size={14} />
+                            <span>Memory</span>
+                          </button>
+                        )}
+
+                        {onMCPClick && (
+                          <button
+                            onClick={() => {
+                              onMCPClick();
+                              setIsDropdownOpen(false);
+                            }}
+                            className={cn(
+                              "w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3",
+                              activeTab?.type === 'mcp' && "bg-accent text-accent-foreground"
+                            )}
+                          >
+                            <Network size={14} />
+                            <span>MCP Servers</span>
+                          </button>
+                        )}
+
+                        {onInfoClick && (
+                          <button
+                            onClick={() => {
+                              onInfoClick();
+                              setIsDropdownOpen(false);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3"
+                          >
+                            <Info size={14} />
+                            <span>About</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </TooltipProvider>
 

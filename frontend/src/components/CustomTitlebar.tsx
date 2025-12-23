@@ -621,32 +621,6 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
             </DropdownMenu>
           )}
 
-          {/* Right sidebar toggle button - 只在有项目时显示 */}
-          {currentProjectPath && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleToggleRightSidebar();
-              }}
-              className="p-1.5 rounded-md hover:bg-accent/50 transition-colors wails-no-drag"
-              title={rightSidebarOpen ? "Collapse Right Sidebar (⌘J / Ctrl+J)" : "Expand Right Sidebar (⌘J / Ctrl+J)"}
-            >
-              <svg
-                stroke="currentColor"
-                fill="currentColor"
-                strokeWidth="0"
-                viewBox="0 0 16 16"
-                className="w-4 h-4"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  fillRule="evenodd"
-                  clipRule="evenodd"
-                  d="M2 1L1 2V14L2 15H14L15 14V2L14 1H2ZM2 14V2H9V14H2Z"
-                />
-              </svg>
-            </button>
-          )}
         </div>
       </div>
 
