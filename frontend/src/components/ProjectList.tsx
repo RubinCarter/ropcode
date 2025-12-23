@@ -579,6 +579,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                   <AnimatePresence>
                     {hasGitSupport && isExpanded && (
                       <motion.div
+                        key={`workspaces-${project.id}`}
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
