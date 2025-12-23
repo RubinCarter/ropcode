@@ -29,7 +29,7 @@ import { api, type FileEntry, type SlashCommand, type Skill, type ModelConfig, t
 import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
-import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { EventsOn } from "@/lib/rpc-events";
 
 interface FloatingPromptInputProps {
   /**

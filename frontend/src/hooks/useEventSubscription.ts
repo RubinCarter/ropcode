@@ -1,11 +1,11 @@
 /**
  * Event Subscription Hooks
  *
- * 提供基于 Wails 事件系统的 React hooks，用于订阅后端推送的事件。
+ * 提供基于 WebSocket RPC 事件系统的 React hooks，用于订阅后端推送的事件。
  */
 
 import { useEffect, useCallback, useRef } from 'react';
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff } from '@/lib/rpc-events';
 
 // ============ 事件类型定义 ============
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { EventsOn } from '@/lib/rpc-events';
 import { api } from '@/lib/api';
 
 type UnlistenFn = () => void;

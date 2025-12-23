@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff } from '@/lib/rpc-events';
 import { api } from '@/lib/api';
 import type { ClaudeStreamMessage } from '../AgentExecution';
 

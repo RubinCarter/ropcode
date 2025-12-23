@@ -3,7 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import type { StateCreator } from 'zustand';
 import { api } from '@/lib/api';
 import type { AgentRunWithMetrics } from '@/lib/api';
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff } from '@/lib/rpc-events';
 
 interface ProcessChangedEvent {
   pid: number;

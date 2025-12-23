@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Minus, Square, X, ChevronRight, GitBranch, Upload, Folder, Trash2 } from 'lucide-react';
-import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
+import { WindowMinimise, WindowToggleMaximise, Quit } from '@/lib/rpc-window';
 import { motion } from 'framer-motion';
 import { useFullscreen, useGitChanged, usePageVisibilityPolling } from '@/hooks';
 import { api } from '@/lib/api';

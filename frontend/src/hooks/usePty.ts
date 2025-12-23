@@ -1,5 +1,5 @@
-import { CreatePtySession, WriteToPty, ResizePty, ClosePtySession } from '../../wailsjs/go/main/App';
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { CreatePtySession, WriteToPty, ResizePty, ClosePtySession } from '@/lib/rpc-client';
+import { EventsOn, EventsOff } from '@/lib/rpc-events';
 import { useEffect, useCallback, useRef } from 'react';
 
 interface PtyOutput {
