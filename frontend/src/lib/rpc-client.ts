@@ -57,11 +57,41 @@ export namespace database {
     base_url?: string;
     project_path?: string;
   }
-  export interface ProjectIndex {
+  // ProviderInfo stores provider configuration for a project
+  export interface ProviderInfo {
+    id: string;
+    provider_id: string;
     path: string;
+    provider_api_id?: string;
+  }
+  // WorkspaceIndex stores workspace metadata
+  export interface WorkspaceIndex {
+    id: string;
     name: string;
-    last_accessed?: string;
+    added_at: number;
+    providers: ProviderInfo[];
     last_provider?: string;
+    branch?: string;
+  }
+  // ProjectIndex stores project metadata (matches Go backend)
+  export interface ProjectIndex {
+    // Computed fields for frontend compatibility
+    id: string;
+    path: string;
+    // Original backend fields
+    name: string;
+    added_at?: number;
+    created_at?: number;
+    last_accessed?: number;
+    most_recent_session?: number;
+    description?: string;
+    available?: boolean;
+    providers?: ProviderInfo[];
+    workspaces?: WorkspaceIndex[];
+    last_provider?: string;
+    project_type?: string;
+    has_git_support?: boolean;
+    sessions?: any[];
   }
   export interface ModelConfig {
     id?: string;

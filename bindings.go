@@ -614,10 +614,27 @@ func (a *App) ListProjects() ([]*database.ProjectIndex, error) {
 		return nil, err
 	}
 
-	// Migration: detect and fill has_git_support for projects that don't have it
 	for _, project := range projects {
+		// Populate ID and Path from first provider for frontend compatibility
+		if len(project.Providers) > 0 {
+			project.ID = project.Providers[0].ID
+			project.Path = project.Providers[0].Path
+		}
+
+		// Set CreatedAt from AddedAt if not set
+		if project.CreatedAt == 0 {
+			project.CreatedAt = project.AddedAt
+		}
+
+		// Populate workspace IDs from first provider for frontend compatibility
+		for i := range project.Workspaces {
+			if len(project.Workspaces[i].Providers) > 0 {
+				project.Workspaces[i].ID = project.Workspaces[i].Providers[0].ID
+			}
+		}
+
+		// Migration: detect and fill has_git_support for projects that don't have it
 		if project.HasGitSupport == nil {
-			// Get project path from first provider
 			if len(project.Providers) > 0 {
 				path := project.Providers[0].Path
 				_, gitErr := git.Open(path)

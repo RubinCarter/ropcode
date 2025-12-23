@@ -18,8 +18,13 @@ type ProviderApiConfig struct {
 
 // ProjectIndex stores project metadata
 type ProjectIndex struct {
+	// Computed fields for frontend compatibility (populated from first provider)
+	ID   string `json:"id,omitempty"`
+	Path string `json:"path,omitempty"`
+	// Original fields
 	Name          string           `json:"name"`
 	AddedAt       int64            `json:"added_at"`
+	CreatedAt     int64            `json:"created_at,omitempty"`
 	LastAccessed  int64            `json:"last_accessed"`
 	Description   string           `json:"description,omitempty"`
 	Available     bool             `json:"available"`
@@ -40,6 +45,9 @@ type ProviderInfo struct {
 
 // WorkspaceIndex stores workspace metadata
 type WorkspaceIndex struct {
+	// Computed field for frontend compatibility (populated from first provider)
+	ID string `json:"id,omitempty"`
+	// Original fields
 	Name         string         `json:"name"`
 	AddedAt      int64          `json:"added_at"`
 	Providers    []ProviderInfo `json:"providers"`

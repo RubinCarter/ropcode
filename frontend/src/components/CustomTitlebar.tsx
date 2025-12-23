@@ -40,6 +40,9 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   const { activeType, activeWorkspaceId } = useContainerContext();
   const currentProjectPath = activeType === 'workspace' ? activeWorkspaceId : undefined;
 
+  // 检测是否在 Electron 环境中运行（Electron 有原生的 macOS 窗口按钮）
+  const isElectron = !!window.electronAPI;
+
   const [isHovered, setIsHovered] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(rightSidebarOpenProp);
   // 真实的右侧栏显示状态（考虑了 tab 类型等所有条件）
@@ -512,8 +515,8 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         className="flex items-center border-r border-border/50 wails-drag min-w-[48px]"
         style={{ flexShrink: 0 }}
       >
-        {/* macOS Traffic Light buttons (hidden in fullscreen) */}
-        {!isFullscreen && (
+        {/* macOS Traffic Light buttons (hidden in fullscreen and in Electron which has native buttons) */}
+        {!isFullscreen && !isElectron && (
           <div className="flex items-center space-x-2 pl-5">
             {/* Close button */}
             <button
