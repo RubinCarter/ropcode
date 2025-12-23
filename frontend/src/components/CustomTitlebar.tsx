@@ -637,7 +637,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
           // 所以实际占窗口: (100% - Sidebar%) × 35%
           // 标题栏右侧应该占: (100% - Sidebar%) × (currentWidthPercent / 100)
           width: shouldShowRightSidebar
-            ? `${(100 - (sidebarCollapsed ? 8 : 25)) * currentWidthPercent / 100}%`
+            ? `${(100 - (sidebarCollapsed ? 3 : 20)) * currentWidthPercent / 100}%`
             : 0,
           flexShrink: 0
         }}
