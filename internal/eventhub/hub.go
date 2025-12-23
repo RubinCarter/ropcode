@@ -6,14 +6,37 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
+// Broadcaster 事件广播接口
+type Broadcaster interface {
+	BroadcastEvent(eventType string, payload interface{})
+}
+
 // EventHub 统一事件分发中心
 type EventHub struct {
-	ctx context.Context
+	ctx         context.Context
+	broadcaster Broadcaster
 }
 
 // New 创建新的 EventHub
 func New(ctx context.Context) *EventHub {
 	return &EventHub{ctx: ctx}
+}
+
+// SetBroadcaster 设置 WebSocket 广播器
+func (h *EventHub) SetBroadcaster(b Broadcaster) {
+	h.broadcaster = b
+}
+
+// emit 统一的事件发送方法
+func (h *EventHub) emit(eventName string, payload interface{}) {
+	// Wails 模式
+	if h.ctx != nil {
+		runtime.EventsEmit(h.ctx, eventName, payload)
+	}
+	// WebSocket 模式
+	if h.broadcaster != nil {
+		h.broadcaster.BroadcastEvent(eventName, payload)
+	}
 }
 
 // Git 相关事件
@@ -26,7 +49,7 @@ type GitChangedEvent struct {
 }
 
 func (h *EventHub) EmitGitChanged(event GitChangedEvent) {
-	runtime.EventsEmit(h.ctx, "git:changed", event)
+	h.emit("git:changed", event)
 }
 
 // 进程相关事件
@@ -38,7 +61,7 @@ type ProcessChangedEvent struct {
 }
 
 func (h *EventHub) EmitProcessChanged(event ProcessChangedEvent) {
-	runtime.EventsEmit(h.ctx, "process:changed", event)
+	h.emit("process:changed", event)
 }
 
 // 会话相关事件
@@ -50,7 +73,7 @@ type SessionChangedEvent struct {
 }
 
 func (h *EventHub) EmitSessionChanged(event SessionChangedEvent) {
-	runtime.EventsEmit(h.ctx, "session:changed", event)
+	h.emit("session:changed", event)
 }
 
 // Worktree 相关事件
@@ -66,5 +89,5 @@ type WorktreeChangedEvent struct {
 }
 
 func (h *EventHub) EmitWorktreeChanged(event WorktreeChangedEvent) {
-	runtime.EventsEmit(h.ctx, "worktree:changed", event)
+	h.emit("worktree:changed", event)
 }
