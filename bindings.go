@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"ropcode/internal/claude"
 	"ropcode/internal/codex"
 	"ropcode/internal/database"
@@ -422,24 +421,24 @@ func (a *App) StreamSessionOutput(projectID, sessionID string) error {
 	// Start streaming in a goroutine
 	go a.sessionManager.StreamSessionOutput(projectID, sessionID, eventChan, errorChan)
 
-	// Forward messages to the frontend via Wails events
+	// Forward messages to the frontend via WebSocket events
 	go func() {
 		for {
 			select {
 			case msg, ok := <-eventChan:
 				if !ok {
 					// Channel closed, streaming complete
-					runtime.EventsEmit(a.ctx, "session:stream:complete", map[string]interface{}{
+					a.eventHub.Emit("session:stream:complete", map[string]interface{}{
 						"sessionId": sessionID,
 					})
 					return
 				}
 				// Emit each message to the frontend
-				runtime.EventsEmit(a.ctx, "session:stream:message", msg)
+				a.eventHub.Emit("session:stream:message", msg)
 
 			case err := <-errorChan:
 				if err != nil {
-					runtime.EventsEmit(a.ctx, "session:stream:error", map[string]interface{}{
+					a.eventHub.Emit("session:stream:error", map[string]interface{}{
 						"sessionId": sessionID,
 						"error":     err.Error(),
 					})
@@ -582,35 +581,25 @@ func (a *App) GetHomeDirectory() string {
 // ===== Dialog Bindings =====
 
 // OpenDirectoryDialog opens a native directory selection dialog
+// In server mode, returns defaultPath (frontend should handle dialog via Electron)
 func (a *App) OpenDirectoryDialog(title, defaultPath string) (string, error) {
 	homeDir := a.GetHomeDirectory()
 	if defaultPath == "" {
 		defaultPath = homeDir
 	}
-
-	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
-		DefaultDirectory:     defaultPath,
-		Title:                title,
-		CanCreateDirectories: true,
-		ShowHiddenFiles:      false,
-	})
+	// In server mode, dialogs are handled by frontend/Electron
+	return defaultPath, nil
 }
 
 // OpenFileDialog opens a native file selection dialog
+// In server mode, returns defaultPath (frontend should handle dialog via Electron)
 func (a *App) OpenFileDialog(title, defaultPath string, filters []map[string]interface{}) (string, error) {
 	homeDir := a.GetHomeDirectory()
 	if defaultPath == "" {
 		defaultPath = homeDir
 	}
-
-	// Note: File filters are disabled on macOS due to Wails bug causing crash
-	// when NSOpenPanel receives certain filter patterns.
-	// See: https://github.com/wailsapp/wails/issues/2455
-	opts := runtime.OpenDialogOptions{
-		DefaultDirectory: defaultPath,
-		Title:            title,
-	}
-	return runtime.OpenFileDialog(a.ctx, opts)
+	// In server mode, dialogs are handled by frontend/Electron
+	return defaultPath, nil
 }
 
 // ===== Project Index Bindings =====
@@ -1644,18 +1633,18 @@ func (a *App) GetClaudeSettings() (map[string]interface{}, error) {
 
 // SaveClaudeSettings saves the Claude settings
 func (a *App) SaveClaudeSettings(settings map[string]interface{}) error {
-	runtime.LogDebug(a.ctx, "SaveClaudeSettings called")
+	log.Printf("SaveClaudeSettings called")
 	if a.config == nil {
-		runtime.LogWarning(a.ctx, "SaveClaudeSettings: config is nil")
+		log.Printf("SaveClaudeSettings: config is nil")
 		return nil
 	}
 	settingsPath := filepath.Join(a.config.ClaudeDir, "settings.json")
-	runtime.LogDebug(a.ctx, fmt.Sprintf("SaveClaudeSettings: saving to %s", settingsPath))
+	log.Printf("SaveClaudeSettings: saving to %s", settingsPath)
 	err := claude.SaveSettings(settingsPath, settings)
 	if err != nil {
-		runtime.LogError(a.ctx, fmt.Sprintf("SaveClaudeSettings: error saving: %v", err))
+		log.Printf("SaveClaudeSettings: error saving: %v", err)
 	} else {
-		runtime.LogDebug(a.ctx, "SaveClaudeSettings: saved successfully")
+		log.Printf("SaveClaudeSettings: saved successfully")
 	}
 	return err
 }

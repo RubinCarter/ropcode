@@ -92,10 +92,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleWebSocket 处理 WebSocket 连接
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// 验证 authKey
+	// 验证 authKey - 支持 Header 和 URL 参数两种方式
 	if s.authKey != "" {
 		authHeader := r.Header.Get("X-Auth-Key")
-		if authHeader != s.authKey {
+		authQuery := r.URL.Query().Get("authKey")
+		authKey := authHeader
+		if authKey == "" {
+			authKey = authQuery
+		}
+		if authKey != s.authKey {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}

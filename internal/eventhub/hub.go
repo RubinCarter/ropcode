@@ -2,8 +2,6 @@ package eventhub
 
 import (
 	"context"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Broadcaster 事件广播接口
@@ -29,14 +27,15 @@ func (h *EventHub) SetBroadcaster(b Broadcaster) {
 
 // emit 统一的事件发送方法
 func (h *EventHub) emit(eventName string, payload interface{}) {
-	// Wails 模式
-	if h.ctx != nil {
-		runtime.EventsEmit(h.ctx, eventName, payload)
-	}
-	// WebSocket 模式
+	// WebSocket ���播模式
 	if h.broadcaster != nil {
 		h.broadcaster.BroadcastEvent(eventName, payload)
 	}
+}
+
+// Emit 通用事件发送方法（用于 eventEmitter）
+func (h *EventHub) Emit(eventName string, payload interface{}) {
+	h.emit(eventName, payload)
 }
 
 // Git 相关事件

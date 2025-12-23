@@ -3,9 +3,8 @@ package main
 
 import (
 	"context"
+	"log"
 	"sync"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"ropcode/internal/claude"
 	"ropcode/internal/codex"
@@ -50,24 +49,14 @@ func NewApp() *App {
 	return &App{}
 }
 
-// startup is called when the app starts (Wails callback)
+// startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
-	a.startupCommon(ctx)
-}
-
-// Startup is the exported version for standalone server
-func (a *App) Startup(ctx context.Context) {
-	a.startupCommon(ctx)
-}
-
-// startupCommon contains the common startup logic
-func (a *App) startupCommon(ctx context.Context) {
 	a.ctx = ctx
 
 	// Load config
 	cfg, err := config.Load()
 	if err != nil {
-		runtime.LogError(ctx, "Failed to load config: "+err.Error())
+		log.Printf("Failed to load config: %v", err)
 		return
 	}
 	a.config = cfg
@@ -75,35 +64,38 @@ func (a *App) startupCommon(ctx context.Context) {
 	// Initialize database
 	db, err := database.Open(cfg.DatabasePath)
 	if err != nil {
-		runtime.LogError(ctx, "Failed to open database: "+err.Error())
+		log.Printf("Failed to open database: %v", err)
 	} else {
 		a.dbManager = db
 
 		// Initialize model registry and sync builtin models
 		a.modelRegistry = models.NewRegistry(db)
 		if err := a.modelRegistry.Initialize(); err != nil {
-			runtime.LogError(ctx, "Failed to initialize model registry: "+err.Error())
+			log.Printf("Failed to initialize model registry: %v", err)
 		}
 	}
 
 	// Initialize EventHub (before managers that need it)
-	a.eventHub = eventhub.New(ctx)
+	a.eventHub = eventhub.New(nil)
+
+	// Create event emitter that uses EventHub
+	eventEmitter := &eventEmitter{eventHub: a.eventHub}
 
 	// Initialize PTY manager with event emitter
-	a.ptyManager = pty.NewManager(ctx, &wailsEventEmitter{ctx: ctx})
+	a.ptyManager = pty.NewManager(ctx, eventEmitter)
 
 	// Initialize process manager
 	a.processManager = process.NewManager(ctx)
 	a.processManager.SetEventHub(a.eventHub)
 
 	// Initialize Claude session manager
-	a.claudeManager = claude.NewSessionManager(ctx, &wailsEventEmitter{ctx: ctx})
+	a.claudeManager = claude.NewSessionManager(ctx, eventEmitter)
 
 	// Initialize Gemini session manager
-	a.geminiManager = gemini.NewSessionManager(ctx, &wailsEventEmitter{ctx: ctx})
+	a.geminiManager = gemini.NewSessionManager(ctx, eventEmitter)
 
 	// Initialize Codex session manager
-	a.codexManager = codex.NewSessionManager(ctx, &wailsEventEmitter{ctx: ctx})
+	a.codexManager = codex.NewSessionManager(ctx, eventEmitter)
 
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution
@@ -122,22 +114,11 @@ func (a *App) startupCommon(ctx context.Context) {
 	// Initialize GitWatcher (EventHub already initialized above)
 	a.gitWatcher = git.NewGitWatcher(a.eventHub)
 
-	runtime.LogDebug(ctx, "DEBUG: All managers initialized")
-	runtime.LogInfo(ctx, "ropcode started successfully")
+	log.Println("ropcode started successfully")
 }
 
-// shutdown is called when the app is shutting down (Wails callback)
+// shutdown is called when the app is shutting down
 func (a *App) shutdown(ctx context.Context) {
-	a.shutdownCommon(ctx)
-}
-
-// Shutdown is the exported version for standalone server
-func (a *App) Shutdown(ctx context.Context) {
-	a.shutdownCommon(ctx)
-}
-
-// shutdownCommon contains the common shutdown logic
-func (a *App) shutdownCommon(ctx context.Context) {
 	// Close GitWatcher
 	if a.gitWatcher != nil {
 		a.gitWatcher.Close()
@@ -173,16 +154,31 @@ func (a *App) shutdownCommon(ctx context.Context) {
 		a.dbManager.Close()
 	}
 
-	runtime.LogInfo(ctx, "ropcode shutdown complete")
+	log.Println("ropcode shutdown complete")
 }
 
-// wailsEventEmitter adapts Wails runtime events to pty.EventEmitter
-type wailsEventEmitter struct {
-	ctx context.Context
+// eventEmitter adapts EventHub to pty.EventEmitter
+type eventEmitter struct {
+	eventHub *eventhub.EventHub
 }
 
-func (e *wailsEventEmitter) Emit(eventName string, data interface{}) {
-	runtime.EventsEmit(e.ctx, eventName, data)
+func (e *eventEmitter) Emit(eventName string, data interface{}) {
+	e.eventHub.Emit(eventName, data)
+}
+
+// SetBroadcaster sets the WebSocket broadcaster
+func (a *App) SetBroadcaster(b eventhub.Broadcaster) {
+	a.eventHub.SetBroadcaster(b)
+}
+
+// Startup public method for server mode
+func (a *App) Startup(ctx context.Context) {
+	a.startup(ctx)
+}
+
+// Shutdown public method for server mode
+func (a *App) Shutdown(ctx context.Context) {
+	a.shutdown(ctx)
 }
 
 // Greet returns a greeting for the given name (keep for testing)
@@ -204,11 +200,4 @@ func (a *App) UnwatchGitWorkspace(workspacePath string) {
 		return
 	}
 	a.gitWatcher.Unwatch(workspacePath)
-}
-
-// SetEventHubBroadcaster 设置 EventHub 的广播器（用于 WebSocket 模式）
-func (a *App) SetEventHubBroadcaster(broadcaster eventhub.Broadcaster) {
-	if a.eventHub != nil {
-		a.eventHub.SetBroadcaster(broadcaster)
-	}
 }
