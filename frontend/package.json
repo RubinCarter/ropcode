@@ -8,10 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:typecheck": "tsc && vite build",
-    "preview": "vite preview",
-    "wails:dev": "cd .. && wails dev",
-    "wails:build": "cd .. && wails build -clean",
-    "build:dmg": "cd .. && ./scripts/build-dmg.sh"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

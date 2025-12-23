@@ -6,6 +6,14 @@ import fs from 'fs'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  server: {
+    // 确保带查询参数的请求也能正���处理
+    strictPort: false,
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+    },
+  },
   plugins: [
     react(),
     tailwindcss(),
