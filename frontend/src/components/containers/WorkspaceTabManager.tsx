@@ -51,7 +51,7 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClose, onClick }) =>
     <div
       id={tab.id}
       className={cn(
-        "relative flex items-center gap-1.5 text-sm cursor-pointer select-none group wails-no-drag",
+        "relative flex items-center gap-1.5 text-sm cursor-pointer select-none group window-no-drag",
         "transition-colors duration-100 overflow-hidden border-r border-border/20",
         isActive
           ? "bg-card text-card-foreground"

@@ -18,7 +18,7 @@ import { GitHubAgentBrowser } from '@/components/GitHubAgentBrowser';
 import { CreateAgent } from '@/components/CreateAgent';
 import { useTabState } from '@/hooks/useTabState';
 import { useProcessChanged } from '@/hooks';
-// Note: ExportAgentToFile will use api.exportAgentToFile instead of direct Wails binding
+// Note: ExportAgentToFile uses api.exportAgentToFile
 
 export const Agents: React.FC = () => {
   const [activeTab, setActiveTab] = useState('agents');

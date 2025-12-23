@@ -25,7 +25,7 @@ import { formatISOTimestamp } from '@/lib/date-utils';
 import { open as openDialog, save } from '@/lib/dialog';
 import { GitHubAgentBrowser } from '@/components/GitHubAgentBrowser';
 import { useProcessChanged } from '@/hooks';
-// Note: WriteFile will use api.writeFile instead of direct Wails binding
+// Note: WriteFile uses api.writeFile
 
 interface AgentsModalProps {
   open: boolean;

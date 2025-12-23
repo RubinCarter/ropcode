@@ -18,7 +18,7 @@ async function createWindow() {
     height: 700,
     minWidth: 1100,
     minHeight: 700,
-    frame: false, // 无边框，与 Wails 保持一致
+    frame: false, // 无边框窗口
     transparent: true,
     backgroundColor: '#00000000',
     webPreferences: {

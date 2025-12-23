@@ -170,7 +170,6 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
       return;
     }
 
-    // Note: window.confirm() doesn't work properly in Wails WebView
     // Delete directly without confirmation
     try {
       await api.deleteProviderApiConfig(config.id);

@@ -904,7 +904,7 @@ const FloatingPromptInputInner = (
     }
   }, [prompt, projectPath, isExpanded, updateTextareaHeight]);
 
-  // Set up Wails drag-drop event listener
+  // Set up drag-drop event listener
   useEffect(() => {
     // This effect runs only once on component mount to set up the listener.
     let lastDropTime = 0;
@@ -916,8 +916,7 @@ const FloatingPromptInputInner = (
           unlistenDragDropRef.current();
         }
 
-        // Wails uses EventsOn for file drop events
-        // The event name and structure should be defined in your Go backend
+        // File drop events are sent via WebSocket RPC
         const unlisten = EventsOn('file-drop', (data: any) => {
           // Handle both formats: object with type field (new) or paths array directly (legacy)
           const eventType = data?.type;
@@ -977,7 +976,7 @@ const FloatingPromptInputInner = (
 
         unlistenDragDropRef.current = unlisten;
       } catch (error) {
-        console.error('Failed to set up Wails drag-drop listener:', error);
+        console.error('Failed to set up drag-drop listener:', error);
       }
     };
 
@@ -1492,17 +1491,17 @@ const FloatingPromptInputInner = (
   };
 
   // Browser drag and drop handlers - just prevent default behavior
-  // Actual file handling is done via Wails' event system
+  // Actual file handling is done via WebSocket event system
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // Visual feedback is handled by Wails events
+    // Visual feedback is handled by WebSocket events
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    // File processing is handled by Wails' EventsOn
+    // File processing is handled by WebSocket EventsOn
   };
 
   const handleRemoveImage = (index: number) => {

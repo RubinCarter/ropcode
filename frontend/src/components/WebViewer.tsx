@@ -4,7 +4,7 @@ import { Globe, RefreshCw, Copy, MousePointerClick, Send, X } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { convertFileSrc } from '@/lib/wails-api';
+import { convertFileSrc } from '@/lib/file-utils';
 import { useWebStore } from '@/widgets/web/WebModel';
 
 interface WebViewerProps {

@@ -156,7 +156,7 @@ function AppContent() {
     };
   }, []);
 
-  // Global Wails event listeners for Claude sessions (cwd-based routing)
+  // Global event listeners for Claude sessions (cwd-based routing)
   // Use module-level variable to ensure listeners are only set up once (防止 React StrictMode 重复设置)
   useEffect(() => {
     // Skip if already set up

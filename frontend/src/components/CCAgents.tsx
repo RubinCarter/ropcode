@@ -39,7 +39,7 @@ import { AgentExecution } from "./AgentExecution";
 import { AgentRunsList } from "./AgentRunsList";
 import { GitHubAgentBrowser } from "./GitHubAgentBrowser";
 import { ICON_MAP } from "./IconPicker";
-// Note: ExportAgentToFile will use api.exportAgentToFile instead of direct Wails binding
+// Note: ExportAgentToFile uses api.exportAgentToFile
 
 interface CCAgentsProps {
   /**

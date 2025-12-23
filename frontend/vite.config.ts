@@ -22,10 +22,10 @@ export default defineConfig({
       name: 'serve-local-files',
       configureServer(server) {
         server.middlewares.use((req, res, next) => {
-          // Handle requests with /wails-local-file/ prefix
-          if (req.url && req.url.startsWith('/wails-local-file/')) {
-            // Remove the /wails-local-file prefix to get actual file path
-            const filePath = decodeURIComponent(req.url.replace('/wails-local-file', ''));
+          // Handle requests with /local-file/ prefix
+          if (req.url && req.url.startsWith('/local-file/')) {
+            // Remove the /local-file prefix to get actual file path
+            const filePath = decodeURIComponent(req.url.replace('/local-file', ''));
 
             console.log('[Vite Plugin] Serving local file:', filePath);
 

@@ -55,7 +55,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   const handleDoubleClick = (e: React.MouseEvent) => {
     // 确保不是在按钮或其他交互元素上双击
     const target = e.target as HTMLElement;
-    if (target.closest('.wails-no-drag') || target.closest('button')) {
+    if (target.closest('.window-no-drag') || target.closest('button')) {
       return;
     }
     // 在 macOS 上使用原生全屏，其他平台使用最大化
@@ -500,7 +500,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
   return (
     <div
-      className="relative z-[200] h-11 bg-background/95 backdrop-blur-sm flex items-stretch select-none wails-drag border-b border-border/50"
+      className="relative z-[200] h-11 bg-background/95 backdrop-blur-sm flex items-stretch select-none window-drag border-b border-border/50"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onDoubleClick={handleDoubleClick}
@@ -512,7 +512,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
           width: sidebarCollapsed ? '3%' : '20%'
         }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
-        className="flex items-center border-r border-border/50 wails-drag min-w-[48px]"
+        className="flex items-center border-r border-border/50 window-drag min-w-[48px]"
         style={{ flexShrink: 0 }}
       >
         {/* macOS Traffic Light buttons (hidden in fullscreen and in Electron which has native buttons) */}
@@ -524,7 +524,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 e.stopPropagation();
                 handleClose();
               }}
-              className="group relative w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-all duration-200 flex items-center justify-center wails-no-drag"
+              className="group relative w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-all duration-200 flex items-center justify-center window-no-drag"
               title="Close"
             >
               {isHovered && (
@@ -538,7 +538,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 e.stopPropagation();
                 handleMinimize();
               }}
-              className="group relative w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-all duration-200 flex items-center justify-center wails-no-drag"
+              className="group relative w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-all duration-200 flex items-center justify-center window-no-drag"
               title="Minimize"
             >
               {isHovered && (
@@ -552,7 +552,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 e.stopPropagation();
                 handleMaximize();
               }}
-              className="group relative w-3 h-3 rounded-full bg-green-500 hover:bg-green-600 transition-all duration-200 flex items-center justify-center wails-no-drag"
+              className="group relative w-3 h-3 rounded-full bg-green-500 hover:bg-green-600 transition-all duration-200 flex items-center justify-center window-no-drag"
               title={isSupported ? "Fullscreen" : "Maximize"}
             >
               {isHovered && (
@@ -564,7 +564,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       </motion.div>
 
       {/* 中间区域 - TabManager + Titlebar Controls */}
-      <div className="flex-1 flex items-stretch gap-2 px-2 wails-drag min-w-0">
+      <div className="flex-1 flex items-stretch gap-2 px-2 window-drag min-w-0">
         {/* ContainerTabManager - 根据 activeType 显示对应的 TabManager */}
         <ContainerTabManager className="self-stretch" />
 
@@ -577,7 +577,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 e.stopPropagation();
                 handleOpenInApp('finder');
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent/30 hover:bg-accent/50 text-[11px] text-foreground transition-colors wails-no-drag cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent/30 hover:bg-accent/50 text-[11px] text-foreground transition-colors window-no-drag cursor-pointer"
               title="Click to open in Finder"
             >
               <Folder className="w-3.5 h-3.5" />
@@ -591,14 +591,14 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
               <DropdownMenuTrigger asChild>
                 <button
                   onClick={(e) => e.stopPropagation()}
-                  className="px-2.5 py-1.5 rounded-md hover:bg-accent/50 transition-colors wails-no-drag flex items-center gap-1.5"
+                  className="px-2.5 py-1.5 rounded-md hover:bg-accent/50 transition-colors window-no-drag flex items-center gap-1.5"
                   title="Open in External Application"
                 >
                   <span className="text-xs font-medium">Open in</span>
                   <ChevronRight className="w-3 h-3" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48 wails-no-drag">
+              <DropdownMenuContent align="end" className="w-48 window-no-drag">
                 <DropdownMenuItem onClick={() => handleOpenInApp('finder')}>
                   <span className="text-sm">Finder</span>
                 </DropdownMenuItem>
@@ -629,7 +629,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
       {/* 右侧区域 - 对应右侧边栏 */}
       <div
-        className={`transition-none flex items-center justify-end wails-drag overflow-hidden ${shouldShowRightSidebar ? 'border-l border-border/50' : ''}`}
+        className={`transition-none flex items-center justify-end window-drag overflow-hidden ${shouldShowRightSidebar ? 'border-l border-border/50' : ''}`}
         style={{
           // 计算相对于整个标题栏的百分比
           // 下方: WorkspaceContainer宽度 = (100% - Sidebar%)
@@ -660,7 +660,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 handlePushToMain();
               }}
               disabled={isPushing || unpushedCount === 0}
-              className="h-7 px-2 gap-1 wails-no-drag"
+              className="h-7 px-2 gap-1 window-no-drag"
               title={`Push ${unpushedCount} commit(s) to main branch`}
             >
               <Upload className="h-3.5 w-3.5" />
@@ -689,7 +689,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 handlePushToRemote();
               }}
               disabled={isPushingToRemote || unpushedToRemoteCount === 0}
-              className="h-7 px-2 gap-1 wails-no-drag"
+              className="h-7 px-2 gap-1 window-no-drag"
               title={`Push ${unpushedToRemoteCount} commit(s) to remote`}
             >
               <Upload className="h-3.5 w-3.5" />
@@ -710,7 +710,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                   size="sm"
                   disabled={isCleaning}
                   onClick={handleCleanupClick}
-                  className="h-7 px-2 gap-1 wails-no-drag text-red-600 hover:text-red-700 hover:bg-red-50"
+                  className="h-7 px-2 gap-1 window-no-drag text-red-600 hover:text-red-700 hover:bg-red-50"
                   title="Clean up workspace (reset all changes, remove untracked files, and reset to remote)"
                 >
                   <Trash2 className="h-3.5 w-3.5" />

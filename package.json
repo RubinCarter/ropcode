@@ -3,6 +3,7 @@
   "version": "0.2.1",
   "private": true,
   "description": "GUI app and Toolkit for Claude Code",
+  "main": "electron/dist/main.js",
   "scripts": {
     "dev": "npm run build:go && concurrently \"npm run dev:frontend\" \"npm run dev:electron\" --kill-others",
     "dev:frontend": "cd frontend && npm run dev",
@@ -12,6 +13,8 @@
     "build:release": "./scripts/build-electron.sh"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "electron": "28.3.3",
+    "electron-builder": "^26.0.0"
   }
 }

@@ -99,7 +99,7 @@ export function useClaudeMessages(options: UseClaudeMessagesOptions = {}) {
 
     eventListenerSetupRef.current = true;
 
-    // Set up Wails event listener
+    // Set up event listener for Claude streaming
     EventsOn("claude-stream", (data: string) => {
       try {
         const message = JSON.parse(data) as ClaudeStreamMessage;

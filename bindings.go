@@ -34,20 +34,6 @@ import (
 
 
 
-// ===== Window Bindings =====
-
-// ToggleFullscreen toggles the macOS native fullscreen mode
-// This uses CGO to call NSWindow.toggleFullScreen directly
-// because Wails v2's WindowFullscreen() doesn't work with Frameless windows on macOS
-func (a *App) ToggleFullscreen() {
-	ToggleNativeFullscreen()
-}
-
-// IsFullscreen returns true if the window is in fullscreen mode
-func (a *App) IsFullscreen() bool {
-	return IsNativeFullscreen()
-}
-
 // ===== PTY Bindings =====
 
 // PtySessionInfo contains information about a PTY session

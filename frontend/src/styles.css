@@ -10,26 +10,12 @@ html, body {
   background-color: rgba(0, 0, 0, 0);
 }
 
-/* Window drag region helpers */
-/* Wails uses --wails-draggable CSS property for drag regions */
-.wails-drag {
-  --wails-draggable: drag;
-  /* Electron support */
+/* Window drag region helpers for Electron */
+.window-drag {
   -webkit-app-region: drag;
 }
 
-.wails-no-drag {
-  --wails-draggable: no-drag;
-  /* Electron support */
-  -webkit-app-region: no-drag;
-}
-
-/* Keep Tauri compatibility for reference (not used in Wails) */
-.tauri-drag {
-  -webkit-app-region: drag;
-}
-
-.tauri-no-drag {
+.window-no-drag {
   -webkit-app-region: no-drag;
 }
 

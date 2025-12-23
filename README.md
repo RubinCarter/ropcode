@@ -1,19 +1,60 @@
-# README
+# Ropcode
 
-## About
+A Mac desktop application for running AI coding agents in parallel, built with Electron and an embedded Go backend.
 
-This is the official Wails React-TS template.
+## Architecture
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+- **Frontend**: React + TypeScript + Vite
+- **Desktop**: Electron
+- **Backend**: Go (embedded as a WebSocket service)
 
 ## Live Development
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+To run in development mode:
+
+```bash
+make dev
+```
+
+Or directly:
+
+```bash
+cd electron && npm run dev
+```
+
+This will:
+1. Start the Go backend server
+2. Launch the Vite development server
+3. Open the Electron window
 
 ## Building
 
-To build a redistributable, production mode package, use `wails build`.
+To build a redistributable production package:
+
+```bash
+make build
+```
+
+Or directly:
+
+```bash
+cd electron && npm run build
+```
+
+## Project Structure
+
+```
+├── electron/          # Electron main process
+│   ├── src/          # Main process TypeScript code
+│   └── package.json
+├── frontend/         # React frontend
+│   ├── src/
+│   │   ├── components/
+│   │   ├── lib/
+│   │   └── ...
+│   └── package.json
+├── internal/         # Go backend packages
+├── app.go           # Go app initialization
+├── bindings.go      # Go API bindings (WebSocket RPC)
+└── go.mod           # Go module definition
+```

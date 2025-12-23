@@ -9,12 +9,13 @@ directories:
 
 files:
   - electron/dist/**/*
+  - electron/node_modules/**/*
   - frontend/dist/**/*
   - "!**/*.map"
 
 extraResources:
-  - from: bin/${os}/${arch}/ropcode-server${ext}
-    to: bin/ropcode-server${ext}
+  - from: bin/darwin/${arch}/ropcode-server
+    to: bin/ropcode-server
     filter:
       - "**/*"
 
