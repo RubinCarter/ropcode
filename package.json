@@ -2,10 +2,17 @@
   "name": "ropcode",
   "version": "0.2.1",
   "private": true,
-  "description": "GUI app and Toolkit for Claude Code - Wails Edition",
+  "description": "GUI app and Toolkit for Claude Code",
   "scripts": {
-    "dev": "wails dev",
-    "build": "wails build -clean",
-    "build:dmg": "./scripts/build-dmg.sh"
+    "dev": "npm run build:go && concurrently \"npm run dev:frontend\" \"npm run dev:electron\" --kill-others",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:electron": "cd electron && npm run build && npm run dev",
+    "build:go": "go build -tags server -o bin/ropcode-server .",
+    "build": "npm run build:go && cd frontend && npm run build && cd ../electron && npm run build",
+    "build:dmg": "./scripts/build-dmg.sh",
+    "build:release": "./scripts/build-electron.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
   }
 }
