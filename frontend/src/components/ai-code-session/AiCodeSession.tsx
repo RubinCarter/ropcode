@@ -609,7 +609,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
       }, 500);
     } catch (err) {
       console.error('[AiCodeSession] Failed to send prompt:', err);
-      setError("Failed to send prompt");
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setError(`Failed to send prompt: ${errorMessage}`);
       processState.setIsLoading(false);
       processState.setIsPendingSend(false);
       processState.hasActiveSessionRef.current = false;

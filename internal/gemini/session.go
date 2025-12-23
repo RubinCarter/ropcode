@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,7 @@ type Session struct {
 	stderr io.ReadCloser
 
 	outputBuf []byte
+	stderrBuf []byte // Collect stderr output to show as single error message
 	mu        sync.RWMutex
 	done      chan struct{}
 	cancelled bool
@@ -117,12 +119,12 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// when launched via double-click (vs `open -a` from terminal)
 	enhancedEnv := enhanceEnvForProduction()
 
-	// If AuthToken is provided from database ProviderApiConfig, use it as GOOGLE_API_KEY
+	// If AuthToken is provided from database ProviderApiConfig, set it as GEMINI_API_KEY
 	// This takes priority over environment variables loaded from settings.json or system
-	// Note: Gemini CLI uses GOOGLE_API_KEY, not GEMINI_API_KEY
+	// Note: Gemini CLI uses GEMINI_API_KEY (not GOOGLE_API_KEY)
 	if s.Config.AuthToken != "" {
 		log.Printf("[Gemini Session] Using AuthToken from ProviderApiConfig")
-		enhancedEnv = setEnvVar(enhancedEnv, "GOOGLE_API_KEY", s.Config.AuthToken)
+		enhancedEnv = setEnvVar(enhancedEnv, "GEMINI_API_KEY", s.Config.AuthToken)
 	}
 
 	// If BaseURL is provided from database ProviderApiConfig, set GOOGLE_GEMINI_BASE_URL
@@ -174,10 +176,15 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 
 		s.mu.Lock()
 		s.outputBuf = append(s.outputBuf, []byte(line+"\n")...)
+		// Collect stderr output to show as single error message when process ends
+		if outputType == "stderr" && line != "" {
+			log.Printf("[Gemini Session] stderr: %s", line)
+			s.stderrBuf = append(s.stderrBuf, []byte(line+"\n")...)
+		}
 		s.mu.Unlock()
 
-		if emitter != nil {
-			// Transform Gemini output to unified format
+		// For stdout, transform and emit
+		if emitter != nil && outputType == "stdout" {
 			unified := s.transformToUnified(line)
 			if unified != "" {
 				emitter.Emit("claude-output", unified)
@@ -187,15 +194,9 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 
 	// Handle scanner errors
 	if err := scanner.Err(); err != nil && emitter != nil {
-		errMsg := map[string]interface{}{
-			"type":       "error",
-			"error":      err.Error(),
-			"session_id": s.ID,
-			"cwd":        s.Config.ProjectPath,
-			"provider":   "gemini",
-		}
-		errJSON, _ := json.Marshal(errMsg)
-		emitter.Emit("claude-error", string(errJSON))
+		s.mu.Lock()
+		s.stderrBuf = append(s.stderrBuf, []byte(fmt.Sprintf("Scanner error: %s\n", err.Error()))...)
+		s.mu.Unlock()
 	}
 }
 
@@ -426,9 +427,30 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	} else {
 		s.Status = "completed"
 	}
+	stderrOutput := string(s.stderrBuf)
 	s.mu.Unlock()
 
 	close(s.done)
+
+	// If process failed with error, emit stderr output as single error message
+	if err != nil && emitter != nil && !s.cancelled {
+		errorMessage := fmt.Sprintf("Gemini process failed: %v", err)
+		// Include stderr output if available
+		if stderrOutput != "" {
+			errorMessage = strings.TrimSpace(stderrOutput)
+		}
+
+		errMsg := map[string]interface{}{
+			"type":       "error",
+			"error":      errorMessage,
+			"session_id": s.ID,
+			"cwd":        s.Config.ProjectPath,
+			"provider":   "gemini",
+		}
+		errJSON, _ := json.Marshal(errMsg)
+		log.Printf("[Gemini Session] Emitting claude-error: %v", err)
+		emitter.Emit("claude-error", string(errJSON))
+	}
 
 	// Emit completion event
 	if emitter != nil {

@@ -300,6 +300,40 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     const handleError = (e: Event) => {
       const customEvent = e as CustomEvent;
       console.error('[useSessionEvents] Error event:', customEvent.detail);
+
+      // Parse error and display to user
+      try {
+        const errorData = typeof customEvent.detail === 'string'
+          ? JSON.parse(customEvent.detail)
+          : customEvent.detail;
+
+        // Use type: "error" to match StreamMessage rendering
+        const errorMessage: ClaudeStreamMessage = {
+          type: "error",
+          error: errorData.error || errorData.message || 'Unknown error',
+          cwd: errorData.cwd,
+          provider: errorData.provider,
+          timestamp: new Date().toISOString()
+        } as ClaudeStreamMessage;
+
+        addMessage(errorMessage);
+        trackError();
+
+        // Stop loading state since session failed
+        setIsLoading(false);
+        hasActiveSessionRef.current = false;
+      } catch (parseErr) {
+        // If parsing fails, show raw error
+        const errorMessage: ClaudeStreamMessage = {
+          type: "error",
+          error: String(customEvent.detail),
+          timestamp: new Date().toISOString()
+        } as ClaudeStreamMessage;
+        addMessage(errorMessage);
+        trackError();
+        setIsLoading(false);
+        hasActiveSessionRef.current = false;
+      }
     };
 
     const handleComplete = (e: Event) => {
