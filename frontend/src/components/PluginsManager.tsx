@@ -146,9 +146,9 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
                     </div>
                     <div className="text-left">
                       <div className="flex items-center gap-2">
-                        <h4 className="font-semibold">{plugin.name}</h4>
+                        <h4 className="font-semibold">{plugin.metadata.name}</h4>
                         <Badge variant="secondary" className="text-xs">
-                          v{plugin.version}
+                          v{plugin.metadata.version}
                         </Badge>
                         {plugin.is_local && (
                           <Badge variant="outline" className="text-xs">
@@ -157,7 +157,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
                         )}
                       </div>
                       <p className="text-sm text-muted-foreground">
-                        {plugin.metadata?.description || plugin.marketplace || "No description"}
+                        {plugin.metadata.description || plugin.marketplace || "No description"}
                       </p>
                     </div>
                   </div>
@@ -244,7 +244,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
                               label="Commands"
                               count={pluginContents[plugin.id].commands.length}
                               items={pluginContents[plugin.id].commands.map(
-                                (c) => `/${plugin.name}:${c.name}`
+                                (c) => `/${plugin.metadata.name}:${c.name}`
                               )}
                             />
 

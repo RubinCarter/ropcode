@@ -7,6 +7,9 @@
 
 import { wsClient } from './ws-rpc-client';
 
+// 通用类型定义
+export type CommandType = 'claude' | 'codex';
+
 // 类型定义 - 与 Go 后端保持一致
 export namespace ssh {
   export interface SshConnection {
@@ -147,9 +150,19 @@ export namespace claude {
     description?: string;
   }
   export interface SlashCommand {
+    id: string;
     name: string;
+    namespace: string | null;
     command: string;
+    content: string;
     description: string;
+    argument_hint: string | null;
+    allowed_tools: string[] | null;
+    command_type: 'claude' | 'codex';
+    has_bash_commands: boolean;
+    has_file_references: boolean;
+    accepts_arguments: boolean;
+    scope: 'project' | 'user' | 'plugin' | 'default';
   }
   export interface ClaudeAgent {
     category: string;
@@ -182,39 +195,83 @@ export namespace mcp {
 }
 
 export namespace plugin {
-  export interface Plugin {
+  export interface PluginAuthor {
+    name: string;
+    email?: string;
+  }
+  export interface PluginMetadata {
     name: string;
     version: string;
     description: string;
+    author?: PluginAuthor;
+    homepage?: string;
+    repository?: string;
+    license?: string;
+    keywords?: string[];
+  }
+  export interface Plugin {
+    id: string;
+    metadata: PluginMetadata;
+    install_path: string;
     enabled: boolean;
+    installed_at: string;
+    // Extended fields from InstalledPluginRecord
+    git_commit_sha?: string;
+    is_local?: boolean;
+    marketplace?: string;
   }
   export interface PluginContents {
-    agents?: PluginAgent[];
-    skills?: PluginSkill[];
-    commands?: PluginCommand[];
-    hooks?: PluginHook[];
+    plugin: Plugin;
+    agents: PluginAgent[];
+    skills: PluginSkill[];
+    commands: PluginCommand[];
+    hooks: PluginHook[];
   }
   export interface PluginAgent {
+    plugin_id: string;
+    plugin_name: string;
     name: string;
     description: string;
-    system_prompt: string;
+    tools?: string;
+    color?: string;
+    model?: string;
+    instructions: string;
+    file_path: string;
   }
   export interface PluginSkill {
+    plugin_id: string;
+    plugin_name: string;
     name: string;
-    description: string;
+    description?: string;
     content: string;
+    folder_path: string;
   }
   export interface PluginCommand {
+    plugin_id: string;
+    plugin_name: string;
     name: string;
-    description: string;
-    command: string;
+    description?: string;
+    allowed_tools?: string[];
+    content: string;
+    file_path: string;
+    full_command: string;
   }
   export interface PluginHook {
-    type: string;
-    pattern: string;
+    event_type: string;
+    matcher?: string;
     command: string;
+    plugin_id: string;
+    plugin_name: string;
   }
 }
+
+// Plugin type aliases for convenience
+export type InstalledPlugin = plugin.Plugin;
+export type PluginContents = plugin.PluginContents;
+export type PluginAgent = plugin.PluginAgent;
+export type PluginSkill = plugin.PluginSkill;
+export type PluginCommand = plugin.PluginCommand;
+export type PluginHook = plugin.PluginHook;
 
 // ==================== PTY 管理 ====================
 
