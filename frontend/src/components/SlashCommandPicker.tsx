@@ -427,9 +427,9 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
                                 {command.argument_hint}
                               </p>
                             )}
-                            
+
                             <div className="flex items-center gap-3 mt-1">
-                              {command.allowed_tools.length > 0 && (
+                              {command.allowed_tools && command.allowed_tools.length > 0 && (
                                 <span className="text-xs text-muted-foreground">
                                   {command.allowed_tools.length} tool{command.allowed_tools.length === 1 ? '' : 's'}
                                 </span>
@@ -514,7 +514,7 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
                                   )}
 
                                   <div className="flex items-center gap-3 mt-1">
-                                    {command.allowed_tools.length > 0 && (
+                                    {command.allowed_tools && command.allowed_tools.length > 0 && (
                                       <span className="text-xs text-muted-foreground">
                                         {command.allowed_tools.length} tool{command.allowed_tools.length === 1 ? '' : 's'}
                                       </span>
