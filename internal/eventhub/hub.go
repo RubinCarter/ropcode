@@ -91,3 +91,40 @@ type WorktreeChangedEvent struct {
 func (h *EventHub) EmitWorktreeChanged(event WorktreeChangedEvent) {
 	h.emit("worktree:changed", event)
 }
+
+// Claude 输出事件
+func (h *EventHub) EmitClaudeOutput(sessionID string, output interface{}) {
+	h.emit("claude-output", map[string]interface{}{
+		"session_id": sessionID,
+		"output":     output,
+	})
+}
+
+// Claude 错误事件
+func (h *EventHub) EmitClaudeError(sessionID string, err string) {
+	h.emit("claude-error", map[string]interface{}{
+		"session_id": sessionID,
+		"error":      err,
+	})
+}
+
+// Claude 完成事件
+func (h *EventHub) EmitClaudeComplete(sessionID string, result interface{}) {
+	h.emit("claude-complete", map[string]interface{}{
+		"session_id": sessionID,
+		"result":     result,
+	})
+}
+
+// PTY 输出事件
+func (h *EventHub) EmitPtyOutput(sessionID string, data string) {
+	h.emit("pty-output", map[string]interface{}{
+		"session_id": sessionID,
+		"data":       data,
+	})
+}
+
+// 文件拖放事件
+func (h *EventHub) EmitFileDrop(paths []string) {
+	h.emit("file-drop", paths)
+}
