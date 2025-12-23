@@ -86,14 +86,14 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// Codex uses 'exec' subcommand for non-interactive execution
 	args := []string{
 		"exec",
-		"--sandbox", "workspace-write",
+		"--sandbox", "danger-full-access",  // 完全访问权限（已去除工作空间限制）
 	}
 
 	// Set approval policy to never (no user interaction)
 	args = append(args, "-c", "approval_policy=\"never\"")
 
 	// Enable network access for commands like pip, npm, curl, wget, etc.
-	args = append(args, "-c", "sandbox_workspace_write.network_access=true")
+	args = append(args, "-c", "sandbox_danger_full_access.network_access=true")
 
 	// Add model parameter
 	if s.Config.Model != "" {
