@@ -1,93 +1,69 @@
 /**
- * Dialog compatibility shim for Wails
+ * 对话框功能
  *
- * Uses Wails runtime to open native OS dialogs.
+ * 在 Electron 模式下，对话框由前端处理
+ * 在 Web 模式下，使用原生 HTML5 对话框
  */
 
-import * as App from '../../wailsjs/go/main/App';
-
-export interface OpenDialogOptions {
-  /** Whether to allow selecting directories */
+export interface OpenOptions {
   directory?: boolean;
-  /** Whether to allow multiple selection */
   multiple?: boolean;
-  /** Dialog title */
   title?: string;
-  /** Default path to start in */
   defaultPath?: string;
-  /** File filters */
-  filters?: Array<{
-    name: string;
-    extensions: string[];
-  }>;
 }
 
-export interface SaveDialogOptions {
-  /** Dialog title */
-  title?: string;
-  /** Default path/filename */
-  defaultPath?: string;
-  /** File filters */
-  filters?: Array<{
-    name: string;
-    extensions: string[];
-  }>;
+export interface OpenReturnValue {
+  canceled: boolean;
+  filePaths?: string[];
 }
 
 /**
- * Open file/directory picker dialog
- *
- * Uses Wails native dialog for proper OS integration.
+ * 打开文件或目录选择对话框
  */
-export async function open(options?: OpenDialogOptions): Promise<string | string[] | null> {
-  try {
-    const title = options?.title || (options?.directory ? 'Select Directory' : 'Select File');
-    const defaultPath = options?.defaultPath || '';
+export async function open(options: OpenOptions = {}): Promise<OpenReturnValue> {
+  const { directory = false, multiple = false, title = '', defaultPath = '' } = options;
 
-    if (options?.directory) {
-      // Use native directory dialog
-      const result = await App.OpenDirectoryDialog(title, defaultPath);
-      if (!result || result === '') {
-        return null;
-      }
-      return result;
-    } else {
-      // Use native file dialog
-      const filters = options?.filters?.map(f => ({
-        name: f.name,
-        extensions: f.extensions
-      })) || [];
-
-      const result = await App.OpenFileDialog(title, defaultPath, filters);
-      if (!result || result === '') {
-        return null;
-      }
-
-      if (options?.multiple) {
-        // OpenFileDialog returns single file, for multiple we'd need OpenMultipleFilesDialog
-        return [result];
-      }
-      return result;
+  // 使用 HTML5 file input
+  return new Promise((resolve) => {
+    // 创建隐藏的 input 元素
+    const input = document.createElement('input');
+    input.type = directory ? 'webkitdirectory' : 'file';
+    if (multiple) {
+      input.multiple = true;
     }
-  } catch (err) {
-    console.error('Dialog open error:', err);
-    return null;
-  }
+
+    // 触发文件选择
+    input.onchange = (e) => {
+      const target = e.target as HTMLInputElement;
+      const files = Array.from(target.files || []);
+
+      if (files.length > 0) {
+        resolve({
+          canceled: false,
+          filePaths: files.map(f => f.path),
+        });
+      } else {
+        resolve({ canceled: true });
+      }
+
+      // 清理
+      input.remove();
+    };
+
+    // 取消时也要清理
+    input.oncancel = () => {
+      resolve({ canceled: true });
+      input.remove();
+    };
+
+    input.click();
+  });
 }
 
 /**
- * Save file dialog
- *
- * Note: This is a stub implementation.
- * For production, implement backend Go function.
+ * 保存文件对话框
  */
-export async function save(options?: SaveDialogOptions): Promise<string | null> {
-  // TODO: Call backend Go function via Wails for native dialog
-  // For now, return a stub path
-
-  console.warn('save() is not fully implemented - using stub');
-
-  // Return a placeholder path
-  const filename = options?.defaultPath || 'untitled.txt';
-  return filename;
+export async function save(options: { title?: string; defaultPath?: string } = {}): Promise<OpenReturnValue> {
+  // 在 Web 模式下简化处理，直接返回
+  return { canceled: true };
 }

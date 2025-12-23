@@ -1,22 +1,9 @@
 /**
- * Shell compatibility shim for Wails
+ * Shell 操作
  *
- * Provides Tauri-like shell API using browser APIs or Wails runtime.
+ * 在 Web 模式下使用 window.open
  */
 
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
-
-/**
- * Open a URL in the system default browser
- *
- * Uses Wails BrowserOpenURL runtime function.
- */
-export async function open(url: string): Promise<void> {
-  try {
-    BrowserOpenURL(url);
-  } catch (err) {
-    console.error('Failed to open URL:', err);
-    // Fallback to window.open
-    window.open(url, '_blank');
-  }
+export async function open(path: string): Promise<void> {
+  window.open(path, '_blank');
 }

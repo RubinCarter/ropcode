@@ -1,22 +1,15 @@
 /**
- * Opener compatibility shim for Wails
+ * URL 打开功能
  *
- * Provides Tauri-like opener plugin API using Wails runtime.
+ * 在 Electron 中使用 window.electronAPI 或 shell.openExternal
  */
 
-import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
-
-/**
- * Open a URL in the system default browser
- *
- * Uses Wails BrowserOpenURL runtime function.
- */
 export async function openUrl(url: string): Promise<void> {
-  try {
-    BrowserOpenURL(url);
-  } catch (err) {
-    console.error('Failed to open URL:', err);
-    // Fallback to window.open
+  if (typeof window !== 'undefined' && (window as any).electronAPI) {
+    // Electron 模式 - 目前���有实现 openUrl IPC，可以用默认方式
+    window.open(url, '_blank');
+  } else {
+    // Web 模式
     window.open(url, '_blank');
   }
 }
