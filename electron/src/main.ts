@@ -30,14 +30,19 @@ async function createWindow() {
     trafficLightPosition: { x: 10, y: 10 },
   });
 
-  // 构建加载 URL（不再使用 URL 参数）
+  // 构建加载 URL
   let loadUrl: string;
   if (isDev) {
     // 开发模式：连接 Vite 开发服务器
     loadUrl = 'http://localhost:5173';
   } else {
     // 生产模式：加载打包的前端
-    loadUrl = `file://${path.join(__dirname, '..', 'frontend', 'index.html')}`;
+    // __dirname 在打包后指向 app.asar/electron/dist
+    // 前端文件在 app.asar/frontend/dist/
+    const frontendPath = path.join(__dirname, '..', '..', '..', 'frontend', 'dist', 'index.html');
+    console.log('[Electron] __dirname:', __dirname);
+    console.log('[Electron] Resolved frontend path:', frontendPath);
+    loadUrl = `file://${frontendPath}`;
   }
 
   console.log('[Electron] Loading URL:', loadUrl);
