@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,6 +55,7 @@ type Session struct {
 	// This matches the Rust implementation which only configures stdout/stderr
 
 	outputBuf []byte
+	stderrBuf []byte // Collect stderr output to show as single error message
 	mu        sync.RWMutex
 	done      chan struct{}
 	cancelled bool
@@ -211,9 +213,15 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 
 		s.mu.Lock()
 		s.outputBuf = append(s.outputBuf, []byte(line+"\n")...)
+		// Collect stderr output to show as single error message when process ends
+		if outputType == "stderr" && line != "" {
+			log.Printf("[Session] stderr: %s", line)
+			s.stderrBuf = append(s.stderrBuf, []byte(line+"\n")...)
+		}
 		s.mu.Unlock()
 
-		if emitter != nil {
+		// For stdout, process and emit
+		if emitter != nil && outputType == "stdout" {
 			// Claude CLI outputs JSONL format - try to parse and enrich with cwd/session_id
 			var msg map[string]interface{}
 			if err := json.Unmarshal([]byte(line), &msg); err == nil {
@@ -244,16 +252,11 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 		}
 	}
 
-	if err := scanner.Err(); err != nil && emitter != nil {
-		errMsg := map[string]interface{}{
-			"type":       "error",
-			"error":      err.Error(),
-			"session_id": s.ID,
-			"cwd":        s.Config.ProjectPath,
-		}
-		errJSON, _ := json.Marshal(errMsg)
-		log.Printf("[Session] Emitting claude-error: %s", err.Error())
-		emitter.Emit("claude-error", string(errJSON))
+	// Handle scanner errors - add to stderr buffer
+	if err := scanner.Err(); err != nil {
+		s.mu.Lock()
+		s.stderrBuf = append(s.stderrBuf, []byte(fmt.Sprintf("Scanner error: %s\n", err.Error()))...)
+		s.mu.Unlock()
 	}
 }
 
@@ -262,36 +265,41 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	err := s.cmd.Wait()
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var errorMsg string
 	if s.cancelled {
 		s.Status = "cancelled"
 	} else if err != nil {
 		s.Status = "failed"
-		errorMsg = err.Error()
-		log.Printf("[Session] Claude CLI failed with error: %s", errorMsg)
+		log.Printf("[Session] Claude CLI failed with error: %s", err.Error())
 	} else {
 		s.Status = "completed"
 	}
+	stderrOutput := string(s.stderrBuf)
+	s.mu.Unlock()
 
 	close(s.done)
 
-	if emitter != nil {
-		// If failed, emit error event so frontend can display it
-		if s.Status == "failed" && errorMsg != "" {
-			errMsg := map[string]interface{}{
-				"type":       "error",
-				"error":      errorMsg,
-				"session_id": s.ID,
-				"cwd":        s.Config.ProjectPath,
-			}
-			errJSON, _ := json.Marshal(errMsg)
-			log.Printf("[Session] Emitting error event: %s", errorMsg)
-			emitter.Emit("claude-output", string(errJSON))
+	// If process failed with error, emit stderr output as single error message
+	if err != nil && emitter != nil && !s.cancelled {
+		errorMessage := fmt.Sprintf("Claude process failed: %v", err)
+		// Include stderr output if available
+		if stderrOutput != "" {
+			errorMessage = strings.TrimSpace(stderrOutput)
 		}
 
-		// Emit completion event with cwd for frontend routing
+		errMsg := map[string]interface{}{
+			"type":       "error",
+			"error":      errorMessage,
+			"session_id": s.ID,
+			"cwd":        s.Config.ProjectPath,
+			"provider":   "claude",
+		}
+		errJSON, _ := json.Marshal(errMsg)
+		log.Printf("[Session] Emitting claude-error: %v", err)
+		emitter.Emit("claude-error", string(errJSON))
+	}
+
+	// Emit completion event with cwd for frontend routing
+	if emitter != nil {
 		completeMsg := map[string]interface{}{
 			"cwd":        s.Config.ProjectPath,
 			"success":    s.Status == "completed",

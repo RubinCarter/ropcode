@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +46,7 @@ type Session struct {
 	stderr io.ReadCloser
 
 	outputBuf []byte
+	stderrBuf []byte // Collect stderr output to show as single error message
 	mu        sync.RWMutex
 	done      chan struct{}
 	cancelled bool
@@ -171,9 +173,15 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 
 		s.mu.Lock()
 		s.outputBuf = append(s.outputBuf, []byte(line+"\n")...)
+		// Collect stderr output to show as single error message when process ends
+		if outputType == "stderr" && line != "" {
+			log.Printf("[Codex Session] stderr: %s", line)
+			s.stderrBuf = append(s.stderrBuf, []byte(line+"\n")...)
+		}
 		s.mu.Unlock()
 
-		if emitter != nil {
+		// For stdout, transform and emit
+		if emitter != nil && outputType == "stdout" {
 			// Transform Codex output to unified format
 			unified := s.transformToUnified(line)
 			if unified != "" {
@@ -183,18 +191,11 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 		}
 	}
 
-	// Handle scanner errors - critical for production environment
-	if err := scanner.Err(); err != nil && emitter != nil {
-		errMsg := map[string]interface{}{
-			"type":       "error",
-			"error":      err.Error(),
-			"session_id": s.ID,
-			"cwd":        s.Config.ProjectPath,
-			"provider":   "codex",
-		}
-		errJSON, _ := json.Marshal(errMsg)
-		log.Printf("[Codex Session] Scanner error (%s): %s", outputType, err.Error())
-		emitter.Emit("claude-error", string(errJSON))
+	// Handle scanner errors - add to stderr buffer
+	if err := scanner.Err(); err != nil {
+		s.mu.Lock()
+		s.stderrBuf = append(s.stderrBuf, []byte(fmt.Sprintf("Scanner error: %s\n", err.Error()))...)
+		s.mu.Unlock()
 	}
 }
 
@@ -549,9 +550,30 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	} else {
 		s.Status = "completed"
 	}
+	stderrOutput := string(s.stderrBuf)
 	s.mu.Unlock()
 
 	close(s.done)
+
+	// If process failed with error, emit stderr output as single error message
+	if err != nil && emitter != nil && !s.cancelled {
+		errorMessage := fmt.Sprintf("Codex process failed: %v", err)
+		// Include stderr output if available
+		if stderrOutput != "" {
+			errorMessage = strings.TrimSpace(stderrOutput)
+		}
+
+		errMsg := map[string]interface{}{
+			"type":       "error",
+			"error":      errorMessage,
+			"session_id": s.ID,
+			"cwd":        s.Config.ProjectPath,
+			"provider":   "codex",
+		}
+		errJSON, _ := json.Marshal(errMsg)
+		log.Printf("[Codex Session] Emitting claude-error: %v", err)
+		emitter.Emit("claude-error", string(errJSON))
+	}
 
 	// Emit completion event
 	if emitter != nil {
