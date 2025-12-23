@@ -919,12 +919,21 @@ const FloatingPromptInputInner = (
         // Wails uses EventsOn for file drop events
         // The event name and structure should be defined in your Go backend
         const unlisten = EventsOn('file-drop', (data: any) => {
-          if (data.type === 'enter' || data.type === 'over') {
+          // Handle both formats: object with type field (new) or paths array directly (legacy)
+          const eventType = data?.type;
+          const paths = data?.paths || data;
+
+          if (eventType === 'enter' || eventType === 'over') {
             setDragActive(true);
-          } else if (data.type === 'leave') {
+          } else if (eventType === 'leave') {
             setDragActive(false);
-          } else if (data.type === 'drop' && data.paths) {
+          } else {
+            // Handle drop event (either explicit type or direct paths array)
             setDragActive(false);
+
+            // Ensure paths is an array
+            const droppedPaths = Array.isArray(paths) ? paths as string[] : [];
+            if (droppedPaths.length === 0) return;
 
             const currentTime = Date.now();
             if (currentTime - lastDropTime < 200) {
@@ -933,7 +942,6 @@ const FloatingPromptInputInner = (
             }
             lastDropTime = currentTime;
 
-            const droppedPaths = data.paths as string[];
             const imagePaths = droppedPaths.filter(isImageFile);
 
             if (imagePaths.length > 0) {
