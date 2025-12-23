@@ -35,6 +35,13 @@ self.MonacoEnvironment = {
   },
 };
 
+// Handle uncaught promise rejections gracefully
+window.addEventListener('unhandledrejection', (event) => {
+  // Log the error but prevent it from showing as "uncaught" in console
+  console.error('[UnhandledRejection]', event.reason);
+  event.preventDefault();
+});
+
 // Initialize analytics before rendering
 analytics.initialize();
 

@@ -14,10 +14,14 @@ html, body {
 /* Wails uses --wails-draggable CSS property for drag regions */
 .wails-drag {
   --wails-draggable: drag;
+  /* Electron support */
+  -webkit-app-region: drag;
 }
 
 .wails-no-drag {
   --wails-draggable: no-drag;
+  /* Electron support */
+  -webkit-app-region: no-drag;
 }
 
 /* Keep Tauri compatibility for reference (not used in Wails) */
