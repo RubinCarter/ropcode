@@ -10,6 +10,10 @@ export * from './rpc-client';
 // 导出事件函数
 export { EventsOn, EventsOff, EventsEmit, EventsOnce } from './rpc-events';
 
+// 类型别名：用于向后兼容
+import type { ProjectIndex } from './rpc-client';
+export type Project = ProjectIndex;
+
 // 导出窗口控制函数
 export {
   WindowMinimise,

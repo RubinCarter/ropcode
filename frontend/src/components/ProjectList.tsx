@@ -619,13 +619,18 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               </div>
                             ))}
 
-                          {hasWorkspaces && [...project.workspaces!].sort((a, b) => {
-                            // Sort workspaces by added_at (descending - newest first)
-                            return b.added_at - a.added_at;
-                          }).map((workspace) => {
-                            // Get Claude provider info from workspace
-                            const claudeProvider = workspace.providers.find(p => p.provider_id === 'claude');
-                            if (!claudeProvider) return null; // Skip if no Claude provider
+                          {hasWorkspaces && [...project.workspaces!]
+                            .sort((a, b) => {
+                              // Sort workspaces by added_at (descending - newest first)
+                              return b.added_at - a.added_at;
+                            })
+                            .filter((workspace) => {
+                              // Filter out workspaces without Claude provider
+                              return workspace.providers?.some(p => p.provider_id === 'claude');
+                            })
+                            .map((workspace) => {
+                              // Get Claude provider info from workspace
+                              const claudeProvider = workspace.providers.find(p => p.provider_id === 'claude');
 
                             const isActive = activeProjectPath === claudeProvider.path;
                             const isRemoving = removingWorkspaces.has(claudeProvider.id);
