@@ -37,9 +37,8 @@ async function createWindow() {
     loadUrl = 'http://localhost:5173';
   } else {
     // 生产模式：加载打包的前端
-    // __dirname 在打包后指向 app.asar/electron/dist
-    // 前端文件在 app.asar/frontend/dist/
-    const frontendPath = path.join(__dirname, '..', '..', '..', 'frontend', 'dist', 'index.html');
+    // 前端被复制到 electron/dist/frontend/
+    const frontendPath = path.join(__dirname, 'frontend', 'index.html');
     console.log('[Electron] __dirname:', __dirname);
     console.log('[Electron] Resolved frontend path:', frontendPath);
     loadUrl = `file://${frontendPath}`;
