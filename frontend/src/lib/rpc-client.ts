@@ -385,8 +385,8 @@ export function GetProjectProviderApiConfig(projectPath: string, providerName: s
   return wsClient.call('GetProjectProviderApiConfig', projectPath, providerName);
 }
 
-export function SetProjectProviderApiConfig(projectPath: string, providerName: string, config: database.ProviderApiConfig): Promise<void> {
-  return wsClient.call('SetProjectProviderApiConfig', projectPath, providerName, config);
+export function SetProjectProviderApiConfig(projectPath: string, providerName: string, configId: string): Promise<void> {
+  return wsClient.call('SetProjectProviderApiConfig', projectPath, providerName, configId);
 }
 
 export function SaveProviderApiConfig(config: database.ProviderApiConfig): Promise<void> {
@@ -519,22 +519,23 @@ export function ExecuteClaudeCode(
 
 export function ContinueClaudeCode(
   projectPath: string,
+  prompt: string,
+  model: string,
   sessionId: string,
-  thinkingLevel: string,
-  agentId: string,
-  message: string
+  providerApiId?: string
 ): Promise<string> {
-  return wsClient.call('ContinueClaudeCode', projectPath, sessionId, thinkingLevel, agentId, message);
+  return wsClient.call('ContinueClaudeCode', projectPath, prompt, model, sessionId, providerApiId || '');
 }
 
 export function ResumeClaudeCode(
   projectPath: string,
   sessionId: string,
-  thinkingLevel: string,
-  agentId: string,
-  conversationId: string
+  prompt: string,
+  model: string,
+  _conversationId?: string,
+  providerApiId?: string
 ): Promise<string> {
-  return wsClient.call('ResumeClaudeCode', projectPath, sessionId, thinkingLevel, agentId, conversationId);
+  return wsClient.call('ResumeClaudeCode', projectPath, prompt, model, sessionId, providerApiId || '');
 }
 
 export function CancelClaudeExecution(sessionId: string): Promise<void> {
@@ -546,24 +547,24 @@ export function CancelClaudeExecutionByProject(projectPath: string): Promise<voi
 }
 
 export function StartProviderSession(
+  provider: string,
   projectPath: string,
-  sessionId: string,
-  providerName: string,
-  thinkingLevel: string,
-  agentId: string
+  prompt: string,
+  model: string,
+  providerApiId?: string
 ): Promise<string> {
-  return wsClient.call('StartProviderSession', projectPath, sessionId, providerName, thinkingLevel, agentId);
+  return wsClient.call('StartProviderSession', provider, projectPath, prompt, model, providerApiId || '');
 }
 
 export function ResumeProviderSession(
+  provider: string,
   projectPath: string,
+  prompt: string,
+  model: string,
   sessionId: string,
-  providerName: string,
-  thinkingLevel: string,
-  agentId: string,
-  conversationId: string
+  providerApiId?: string
 ): Promise<string> {
-  return wsClient.call('ResumeProviderSession', projectPath, sessionId, providerName, thinkingLevel, agentId, conversationId);
+  return wsClient.call('ResumeProviderSession', provider, projectPath, prompt, model, sessionId, providerApiId || '');
 }
 
 export function UpdateProviderSession(projectPath: string, sessionId: string, thinkingLevel: string): Promise<void> {

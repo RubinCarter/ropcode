@@ -224,8 +224,8 @@ func (a *App) GetProjectProviderApiConfig(projectPath, providerName string) (*da
 	return a.dbManager.GetDefaultProviderApiConfig(providerName)
 }
 
-// SetProjectProviderApiConfig sets the provider API config for a project or workspace
-func (a *App) SetProjectProviderApiConfig(projectPath, providerName string, config *database.ProviderApiConfig) error {
+// SetProjectProviderApiConfig sets the provider API config ID for a project or workspace
+func (a *App) SetProjectProviderApiConfig(projectPath, providerName, configId string) error {
 	if a.dbManager == nil {
 		return nil
 	}
@@ -248,7 +248,7 @@ func (a *App) SetProjectProviderApiConfig(projectPath, providerName string, conf
 					providerFound := false
 					for j, provider := range p.Workspaces[i].Providers {
 						if provider.ProviderID == providerName {
-							p.Workspaces[i].Providers[j].ProviderApiID = config.ID
+							p.Workspaces[i].Providers[j].ProviderApiID = configId
 							providerFound = true
 							break
 						}
@@ -259,7 +259,7 @@ func (a *App) SetProjectProviderApiConfig(projectPath, providerName string, conf
 							ID:            workspaceName,
 							ProviderID:    providerName,
 							Path:          projectPath,
-							ProviderApiID: config.ID,
+							ProviderApiID: configId,
 						})
 					}
 					return a.dbManager.SaveProjectIndex(p)
@@ -274,7 +274,7 @@ func (a *App) SetProjectProviderApiConfig(projectPath, providerName string, conf
 	found := false
 	for i, provider := range project.Providers {
 		if provider.ProviderID == providerName {
-			project.Providers[i].ProviderApiID = config.ID
+			project.Providers[i].ProviderApiID = configId
 			found = true
 			break
 		}
@@ -286,7 +286,7 @@ func (a *App) SetProjectProviderApiConfig(projectPath, providerName string, conf
 			ID:            name,
 			ProviderID:    providerName,
 			Path:          projectPath,
-			ProviderApiID: config.ID,
+			ProviderApiID: configId,
 		})
 	}
 
