@@ -7,12 +7,20 @@
 // 导出所有 RPC 方法
 export * from './rpc-client';
 
+// 类型别名：用于向后兼容
+import type { database, claude } from './rpc-client';
+export type Agent = database.Agent;
+export type AgentRun = database.AgentRun;
+export type Project = database.ProjectIndex;
+export type AgentRunWithMetrics = database.AgentRun;
+export type Session = claude.SessionStatus;
+export type ClaudeAgent = claude.ClaudeAgent;
+export type ClaudeMdFile = string;
+export type ClaudeInstallation = { path: string; version?: string };
+export type ProviderSession = claude.ProviderSession;
+
 // 导出事件函数
 export { EventsOn, EventsOff, EventsEmit, EventsOnce } from './rpc-events';
-
-// 类型别名：用于向后兼容
-import type { ProjectIndex } from './rpc-client';
-export type Project = ProjectIndex;
 
 // 导出窗口控制函数
 export {
@@ -78,6 +86,23 @@ const api = new Proxy({ ...rpcMethods }, {
       loadAgentSessionHistory: 'LoadAgentSessionHistory',
       killAgentSession: 'CancelAgentRun',
       listAgentRunsWithMetrics: 'ListRunningAgentRuns',
+      listAgents: 'ListAgents',
+      listAgentRuns: 'ListAgentRuns',
+      exportAgent: 'ExportAgent',
+      importAgentFromFile: 'ImportAgentFromFile',
+      exportAgentToFile: 'ExportAgentToFile',
+      deleteAgent: 'DeleteAgent',
+      getAgentRun: 'GetAgentRun',
+      listRunningAgentSessions: 'ListRunningAgentRuns',
+      // Session
+      updateProviderSession: 'UpdateProviderSession',
+      resumeClaudeCode: 'ResumeClaudeCode',
+      resumeProviderSession: 'ResumeProviderSession',
+      executeClaudeCode: 'ExecuteClaudeCode',
+      startProviderSession: 'StartProviderSession',
+      cancelClaudeExecutionByProject: 'CancelClaudeExecutionByProject',
+      isClaudeSessionRunningForProject: 'IsClaudeSessionRunningForProject',
+      getSetting: 'GetSetting',
       // Plugin
       listInstalledPlugins: 'ListInstalledPlugins',
       getPluginContents: 'GetPluginContents',
@@ -149,6 +174,10 @@ const api = new Proxy({ ...rpcMethods }, {
       fetchGitHubAgents: 'FetchGitHubAgents',
       fetchGitHubAgentContent: 'FetchGitHubAgentContent',
       importAgentFromGitHub: 'ImportAgentFromGitHub',
+      listClaudeConfigAgents: 'ListClaudeConfigAgents',
+      listPluginAgents: 'ListPluginAgents',
+      saveClaudeAgent: 'SaveClaudeAgent',
+      deleteClaudeAgent: 'DeleteClaudeAgent',
       // PTY
       createPtySession: 'CreatePtySession',
       resizePty: 'ResizePty',
@@ -159,13 +188,6 @@ const api = new Proxy({ ...rpcMethods }, {
       listDirectoryContents: 'ListDirectoryContents',
       searchFiles: 'SearchFiles',
       searchClaudeAgents: 'SearchClaudeAgents',
-      listRunningAgentSessions: 'ListRunningAgentRuns',
-      getAgentRun: 'GetAgentRun',
-      executeAgent: 'ExecuteAgent',
-      listAgentRuns: 'ListAgentRuns',
-      deleteAgent: 'DeleteAgent',
-      exportAgentToFile: 'ExportAgentToFile',
-      importAgentFromFile: 'ImportAgentFromFile',
       updateAgent: 'UpdateAgent',
       createAgent: 'CreateAgent',
       getProjectSessions: 'GetProjectSessions',
@@ -186,7 +208,7 @@ const api = new Proxy({ ...rpcMethods }, {
 
     return undefined;
   }
-});
+}) as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 export { api };
 

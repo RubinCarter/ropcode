@@ -112,19 +112,29 @@ export namespace database {
   export interface Agent {
     id: number;
     name: string;
-    description: string;
-    provider: string;
-    model: string;
-    thinking_level: string;
+    icon: string;
     system_prompt: string;
-    project_path: string;
+    default_task?: string;
+    model: string;
+    provider_api_id?: string;
+    hooks?: string;
+    created_at: string;
+    updated_at: string;
   }
   export interface AgentRun {
     id: number;
     agent_id: number;
+    agent_name: string;
+    agent_icon: string;
+    task: string;
+    model: string;
+    project_path: string;
     session_id: string;
     status: string;
-    output: string;
+    pid?: number;
+    process_started_at?: string;
+    created_at: string;
+    completed_at?: string;
   }
   export interface TableData { columns: string[]; rows: any[][]; }
 }
@@ -139,6 +149,8 @@ export namespace claude {
     session_id: string;
     project_path: string;
     running: boolean;
+    id?: string;
+    project_id?: string;
   }
   export interface HooksConfig {
     preCommit?: HookMatcher[];
