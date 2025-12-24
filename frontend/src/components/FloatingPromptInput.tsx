@@ -1762,7 +1762,7 @@ const FloatingPromptInputInner = (
         onDragOver={handleDrag}
         onDrop={handleDrop}
       >
-        <div className="container mx-auto">
+        <div className="max-w-6xl mx-auto px-4">
           {/* Image previews */}
           {embeddedImages.length > 0 && (
             <ImagePreview

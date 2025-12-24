@@ -832,7 +832,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         }}
       >
         <div
-          className="relative w-full px-4 pt-8 pb-4"
+          className="relative w-full max-w-6xl mx-auto px-4 pt-8 pb-4"
           style={{
             height: `${Math.max(rowVirtualizer.getTotalSize(), 100)}px`,
             minHeight: '100px',
@@ -899,8 +899,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.8 }}
           transition={{ delay: 0.5 }}
-          className="pointer-events-none absolute bottom-32 right-6 z-50"
+          className="pointer-events-none absolute bottom-32 left-0 right-0 z-50 flex justify-end px-4"
         >
+          <div className="max-w-6xl w-full flex justify-end">
           <div className="flex items-center bg-background/95 backdrop-blur-md border rounded-full shadow-lg overflow-hidden pointer-events-auto">
             <TooltipSimple content={isScrollPaused ? "Resume auto-scroll" : "Lock scroll position"} side="top">
               <motion.div
@@ -983,6 +984,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 </Button>
               </motion.div>
             </TooltipSimple>
+          </div>
           </div>
         </motion.div>
       )}
@@ -1075,9 +1077,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}
-                className="absolute bottom-24 left-4 right-4 z-30"
+                className="absolute bottom-24 left-0 right-0 z-30 px-4"
               >
-                <div className="bg-background/95 backdrop-blur-md border rounded-lg shadow-lg p-3 space-y-2">
+                <div className="max-w-6xl mx-auto bg-background/95 backdrop-blur-md border rounded-lg shadow-lg p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="text-xs font-medium text-muted-foreground mb-1">
                       Queued Prompts ({queueState.queuedPrompts.length})
