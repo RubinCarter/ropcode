@@ -6,6 +6,7 @@ import fs from 'fs'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: './', // 使用相对路径，以便在 Electron file:// 协议下正确加载资源
   server: {
     // 确保带查询参数的请求也能正���处理
     strictPort: false,
