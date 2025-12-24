@@ -684,6 +684,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         final_state: 'cancelled',
         has_pending_prompts: queueState.queuedPrompts.length > 0,
         pending_prompts_count: queueState.queuedPrompts.length,
+        has_checkpoints: false,
       });
 
       processState.setIsLoading(false);
