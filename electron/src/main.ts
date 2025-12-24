@@ -8,6 +8,22 @@ let goServerInfo: GoServerInfo | null = null;
 
 const isDev = !app.isPackaged;
 
+// 获取图标路径
+const getIconPath = () => {
+  const iconDir = isDev
+    ? path.join(__dirname, '..', '..', 'assets')
+    : path.join(process.resourcesPath, 'assets');
+
+  // 根据平台使用正确的图标格式
+  if (process.platform === 'darwin') {
+    return path.join(iconDir, 'icon.icns');
+  } else if (process.platform === 'win32') {
+    return path.join(iconDir, 'icon.ico');
+  } else {
+    return path.join(iconDir, 'icon.png');
+  }
+};
+
 async function createWindow() {
   // 设置环境变量供 preload 脚本使用
   process.env.ROPCODE_WS_PORT = String(goServerInfo!.port);
@@ -18,6 +34,7 @@ async function createWindow() {
     height: 700,
     minWidth: 1100,
     minHeight: 700,
+    icon: getIconPath(), // 设置应用图标
     frame: false, // 无边框窗口
     transparent: true,
     backgroundColor: '#00000000',
