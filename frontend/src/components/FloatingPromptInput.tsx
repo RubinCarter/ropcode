@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, startTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -1004,124 +1004,127 @@ const FloatingPromptInputInner = (
     const newValue = e.target.value;
     const newCursorPosition = e.target.selectionStart || 0;
 
-    // Auto-resize textarea based on content
-    if (textareaRef.current && !isExpanded) {
-      updateTextareaHeight(textareaRef.current, newValue);
-    }
-
-    // Check if / was just typed at the beginning of input or after whitespace
-    if (newValue.length > prompt.length && newValue[newCursorPosition - 1] === '/') {
-      // Check if it's at the start or after whitespace
-      const isStartOfCommand = newCursorPosition === 1 || 
-        (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
-      
-      if (isStartOfCommand) {
-        console.log('[FloatingPromptInput] / detected for slash command');
-        setShowSlashCommandPicker(true);
-        setSlashCommandQuery("");
-        setCursorPosition(newCursorPosition);
-      }
-    }
-
-    // Check if @ was just typed
-    if (projectPath?.trim() && newValue.length > prompt.length && newValue[newCursorPosition - 1] === '@') {
-      console.log('[FloatingPromptInput] @ detected, projectPath:', projectPath);
-      setShowFilePicker(true);
-      setFilePickerQuery("");
-      setCursorPosition(newCursorPosition);
-    }
-
-    // Check if : was just typed at the beginning of input or after whitespace
-    if (newValue.length > prompt.length && newValue[newCursorPosition - 1] === ':') {
-      // Check if it's at the start or after whitespace
-      const isStartOfSkill = newCursorPosition === 1 ||
-        (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
-
-      if (isStartOfSkill) {
-        console.log('[FloatingPromptInput] : detected for skill picker');
-        setShowSkillPicker(true);
-        setSkillQuery("");
-        setCursorPosition(newCursorPosition);
-      }
-    }
-
-    // Check if we're typing after / (for slash command search)
-    if (showSlashCommandPicker && newCursorPosition >= cursorPosition) {
-      // Find the / position before cursor
-      let slashPosition = -1;
-      for (let i = newCursorPosition - 1; i >= 0; i--) {
-        if (newValue[i] === '/') {
-          slashPosition = i;
-          break;
-        }
-        // Stop if we hit whitespace (new word)
-        if (newValue[i] === ' ' || newValue[i] === '\n') {
-          break;
-        }
-      }
-
-      if (slashPosition !== -1) {
-        const query = newValue.substring(slashPosition + 1, newCursorPosition);
-        setSlashCommandQuery(query);
-      } else {
-        // / was removed or cursor moved away
-        setShowSlashCommandPicker(false);
-        setSlashCommandQuery("");
-      }
-    }
-
-    // Check if we're typing after @ (for search query) - handles both typing and deletion
-    if (showFilePicker) {
-      // Find the @ position before cursor
-      let atPosition = -1;
-      for (let i = newCursorPosition - 1; i >= 0; i--) {
-        if (newValue[i] === '@') {
-          atPosition = i;
-          break;
-        }
-        // Stop if we hit whitespace (new word)
-        if (newValue[i] === ' ' || newValue[i] === '\n') {
-          break;
-        }
-      }
-
-      if (atPosition !== -1) {
-        const query = newValue.substring(atPosition + 1, newCursorPosition);
-        setFilePickerQuery(query);
-      } else {
-        // @ was removed or cursor moved away
-        setShowFilePicker(false);
-        setFilePickerQuery("");
-      }
-    }
-
-    // Check if we're typing after : (for skill search)
-    if (showSkillPicker && newCursorPosition >= cursorPosition) {
-      // Find the : position before cursor
-      let colonPosition = -1;
-      for (let i = newCursorPosition - 1; i >= 0; i--) {
-        if (newValue[i] === ':') {
-          colonPosition = i;
-          break;
-        }
-        // Stop if we hit whitespace (new word)
-        if (newValue[i] === ' ' || newValue[i] === '\n') {
-          break;
-        }
-      }
-
-      if (colonPosition !== -1) {
-        const query = newValue.substring(colonPosition + 1, newCursorPosition);
-        setSkillQuery(query);
-      } else {
-        // : was removed or cursor moved away
-        setShowSkillPicker(false);
-        setSkillQuery("");
-      }
-    }
-
+    // Immediately update text value (user-perceptible, high priority)
     setPrompt(newValue);
     setCursorPosition(newCursorPosition);
+
+    // Auto-resize textarea using requestAnimationFrame to batch with browser paint
+    requestAnimationFrame(() => {
+      if (textareaRef.current && !isExpanded) {
+        updateTextareaHeight(textareaRef.current, newValue);
+      }
+    });
+
+    // Use startTransition for picker state updates (non-urgent, can be interrupted)
+    startTransition(() => {
+      // Check if / was just typed at the beginning of input or after whitespace
+      if (newValue.length > prompt.length && newValue[newCursorPosition - 1] === '/') {
+        // Check if it's at the start or after whitespace
+        const isStartOfCommand = newCursorPosition === 1 ||
+          (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
+
+        if (isStartOfCommand) {
+          console.log('[FloatingPromptInput] / detected for slash command');
+          setShowSlashCommandPicker(true);
+          setSlashCommandQuery("");
+        }
+      }
+
+      // Check if @ was just typed
+      if (projectPath?.trim() && newValue.length > prompt.length && newValue[newCursorPosition - 1] === '@') {
+        console.log('[FloatingPromptInput] @ detected, projectPath:', projectPath);
+        setShowFilePicker(true);
+        setFilePickerQuery("");
+      }
+
+      // Check if : was just typed at the beginning of input or after whitespace
+      if (newValue.length > prompt.length && newValue[newCursorPosition - 1] === ':') {
+        // Check if it's at the start or after whitespace
+        const isStartOfSkill = newCursorPosition === 1 ||
+          (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
+
+        if (isStartOfSkill) {
+          console.log('[FloatingPromptInput] : detected for skill picker');
+          setShowSkillPicker(true);
+          setSkillQuery("");
+        }
+      }
+
+      // Check if we're typing after / (for slash command search)
+      if (showSlashCommandPicker) {
+        // Find the / position before cursor
+        let slashPosition = -1;
+        for (let i = newCursorPosition - 1; i >= 0; i--) {
+          if (newValue[i] === '/') {
+            slashPosition = i;
+            break;
+          }
+          // Stop if we hit whitespace (new word)
+          if (newValue[i] === ' ' || newValue[i] === '\n') {
+            break;
+          }
+        }
+
+        if (slashPosition !== -1) {
+          const query = newValue.substring(slashPosition + 1, newCursorPosition);
+          setSlashCommandQuery(query);
+        } else {
+          // / was removed or cursor moved away
+          setShowSlashCommandPicker(false);
+          setSlashCommandQuery("");
+        }
+      }
+
+      // Check if we're typing after @ (for search query) - handles both typing and deletion
+      if (showFilePicker) {
+        // Find the @ position before cursor
+        let atPosition = -1;
+        for (let i = newCursorPosition - 1; i >= 0; i--) {
+          if (newValue[i] === '@') {
+            atPosition = i;
+            break;
+          }
+          // Stop if we hit whitespace (new word)
+          if (newValue[i] === ' ' || newValue[i] === '\n') {
+            break;
+          }
+        }
+
+        if (atPosition !== -1) {
+          const query = newValue.substring(atPosition + 1, newCursorPosition);
+          setFilePickerQuery(query);
+        } else {
+          // @ was removed or cursor moved away
+          setShowFilePicker(false);
+          setFilePickerQuery("");
+        }
+      }
+
+      // Check if we're typing after : (for skill search)
+      if (showSkillPicker) {
+        // Find the : position before cursor
+        let colonPosition = -1;
+        for (let i = newCursorPosition - 1; i >= 0; i--) {
+          if (newValue[i] === ':') {
+            colonPosition = i;
+            break;
+          }
+          // Stop if we hit whitespace (new word)
+          if (newValue[i] === ' ' || newValue[i] === '\n') {
+            break;
+          }
+        }
+
+        if (colonPosition !== -1) {
+          const query = newValue.substring(colonPosition + 1, newCursorPosition);
+          setSkillQuery(query);
+        } else {
+          // : was removed or cursor moved away
+          setShowSkillPicker(false);
+          setSkillQuery("");
+        }
+      }
+    });
   };
 
   const handleFileSelect = (entry: FileEntry) => {
@@ -2064,8 +2067,8 @@ const FloatingPromptInputInner = (
                   </TooltipSimple>
                 </div>
 
-                {/* File Picker */}
-                <AnimatePresence>
+                {/* File Picker - use mode="wait" and initial={false} to prevent animation conflicts */}
+                <AnimatePresence mode="wait" initial={false}>
                   {showFilePicker && projectPath && projectPath.trim() && (
                     <FilePicker
                       basePath={projectPath.trim()}
@@ -2078,8 +2081,8 @@ const FloatingPromptInputInner = (
                   )}
                 </AnimatePresence>
 
-                {/* Slash Command Picker */}
-                <AnimatePresence>
+                {/* Slash Command Picker - use mode="wait" and initial={false} to prevent animation conflicts */}
+                <AnimatePresence mode="wait" initial={false}>
                   {showSlashCommandPicker && (
                     <SlashCommandPicker
                       projectPath={projectPath}
@@ -2092,8 +2095,8 @@ const FloatingPromptInputInner = (
                   )}
                 </AnimatePresence>
 
-                {/* Skill Picker */}
-                <AnimatePresence>
+                {/* Skill Picker - use mode="wait" and initial={false} to prevent animation conflicts */}
+                <AnimatePresence mode="wait" initial={false}>
                   {showSkillPicker && (
                     <SkillPicker
                       projectPath={projectPath}

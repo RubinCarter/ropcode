@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -134,8 +134,8 @@ export const FilePicker: React.FC<FilePickerProps> = ({
     return globalDirectoryCache.has(basePath);
   });
 
-  // Calculate position based on anchor element
-  useEffect(() => {
+  // Calculate position based on anchor element - use useLayoutEffect to avoid flicker
+  useLayoutEffect(() => {
     if (anchorRef?.current) {
       const rect = anchorRef.current.getBoundingClientRect();
       // Position above the anchor element
@@ -297,15 +297,16 @@ export const FilePicker: React.FC<FilePickerProps> = ({
       const resultsArrays = await Promise.all(promises);
 
       // Combine all results
-      const contents = resultsArrays.flat();
+      // Filter out null/undefined entries
+      const contents = resultsArrays.flat().filter((entry): entry is FileEntry => entry != null);
 
       console.log('[FilePicker] Loaded fresh contents:', contents.length, 'items');
 
       // Sort entries: agents first, then directories, then files
       const sortedContents = [...contents].sort((a, b) => {
         // Agents come first
-        if (a.entry_type === "agent" && b.entry_type !== "agent") return -1;
-        if (a.entry_type !== "agent" && b.entry_type === "agent") return 1;
+        if (a?.entry_type === "agent" && b?.entry_type !== "agent") return -1;
+        if (a?.entry_type !== "agent" && b?.entry_type === "agent") return 1;
 
         // Then directories vs files
         if (a.is_directory && !b.is_directory) return -1;
@@ -368,14 +369,14 @@ export const FilePicker: React.FC<FilePickerProps> = ({
       // Wait for all searches to complete
       const resultsArrays = await Promise.all(promises);
 
-      // Combine all results
-      const results = resultsArrays.flat();
+      // Combine all results and filter out null/undefined entries
+      const results = resultsArrays.flat().filter((entry): entry is FileEntry => entry != null);
 
       // Sort search results: agents first, then directories, then files
       const sortedResults = [...results].sort((a, b) => {
         // Agents come first
-        if (a.entry_type === "agent" && b.entry_type !== "agent") return -1;
-        if (a.entry_type !== "agent" && b.entry_type === "agent") return 1;
+        if (a?.entry_type === "agent" && b?.entry_type !== "agent") return -1;
+        if (a?.entry_type !== "agent" && b?.entry_type === "agent") return 1;
 
         // Then directories vs files
         if (a.is_directory && !b.is_directory) return -1;
@@ -447,14 +448,16 @@ export const FilePicker: React.FC<FilePickerProps> = ({
 
   const pickerContent = (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.15, ease: "easeOut" }}
       className={cn(
         usePortal ? "fixed z-[9999]" : "absolute bottom-full mb-2 left-0 z-50",
         "w-[500px] h-[400px]",
         "bg-background border border-border rounded-lg shadow-lg",
         "flex flex-col overflow-hidden",
+        "will-change-transform transform-gpu",
         className
       )}
       style={usePortal && position ? { top: position.top, left: position.left } : undefined}

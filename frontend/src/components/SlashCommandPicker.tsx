@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -100,8 +100,8 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
 
   const commandListRef = useRef<HTMLDivElement>(null);
 
-  // Calculate position based on anchor element
-  useEffect(() => {
+  // Calculate position based on anchor element - use useLayoutEffect to avoid flicker
+  useLayoutEffect(() => {
     if (anchorRef?.current) {
       const rect = anchorRef.current.getBoundingClientRect();
       // Position above the anchor element
@@ -304,14 +304,16 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
 
   const pickerContent = (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.15, ease: "easeOut" }}
       className={cn(
         usePortal ? "fixed z-[9999]" : "absolute bottom-full mb-2 left-0 z-50",
         "w-[600px] h-[400px]",
         "bg-background border border-border rounded-lg shadow-lg",
         "flex flex-col overflow-hidden",
+        "will-change-transform transform-gpu",
         className
       )}
       style={usePortal && position ? { top: position.top, left: position.left } : undefined}
