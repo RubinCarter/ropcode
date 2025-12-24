@@ -135,27 +135,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
     try {
       const name = generateWorkspaceName(); // 形容词-动物格式，如：clever-tiger
-      // Use the same name for both workspace and branch
-      const workspaceIndex = await api.createWorkspace(
+      // Create workspace with branch and session name (createWorkspace returns void)
+      await api.createWorkspace(
         project.path,
         name, // branch name
-        name  // workspace name
+        name  // session name
       );
 
+      // Reload projects list to get the new workspace
       await loadProjects();
 
-      // Open the new workspace
-      const primaryProvider = workspaceIndex.providers[0];
-      const workspaceProject: Project = {
-        id: primaryProvider?.id || workspaceIndex.name,
-        path: primaryProvider?.path || '',
-        sessions: [],
-        created_at: workspaceIndex.added_at,
-        most_recent_session: workspaceIndex.last_accessed,
-        last_provider: workspaceIndex.last_provider,
-      };
-
-      handleProjectClick(workspaceProject);
+      // Open the new workspace using its path
+      const workspacePath = `${project.path}/.ropcode/workspaces/${name}`;
+      switchToWorkspace(workspacePath);
     } catch (err) {
       console.error('Failed to create workspace:', err);
       setError(err instanceof Error ? err.message : 'Failed to create workspace');
