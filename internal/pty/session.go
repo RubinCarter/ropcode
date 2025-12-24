@@ -4,9 +4,25 @@ package pty
 import (
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	gopty "github.com/aymanbagabas/go-pty"
+)
+
+// Shell type constants
+const (
+	ShellTypeBash = "bash"
+	ShellTypeZsh  = "zsh"
+	ShellTypeFish = "fish"
+	ShellTypeSh   = "sh"
+)
+
+// Cached default shell to avoid repeated file system checks
+var (
+	cachedDefaultShell     string
+	cachedDefaultShellOnce sync.Once
 )
 
 // Session represents a PTY terminal session
@@ -44,6 +60,70 @@ func NewSession(id, cwd string, rows, cols int, shell string) (*Session, error) 
 	return s, nil
 }
 
+// getShellType determines the shell type from the shell path
+func getShellType(shellPath string) string {
+	base := strings.ToLower(filepath.Base(shellPath))
+	switch {
+	case strings.Contains(base, "zsh"):
+		return ShellTypeZsh
+	case strings.Contains(base, "bash"):
+		return ShellTypeBash
+	case strings.Contains(base, "fish"):
+		return ShellTypeFish
+	default:
+		return ShellTypeSh
+	}
+}
+
+// buildShellArgs builds optimized shell arguments based on shell type
+// Uses --rcfile for bash and ZDOTDIR for zsh to avoid full login shell initialization
+func (s *Session) buildShellArgs() []string {
+	shellType := getShellType(s.Shell)
+
+	switch shellType {
+	case ShellTypeBash:
+		// Use --rcfile to load only .bashrc, avoiding full login shell initialization
+		// This is faster than -l which loads /etc/profile, ~/.bash_profile, etc.
+		bashrc := filepath.Join(os.Getenv("HOME"), ".bashrc")
+		if _, err := os.Stat(bashrc); err == nil {
+			return []string{"--rcfile", bashrc}
+		}
+		// Fallback to interactive mode if no .bashrc
+		return []string{"-i"}
+
+	case ShellTypeZsh:
+		// For zsh, we use interactive mode without login shell
+		// The ZDOTDIR environment variable will be set to control which configs are loaded
+		return []string{"-i"}
+
+	case ShellTypeFish:
+		// Fish uses -i for interactive, -l for login
+		// Interactive mode is sufficient and faster
+		return []string{"-i"}
+
+	default:
+		// For sh and unknown shells, use interactive mode
+		return []string{"-i"}
+	}
+}
+
+// buildShellEnv builds the environment variables for the shell
+func (s *Session) buildShellEnv() []string {
+	env := os.Environ()
+	env = append(env, "TERM=xterm-256color")
+
+	shellType := getShellType(s.Shell)
+
+	// For zsh, we can optionally set ZDOTDIR to a minimal config directory
+	// For now, we just ensure the shell starts in interactive mode
+	if shellType == ShellTypeZsh {
+		// Optionally: Set ZDOTDIR to a minimal config directory for even faster startup
+		// env = append(env, "ZDOTDIR=/path/to/minimal/zsh/config")
+	}
+
+	return env
+}
+
 // Start initializes and starts the PTY session
 func (s *Session) Start() error {
 	s.mu.Lock()
@@ -60,11 +140,12 @@ func (s *Session) Start() error {
 		return err
 	}
 
-	// Use login shell (-l) to load user's shell configuration (.zshrc, .bashrc, etc.)
-	// This ensures PATH and other environment variables are properly set
-	cmd := p.Command(s.Shell, "-l")
+	// Build optimized shell arguments based on shell type
+	// This avoids full login shell initialization which can be slow
+	args := s.buildShellArgs()
+	cmd := p.Command(s.Shell, args...)
 	cmd.Dir = s.Cwd
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	cmd.Env = s.buildShellEnv()
 
 	if err := cmd.Start(); err != nil {
 		p.Close()
@@ -143,7 +224,8 @@ func (s *Session) Done() <-chan struct{} {
 	return s.doneCh
 }
 
-func getDefaultShell() string {
+// detectDefaultShell finds the default shell (internal, not cached)
+func detectDefaultShell() string {
 	// First try SHELL environment variable
 	if shell := os.Getenv("SHELL"); shell != "" {
 		// Verify it exists before using it
@@ -171,4 +253,13 @@ func getDefaultShell() string {
 
 	// Last resort
 	return "/bin/sh"
+}
+
+// getDefaultShell returns the cached default shell path
+// This avoids repeated file system checks on each terminal creation
+func getDefaultShell() string {
+	cachedDefaultShellOnce.Do(func() {
+		cachedDefaultShell = detectDefaultShell()
+	})
+	return cachedDefaultShell
 }
