@@ -17,10 +17,11 @@ type Session struct {
 	Rows  int
 	Cols  int
 
-	pty    gopty.Pty
-	cmd    *gopty.Cmd
-	mu     sync.Mutex
-	closed bool
+	pty     gopty.Pty
+	cmd     *gopty.Cmd
+	mu      sync.Mutex
+	closed  bool
+	started bool // indicates if Start() has completed successfully
 
 	doneCh chan struct{}
 }
@@ -72,6 +73,7 @@ func (s *Session) Start() error {
 
 	s.pty = p
 	s.cmd = cmd
+	s.started = true
 
 	return nil
 }
@@ -81,12 +83,19 @@ func (s *Session) Write(data string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.closed || s.pty == nil {
+	if s.closed || s.pty == nil || !s.started {
 		return io.ErrClosedPipe
 	}
 
 	_, err := s.pty.Write([]byte(data))
 	return err
+}
+
+// IsStarted returns whether the PTY session has started successfully
+func (s *Session) IsStarted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.started
 }
 
 // Read reads data from the PTY

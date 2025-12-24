@@ -28,6 +28,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   // Track initialization to prevent double-init in StrictMode
   const initializingRef = React.useRef(false);
   const initializedRef = React.useRef(false);
+  const tabIdRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     // Prevent double initialization
@@ -47,40 +48,47 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   }, []);
 
   const initializeWorkspace = async () => {
-    try {
-      const sessionList = await providers.listSessions(workspaceId, 'claude');
-      let selectedSession: any = null;
-      if (sessionList.length > 0) {
-        const sortedSessions = [...sessionList].sort((a, b) => {
-          const timeA = a.message_timestamp ? new Date(a.message_timestamp).getTime() : a.created_at * 1000;
-          const timeB = b.message_timestamp ? new Date(b.message_timestamp).getTime() : b.created_at * 1000;
-          return timeB - timeA;
-        });
-        selectedSession = sortedSessions[0];
+    // Step 1: Immediately add an empty chat tab (non-blocking)
+    // This allows the UI to render immediately without waiting for session list
+    const newTabId = addTab({
+      type: 'chat',
+      title: 'Chat',
+      sessionId: undefined,
+      sessionData: undefined,
+      projectPath: workspaceId,
+      providerId: 'claude',
+      status: 'idle',
+      hasUnsavedChanges: false,
+      icon: 'message-square',
+    });
+    tabIdRef.current = newTabId;
+
+    // Step 2: Load sessions in the background (non-blocking)
+    // Use setTimeout to yield to the browser and allow initial render
+    setTimeout(async () => {
+      try {
+        const sessionList = await providers.listSessions(workspaceId, 'claude');
+        if (sessionList.length > 0) {
+          const sortedSessions = [...sessionList].sort((a, b) => {
+            const timeA = a.message_timestamp ? new Date(a.message_timestamp).getTime() : a.created_at * 1000;
+            const timeB = b.message_timestamp ? new Date(b.message_timestamp).getTime() : b.created_at * 1000;
+            return timeB - timeA;
+          });
+          const selectedSession = sortedSessions[0];
+
+          // Update the tab with session data
+          if (tabIdRef.current) {
+            updateTab(tabIdRef.current, {
+              sessionId: selectedSession.id,
+              sessionData: { ...selectedSession, provider: 'claude' },
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[WorkspaceContainer] Failed to load sessions in background:', err);
+        // Tab is already created, just log the error
       }
-      addTab({
-        type: 'chat',
-        title: 'Chat',
-        sessionId: selectedSession?.id,
-        sessionData: selectedSession ? { ...selectedSession, provider: 'claude' } : undefined,
-        projectPath: workspaceId,
-        providerId: 'claude',
-        status: 'idle',
-        hasUnsavedChanges: false,
-        icon: 'message-square',
-      });
-    } catch (err) {
-      console.error('[WorkspaceContainer] Failed to initialize workspace:', err);
-      addTab({
-        type: 'chat',
-        title: 'Chat',
-        projectPath: workspaceId,
-        providerId: 'claude',
-        status: 'idle',
-        hasUnsavedChanges: false,
-        icon: 'message-square',
-      });
-    }
+    }, 0);
   };
 
   // Stable callbacks to prevent infinite re-renders

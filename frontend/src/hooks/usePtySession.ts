@@ -1,9 +1,15 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { EventsOn } from '@/lib/rpc-events';
 import { api } from '@/lib/api';
 
 type UnlistenFn = () => void;
+
+interface PtyReadyEvent {
+  session_id: string;
+  success: boolean;
+  error?: string;
+}
 
 /**
  * PTY 会话管理器
@@ -12,15 +18,37 @@ type UnlistenFn = () => void;
 class PtySessionManager {
   private sessions = new Map<string, {
     created: boolean;
-    creationPromise: Promise<void> | null;
+    pending: boolean; // 正在等待后端异步启动
+    ready: boolean; // 后端 PTY 已就绪
     cwd: string | undefined;
     rows: number;
     cols: number;
     listeners: Set<string>; // 监听器 ID 集合
+    readyCallbacks: Array<(success: boolean, error?: string) => void>;
   }>();
+
+  private readyUnsubscribe: (() => void) | null = null;
+
+  constructor() {
+    // 监听 pty-ready 事件
+    this.readyUnsubscribe = EventsOn('pty-ready', (payload: PtyReadyEvent) => {
+      const { session_id, success, error } = payload;
+      console.log('[PtyManager] 收到 pty-ready 事件:', { session_id, success, error });
+
+      const session = this.sessions.get(session_id);
+      if (session) {
+        session.pending = false;
+        session.ready = success;
+        // 触发所有回调
+        session.readyCallbacks.forEach(cb => cb(success, error));
+        session.readyCallbacks = [];
+      }
+    });
+  }
 
   /**
    * 创建或获取 PTY 会话
+   * 现在是非阻塞的 - RPC 调用立即返回，实际 shell 启动在后台进行
    */
   async getOrCreate(
     sessionId: string,
@@ -35,52 +63,80 @@ class PtySessionManager {
       return;
     }
 
-    // 如果正在创建中，等待该 Promise 完成
-    if (session?.creationPromise) {
-      console.log('[PtyManager] PTY 会话正在创建中，等待...:', sessionId);
-      await session.creationPromise;
+    // 如果正在等待后端启动，直接返回（不阻塞）
+    if (session?.pending) {
+      console.log('[PtyManager] PTY 会话正在启动中:', sessionId);
       return;
     }
 
-    // 创建会话的 Promise
-    const creationPromise = (async () => {
-      try {
-        console.log('[PtyManager] 创建 PTY 会话:', { sessionId, cwd, rows, cols });
-
-        await api.createPtySession(
-          sessionId,
-          cwd || undefined,
-          rows,
-          cols,
-          undefined
-        );
-
-        // 标记为已创建
-        const s = this.sessions.get(sessionId);
-        if (s) {
-          s.created = true;
-          s.creationPromise = null;
-        }
-
-        console.log('[PtyManager] PTY 会话创建成功:', sessionId);
-      } catch (error) {
-        console.error('[PtyManager] PTY 会话创建失败:', sessionId, error);
-        this.sessions.delete(sessionId);
-        throw error;
-      }
-    })();
-
     // 保存会话信息
     this.sessions.set(sessionId, {
-      created: false,
-      creationPromise,
+      created: true,
+      pending: true,
+      ready: false,
       cwd,
       rows,
       cols,
       listeners: new Set(),
+      readyCallbacks: [],
     });
 
-    await creationPromise;
+    try {
+      console.log('[PtyManager] 创建 PTY 会话 (异步):', { sessionId, cwd, rows, cols });
+
+      // RPC 调用现在会立即返回，不等待 shell 启动
+      await api.createPtySession(
+        sessionId,
+        cwd || undefined,
+        rows,
+        cols,
+        undefined
+      );
+
+      console.log('[PtyManager] PTY 会话创建请求已发送:', sessionId);
+    } catch (error) {
+      console.error('[PtyManager] PTY 会话创建失败:', sessionId, error);
+      this.sessions.delete(sessionId);
+      throw error;
+    }
+  }
+
+  /**
+   * 等待 PTY 就绪
+   */
+  waitForReady(sessionId: string, timeoutMs: number = 10000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        reject(new Error(`Session not found: ${sessionId}`));
+        return;
+      }
+
+      if (session.ready) {
+        resolve();
+        return;
+      }
+
+      const timeout = setTimeout(() => {
+        reject(new Error(`PTY session timeout: ${sessionId}`));
+      }, timeoutMs);
+
+      session.readyCallbacks.push((success, error) => {
+        clearTimeout(timeout);
+        if (success) {
+          resolve();
+        } else {
+          reject(new Error(error || 'PTY session failed'));
+        }
+      });
+    });
+  }
+
+  /**
+   * 检查 PTY 是否就绪
+   */
+  isReady(sessionId: string): boolean {
+    return this.sessions.get(sessionId)?.ready || false;
   }
 
   /**
@@ -90,6 +146,14 @@ class PtySessionManager {
     const session = this.sessions.get(sessionId);
     if (!session?.created) {
       console.warn('[PtyManager] PTY 会话不存在或未创建，跳过 resize:', sessionId);
+      return;
+    }
+
+    // 如果 PTY 还没就绪，跳过 resize（后端会使用创建时的尺寸）
+    if (!session.ready) {
+      console.log('[PtyManager] PTY 还未就绪，跳过 resize:', sessionId);
+      session.rows = rows;
+      session.cols = cols;
       return;
     }
 
@@ -197,11 +261,13 @@ export function usePtySession(options: UsePtySessionOptions) {
     onExit,
   } = options;
 
+  const [isReady, setIsReady] = useState(false);
   const initializedRef = useRef(false);
   const dataHandlerRef = useRef<((data: string) => Promise<void>) | null>(null);
   const listenerIdRef = useRef<string>(`${workspaceId}::${sessionId}::${Date.now()}`);
   const inputDisposableRef = useRef<any>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const readyUnsubscribeRef = useRef<(() => void) | null>(null);
 
   console.log('[usePtySession] Hook 调用:', { sessionId, workspaceId, terminalExists: !!terminal, initialized: initializedRef.current });
 
@@ -217,6 +283,20 @@ export function usePtySession(options: UsePtySessionOptions) {
         // 1. 先设置 PTY 输出监听器（必须在 PTY 创建之前）
         const listenerId = listenerIdRef.current;
         ptySessionManager.registerListener(sessionId, listenerId);
+
+        // 监听 pty-ready 事件来更新 isReady 状态
+        const readyUnsubscribe = EventsOn('pty-ready', (payload: PtyReadyEvent) => {
+          if (payload.session_id === sessionId) {
+            if (payload.success) {
+              console.log('[usePtySession] PTY 已就绪:', sessionId);
+              setIsReady(true);
+            } else {
+              console.error('[usePtySession] PTY 启动失败:', payload.error);
+              terminal?.writeln(`\x1b[1;31mError: ${payload.error || 'Failed to start PTY'}\x1b[0m`);
+            }
+          }
+        });
+        readyUnsubscribeRef.current = readyUnsubscribe;
 
         // 使用 EventsOn 返回的 unsubscribe 函数来只移除当前组件的监听器
         // 避免使用 EventsOff 移除所有 pty-output 监听器
@@ -257,16 +337,16 @@ export function usePtySession(options: UsePtySessionOptions) {
         dataHandlerRef.current = handleData;
         inputDisposableRef.current = terminal.onData(handleData);
 
-        // 3. 最后创建 PTY 会话（此时监听器已就绪）
+        // 3. 创建 PTY 会话（现在是非阻塞的，立即返回）
         const dims = terminal.rows && terminal.cols
           ? { rows: terminal.rows, cols: terminal.cols }
           : { rows, cols };
 
-        console.log('[usePtySession] 创建 PTY 会话:', { sessionId, dims });
+        console.log('[usePtySession] 创建 PTY 会话 (异步):', { sessionId, dims });
         await ptySessionManager.getOrCreate(sessionId, cwd, dims.rows, dims.cols);
 
         initializedRef.current = true;
-        console.log('[usePtySession] PTY 会话初始化完成:', sessionId);
+        console.log('[usePtySession] PTY 创建请求已发送，等待 pty-ready 事件:', sessionId);
       } catch (error) {
         console.error('[usePtySession] PTY 会话初始化失败:', error);
         terminal?.writeln('\x1b[1;31mError: Failed to create PTY session\x1b[0m');
@@ -280,6 +360,8 @@ export function usePtySession(options: UsePtySessionOptions) {
       // 使用 unsubscribe 函数只移除当前组件的监听器，而不是移除所有 pty-output 监听器
       unsubscribeRef.current?.();
       unsubscribeRef.current = null;
+      readyUnsubscribeRef.current?.();
+      readyUnsubscribeRef.current = null;
       inputDisposableRef.current?.dispose();
       inputDisposableRef.current = null;
       dataHandlerRef.current = null;
@@ -322,7 +404,7 @@ export function usePtySession(options: UsePtySessionOptions) {
   }, [sessionId, terminal, initializedRef.current]);
 
   return {
-    isReady: initializedRef.current,
+    isReady,
     sessionId,
   };
 }

@@ -215,7 +215,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     }
   }, [messagesState.displayableMessages.length, rowVirtualizer, isScrollPaused]);
 
-  // Session restoration from localStorage
+  // Session restoration from localStorage - deferred to avoid blocking initial render
   useEffect(() => {
     if (loadedSessionIdRef.current) {
       console.log('[AiCodeSession] Already loaded session, skipping:', loadedSessionIdRef.current);
@@ -223,38 +223,44 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     }
 
     if (sessionState.projectPath && !sessionState.extractedSessionInfo) {
-      console.log('[AiCodeSession] Attempting to restore session from localStorage for provider:', defaultProvider);
+      // Defer session restoration to next frame to allow initial render
+      requestAnimationFrame(() => {
+        // Double-check after yield
+        if (loadedSessionIdRef.current) return;
 
-      const sessions = SessionPersistenceService.getSessionIndex();
-      const projectSessions = sessions
-        .map(sid => SessionPersistenceService.loadSession(sid))
-        .filter(s => {
-          if (!s || s.projectPath !== sessionState.projectPath) return false;
-          // 兼容旧的 session（没有 provider 字段的默认为 claude）
-          const sessionProvider = s.provider || 'claude';
-          return sessionProvider === defaultProvider;
-        })
-        .sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
+        console.log('[AiCodeSession] Attempting to restore session from localStorage for provider:', defaultProvider);
 
-      if (projectSessions.length > 0 && projectSessions[0]) {
-        const restoredSession = projectSessions[0];
-        console.log('[AiCodeSession] Restoring session:', restoredSession.sessionId, 'for provider:', restoredSession.provider);
+        const sessions = SessionPersistenceService.getSessionIndex();
+        const projectSessions = sessions
+          .map(sid => SessionPersistenceService.loadSession(sid))
+          .filter(s => {
+            if (!s || s.projectPath !== sessionState.projectPath) return false;
+            // 兼容旧的 session（没有 provider 字段的默认为 claude）
+            const sessionProvider = s.provider || 'claude';
+            return sessionProvider === defaultProvider;
+          })
+          .sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
 
-        loadedSessionIdRef.current = restoredSession.sessionId;
-        sessionState.setExtractedSessionInfo({
-          sessionId: restoredSession.sessionId,
-          projectId: restoredSession.projectId
-        });
-        sessionState.setClaudeSessionId(restoredSession.sessionId);
-        sessionState.setIsFirstPrompt(false);
+        if (projectSessions.length > 0 && projectSessions[0]) {
+          const restoredSession = projectSessions[0];
+          console.log('[AiCodeSession] Restoring session:', restoredSession.sessionId, 'for provider:', restoredSession.provider);
 
-        // Load session history
-        loadRestoredHistory(restoredSession);
-      }
+          loadedSessionIdRef.current = restoredSession.sessionId;
+          sessionState.setExtractedSessionInfo({
+            sessionId: restoredSession.sessionId,
+            projectId: restoredSession.projectId
+          });
+          sessionState.setClaudeSessionId(restoredSession.sessionId);
+          sessionState.setIsFirstPrompt(false);
+
+          // Load session history in background
+          loadRestoredHistory(restoredSession);
+        }
+      });
     }
   }, [sessionState.projectPath, defaultProvider]);
 
-  // Load session history if resuming
+  // Load session history if resuming - deferred to avoid blocking initial render
   useEffect(() => {
     if (session) {
       if (loadedSessionIdRef.current) {
@@ -262,17 +268,23 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         return;
       }
 
-      loadedSessionIdRef.current = session.id;
+      // Defer session loading to next frame to allow initial render
+      requestAnimationFrame(() => {
+        // Double-check after yield
+        if (loadedSessionIdRef.current) return;
 
-      sessionState.setClaudeSessionId(session.id);
+        loadedSessionIdRef.current = session.id;
 
-      // Set extractedSessionInfo so that effectiveSession works correctly
-      sessionState.setExtractedSessionInfo({
-        sessionId: session.id,
-        projectId: session.project_id
+        sessionState.setClaudeSessionId(session.id);
+
+        // Set extractedSessionInfo so that effectiveSession works correctly
+        sessionState.setExtractedSessionInfo({
+          sessionId: session.id,
+          projectId: session.project_id
+        });
+
+        loadSessionHistory();
       });
-
-      loadSessionHistory();
     }
   }, [session]);
 

@@ -19,6 +19,13 @@ type PtyOutput struct {
 	Content    string `json:"content"`
 }
 
+// PtyReady represents PTY session ready event
+type PtyReady struct {
+	SessionID string `json:"session_id"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
 // Manager manages multiple PTY sessions
 type Manager struct {
 	ctx      context.Context
@@ -37,27 +44,57 @@ func NewManager(ctx context.Context, emitter EventEmitter) *Manager {
 }
 
 // CreateSession creates a new PTY session
+// This method returns immediately with a pending session.
+// The actual shell startup happens asynchronously in a goroutine.
+// A "pty-ready" event will be emitted when the PTY is ready or failed.
 func (m *Manager) CreateSession(id, cwd string, rows, cols int, shell string) (*Session, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if _, exists := m.sessions[id]; exists {
+		m.mu.Unlock()
 		return nil, fmt.Errorf("session already exists: %s", id)
 	}
 
 	session, err := NewSession(id, cwd, rows, cols, shell)
 	if err != nil {
+		m.mu.Unlock()
 		return nil, err
 	}
 
-	if err := session.Start(); err != nil {
-		return nil, err
-	}
-
+	// Store session immediately (before Start) so we can return quickly
 	m.sessions[id] = session
+	m.mu.Unlock()
 
-	// Start output reading goroutine
-	go m.readOutput(session)
+	// Start the PTY asynchronously to avoid blocking the main thread
+	go func() {
+		if err := session.Start(); err != nil {
+			// Remove failed session
+			m.mu.Lock()
+			delete(m.sessions, id)
+			m.mu.Unlock()
+
+			// Emit failure event
+			if m.emitter != nil {
+				m.emitter.Emit("pty-ready", PtyReady{
+					SessionID: id,
+					Success:   false,
+					Error:     err.Error(),
+				})
+			}
+			return
+		}
+
+		// Start output reading goroutine
+		go m.readOutput(session)
+
+		// Emit success event
+		if m.emitter != nil {
+			m.emitter.Emit("pty-ready", PtyReady{
+				SessionID: id,
+				Success:   true,
+			})
+		}
+	}()
 
 	return session, nil
 }
