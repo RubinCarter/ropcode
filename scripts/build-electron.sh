@@ -30,7 +30,7 @@ echo "Frontend built."
 # 3. 构建 Electron
 echo "Building Electron..."
 cd electron
-npm ci
+npm install
 npm run build
 cd ..
 echo "Electron built."
