@@ -56,6 +56,8 @@ function detectWebGLSupport(): boolean {
 export interface TermWrapOptions {
   /** 是否启用 WebGL 渲染（需要浏览器支持） */
   useWebGL?: boolean;
+  /** 是否延迟加载 WebGL（在后台异步加载，避免阻塞 UI） */
+  lazyWebGL?: boolean;
   /** 链接点击处理器 */
   onLinkClick?: (event: MouseEvent, uri: string) => void;
   /** 数据发送处理器 */
@@ -134,7 +136,13 @@ export class TermWrap {
 
     // 尝试加载 WebGL addon（如果支持且启用）
     if (this.options.useWebGL !== false && detectWebGLSupport()) {
-      this.loadWebGLAddon();
+      if (this.options.lazyWebGL) {
+        // 延迟加载：在后台异步加载，不阻塞初始化
+        requestIdleCallback(() => this.loadWebGLAddon());
+      } else {
+        // 同步加载（默认行为）
+        this.loadWebGLAddon();
+      }
     } else if (this.options.useWebGL === true && !detectWebGLSupport()) {
       console.warn('WebGL is not supported in this browser, falling back to canvas renderer');
     }

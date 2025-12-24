@@ -63,6 +63,7 @@ class TerminalInstanceManager {
         },
         {
           useWebGL: true,
+          lazyWebGL: true,
         }
       );
       instance.container = container;
