@@ -127,8 +127,8 @@ export const Agents: React.FC = () => {
         multiple: false,
       });
 
-      if (selected) {
-        const importedAgent = await api.importAgentFromFile(selected as string);
+      if (selected && !selected.canceled && selected.filePaths && selected.filePaths[0]) {
+        const importedAgent = await api.importAgentFromFile(selected.filePaths[0]);
         setToast({ message: `Imported agent: ${importedAgent.name}`, type: 'success' });
         loadAgents();
       }
@@ -140,15 +140,15 @@ export const Agents: React.FC = () => {
 
   const handleExportAgent = async (agent: Agent) => {
     try {
-      const path = await save({
+      const result = await save({
         defaultPath: `${agent.name.toLowerCase().replace(/\s+/g, '-')}.ropcode.json`,
         filters: [
           { name: 'Ropcode Agent', extensions: ['ropcode.json'] }
         ]
       });
 
-      if (path && agent.id) {
-        await api.exportAgentToFile(agent.id, path);
+      if (result && !result.canceled && result.filePath && agent.id) {
+        await api.exportAgentToFile(agent.id, result.filePath);
         setToast({ message: `Exported agent: ${agent.name}`, type: 'success' });
       }
     } catch (error) {

@@ -5,16 +5,27 @@
  * 在 Web 模式下，使用原生 HTML5 对话框
  */
 
+export interface FileFilter {
+  name: string;
+  extensions: string[];
+}
+
 export interface OpenOptions {
   directory?: boolean;
   multiple?: boolean;
   title?: string;
   defaultPath?: string;
+  filters?: FileFilter[];
 }
 
 export interface OpenReturnValue {
   canceled: boolean;
   filePaths?: string[];
+}
+
+export interface SaveReturnValue {
+  canceled: boolean;
+  filePath?: string;
 }
 
 // 声明 electronAPI 类型
@@ -88,7 +99,7 @@ export async function open(options: OpenOptions = {}): Promise<OpenReturnValue> 
 /**
  * 保存文件对话框
  */
-export async function save(options: { title?: string; defaultPath?: string } = {}): Promise<OpenReturnValue> {
+export async function save(options: { title?: string; defaultPath?: string; filters?: FileFilter[] } = {}): Promise<SaveReturnValue> {
   // 在 Web 模式下简化处理，直接返回
   return { canceled: true };
 }

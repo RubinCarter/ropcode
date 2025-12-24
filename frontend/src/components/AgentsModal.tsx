@@ -153,16 +153,16 @@ export const AgentsModal: React.FC<AgentsModalProps> = ({ open, onOpenChange }) 
 
   const handleImportFromFile = async () => {
     try {
-      const filePath = await openDialog({
+      const selected = await openDialog({
         multiple: false,
         filters: [{
           name: 'JSON',
           extensions: ['json']
         }]
       });
-      
-      if (filePath) {
-        const agent = await api.importAgentFromFile(filePath as string);
+
+      if (selected && !selected.canceled && selected.filePaths && selected.filePaths[0]) {
+        const agent = await api.importAgentFromFile(selected.filePaths[0]);
         loadAgents(); // Refresh list
         setToast({ message: `Agent "${agent.name}" imported successfully`, type: "success" });
       }
@@ -179,16 +179,16 @@ export const AgentsModal: React.FC<AgentsModalProps> = ({ open, onOpenChange }) 
   const handleExportAgent = async (agent: Agent) => {
     try {
       const exportData = await api.exportAgent(agent.id!);
-      const filePath = await save({
+      const result = await save({
         defaultPath: `${agent.name.toLowerCase().replace(/\s+/g, '-')}.json`,
         filters: [{
           name: 'JSON',
           extensions: ['json']
         }]
       });
-      
-      if (filePath) {
-        await api.writeFile(filePath, JSON.stringify(exportData, null, 2));
+
+      if (result && !result.canceled && result.filePath) {
+        await api.writeFile(result.filePath, JSON.stringify(exportData, null, 2));
         setToast({ message: "Agent exported successfully", type: "success" });
       }
     } catch (error) {

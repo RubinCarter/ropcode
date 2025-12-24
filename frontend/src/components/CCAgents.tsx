@@ -216,21 +216,21 @@ export const CCAgents: React.FC<CCAgentsProps> = ({ onBack, className }) => {
   const handleImportAgent = async () => {
     try {
       // Show native open dialog
-      const filePath = await open({
+      const selected = await open({
         multiple: false,
         filters: [{
           name: 'Ropcode Agent',
           extensions: ['ropcode.json', 'json']
         }]
       });
-      
-      if (!filePath) {
+
+      if (!selected || selected.canceled || !selected.filePaths || !selected.filePaths[0]) {
         // User cancelled the dialog
         return;
       }
-      
+
       // Import the agent from the selected file
-      await api.importAgentFromFile(filePath as string);
+      await api.importAgentFromFile(selected.filePaths[0]);
       
       setToast({ message: "Agent imported successfully", type: "success" });
       await loadAgents();
