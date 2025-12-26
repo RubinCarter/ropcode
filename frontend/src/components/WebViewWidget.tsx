@@ -199,7 +199,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
         return;
       }
       setLoading(false);
-      setError(`加载失败 (${e.errorCode}): ${e.errorDescription}`);
+      setError(`Failed to load (${e.errorCode}): ${e.errorDescription}`);
     };
 
     const handleNewWindow = (e: any) => {
@@ -608,7 +608,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             size="icon"
             onClick={handleGoBack}
             disabled={!canGoBack}
-            title="后退"
+            title="Back"
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -617,7 +617,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             size="icon"
             onClick={handleGoForward}
             disabled={!canGoForward}
-            title="前进"
+            title="Forward"
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
@@ -626,7 +626,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             size="icon"
             onClick={handleRefresh}
             disabled={isLoading}
-            title="刷新"
+            title="Refresh"
           >
             <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
           </Button>
@@ -634,7 +634,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             variant="ghost"
             size="icon"
             onClick={handleGoHome}
-            title="主页"
+            title="Home"
           >
             <Home className="h-4 w-4" />
           </Button>
@@ -648,7 +648,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
               type="text"
               value={inputUrl}
               onChange={(e) => setInputUrl(e.target.value)}
-              placeholder="输入网址或搜索..."
+              placeholder="Enter URL or search..."
               className="pl-9"
             />
           </div>
@@ -659,7 +659,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
           variant={searchOpen ? 'secondary' : 'ghost'}
           size="icon"
           onClick={handleSearchToggle}
-          title="页内搜索"
+          title="Find in page"
         >
           <Search className="h-4 w-4" />
         </Button>
@@ -669,7 +669,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
           variant={isSelectingElement ? 'secondary' : 'ghost'}
           size="icon"
           onClick={isSelectingElement ? handleCancelSelectElement : handleStartSelectElement}
-          title="选择元素"
+          title="Select element"
         >
           <MousePointerClick className="h-4 w-4" />
         </Button>
@@ -680,7 +680,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             variant={userAgentType === 'default' ? 'secondary' : 'ghost'}
             size="icon"
             onClick={() => handleUserAgentChange('default')}
-            title="桌面模式"
+            title="Desktop mode"
           >
             <Monitor className="h-4 w-4" />
           </Button>
@@ -690,7 +690,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             onClick={() => handleUserAgentChange(
               userAgentType === 'mobile:iphone' ? 'mobile:android' : 'mobile:iphone'
             )}
-            title="移动设备模式"
+            title="Mobile mode"
           >
             <Smartphone className="h-4 w-4" />
           </Button>
@@ -702,7 +702,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             variant="ghost"
             size="icon"
             onClick={handleZoomOut}
-            title="缩小"
+            title="Zoom out"
           >
             <ZoomOut className="h-4 w-4" />
           </Button>
@@ -710,7 +710,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             variant="ghost"
             size="sm"
             onClick={handleZoomReset}
-            title="重置缩放"
+            title="Reset zoom"
             className="min-w-[50px]"
           >
             {Math.round(zoomFactor * 100)}%
@@ -719,7 +719,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             variant="ghost"
             size="icon"
             onClick={handleZoomIn}
-            title="放大"
+            title="Zoom in"
           >
             <ZoomIn className="h-4 w-4" />
           </Button>
@@ -731,7 +731,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             variant="ghost"
             size="icon"
             onClick={handleToggleMute}
-            title={mediaMuted ? '取消静音' : '静音'}
+            title={mediaMuted ? 'Unmute' : 'Mute'}
           >
             {mediaMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </Button>
@@ -745,7 +745,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             type="text"
             value={searchQuery}
             onChange={handleSearchChange}
-            placeholder="搜索页面内容..."
+            placeholder="Search in page..."
             className="flex-1"
             autoFocus
           />
@@ -760,7 +760,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             onClick={handleSearchPrevious}
             disabled={!searchQuery || searchResultCount === 0}
           >
-            上一个
+            Previous
           </Button>
           <Button
             variant="ghost"
@@ -768,7 +768,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             onClick={handleSearchNext}
             disabled={!searchQuery || searchResultCount === 0}
           >
-            下一个
+            Next
           </Button>
           <Button
             variant="ghost"
@@ -790,7 +790,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
       {/* Element Selection Info */}
       {isSelectingElement && (
         <div className="p-2 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 text-sm">
-          点击页面中的元素以选择...
+          Click on an element to select...
         </div>
       )}
 
@@ -800,7 +800,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 text-sm">
               <div className="font-semibold mb-1">
-                已选择元素: &lt;{selectedElement.tagName.toLowerCase()}&gt;
+                Selected: &lt;{selectedElement.tagName.toLowerCase()}&gt;
               </div>
               <div className="text-muted-foreground truncate">
                 {selectedElement.selector}
@@ -811,7 +811,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
                 variant="ghost"
                 size="icon"
                 onClick={handleCopySelectedElement}
-                title="复制HTML"
+                title="Copy HTML"
               >
                 <Copy className="h-4 w-4" />
               </Button>
@@ -819,7 +819,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
                 variant="ghost"
                 size="icon"
                 onClick={handleClearSelectedElement}
-                title="清除"
+                title="Clear"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -827,7 +827,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
           </div>
           {selectedElement.innerText && (
             <div className="text-sm">
-              <div className="font-medium mb-1">文本内容:</div>
+              <div className="font-medium mb-1">Text content:</div>
               <div className="text-muted-foreground line-clamp-2">
                 {selectedElement.innerText}
               </div>
@@ -837,7 +837,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             <Textarea
               value={userMessage}
               onChange={(e) => setUserMessage(e.target.value)}
-              placeholder="向 AI 描述你想对这个元素做什么..."
+              placeholder="Describe what you want AI to do with this element..."
               className="flex-1 min-h-[60px]"
             />
             <Button
