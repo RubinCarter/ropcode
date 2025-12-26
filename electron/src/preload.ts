@@ -52,5 +52,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendToWebview: (webContentsId: number, channel: string, ...args: any[]) => {
     ipcRenderer.send('webview:sendToWebview', webContentsId, channel, ...args);
   },
+
 });
 

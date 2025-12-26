@@ -167,6 +167,7 @@ function registerIpcHandlers() {
   ipcMain.on('webview:elementSelected', (event, elementInfo) => {
     mainWindow?.webContents.send('webview:elementSelected', elementInfo);
   });
+
 }
 
 app.whenReady().then(async () => {

@@ -175,3 +175,9 @@ export const USER_AGENTS = {
   'mobile:iphone': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   'mobile:android': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36',
 } as const;
+
+// 移动设备视口宽度 (用于容器宽度限制)
+export const MOBILE_VIEWPORT_WIDTH = {
+  'mobile:iphone': 390,
+  'mobile:android': 412,
+} as const;

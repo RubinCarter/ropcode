@@ -13,7 +13,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useWebStore, USER_AGENTS, type UserAgentType } from '@/widgets/web/WebModel';
+import { useWebStore, USER_AGENTS, MOBILE_VIEWPORT_WIDTH, type UserAgentType } from '@/widgets/web/WebModel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -61,7 +61,8 @@ type WebviewElement = HTMLElement & {
   getZoomFactor: () => number;
   setAudioMuted: (muted: boolean) => void;
   isAudioMuted: () => boolean;
-  setUserAgent: (ua: string) => void;
+  setUserAgent: (userAgent: string) => void;
+  getUserAgent: () => string;
   findInPage: (text: string, options?: { forward?: boolean; findNext?: boolean }) => void;
   stopFindInPage: (action: 'clearSelection' | 'keepSelection' | 'activateSelection') => void;
   getTitle: () => string;
@@ -536,16 +537,22 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
   // User Agent switching
   const handleUserAgentChange = useCallback((type: UserAgentType) => {
     setUserAgentType(type);
-    // Reload with new user agent
-    if (webviewRef.current) {
-      const currentUrl = webviewRef.current.src;
-      const userAgent = USER_AGENTS[type];
-      if (userAgent) {
-        webviewRef.current.useragent = userAgent;
-      }
-      webviewRef.current.loadURL(currentUrl);
+
+    if (!webviewRef.current || !domReady) {
+      return;
     }
-  }, [setUserAgentType]);
+
+    const userAgent = USER_AGENTS[type];
+
+    // Set user agent
+    if (userAgent) {
+      webviewRef.current.setUserAgent(userAgent);
+    } else {
+      webviewRef.current.setUserAgent('');
+    }
+
+    webviewRef.current.reload();
+  }, [setUserAgentType, domReady]);
 
   // Zoom handlers
   const handleZoomIn = useCallback(() => {
@@ -844,34 +851,44 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
 
       {/* Webview Container - GPU accelerated */}
       <div
-        className="flex-1 relative overflow-hidden"
+        className="flex-1 relative overflow-hidden flex justify-center bg-muted/30"
         style={{
           transform: 'translate3d(0, 0, 0)',
           willChange: 'transform',
           backfaceVisibility: 'hidden',
         }}
       >
-        <webview
-          ref={webviewRef}
-          src={url}
-          partition="persist:webview"
-          // @ts-ignore - webview specific attributes
-          allowpopups="true"
-          webpreferences="contextIsolation=yes, nodeIntegration=no"
-          {...(preloadPath && preloadPath !== 'none' ? { preload: preloadPath } : {})}
-          useragent={USER_AGENTS[userAgentType]}
-          data-webcontentsid={webContentsId ?? undefined}
+        <div
+          className="relative h-full"
           style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            border: 'none',
-            outline: 'none',
-            transform: 'translateZ(0)',
+            width: userAgentType !== 'default' && MOBILE_VIEWPORT_WIDTH[userAgentType as keyof typeof MOBILE_VIEWPORT_WIDTH]
+              ? `${MOBILE_VIEWPORT_WIDTH[userAgentType as keyof typeof MOBILE_VIEWPORT_WIDTH]}px`
+              : '100%',
+            maxWidth: '100%',
           }}
-        />
+        >
+          <webview
+            ref={webviewRef}
+            src={url}
+            partition="persist:webview"
+            // @ts-ignore - webview specific attributes
+            allowpopups="true"
+            webpreferences="contextIsolation=yes, nodeIntegration=no"
+            {...(preloadPath && preloadPath !== 'none' ? { preload: preloadPath } : {})}
+            useragent={USER_AGENTS[userAgentType]}
+            data-webcontentsid={webContentsId ?? undefined}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              border: 'none',
+              outline: 'none',
+              transform: 'translateZ(0)',
+            }}
+          />
+        </div>
       </div>
     </div>
   );
