@@ -29,6 +29,18 @@ interface Window {
     // 文件对话框
     openDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
     openFile: (options?: { multiple?: boolean }) => Promise<{ canceled: boolean; filePaths?: string[] }>;
+    // Webview 相关
+    getWebviewPreload: () => Promise<string>;
+    setWebviewFocus: (webContentsId: number | null) => void;
+    clearWebviewStorage: (webContentsId: number) => Promise<void>;
+    onWebviewElementSelected: (callback: (elementInfo: {
+      tagName: string;
+      innerText: string;
+      outerHTML: string;
+      selector: string;
+      url: string;
+    }) => void) => void;
+    sendToWebview: (webContentsId: number, channel: string, ...args: any[]) => void;
   };
 }
 

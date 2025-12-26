@@ -97,31 +97,4 @@ export function Quit(): void {
   window.electronAPI?.quit?.();
 }
 
-// 类型声明
-declare global {
-  interface Window {
-    electronAPI?: {
-      minimizeWindow?: () => void;
-      maximizeWindow?: () => void;
-      unmaximizeWindow?: () => void;
-      toggleMaximizeWindow?: () => void;
-      setFullscreen?: (fullscreen: boolean) => void;
-      isFullscreen?: () => Promise<boolean>;
-      isMaximized?: () => Promise<boolean>;
-      isMinimized?: () => Promise<boolean>;
-      isNormal?: () => Promise<boolean>;
-      centerWindow?: () => void;
-      setTitle?: (title: string) => void;
-      setSize?: (width: number, height: number) => void;
-      getSize?: () => Promise<{ width: number; height: number }>;
-      setPosition?: (x: number, y: number) => void;
-      getPosition?: () => Promise<{ x: number; y: number }>;
-      setMinSize?: (width: number, height: number) => void;
-      setMaxSize?: (width: number, height: number) => void;
-      hideWindow?: () => void;
-      showWindow?: () => void;
-      setAlwaysOnTop?: (alwaysOnTop: boolean) => void;
-      quit?: () => void;
-    };
-  }
-}
+// electronAPI 类型已在 vite-env.d.ts 中声明

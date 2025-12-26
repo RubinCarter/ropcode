@@ -20,7 +20,7 @@ const Settings = lazy(() => import('@/components/Settings').then(m => ({ default
 const MarkdownEditor = lazy(() => import('@/components/MarkdownEditor').then(m => ({ default: m.MarkdownEditor })));
 const DiffViewer = lazy(() => import('@/components/right-sidebar/DiffViewer').then(m => ({ default: m.DiffViewer })));
 const FileViewer = lazy(() => import('@/components/FileViewer').then(m => ({ default: m.FileViewer })));
-const WebViewer = lazy(() => import('@/components/WebViewer').then(m => ({ default: m.WebViewer })));
+const WebViewWidget = lazy(() => import('@/components/WebViewWidget').then(m => ({ default: m.WebViewWidget })));
 // const ClaudeFileEditor = lazy(() => import('@/components/ClaudeFileEditor').then(m => ({ default: m.ClaudeFileEditor })));
 
 // Import non-lazy components for projects view
@@ -271,7 +271,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
         }
         return (
           <div className="h-full w-full flex flex-col">
-            <WebViewer
+            <WebViewWidget
               url={tab.webviewUrl}
               workspacePath={tab.projectPath}
               onUrlChange={(newUrl) => {

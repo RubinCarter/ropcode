@@ -8,7 +8,7 @@
 export * from './rpc-client';
 
 // 类型别名：用于向后兼容
-import type { database, claude } from './rpc-client';
+import type { database, claude, main } from './rpc-client';
 export type Agent = database.Agent;
 export type AgentRun = database.AgentRun;
 export type Project = database.ProjectIndex;
@@ -18,6 +18,8 @@ export type ClaudeAgent = claude.ClaudeAgent;
 export type ClaudeMdFile = string;
 export type ClaudeInstallation = { path: string; version?: string };
 export type ProviderSession = claude.ProviderSession;
+export type Action = main.Action;
+export type ActionsResult = main.ActionsResult;
 
 // 导出事件函数
 export { EventsOn, EventsOff, EventsEmit, EventsOnce } from './rpc-events';

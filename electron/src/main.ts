@@ -1,10 +1,11 @@
 // electron/src/main.ts
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, webContents } from 'electron';
 import path from 'path';
 import { startGoServer, stopGoServer, GoServerInfo } from './go-server';
 
 let mainWindow: BrowserWindow | null = null;
 let goServerInfo: GoServerInfo | null = null;
+let focusedWebviewId: number | null = null;
 
 const isDev = !app.isPackaged;
 
@@ -42,6 +43,7 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      webviewTag: true,
     },
     titleBarStyle: 'hidden',
     trafficLightPosition: { x: 10, y: 10 },
@@ -125,6 +127,45 @@ function registerIpcHandlers() {
       canceled: result.canceled,
       filePaths: result.filePaths,
     };
+  });
+
+  // Webview 相关
+  ipcMain.handle('webview:getPreloadPath', () => {
+    return `file://${path.join(__dirname, 'preload-webview.js')}`;
+  });
+
+  ipcMain.on('webview:setFocus', (_, webContentsId: number | null) => {
+    focusedWebviewId = webContentsId;
+  });
+
+  ipcMain.handle('webview:clearStorage', async (_, webContentsId: number) => {
+    try {
+      const wc = webContents.fromId(webContentsId);
+      if (wc) {
+        await wc.session.clearStorageData();
+      }
+    } catch (e) {
+      console.error('[Electron] Failed to clear webview storage:', e);
+    }
+  });
+
+  ipcMain.on('webview:imageContextMenu', (_: Electron.IpcMainEvent, _data: { src: string }) => {
+    // Image context menu placeholder - implement save/copy if needed
+  });
+
+  ipcMain.on('webview:sendToWebview', (_, webContentsId: number, channel: string, ...args: any[]) => {
+    try {
+      const wc = webContents.fromId(webContentsId);
+      if (wc) {
+        wc.send(channel, ...args);
+      }
+    } catch (e) {
+      console.error('[Electron] Failed to send to webview:', e);
+    }
+  });
+
+  ipcMain.on('webview:elementSelected', (event, elementInfo) => {
+    mainWindow?.webContents.send('webview:elementSelected', elementInfo);
   });
 }
 

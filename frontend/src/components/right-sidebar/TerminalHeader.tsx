@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus, History, Settings, Terminal as TerminalIcon } from 'lucide-react';
+import { Plus, History, Settings, Terminal as TerminalIcon, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -12,6 +12,7 @@ import {
 interface TerminalHeaderProps {
   onToggle?: () => void;
   onNewTerminal?: () => void;
+  onOpenWebView?: () => void;
   onSettings?: () => void;
   commandHistory?: string[];
   onSelectHistory?: (command: string) => void;
@@ -22,6 +23,7 @@ interface TerminalHeaderProps {
 export const TerminalHeader: React.FC<TerminalHeaderProps> = ({
   onToggle,
   onNewTerminal,
+  onOpenWebView,
   onSettings,
   commandHistory = [],
   onSelectHistory,
@@ -50,6 +52,17 @@ export const TerminalHeader: React.FC<TerminalHeaderProps> = ({
           title="新建终端"
         >
           <Plus className="h-3.5 w-3.5" />
+        </Button>
+
+        {/* 打开 WebView 浏览器 */}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onOpenWebView}
+          className="h-7 w-7 p-0"
+          title="打开浏览器"
+        >
+          <Globe className="h-3.5 w-3.5" />
         </Button>
 
         {/* 命令历史 */}

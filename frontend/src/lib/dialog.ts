@@ -28,16 +28,7 @@ export interface SaveReturnValue {
   filePath?: string;
 }
 
-// 声明 electronAPI 类型
-declare global {
-  interface Window {
-    electronAPI?: {
-      openDirectory?: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
-      openFile?: (options?: { multiple?: boolean }) => Promise<{ canceled: boolean; filePaths?: string[] }>;
-      [key: string]: any;
-    };
-  }
-}
+// electronAPI 类型已在 vite-env.d.ts 中声明
 
 /**
  * 检查是否在 Electron 环境中

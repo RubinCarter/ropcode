@@ -41,5 +41,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 文件对话框
   openDirectory: () => ipcRenderer.invoke('dialog:openDirectory'),
   openFile: (options?: { multiple?: boolean }) => ipcRenderer.invoke('dialog:openFile', options),
+
+  // Webview 相关
+  getWebviewPreload: () => ipcRenderer.invoke('webview:getPreloadPath'),
+  setWebviewFocus: (webContentsId: number | null) => ipcRenderer.send('webview:setFocus', webContentsId),
+  clearWebviewStorage: (webContentsId: number) => ipcRenderer.invoke('webview:clearStorage', webContentsId),
+  onWebviewElementSelected: (callback: (elementInfo: any) => void) => {
+    ipcRenderer.on('webview:elementSelected', (_, elementInfo) => callback(elementInfo));
+  },
+  sendToWebview: (webContentsId: number, channel: string, ...args: any[]) => {
+    ipcRenderer.send('webview:sendToWebview', webContentsId, channel, ...args);
+  },
 });
 

@@ -12,6 +12,7 @@ interface RunTabPaneProps {
   isTerminalRunning?: boolean;
   className?: string;
   onActionsConfig?: () => void;
+  onOpenWebView?: () => void;
 }
 
 export const RunTabPane: React.FC<RunTabPaneProps> = ({
@@ -20,33 +21,49 @@ export const RunTabPane: React.FC<RunTabPaneProps> = ({
   runningActionId,
   isTerminalRunning = false,
   className,
-  onActionsConfig
+  onActionsConfig,
+  onOpenWebView
 }) => {
   return (
     <ScrollArea className={cn("flex-1 h-full", className)}>
       <div className="p-4 space-y-2">
-        {/* Actions Configure 按钮 - 始终显示在顶部 */}
-        {onActionsConfig && (
-          <Button
-            variant="outline"
-            size="lg"
-            onClick={onActionsConfig}
-            className={cn(
-              "w-full h-auto min-h-[60px] flex flex-col items-start gap-2 p-4",
-              "border-dashed border-2",
-              "hover:bg-primary/5 hover:border-primary/50 transition-colors",
-              "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <div className="flex items-center gap-2 w-full">
+        {/* 顶部按钮区 */}
+        <div className="flex gap-2">
+          {/* 打开浏览器按钮 */}
+          {onOpenWebView && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onOpenWebView}
+              className={cn(
+                "flex-1 h-10 flex items-center justify-center gap-2",
+                "border-green-500/30 bg-green-500/5",
+                "hover:bg-green-500/10 hover:border-green-500/50 transition-colors"
+              )}
+            >
+              <Globe className="h-4 w-4 text-green-600 dark:text-green-400" />
+              <span className="text-sm">Open Browser</span>
+            </Button>
+          )}
+
+          {/* Actions Configure 按钮 */}
+          {onActionsConfig && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onActionsConfig}
+              className={cn(
+                "flex-1 h-10 flex items-center justify-center gap-2",
+                "border-dashed",
+                "hover:bg-primary/5 hover:border-primary/50 transition-colors",
+                "text-muted-foreground hover:text-foreground"
+              )}
+            >
               <Settings className="h-4 w-4" />
-              <span className="font-medium text-sm">Configure Actions</span>
-            </div>
-            <div className="text-xs text-left w-full">
-              Add, edit, or remove quick run actions
-            </div>
-          </Button>
-        )}
+              <span className="text-sm">Configure Actions</span>
+            </Button>
+          )}
+        </div>
 
         {/* Actions 列表 */}
         {actions.length === 0 ? (

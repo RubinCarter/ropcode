@@ -181,7 +181,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     if (existingTab) {
       updateTab(existingTab.id, {
         title: displayName,
-        webviewUrl: url,
+        url: url,
         status: 'idle',
         hasUnsavedChanges: false
       });
@@ -192,7 +192,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     return addTab({
       type: 'webview',
       title: displayName,
-      webviewUrl: url,
+      url: url,
       projectPath: projectPath,
       status: 'idle',
       hasUnsavedChanges: false,
@@ -207,6 +207,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   // Run Tab 状态
   const [isRunTabActive, setIsRunTabActive] = useState(false);
+
+  // 处理打开 WebView 浏览器
+  const handleOpenWebView = useCallback(() => {
+    if (!currentProjectPath) return;
+    createWebViewerTab('https://www.google.com', currentProjectPath);
+  }, [currentProjectPath, createWebViewerTab]);
 
   // 使用 Map 存储每个 workspace 的状态
   const workspaceStates = useRef<Map<string, WorkspaceTerminalState>>(new Map());
@@ -830,6 +836,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             isTerminalRunning={isCurrentSessionRunning}
             className="flex-1"
             onActionsConfig={() => setShowActionsConfig(true)}
+            onOpenWebView={handleOpenWebView}
           />
         ) : (
           <div className="flex-1 relative">

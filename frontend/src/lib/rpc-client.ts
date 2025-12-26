@@ -33,8 +33,22 @@ export namespace ssh {
 export namespace main {
   export interface PtySessionInfo { sessionId: string; pid: number; }
   export interface ProcessInfo { pid: string; sessionId: string; cmd: string; }
-  export interface Action { name: string; description: string; command: string; }
-  export interface ActionsResult { global: Action[]; project: Action[]; }
+  export interface Action {
+    id: string;
+    name: string;
+    description?: string;
+    command: string;
+    icon?: string;
+    scope?: string;  // deprecated, use type
+    type?: 'global' | 'project' | 'workspace';
+    actionType?: 'script' | 'web';
+    shared?: boolean;
+  }
+  export interface ActionsResult {
+    global_actions: Action[];
+    project_actions: Action[];
+    workspace_actions: Action[];
+  }
   export interface ClaudeVersionInfo { version: string; path: string; }
   export interface ClaudeInstallation { path: string; version: string; }
   export interface GitRepoStatus { branch: string; dirty: boolean; }

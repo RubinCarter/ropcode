@@ -15,6 +15,7 @@ export interface WorkspaceTab {
   diffFilePath?: string;
   filePath?: string;
   webviewUrl?: string;
+  url?: string;  // for webview tabs
   projectPath?: string;
   providerId?: string;
   providerSessions?: Record<string, { sessionId: string; sessionData: any }>;

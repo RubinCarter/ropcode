@@ -12,7 +12,7 @@ const AgentRunOutputViewer = lazy(() => import('@/components/AgentRunOutputViewe
 const AgentExecution = lazy(() => import('@/components/AgentExecution').then(m => ({ default: m.AgentExecution })));
 const DiffViewer = lazy(() => import('@/components/right-sidebar/DiffViewer').then(m => ({ default: m.DiffViewer })));
 const FileViewer = lazy(() => import('@/components/FileViewer').then(m => ({ default: m.FileViewer })));
-const WebViewer = lazy(() => import('@/components/WebViewer').then(m => ({ default: m.WebViewer })));
+const WebViewWidget = lazy(() => import('@/components/WebViewWidget').then(m => ({ default: m.WebViewWidget })));
 
 interface WorkspaceContainerProps {
   workspaceId: string;
@@ -277,7 +277,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
           return <div className="flex items-center justify-center h-full">Invalid webview tab</div>;
         }
         return (
-          <WebViewer
+          <WebViewWidget
             url={activeTab.url}
             workspacePath={activeTab.projectPath}
             onUrlChange={(newUrl) => {

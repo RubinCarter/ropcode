@@ -4016,7 +4016,10 @@ type Action struct {
 	Description string `json:"description,omitempty"`
 	Command     string `json:"command"`
 	Icon        string `json:"icon,omitempty"`
-	Scope       string `json:"scope"` // "global", "project", "workspace"
+	Scope       string `json:"scope,omitempty"`       // "global", "project", "workspace" (deprecated, use Type)
+	Type        string `json:"type,omitempty"`        // "global", "project", "workspace"
+	ActionType  string `json:"actionType,omitempty"`  // "script", "web"
+	Shared      bool   `json:"shared,omitempty"`      // for project actions shared across workspaces
 }
 
 // ActionsResult represents the combined actions from all scopes
