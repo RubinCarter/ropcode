@@ -75,6 +75,8 @@ type WebviewElement = HTMLElement & {
 export function WebViewWidget({ url, workspacePath, className, onUrlChange }: WebViewWidgetProps) {
   const webviewRef = useRef<WebviewElement | null>(null);
   const [preloadPath, setPreloadPath] = useState<string>('');
+  // Store initial URL to prevent re-renders from resetting webview src
+  const [initialUrl] = useState(url);
 
   const {
     inputUrl,
@@ -188,6 +190,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
       } catch (err) {
         console.error('Failed to get webContentsId:', err);
       }
+
     };
 
     const handleDidFailLoad = (e: any) => {
@@ -869,7 +872,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
         >
           <webview
             ref={webviewRef}
-            src={url}
+            src={initialUrl}
             partition="persist:webview"
             // @ts-ignore - webview specific attributes
             allowpopups="true"
