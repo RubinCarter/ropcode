@@ -21,7 +21,6 @@ interface WorkspaceContainerProps {
 
 const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
   const { tabs, activeTabId, addTab, updateTab, removeTab, getTabById } = useWorkspaceTabContext();
-  const activeTab = activeTabId ? getTabById(activeTabId) : undefined;
   const activeTabIdRef = React.useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
 
@@ -198,23 +197,23 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     // Chat tab doesn't have a back button, this is a no-op
   }, []);
 
-  const renderTabContent = () => {
-    if (!activeTab) {
-      return (
-        <div className="flex items-center justify-center h-full text-muted-foreground">
-          <p>No active tab</p>
-        </div>
-      );
-    }
+  // 判断 tab 是否需要保持挂载状态（有状态的 tab）
+  const shouldKeepTabMounted = (tabType: string): boolean => {
+    const STATEFUL_TAB_TYPES = new Set(['chat', 'agent-execution', 'claude-file', 'diff', 'file', 'webview']);
+    return STATEFUL_TAB_TYPES.has(tabType);
+  };
 
-    switch (activeTab.type) {
+  const renderTabContent = (tab: typeof tabs[number]) => {
+    const isActive = tab.id === activeTabId;
+
+    switch (tab.type) {
       case 'chat':
         return (
           <AiCodeSession
-            key={`${activeTab.id}-${activeTab.providerId || 'claude'}`}
-            session={activeTab.sessionData}
-            initialProjectPath={activeTab.projectPath}
-            defaultProvider={activeTab.providerId}
+            key={tab.id}
+            session={tab.sessionData}
+            initialProjectPath={tab.projectPath}
+            defaultProvider={tab.providerId}
             onBack={handleBack}
             onStreamingChange={handleStreamingChange}
             onProjectPathChange={handleProjectPathChange}
@@ -223,67 +222,63 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         );
 
       case 'agent':
-        if (!activeTab.agentRunId || !activeTab.id) {
+        if (!tab.agentRunId || !tab.id) {
           return <div className="flex items-center justify-center h-full">Invalid agent tab</div>;
         }
         return (
           <AgentRunOutputViewer
-            agentRunId={activeTab.agentRunId}
-            tabId={activeTab.id}
+            agentRunId={tab.agentRunId}
+            tabId={tab.id}
           />
         );
 
       case 'agent-execution':
-        if (!activeTab.agentData) {
+        if (!tab.agentData) {
           return <div className="flex items-center justify-center h-full">Invalid agent execution tab</div>;
         }
         return (
           <AgentExecution
-            agent={activeTab.agentData}
-            projectPath={activeTab.projectPath}
-            tabId={activeTab.id}
+            agent={tab.agentData}
+            projectPath={tab.projectPath}
+            tabId={tab.id}
             onBack={() => {
-              if (activeTab.id) {
-                removeTab(activeTab.id);
-              }
+              removeTab(tab.id);
             }}
           />
         );
 
       case 'diff':
-        if (!activeTab.filePath || !activeTab.projectPath) {
+        if (!tab.filePath || !tab.projectPath) {
           return <div className="flex items-center justify-center h-full">Invalid diff tab</div>;
         }
         return (
           <DiffViewer
-            filePath={activeTab.filePath}
-            workspacePath={activeTab.projectPath}
+            filePath={tab.filePath}
+            workspacePath={tab.projectPath}
           />
         );
 
       case 'file':
-        if (!activeTab.filePath || !activeTab.projectPath) {
+        if (!tab.filePath || !tab.projectPath) {
           return <div className="flex items-center justify-center h-full">Invalid file tab</div>;
         }
         return (
           <FileViewer
-            filePath={activeTab.filePath}
-            workspacePath={activeTab.projectPath}
+            filePath={tab.filePath}
+            workspacePath={tab.projectPath}
           />
         );
 
       case 'webview':
-        if (!activeTab.url || !activeTab.projectPath) {
+        if (!tab.url || !tab.projectPath) {
           return <div className="flex items-center justify-center h-full">Invalid webview tab</div>;
         }
         return (
           <WebViewWidget
-            url={activeTab.url}
-            workspacePath={activeTab.projectPath}
+            url={tab.url}
+            workspacePath={tab.projectPath}
             onUrlChange={(newUrl) => {
-              if (activeTab.id) {
-                updateTab(activeTab.id, { url: newUrl });
-              }
+              updateTab(tab.id, { url: newUrl });
             }}
           />
         );
@@ -291,11 +286,19 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       default:
         return (
           <div className="flex items-center justify-center h-full text-muted-foreground">
-            <p>Unsupported tab type: {activeTab.type}</p>
+            <p>Unsupported tab type: {tab.type}</p>
           </div>
         );
     }
   };
+
+  if (tabs.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <p>No tabs</p>
+      </div>
+    );
+  }
 
   return (
     <Suspense
@@ -308,7 +311,24 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         </div>
       }
     >
-      {renderTabContent()}
+      {tabs.map((tab) => {
+        const isActive = tab.id === activeTabId;
+        const keepMounted = shouldKeepTabMounted(tab.type);
+
+        // 对于有状态的 tab，使用 CSS hidden 控制显示；对于无状态的 tab，只渲染活动的
+        if (!isActive && !keepMounted) {
+          return null;
+        }
+
+        return (
+          <div
+            key={tab.id}
+            className={`h-full w-full ${isActive ? '' : 'hidden'}`}
+          >
+            {renderTabContent(tab)}
+          </div>
+        );
+      })}
     </Suspense>
   );
 };
