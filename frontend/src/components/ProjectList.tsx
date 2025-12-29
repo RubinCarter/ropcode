@@ -412,6 +412,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         return newSet;
       });
 
+      // Close the workspace container first (this handles switching to another workspace/system)
+      closeWorkspace(workspacePath);
+
       // Find and close any tabs associated with this workspace
       const tabsToClose = tabs.filter(tab => tab.initialProjectPath === workspacePath);
       tabsToClose.forEach(tab => removeTab(tab.id));
@@ -451,8 +454,29 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       setRemovingProjects(prev => new Set(prev).add(projectToDelete.id));
       setDeleteProjectDialogOpen(false);
 
-      // Find and close any tabs associated with this project
-      const tabsToClose = tabs.filter(tab => tab.initialProjectPath === projectToDelete.path);
+      // Close all workspace containers under this project
+      if (projectToDelete.workspaces) {
+        projectToDelete.workspaces.forEach(ws => {
+          const claudeProvider = ws.providers?.find(p => p.provider_id === 'claude');
+          if (claudeProvider) {
+            closeWorkspace(claudeProvider.path);
+            clearWorkspace(claudeProvider.path);
+          }
+        });
+      }
+
+      // Find and close any tabs associated with this project and its workspaces
+      const tabsToClose = tabs.filter(tab => {
+        if (tab.initialProjectPath === projectToDelete.path) return true;
+        // Also check if tab belongs to any workspace under this project
+        if (projectToDelete.workspaces) {
+          return projectToDelete.workspaces.some(ws => {
+            const claudeProvider = ws.providers?.find(p => p.provider_id === 'claude');
+            return claudeProvider && tab.initialProjectPath === claudeProvider.path;
+          });
+        }
+        return false;
+      });
       tabsToClose.forEach(tab => removeTab(tab.id));
 
       // Remove the project from index

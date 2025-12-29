@@ -142,12 +142,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         name  // session name
       );
 
-      // Reload projects list to get the new workspace
-      await loadProjects();
+      // Reload projects list to get the new workspace with correct path from backend
+      const projectList = await api.listProjects();
+      setProjects(projectList);
 
-      // Open the new workspace using its path
-      const workspacePath = `${project.path}/.ropcode/workspaces/${name}`;
-      switchToWorkspace(workspacePath);
+      // Find the newly created workspace from the refreshed project list
+      const updatedProject = projectList.find(p => p.path === project.path);
+      const newWorkspace = updatedProject?.workspaces?.find(ws => ws.name === name || ws.branch === name);
+      const claudeProvider = newWorkspace?.providers?.find(p => p.provider_id === 'claude');
+
+      if (claudeProvider?.path) {
+        // Use the actual path from backend
+        switchToWorkspace(claudeProvider.path);
+      } else {
+        console.error('Failed to find newly created workspace path');
+      }
     } catch (err) {
       console.error('Failed to create workspace:', err);
       setError(err instanceof Error ? err.message : 'Failed to create workspace');
