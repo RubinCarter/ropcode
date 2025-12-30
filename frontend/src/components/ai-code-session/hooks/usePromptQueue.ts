@@ -44,29 +44,42 @@ export function usePromptQueue(options: UsePromptQueueOptions): UsePromptQueueRe
 
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedPrompt[]>([]);
   const [queuedPromptsCollapsed, setQueuedPromptsCollapsed] = useState(false);
-  const [wasLoading, setWasLoading] = useState(false);
 
   // Ref for stable access in callbacks
   const queuedPromptsRef = useRef<QueuedPrompt[]>([]);
+  // Track previous loading state with ref to avoid stale closures
+  const wasLoadingRef = useRef(false);
+  // Prevent duplicate processing with a flag
+  const isProcessingRef = useRef(false);
+  // Stable ref for onProcessNext callback
+  const onProcessNextRef = useRef(onProcessNext);
 
-  // Keep ref in sync
+  // Keep refs in sync
   useEffect(() => {
     queuedPromptsRef.current = queuedPrompts;
   }, [queuedPrompts]);
 
-  // Track previous loading state
   useEffect(() => {
-    setWasLoading(isLoading);
-  }, [isLoading]);
+    onProcessNextRef.current = onProcessNext;
+  }, [onProcessNext]);
 
   // Auto-process queued prompts when session becomes idle
   useEffect(() => {
+    const wasLoading = wasLoadingRef.current;
+
+    // Update wasLoadingRef for next render
+    wasLoadingRef.current = isLoading;
+
     // Only process when was loading and now is not loading (session completed/stopped)
-    if (wasLoading && !isLoading && queuedPromptsRef.current.length > 0 && projectPath && !isPendingSend) {
+    // Also check isProcessingRef to prevent duplicate processing
+    if (wasLoading && !isLoading && queuedPromptsRef.current.length > 0 && projectPath && !isPendingSend && !isProcessingRef.current) {
       console.log('[usePromptQueue] Session became idle, checking queue:', {
         queuedCount: queuedPromptsRef.current.length,
         projectPath
       });
+
+      // Set processing flag to prevent duplicates
+      isProcessingRef.current = true;
 
       const processQueuedPrompts = async () => {
         try {
@@ -86,17 +99,24 @@ export function usePromptQueue(options: UsePromptQueueOptions): UsePromptQueueRe
 
             // Small delay to ensure UI updates
             setTimeout(() => {
-              onProcessNext?.(nextPrompt);
+              onProcessNextRef.current?.(nextPrompt);
+              // Reset processing flag after callback is invoked
+              isProcessingRef.current = false;
             }, 100);
+          } else {
+            // Reset processing flag if we didn't process anything
+            isProcessingRef.current = false;
           }
         } catch (err) {
           console.error('[usePromptQueue] Failed to check backend state:', err);
+          // Reset processing flag on error
+          isProcessingRef.current = false;
         }
       };
 
       processQueuedPrompts();
     }
-  }, [isLoading, wasLoading, projectPath, isPendingSend, onProcessNext]);
+  }, [isLoading, projectPath, isPendingSend]);  // Removed wasLoading and onProcessNext from deps
 
   // Helper functions
   const addToQueue = (prompt: string, model: string) => {
