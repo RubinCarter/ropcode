@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { DiffEditor, loader } from '@monaco-editor/react';
+import type { DiffEditorProps } from '@monaco-editor/react';
 import * as monaco from 'monaco-editor';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { getLanguageByFilename } from '@/lib/file-icons';
@@ -40,8 +42,67 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const [fileSize, setFileSize] = useState<number>(0);
   const [isLargeFile, setIsLargeFile] = useState(false);
 
+  // Change navigation state
+  const [changes, setChanges] = useState<monaco.editor.ILineChange[]>([]);
+  const [currentChangeIndex, setCurrentChangeIndex] = useState(0);
+  const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
+
   // 获取文件语言
   const language = getLanguageByFilename(filePath);
+
+  // Handle editor mount and get changes
+  const handleEditorDidMount: DiffEditorProps['onMount'] = useCallback((editor) => {
+    diffEditorRef.current = editor;
+
+    // Get line changes after diff is computed
+    const updateChanges = () => {
+      const lineChanges = editor.getLineChanges();
+      if (lineChanges && lineChanges.length > 0) {
+        setChanges(lineChanges);
+        setCurrentChangeIndex(0);
+        // Auto-scroll to first change
+        const firstChange = lineChanges[0];
+        const targetLine = firstChange.modifiedStartLineNumber || firstChange.originalStartLineNumber;
+        editor.revealLineInCenter(targetLine);
+      } else {
+        setChanges([]);
+        setCurrentChangeIndex(0);
+      }
+    };
+
+    // Wait for diff computation to complete
+    setTimeout(updateChanges, 100);
+
+    // Listen for content changes
+    const modifiedEditor = editor.getModifiedEditor();
+    modifiedEditor.onDidChangeModelContent(() => {
+      setTimeout(updateChanges, 100);
+    });
+  }, []);
+
+  // Navigate to previous change
+  const goToPreviousChange = useCallback(() => {
+    if (changes.length === 0 || currentChangeIndex <= 0) return;
+
+    const newIndex = currentChangeIndex - 1;
+    setCurrentChangeIndex(newIndex);
+
+    const change = changes[newIndex];
+    const targetLine = change.modifiedStartLineNumber || change.originalStartLineNumber;
+    diffEditorRef.current?.revealLineInCenter(targetLine);
+  }, [changes, currentChangeIndex]);
+
+  // Navigate to next change
+  const goToNextChange = useCallback(() => {
+    if (changes.length === 0 || currentChangeIndex >= changes.length - 1) return;
+
+    const newIndex = currentChangeIndex + 1;
+    setCurrentChangeIndex(newIndex);
+
+    const change = changes[newIndex];
+    const targetLine = change.modifiedStartLineNumber || change.originalStartLineNumber;
+    diffEditorRef.current?.revealLineInCenter(targetLine);
+  }, [changes, currentChangeIndex]);
 
   // 获取文件的两个版本
   useEffect(() => {
@@ -181,6 +242,31 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
               </span>
             )}
           </div>
+
+          {/* Change navigation controls */}
+          {!loading && !error && !isBinary && !isLargeFile && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-muted-foreground tabular-nums mr-1">
+                {changes.length > 0 ? `${currentChangeIndex + 1}/${changes.length}` : '0/0'}
+              </span>
+              <button
+                onClick={goToPreviousChange}
+                disabled={changes.length === 0 || currentChangeIndex <= 0}
+                className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Previous change"
+              >
+                <ChevronUp className="w-4 h-4" />
+              </button>
+              <button
+                onClick={goToNextChange}
+                disabled={changes.length === 0 || currentChangeIndex >= changes.length - 1}
+                className="p-1 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                title="Next change"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -216,6 +302,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             theme="vs-dark"
             keepCurrentOriginalModel={false}
             keepCurrentModifiedModel={false}
+            onMount={handleEditorDidMount}
             options={{
               readOnly: true,
               renderSideBySide: true,
