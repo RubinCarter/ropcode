@@ -2,6 +2,7 @@
   "name": "ropcode",
   "version": "0.2.1",
   "private": true,
+  "license": "AGPL-3.0",
   "description": "GUI app and Toolkit for Claude Code",
   "main": "electron/dist/main.js",
   "scripts": {

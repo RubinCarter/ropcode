@@ -4,7 +4,7 @@ import { X, Volume2, VolumeX, Github } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { openUrl } from "@/lib/opener";
-import asteriskLogo from "@/assets/nfo/asterisk-logo.png";
+// Logo removed - using text-based header instead
 import keygennMusic from "@/assets/nfo/ropcode-nfo.ogg";
 
 interface NFOCreditsProps {
@@ -85,20 +85,26 @@ export const NFOCredits: React.FC<NFOCreditsProps> = ({ onClose }) => {
   // Credits content
   const creditsContent = [
     { type: "header", text: "ropcode v0.2.1" },
-    { type: "subheader", text: "[ A STRATEGIC PROJECT BY ASTERISK ]" },
+    { type: "subheader", text: "[ A PROJECT BY RUBIN ]" },
     { type: "spacer" },
-    { type: "section", title: "━━━ CREDITS ━━━" },
-    { type: "credit", role: "POWERED BY", name: "Anthropic Claude 4" },
+    { type: "section", title: "━━━ POWERED BY ━━━" },
+    { type: "credit", role: "AI ENGINE", name: "Anthropic Claude" },
     { type: "credit", role: "CLAUDE CODE", name: "The Ultimate Coding Assistant" },
     { type: "credit", role: "MCP PROTOCOL", name: "Model Context Protocol" },
     { type: "spacer" },
-    { type: "section", title: "━━━ DEPENDENCIES ━━━" },
-    { type: "credit", role: "RUNTIME", name: "Tauri Framework" },
+    { type: "section", title: "━━━ TECH STACK ━━━" },
+    { type: "credit", role: "DESKTOP", name: "Electron" },
+    { type: "credit", role: "BACKEND", name: "Go" },
+    { type: "credit", role: "IPC", name: "WebSocket RPC" },
     { type: "credit", role: "UI FRAMEWORK", name: "React + TypeScript" },
     { type: "credit", role: "STYLING", name: "Tailwind CSS + shadcn/ui" },
     { type: "credit", role: "ANIMATIONS", name: "Framer Motion" },
     { type: "credit", role: "BUILD TOOL", name: "Vite" },
-    { type: "credit", role: "PACKAGE MANAGER", name: "Bun" },
+    { type: "spacer" },
+    { type: "section", title: "━━━ ACKNOWLEDGMENTS ━━━" },
+    { type: "credit", role: "INSPIRED BY", name: "opcode by winfunc" },
+    { type: "text", content: "UI/UX concepts influenced by opcode's design" },
+    { type: "text", content: "github.com/winfunc/opcode" },
     { type: "spacer" },
     { type: "section", title: "━━━ SPECIAL THANKS ━━━" },
     { type: "text", content: "To the open source community" },
@@ -106,15 +112,16 @@ export const NFOCredits: React.FC<NFOCreditsProps> = ({ onClose }) => {
     { type: "text", content: "To everyone who believed in this project" },
     { type: "spacer" },
     { type: "ascii", content: `
-     ▄▄▄· .▄▄ · ▄▄▄▄▄▄▄▄ .▄▄▄  ▪  .▄▄ · ▄ •▄ 
-    ▐█ ▀█ ▐█ ▀. •██  ▀▄.▀·▀▄ █·██ ▐█ ▀. █▌▄▌▪
-    ▄█▀▀█ ▄▀▀▀█▄ ▐█.▪▐▀▀▪▄▐▀▀▄ ▐█·▄▀▀▀█▄▐▀▀▄·
-    ▐█ ▪▐▌▐█▄▪▐█ ▐█▌·▐█▄▄▌▐█•█▌▐█▌▐█▄▪▐█▐█.█▌
-     ▀  ▀  ▀▀▀▀  ▀▀▀  ▀▀▀ .▀  ▀▀▀▀ ▀▀▀▀ ·▀  ▀
+    ██████╗  ██████╗ ██████╗  ██████╗ ██████╗ ██████╗ ███████╗
+    ██╔══██╗██╔═══██╗██╔══██╗██╔════╝██╔═══██╗██╔══██╗██╔════╝
+    ██████╔╝██║   ██║██████╔╝██║     ██║   ██║██║  ██║█████╗
+    ██╔══██╗██║   ██║██╔═══╝ ██║     ██║   ██║██║  ██║██╔══╝
+    ██║  ██║╚██████╔╝██║     ╚██████╗╚██████╔╝██████╔╝███████╗
+    ╚═╝  ╚═╝ ╚═════╝ ╚═╝      ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
     ` },
     { type: "spacer" },
+    { type: "text", content: "Licensed under AGPL-3.0" },
     { type: "text", content: "Remember: Sharing is caring!" },
-    { type: "text", content: "Support the developers!" },
     { type: "spacer" },
     { type: "spacer" },
     { type: "spacer" },
@@ -156,7 +163,7 @@ export const NFOCredits: React.FC<NFOCreditsProps> = ({ onClose }) => {
                   size="sm"
                   onClick={async (e) => {
                     e.stopPropagation();
-                    await openUrl("https://github.com/getAsterisk/opcode/issues/new");
+                    await openUrl("https://github.com/RubinCarter/ropcode/issues/new");
                   }}
                   className="flex items-center gap-1 h-auto px-2 py-1"
                   title="File a bug"
@@ -191,23 +198,15 @@ export const NFOCredits: React.FC<NFOCreditsProps> = ({ onClose }) => {
             
             {/* NFO Content */}
             <div className="relative h-[calc(100%-40px)] bg-background overflow-hidden">
-              {/* Asterisk Logo Section (Fixed at top) */}
+              {/* Header Section (Fixed at top) */}
               <div className="absolute top-0 left-0 right-0 bg-background z-10 pb-4 text-center">
-                <button
-                  className="inline-block mt-4 hover:scale-110 transition-transform cursor-pointer"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    await openUrl("https://asterisk.so");
-                  }}
-                >
-                  <img 
-                    src={asteriskLogo} 
-                    alt="Asterisk" 
-                    className="h-20 w-auto mx-auto filter brightness-0 invert opacity-90"
-                  />
-                </button>
+                <div className="mt-4">
+                  <div className="text-4xl font-bold tracking-wider font-mono text-foreground">
+                    ROPCODE
+                  </div>
+                </div>
                 <div className="text-muted-foreground text-sm font-mono mt-2 tracking-wider">
-                  A strategic project by Asterisk
+                  A project by Rubin
                 </div>
               </div>
               
