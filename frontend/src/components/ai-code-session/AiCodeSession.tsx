@@ -194,26 +194,29 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   }, [processState.isLoading, sessionState.claudeSessionId, onStreamingChange]);
 
   // Auto-scroll to bottom when new messages arrive
+  // Use ref to track previous length and avoid unnecessary scrolls
+  const prevMessageLengthRef = useRef(0);
+
   useEffect(() => {
-    // Only auto-scroll if not paused
-    if (messagesState.displayableMessages.length > 0 && !isScrollPaused) {
-      setTimeout(() => {
+    const currentLength = messagesState.displayableMessages.length;
+    const prevLength = prevMessageLengthRef.current;
+    prevMessageLengthRef.current = currentLength;
+
+    // Only scroll when new messages are added (not on initial mount or filtering changes)
+    if (currentLength > 0 && currentLength > prevLength && !isScrollPaused) {
+      // Use single scroll call with requestAnimationFrame to avoid visual jitter
+      requestAnimationFrame(() => {
         const scrollElement = parentRef.current;
         if (scrollElement) {
-          rowVirtualizer.scrollToIndex(messagesState.displayableMessages.length - 1, {
+          // Use virtualizer's scrollToIndex for accurate positioning
+          rowVirtualizer.scrollToIndex(currentLength - 1, {
             align: 'end',
-            behavior: 'auto'
-          });
-          requestAnimationFrame(() => {
-            scrollElement.scrollTo({
-              top: scrollElement.scrollHeight,
-              behavior: 'smooth'
-            });
+            behavior: 'smooth'
           });
         }
-      }, 50);
+      });
     }
-  }, [messagesState.displayableMessages.length, rowVirtualizer, isScrollPaused]);
+  }, [messagesState.displayableMessages.length, isScrollPaused]);
 
   // Session restoration from localStorage - deferred to avoid blocking initial render
   useEffect(() => {
@@ -850,33 +853,33 @@ ${message ? `**说明**:\n${message}` : ''}`;
             minHeight: '100px',
           }}
         >
-          <AnimatePresence>
-            {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-              const message = messagesState.displayableMessages[virtualItem.index];
-              return (
-                <motion.div
-                  key={virtualItem.key}
-                  data-index={virtualItem.index}
-                  ref={(el) => el && rowVirtualizer.measureElement(el)}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.3 }}
-                  className="absolute inset-x-4 pb-4"
-                  style={{
-                    top: virtualItem.start,
-                  }}
-                >
-                  <StreamMessage
-                    message={message}
-                    streamMessages={messagesState.messages}
-                    onLinkDetected={handleLinkDetected}
-                    agentOutputMap={messagesState.agentOutputMap}
-                  />
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
+          {/* AnimatePresence removed to prevent conflict with virtual scrolling
+              Virtual scrolling dynamically adds/removes DOM elements, but AnimatePresence
+              expects a stable list to properly track enter/exit animations.
+              This combination causes visual glitches and "missing" elements. */}
+          {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+            const message = messagesState.displayableMessages[virtualItem.index];
+            // Use stable key based on message content to avoid unnecessary re-renders
+            const stableKey = message.uuid || `msg-${virtualItem.index}`;
+            return (
+              <div
+                key={stableKey}
+                data-index={virtualItem.index}
+                ref={(el) => el && rowVirtualizer.measureElement(el)}
+                className="absolute inset-x-4 pb-4"
+                style={{
+                  top: virtualItem.start,
+                }}
+              >
+                <StreamMessage
+                  message={message}
+                  streamMessages={messagesState.messages}
+                  onLinkDetected={handleLinkDetected}
+                  agentOutputMap={messagesState.agentOutputMap}
+                />
+              </div>
+            );
+          })}
         </div>
 
         {/* Loading indicator */}

@@ -112,69 +112,131 @@ export function useMessages(): UseMessagesReturn {
     setTotalTokens(tokens);
   }, [messages]);
 
+  // Use ref to batch delta updates and reduce re-renders
+  const deltaBufferRef = useRef<string>('');
+  const deltaFlushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   // Helper functions
   const addMessage = (message: ClaudeStreamMessage) => {
-    // Handle delta messages - accumulate into last assistant message
+    // Handle delta messages - accumulate into last assistant message with batching
     if (message.type === 'assistant' && (message as any).is_delta && message.message?.content) {
-      setMessages(prev => {
-        // Find the last assistant message
-        const lastIndex = prev.length - 1;
+      const deltaContent = message.message?.content || [];
+      const deltaText = deltaContent[0]?.text || '';
 
-        // Safely get content
-        const deltaContent = message.message?.content || [];
+      // Accumulate delta text in buffer
+      deltaBufferRef.current += deltaText;
 
-        // If there's no previous message or last message is not assistant, create new assistant message
-        if (lastIndex < 0 || prev[lastIndex].type !== 'assistant') {
-          // This is the first delta, create a new assistant message
-          return [...prev, {
-            type: 'assistant',
-            message: {
-              content: deltaContent
-            }
-          }];
-        }
+      // Clear any existing flush timeout
+      if (deltaFlushTimeoutRef.current) {
+        clearTimeout(deltaFlushTimeoutRef.current);
+      }
 
-        // Check if the last message is also from delta (still accumulating)
-        // If the last message has usage info, it's a complete message, don't accumulate
-        if (prev[lastIndex].message?.usage) {
-          // Last message is complete, create new message
-          return [...prev, message];
-        }
+      // Batch updates: flush buffer every 50ms to reduce re-renders
+      deltaFlushTimeoutRef.current = setTimeout(() => {
+        const bufferedText = deltaBufferRef.current;
+        deltaBufferRef.current = '';
 
-        // Accumulate delta into last assistant message
-        const updatedMessages = [...prev];
-        const lastMessage = updatedMessages[lastIndex];
+        if (!bufferedText) return;
 
-        // Ensure message.content exists
-        if (!lastMessage.message) {
-          lastMessage.message = { content: [] };
-        }
-        if (!lastMessage.message.content) {
-          lastMessage.message.content = [];
-        }
+        setMessages(prev => {
+          const lastIndex = prev.length - 1;
 
-        // Get delta text
-        const deltaText = deltaContent[0]?.text || '';
-        const lastContentIndex = lastMessage.message.content.length - 1;
+          // If there's no previous message or last message is not assistant, create new assistant message
+          if (lastIndex < 0 || prev[lastIndex].type !== 'assistant') {
+            return [...prev, {
+              type: 'assistant',
+              message: {
+                content: [{ type: 'text', text: bufferedText }]
+              }
+            }];
+          }
 
-        if (lastContentIndex >= 0 && lastMessage.message.content[lastContentIndex].type === 'text') {
-          // Append to existing text block
-          lastMessage.message.content[lastContentIndex].text += deltaText;
-        } else {
-          // Create new text block
-          lastMessage.message.content.push({
-            type: 'text',
-            text: deltaText
-          });
-        }
+          // If the last message has usage info, it's a complete message, don't accumulate
+          if (prev[lastIndex].message?.usage) {
+            return [...prev, {
+              type: 'assistant',
+              message: {
+                content: [{ type: 'text', text: bufferedText }]
+              }
+            }];
+          }
 
-        return updatedMessages;
-      });
+          // Accumulate delta into last assistant message
+          // Clone only the last message to minimize object creation
+          const updatedMessages = [...prev];
+          const lastMessage = { ...updatedMessages[lastIndex] };
+          updatedMessages[lastIndex] = lastMessage;
+
+          // Ensure message.content exists
+          if (!lastMessage.message) {
+            lastMessage.message = { content: [] };
+          } else {
+            lastMessage.message = { ...lastMessage.message };
+          }
+          if (!lastMessage.message.content) {
+            lastMessage.message.content = [];
+          } else {
+            lastMessage.message.content = [...lastMessage.message.content];
+          }
+
+          const lastContentIndex = lastMessage.message.content.length - 1;
+
+          if (lastContentIndex >= 0 && lastMessage.message.content[lastContentIndex].type === 'text') {
+            // Clone and append to existing text block
+            lastMessage.message.content[lastContentIndex] = {
+              ...lastMessage.message.content[lastContentIndex],
+              text: lastMessage.message.content[lastContentIndex].text + bufferedText
+            };
+          } else {
+            // Create new text block
+            lastMessage.message.content.push({
+              type: 'text',
+              text: bufferedText
+            });
+          }
+
+          return updatedMessages;
+        });
+      }, 50);
+
       return;
     }
 
     // Regular message - just append
-    setMessages(prev => [...prev, message]);
+    // Also flush any pending delta buffer first
+    if (deltaFlushTimeoutRef.current) {
+      clearTimeout(deltaFlushTimeoutRef.current);
+      deltaFlushTimeoutRef.current = null;
+    }
+    if (deltaBufferRef.current) {
+      const bufferedText = deltaBufferRef.current;
+      deltaBufferRef.current = '';
+
+      setMessages(prev => {
+        const lastIndex = prev.length - 1;
+        if (lastIndex >= 0 && prev[lastIndex].type === 'assistant' && !prev[lastIndex].message?.usage) {
+          const updatedMessages = [...prev];
+          const lastMessage = { ...updatedMessages[lastIndex] };
+          updatedMessages[lastIndex] = lastMessage;
+
+          if (lastMessage.message?.content && lastMessage.message.content.length > 0) {
+            lastMessage.message = { ...lastMessage.message };
+            lastMessage.message.content = [...lastMessage.message.content];
+            const lastContentIndex = lastMessage.message.content.length - 1;
+            if (lastMessage.message.content[lastContentIndex].type === 'text') {
+              lastMessage.message.content[lastContentIndex] = {
+                ...lastMessage.message.content[lastContentIndex],
+                text: lastMessage.message.content[lastContentIndex].text + bufferedText
+              };
+            }
+          }
+          return [...updatedMessages, message];
+        }
+        return [...prev, message];
+      });
+    } else {
+      setMessages(prev => [...prev, message]);
+    }
   };
 
   const clearMessages = () => {
