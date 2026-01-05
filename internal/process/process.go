@@ -88,7 +88,7 @@ func (p *Process) GracefulShutdown(ctx context.Context) error {
 	select {
 	case <-p.done:
 		return nil
-	case <-time.After(5 * time.Second):
+	case <-time.After(1 * time.Second):
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -99,7 +99,7 @@ func (p *Process) GracefulShutdown(ctx context.Context) error {
 	select {
 	case <-p.done:
 		return nil
-	case <-time.After(3 * time.Second):
+	case <-time.After(1 * time.Second):
 	case <-ctx.Done():
 		return ctx.Err()
 	}

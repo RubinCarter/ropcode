@@ -102,7 +102,7 @@ export function stopGoServer(): void {
         goProcess.kill('SIGKILL');
         goProcess = null;
       }
-    }, 5000);
+    }, 2000);
   }
 }
 

@@ -191,9 +191,8 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // 在所有平台上（包括 macOS）关闭窗口时退出应用
+  app.quit();
 });
 
 app.on('before-quit', () => {
