@@ -137,7 +137,7 @@ func (m *Manager) ListInstalled() ([]Plugin, error) {
 	var plugins []Plugin
 	for pluginID, records := range installed.Plugins {
 		for _, record := range records {
-			metadata, err := m.readPluginMetadata(record.InstallPath)
+			metadata, err := m.readPluginMetadataWithFallback(pluginID, record.InstallPath)
 			if err != nil {
 				// Skip plugins with missing metadata
 				continue
@@ -415,12 +415,106 @@ func (m *Manager) GetSkill(pluginID, skillName string) (*PluginSkill, error) {
 	return nil, fmt.Errorf("skill not found: %s/%s", pluginID, skillName)
 }
 
+// readPluginMetadataWithFallback reads plugin metadata with multiple fallback strategies:
+// 1. Try .claude-plugin/plugin.json in install path
+// 2. Try .claude-plugin/marketplace.json in install path
+// 3. Try marketplaces directory marketplace.json (parse pluginID to find marketplace)
+func (m *Manager) readPluginMetadataWithFallback(pluginID, installPath string) (PluginMetadata, error) {
+	// Strategy 1: Try plugin.json
+	metadataPath := filepath.Join(installPath, ".claude-plugin", "plugin.json")
+	if data, err := os.ReadFile(metadataPath); err == nil {
+		var metadata PluginMetadata
+		if err := json.Unmarshal(data, &metadata); err == nil {
+			if metadata.Keywords == nil {
+				metadata.Keywords = []string{}
+			}
+			return metadata, nil
+		}
+	}
+
+	// Strategy 2: Try marketplace.json in install path
+	marketplacePath := filepath.Join(installPath, ".claude-plugin", "marketplace.json")
+	if data, err := os.ReadFile(marketplacePath); err == nil {
+		var marketplace MarketplaceFile
+		if err := json.Unmarshal(data, &marketplace); err == nil {
+			return PluginMetadata{
+				Name:        marketplace.Name,
+				Version:     marketplace.Metadata.Version,
+				Description: marketplace.Metadata.Description,
+				Author: PluginAuthor{
+					Name:  marketplace.Owner.Name,
+					Email: marketplace.Owner.Email,
+				},
+				Keywords: []string{},
+			}, nil
+		}
+	}
+
+	// Strategy 3: Try to find in marketplaces directory
+	// pluginID format: "plugin-name@marketplace-name"
+	return m.readFromMarketplacesDir(pluginID)
+}
+
+// readFromMarketplacesDir reads plugin metadata from the marketplaces directory
+func (m *Manager) readFromMarketplacesDir(pluginID string) (PluginMetadata, error) {
+	// Parse pluginID: "plugin-name@marketplace-name"
+	parts := strings.Split(pluginID, "@")
+	if len(parts) != 2 {
+		return PluginMetadata{}, fmt.Errorf("invalid plugin ID format: %s", pluginID)
+	}
+	pluginName := parts[0]
+	marketplaceName := parts[1]
+
+	// Read marketplace.json from marketplaces directory
+	marketplacePath := filepath.Join(m.pluginsDir, "marketplaces", marketplaceName, ".claude-plugin", "marketplace.json")
+	data, err := os.ReadFile(marketplacePath)
+	if err != nil {
+		return PluginMetadata{}, fmt.Errorf("failed to read marketplace.json from marketplaces dir: %w", err)
+	}
+
+	var marketplace MarketplaceFile
+	if err := json.Unmarshal(data, &marketplace); err != nil {
+		return PluginMetadata{}, fmt.Errorf("failed to parse marketplace.json: %w", err)
+	}
+
+	// Find plugin in marketplace plugins array
+	for _, p := range marketplace.Plugins {
+		if p.Name == pluginName {
+			author := PluginAuthor{
+				Name:  p.Author.Name,
+				Email: p.Author.Email,
+			}
+			// Fallback to marketplace owner if plugin author is empty
+			if author.Name == "" {
+				author.Name = marketplace.Owner.Name
+				author.Email = marketplace.Owner.Email
+			}
+			keywords := p.Keywords
+			if keywords == nil {
+				keywords = []string{}
+			}
+			return PluginMetadata{
+				Name:        p.Name,
+				Version:     p.Version,
+				Description: p.Description,
+				Author:      author,
+				License:     p.License,
+				Keywords:    keywords,
+			}, nil
+		}
+	}
+
+	return PluginMetadata{}, fmt.Errorf("plugin %s not found in marketplace %s", pluginName, marketplaceName)
+}
+
 // readPluginMetadata reads plugin metadata from .claude-plugin/plugin.json
+// Falls back to marketplace.json if plugin.json doesn't exist
 func (m *Manager) readPluginMetadata(installPath string) (PluginMetadata, error) {
 	metadataPath := filepath.Join(installPath, ".claude-plugin", "plugin.json")
 	data, err := os.ReadFile(metadataPath)
 	if err != nil {
-		return PluginMetadata{}, fmt.Errorf("failed to read plugin.json: %w", err)
+		// Fallback to marketplace.json
+		return m.readMarketplaceMetadata(installPath)
 	}
 
 	var metadata PluginMetadata
@@ -434,4 +528,58 @@ func (m *Manager) readPluginMetadata(installPath string) (PluginMetadata, error)
 	}
 
 	return metadata, nil
+}
+
+// MarketplaceFile represents the structure of marketplace.json
+type MarketplaceFile struct {
+	Name  string `json:"name"`
+	Owner struct {
+		Name  string `json:"name"`
+		Email string `json:"email,omitempty"`
+	} `json:"owner"`
+	Metadata struct {
+		Description string `json:"description"`
+		Version     string `json:"version"`
+	} `json:"metadata"`
+	Plugins []MarketplacePlugin `json:"plugins"`
+}
+
+// MarketplacePlugin represents a plugin entry in marketplace.json
+type MarketplacePlugin struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Version     string `json:"version"`
+	Source      any    `json:"source"` // Can be string or object
+	Author      struct {
+		Name  string `json:"name"`
+		Email string `json:"email,omitempty"`
+	} `json:"author"`
+	License  string   `json:"license,omitempty"`
+	Keywords []string `json:"keywords,omitempty"`
+}
+
+// readMarketplaceMetadata reads metadata from .claude-plugin/marketplace.json as fallback
+func (m *Manager) readMarketplaceMetadata(installPath string) (PluginMetadata, error) {
+	marketplacePath := filepath.Join(installPath, ".claude-plugin", "marketplace.json")
+	data, err := os.ReadFile(marketplacePath)
+	if err != nil {
+		return PluginMetadata{}, fmt.Errorf("failed to read plugin.json or marketplace.json: %w", err)
+	}
+
+	var marketplace MarketplaceFile
+	if err := json.Unmarshal(data, &marketplace); err != nil {
+		return PluginMetadata{}, fmt.Errorf("failed to parse marketplace.json: %w", err)
+	}
+
+	// Convert marketplace metadata to plugin metadata
+	return PluginMetadata{
+		Name:        marketplace.Name,
+		Version:     marketplace.Metadata.Version,
+		Description: marketplace.Metadata.Description,
+		Author: PluginAuthor{
+			Name:  marketplace.Owner.Name,
+			Email: marketplace.Owner.Email,
+		},
+		Keywords: []string{},
+	}, nil
 }
