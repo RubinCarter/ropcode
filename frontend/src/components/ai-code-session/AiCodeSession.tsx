@@ -161,12 +161,34 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // VIRTUALIZER for message list
   // ==================================================================
 
+  // Stable height ref to prevent layout thrashing during streaming
+  // Only update when height increases significantly (by more than 50px)
+  // This prevents the constant reflow that causes flickering
+  const stableHeightRef = useRef(100);
+
   const rowVirtualizer = useVirtualizer({
     count: messagesState.displayableMessages.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 150,
     overscan: 5,
   });
+
+  // Calculate stable container height to avoid flickering
+  // Only grow the container, never shrink during streaming
+  const virtualTotalSize = rowVirtualizer.getTotalSize();
+  const isCurrentlyStreaming = processState.isLoading;
+
+  // During streaming: only allow height to grow, use stable ref
+  // Not streaming: allow any height change
+  if (isCurrentlyStreaming) {
+    if (virtualTotalSize > stableHeightRef.current + 50) {
+      stableHeightRef.current = virtualTotalSize;
+    }
+  } else {
+    stableHeightRef.current = Math.max(virtualTotalSize, 100);
+  }
+
+  const stableContainerHeight = Math.max(stableHeightRef.current, 100);
 
   // ==================================================================
   // EFFECTS
@@ -196,6 +218,8 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // Auto-scroll to bottom when new messages arrive
   // Use ref to track previous length and avoid unnecessary scrolls
   const prevMessageLengthRef = useRef(0);
+  const scrollThrottleRef = useRef<number | null>(null);
+  const lastScrollTimeRef = useRef(0);
 
   useEffect(() => {
     const currentLength = messagesState.displayableMessages.length;
@@ -204,19 +228,52 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
     // Only scroll when new messages are added (not on initial mount or filtering changes)
     if (currentLength > 0 && currentLength > prevLength && !isScrollPaused) {
-      // Use single scroll call with requestAnimationFrame to avoid visual jitter
-      requestAnimationFrame(() => {
-        const scrollElement = parentRef.current;
-        if (scrollElement) {
-          // Use virtualizer's scrollToIndex for accurate positioning
-          rowVirtualizer.scrollToIndex(currentLength - 1, {
-            align: 'end',
-            behavior: 'smooth'
-          });
-        }
-      });
+      const now = Date.now();
+      const timeSinceLastScroll = now - lastScrollTimeRef.current;
+
+      // Throttle scroll during streaming to prevent visual jitter
+      // Minimum 100ms between scrolls during active streaming
+      const scrollDelay = processState.isLoading ? Math.max(100 - timeSinceLastScroll, 0) : 0;
+
+      // Cancel any pending scroll
+      if (scrollThrottleRef.current) {
+        cancelAnimationFrame(scrollThrottleRef.current);
+      }
+
+      // Schedule scroll after delay
+      const scheduleScroll = () => {
+        scrollThrottleRef.current = requestAnimationFrame(() => {
+          const scrollElement = parentRef.current;
+          if (scrollElement) {
+            lastScrollTimeRef.current = Date.now();
+            // Use native scrollTo for smoother behavior during streaming
+            if (processState.isLoading) {
+              // During streaming: instant scroll to avoid animation conflicts
+              scrollElement.scrollTop = scrollElement.scrollHeight;
+            } else {
+              // Not streaming: smooth scroll
+              rowVirtualizer.scrollToIndex(currentLength - 1, {
+                align: 'end',
+                behavior: 'smooth'
+              });
+            }
+          }
+        });
+      };
+
+      if (scrollDelay > 0) {
+        setTimeout(scheduleScroll, scrollDelay);
+      } else {
+        scheduleScroll();
+      }
     }
-  }, [messagesState.displayableMessages.length, isScrollPaused]);
+
+    return () => {
+      if (scrollThrottleRef.current) {
+        cancelAnimationFrame(scrollThrottleRef.current);
+      }
+    };
+  }, [messagesState.displayableMessages.length, isScrollPaused, processState.isLoading]);
 
   // Session restoration from localStorage - deferred to avoid blocking initial render
   useEffect(() => {
@@ -849,7 +906,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         <div
           className="relative w-full max-w-6xl mx-auto px-4 pt-8 pb-4"
           style={{
-            height: `${Math.max(rowVirtualizer.getTotalSize(), 100)}px`,
+            height: `${stableContainerHeight}px`,
             minHeight: '100px',
           }}
         >
@@ -869,6 +926,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 className="absolute inset-x-4 pb-4"
                 style={{
                   top: virtualItem.start,
+                  // Optimize rendering performance during streaming
+                  contentVisibility: 'auto',
+                  containIntrinsicSize: '0 150px',
                 }}
               >
                 <StreamMessage
