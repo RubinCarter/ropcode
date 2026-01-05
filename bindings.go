@@ -4255,10 +4255,66 @@ func loadPluginSkills(homeDir string) []Skill {
 			pluginName = pluginID[:atIdx]
 		}
 
-		// Load skills from {pluginPath}/skills/
+		// Strategy 1: Try loading skills from {pluginPath}/skills/
 		skillsDir := filepath.Join(pluginPath, "skills")
-		pluginSkills := loadSkillsFromDirectory(skillsDir, "plugin", &pluginID, &pluginName)
-		skills = append(skills, pluginSkills...)
+		if _, err := os.Stat(skillsDir); err == nil {
+			pluginSkills := loadSkillsFromDirectory(skillsDir, "plugin", &pluginID, &pluginName)
+			skills = append(skills, pluginSkills...)
+			continue
+		}
+
+		// Strategy 2: Try loading skills from marketplace.json or plugin.json skills paths
+		customSkills := loadSkillsFromManifest(pluginPath, pluginID, pluginName)
+		skills = append(skills, customSkills...)
+	}
+
+	return skills
+}
+
+// loadSkillsFromManifest loads skills defined in marketplace.json or plugin.json
+func loadSkillsFromManifest(pluginPath, pluginID, pluginName string) []Skill {
+	var skills []Skill
+
+	// Try marketplace.json first (has plugins array with skills)
+	marketplacePath := filepath.Join(pluginPath, ".claude-plugin", "marketplace.json")
+	if content, err := os.ReadFile(marketplacePath); err == nil {
+		var marketplace struct {
+			Plugins []struct {
+				Name   string   `json:"name"`
+				Skills []string `json:"skills"`
+			} `json:"plugins"`
+		}
+		if err := json.Unmarshal(content, &marketplace); err == nil {
+			// Find the plugin entry that matches pluginName
+			for _, p := range marketplace.Plugins {
+				if p.Name == pluginName && len(p.Skills) > 0 {
+					for _, skillPath := range p.Skills {
+						// skillPath is relative to pluginPath, e.g., "./scientific-skills/adaptyv"
+						fullPath := filepath.Join(pluginPath, strings.TrimPrefix(skillPath, "./"))
+						if skill := loadSkillFromDirectory(fullPath, "plugin", &pluginID, &pluginName); skill != nil {
+							skills = append(skills, *skill)
+						}
+					}
+					return skills
+				}
+			}
+		}
+	}
+
+	// Try plugin.json (may have skills array)
+	pluginJsonPath := filepath.Join(pluginPath, ".claude-plugin", "plugin.json")
+	if content, err := os.ReadFile(pluginJsonPath); err == nil {
+		var pluginJson struct {
+			Skills []string `json:"skills"`
+		}
+		if err := json.Unmarshal(content, &pluginJson); err == nil && len(pluginJson.Skills) > 0 {
+			for _, skillPath := range pluginJson.Skills {
+				fullPath := filepath.Join(pluginPath, strings.TrimPrefix(skillPath, "./"))
+				if skill := loadSkillFromDirectory(fullPath, "plugin", &pluginID, &pluginName); skill != nil {
+					skills = append(skills, *skill)
+				}
+			}
+		}
 	}
 
 	return skills
