@@ -18,7 +18,6 @@ import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 import { SyncFromSSHDialog } from '@/components/SyncFromSSHDialog';
 import { CloneFromURLDialog } from '@/components/CloneFromURLDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
-import { useGitChanged } from '@/hooks';
 
 interface SidebarProps {
   /**
@@ -213,48 +212,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
   }, [isCollapsed, onCollapse]);
 
-  // Watch/Unwatch Git workspace lifecycle
-  useEffect(() => {
-    if (!activeProjectPath) {
-      console.log('[Sidebar] No active project path, skipping git watch');
-      return;
-    }
-
-    console.log('[Sidebar] 🔄 Starting git watch for:', activeProjectPath);
-
-    // Start watching
-    api.WatchGitWorkspace(activeProjectPath).catch((error) => {
-      console.error('[Sidebar] ❌ Failed to start git watch:', error);
-    });
-
-    return () => {
-      console.log('[Sidebar] 🗑️ Stopping git watch for:', activeProjectPath);
-      api.UnwatchGitWorkspace(activeProjectPath);
-    };
-  }, [activeProjectPath]);
-
-  // Handle Git change events with stable callback
-  const handleGitChanged = useCallback(async (event: any) => {
-    console.log('[Sidebar] 🔔 Git changed event received:', event);
-
-    // Check if this is a workspace (contains .ropcode/) or a regular project
-    const isWorkspace = event.path.includes('/.ropcode/');
-
-    if (isWorkspace) {
-      // Update workspace branch using new unified interface
-      await api.updateWorkspaceFields(event.path, { branch: event.branch });
-      console.log(`[Sidebar] ✅ Updated workspace branch to: ${event.branch}`);
-    } else {
-      // For regular projects, we don't store branch info in projects.json
-      console.log(`[Sidebar] ℹ️ Project branch (not persisted): ${event.branch}`);
-    }
-
-    // Refresh projects list to update UI
-    await loadProjects();
-  }, []);
-
-  // Subscribe to Git change events
-  useGitChanged(activeProjectPath || undefined, handleGitChanged);
 
   return (
     <motion.div

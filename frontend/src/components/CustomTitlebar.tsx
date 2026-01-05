@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Minus, Square, X, ChevronRight, GitBranch, Upload, Folder, Trash2 } from 'lucide-react';
 import { WindowMinimise, WindowToggleMaximise, Quit } from '@/lib/rpc-window';
 import { motion } from 'framer-motion';
-import { useFullscreen, useGitChanged, usePageVisibilityPolling } from '@/hooks';
+import { useFullscreen, usePageVisibilityPolling } from '@/hooks';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ContainerTabManager } from '@/components/containers';
@@ -226,36 +226,6 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
     checkUnpushedToRemote();
   }, [currentProjectPath, hasGitSupport]);
-
-  // Git 监听器生命周期管理
-  useEffect(() => {
-    if (!currentProjectPath || !hasGitSupport) {
-      return;
-    }
-
-    api.WatchGitWorkspace(currentProjectPath);
-    return () => {
-      api.UnwatchGitWorkspace(currentProjectPath);
-    };
-  }, [currentProjectPath, hasGitSupport]);
-
-  // 订阅 Git 变化事件
-  useGitChanged(currentProjectPath, async (event) => {
-    if (!currentProjectPath || !hasGitSupport) return;
-
-    // 更新未推送到远程的提交数（对所有仓库生效）
-    setUnpushedToRemoteCount(event.ahead);
-
-    // 如果是 worktree 子分支，更新 worktree 相关数据
-    if (isWorktreeChild) {
-      try {
-        const count = await api.getUnpushedCommitsCount(currentProjectPath);
-        setUnpushedCount(count);
-      } catch (error) {
-        console.error('Failed to update worktree unpushed count:', error);
-      }
-    }
-  });
 
   // 页面可见性轮询 - 定期检查未推送的提交数量
   // 只在页面激活时轮询，用于捕获外部 git 操作导致的变化

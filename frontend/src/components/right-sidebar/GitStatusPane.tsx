@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
-import { useGitChanged, usePageVisibilityPolling } from '@/hooks';
+import { usePageVisibilityPolling } from '@/hooks';
 
 export interface GitFileChange {
   path: string;
@@ -14,48 +14,6 @@ interface GitStatusPaneProps {
   className?: string;
   onFileClick?: (file: GitFileChange) => void;
 }
-
-// 辅助函数：将 status 对象转换为 GitFileChange 数组
-const parseGitStatus = (statusMap: Record<string, string>): GitFileChange[] => {
-  const files: GitFileChange[] = [];
-
-  for (const [filePath, statusCode] of Object.entries(statusMap)) {
-    if (!filePath || !statusCode || statusCode.length < 2) continue;
-
-    let status: GitFileChange['status'] = 'modified';
-    let staged = false;
-
-    // 解析状态码
-    const stagedChar = statusCode[0];
-    const unstagedChar = statusCode[1];
-
-    // 判断是否暂存
-    if (stagedChar !== ' ' && stagedChar !== '?') {
-      staged = true;
-    }
-
-    // 确定文件状态
-    if (statusCode === '??') {
-      status = 'untracked';
-    } else if (stagedChar === 'A' || unstagedChar === 'A') {
-      status = 'added';
-    } else if (stagedChar === 'D' || unstagedChar === 'D') {
-      status = 'deleted';
-    } else if (stagedChar === 'R' || unstagedChar === 'R') {
-      status = 'renamed';
-    } else {
-      status = 'modified';
-    }
-
-    files.push({
-      path: filePath,
-      status,
-      staged
-    });
-  }
-
-  return files;
-};
 
 export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
   workspacePath,
@@ -145,28 +103,7 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
     }
   }, [workspacePath]);
 
-  // 管理 Git 监听器的生命周期
-  useEffect(() => {
-    if (workspacePath) {
-      api.WatchGitWorkspace(workspacePath);
-      return () => {
-        api.UnwatchGitWorkspace(workspacePath);
-      };
-    }
-  }, [workspacePath]);
-
-  // 订阅 Git 变化事件
-  useGitChanged(workspacePath, (event) => {
-    // 更新分支信息
-    setCurrentBranch(event.branch);
-
-    // 解析文件状态
-    const parsedFiles = parseGitStatus(event.status);
-    setFiles(parsedFiles);
-  });
-
-  // 页面可见性轮询 - 只在页面激活时定期刷新 Git 状态
-  // 这样可以捕获那些不会触发 .git 目录变化的操作（如修改文件但未 add）
+  // 页面可见性轮询 - 定期刷新 Git 状态
   usePageVisibilityPolling(
     async () => {
       if (!workspacePath) return;
