@@ -161,34 +161,12 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // VIRTUALIZER for message list
   // ==================================================================
 
-  // Stable height ref to prevent layout thrashing during streaming
-  // Only update when height increases significantly (by more than 50px)
-  // This prevents the constant reflow that causes flickering
-  const stableHeightRef = useRef(100);
-
   const rowVirtualizer = useVirtualizer({
     count: messagesState.displayableMessages.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 150,
-    overscan: 5,
+    overscan: 8, // Increased overscan to reduce blank areas during fast scrolling
   });
-
-  // Calculate stable container height to avoid flickering
-  // Only grow the container, never shrink during streaming
-  const virtualTotalSize = rowVirtualizer.getTotalSize();
-  const isCurrentlyStreaming = processState.isLoading;
-
-  // During streaming: only allow height to grow, use stable ref
-  // Not streaming: allow any height change
-  if (isCurrentlyStreaming) {
-    if (virtualTotalSize > stableHeightRef.current + 50) {
-      stableHeightRef.current = virtualTotalSize;
-    }
-  } else {
-    stableHeightRef.current = Math.max(virtualTotalSize, 100);
-  }
-
-  const stableContainerHeight = Math.max(stableHeightRef.current, 100);
 
   // ==================================================================
   // EFFECTS
@@ -243,21 +221,13 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
       // Schedule scroll after delay
       const scheduleScroll = () => {
         scrollThrottleRef.current = requestAnimationFrame(() => {
-          const scrollElement = parentRef.current;
-          if (scrollElement) {
-            lastScrollTimeRef.current = Date.now();
-            // Use native scrollTo for smoother behavior during streaming
-            if (processState.isLoading) {
-              // During streaming: instant scroll to avoid animation conflicts
-              scrollElement.scrollTop = scrollElement.scrollHeight;
-            } else {
-              // Not streaming: smooth scroll
-              rowVirtualizer.scrollToIndex(currentLength - 1, {
-                align: 'end',
-                behavior: 'smooth'
-              });
-            }
-          }
+          lastScrollTimeRef.current = Date.now();
+          // Always use virtualizer's scrollToIndex for consistent behavior
+          // This ensures virtual items are properly calculated before scrolling
+          rowVirtualizer.scrollToIndex(currentLength - 1, {
+            align: 'end',
+            behavior: processState.isLoading ? 'auto' : 'smooth'
+          });
         });
       };
 
@@ -906,7 +876,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         <div
           className="relative w-full max-w-6xl mx-auto px-4 pt-8 pb-4"
           style={{
-            height: `${stableContainerHeight}px`,
+            height: `${rowVirtualizer.getTotalSize()}px`,
             minHeight: '100px',
           }}
         >
@@ -926,9 +896,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 className="absolute inset-x-4 pb-4"
                 style={{
                   top: virtualItem.start,
-                  // Optimize rendering performance during streaming
-                  contentVisibility: 'auto',
-                  containIntrinsicSize: '0 150px',
                 }}
               >
                 <StreamMessage
