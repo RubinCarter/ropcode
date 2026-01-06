@@ -681,6 +681,35 @@ const FloatingPromptInputInner = (
     loadModelConfigs();
   }, []);
 
+  // Load provider API config on mount and when projectPath/provider changes
+  // This ensures providerApiId is available before any message is sent
+  useEffect(() => {
+    if (!projectPath) return;
+
+    const loadProviderApiConfig = async () => {
+      try {
+        // First try to get project-specific config
+        const config = await api.getProjectProviderApiConfig(projectPath, selectedProvider);
+        if (config && config.id) {
+          setSelectedProviderApiId(config.id);
+          return;
+        }
+
+        // Fallback to default config for this provider
+        const allConfigs = await api.listProviderApiConfigs();
+        const providerConfigs = allConfigs.filter(c => c.provider_id === selectedProvider);
+        const defaultConfig = providerConfigs.find(c => c.is_default);
+        if (defaultConfig) {
+          setSelectedProviderApiId(defaultConfig.id);
+        }
+      } catch (error) {
+        console.error('Failed to load provider API config:', error);
+      }
+    };
+
+    loadProviderApiConfig();
+  }, [projectPath, selectedProvider]);
+
   // Helper: Get enabled models for a provider from API configs, with fallback to hardcoded
   const getProviderModels = useCallback((providerId: string): Model[] => {
     if (modelConfigsLoaded && modelConfigs.length > 0) {
@@ -1853,6 +1882,7 @@ const FloatingPromptInputInner = (
                     projectPath={projectPath}
                     providerId={selectedProvider}
                     disabled={disabled}
+                    value={selectedProviderApiId}
                     onConfigChange={(configId) => {
                       setSelectedProviderApiId(configId);
                     }}

@@ -11,6 +11,8 @@ interface ProviderApiQuickSelectorProps {
   projectPath: string;
   providerId: string;
   disabled?: boolean;
+  /** Current selected config ID (controlled by parent) */
+  value?: string | null;
   onConfigChange?: (configId: string | null) => void;
   className?: string;
 }
@@ -18,67 +20,38 @@ interface ProviderApiQuickSelectorProps {
 /**
  * Provider API Quick Selector - Compact selector for chat input
  * Shows icon + indicator for current API configuration
+ *
+ * Note: This is a controlled component. The parent (FloatingPromptInput) manages
+ * the selectedProviderApiId state and passes it via the `value` prop.
+ * This component only loads configs for display and handles user selection.
  */
 export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> = ({
   projectPath,
   providerId,
   disabled = false,
+  value,
   onConfigChange,
   className,
 }) => {
   const [configs, setConfigs] = useState<ProviderApiConfig[]>([]);
-  const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Use value from parent as the selected config ID
+  const selectedConfigId = value ?? null;
 
   useEffect(() => {
     loadConfigs();
   }, [providerId]);
 
-  useEffect(() => {
-    loadProjectConfig();
-  }, [projectPath, providerId]);
-
   const loadConfigs = async () => {
     try {
-      console.log('[ProviderApiQuickSelector] Loading configs for provider:', providerId);
+      setLoading(true);
       const allConfigs = await api.listProviderApiConfigs();
-      console.log('[ProviderApiQuickSelector] All configs:', allConfigs);
       const providerConfigs = allConfigs.filter(c => c.provider_id === providerId);
-      console.log('[ProviderApiQuickSelector] Filtered configs:', providerConfigs);
       setConfigs(providerConfigs);
     } catch (error) {
       console.error("[ProviderApiQuickSelector] Failed to load provider API configs:", error);
-    }
-  };
-
-  const loadProjectConfig = async () => {
-    try {
-      setLoading(true);
-      const config = await api.getProjectProviderApiConfig(projectPath, providerId);
-
-      // 如果项目已经保存了配置,使用保存的配置
-      if (config && config.id) {
-        setSelectedConfigId(config.id);
-        onConfigChange?.(config.id);
-      } else {
-        // 否则,使用默认配置(仅在首次加载时)
-        const allConfigs = await api.listProviderApiConfigs();
-        const providerConfigs = allConfigs.filter(c => c.provider_id === providerId);
-        const defaultConfig = providerConfigs.find(c => c.is_default);
-
-        if (defaultConfig) {
-          // 不保存到项目配置,只在内存中使用
-          setSelectedConfigId(defaultConfig.id);
-          onConfigChange?.(defaultConfig.id);
-        } else {
-          setSelectedConfigId(null);
-          onConfigChange?.(null);
-        }
-      }
-    } catch (error) {
-      console.error("Failed to load project provider config:", error);
-      setSelectedConfigId(null);
     } finally {
       setLoading(false);
     }
@@ -90,7 +63,7 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
       // 保存用户选择的配置到项目
       await api.setProjectProviderApiConfig(projectPath, providerId, configId);
       console.log('[ProviderApiQuickSelector] Config saved successfully');
-      setSelectedConfigId(configId);
+      // Notify parent to update the value (controlled component pattern)
       onConfigChange?.(configId);
       setPickerOpen(false);
     } catch (error) {
