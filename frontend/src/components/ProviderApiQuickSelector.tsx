@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Globe, ChevronUp, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover } from "@/components/ui/popover";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip-modern";
-import { api, type ProviderApiConfig } from "@/lib/api";
+import { api } from "@/lib/api";
+import { useProviderApiStore } from "@/stores/providerApiStore";
 import { cn } from "@/lib/utils";
 
 interface ProviderApiQuickSelectorProps {
@@ -33,29 +34,18 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
   onConfigChange,
   className,
 }) => {
-  const [configs, setConfigs] = useState<ProviderApiConfig[]>([]);
-  const [loading, setLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  // Use global store for configs
+  const { configs: allConfigs, isLoaded, isLoading } = useProviderApiStore();
+
+  // Filter configs for current provider
+  const configs = useMemo(() => {
+    return allConfigs.filter(c => c.provider_id === providerId);
+  }, [allConfigs, providerId]);
 
   // Use value from parent as the selected config ID
   const selectedConfigId = value ?? null;
-
-  useEffect(() => {
-    loadConfigs();
-  }, [providerId]);
-
-  const loadConfigs = async () => {
-    try {
-      setLoading(true);
-      const allConfigs = await api.listProviderApiConfigs();
-      const providerConfigs = allConfigs.filter(c => c.provider_id === providerId);
-      setConfigs(providerConfigs);
-    } catch (error) {
-      console.error("[ProviderApiQuickSelector] Failed to load provider API configs:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleConfigChange = async (configId: string) => {
     console.log('[ProviderApiQuickSelector] handleConfigChange called:', { configId, projectPath, providerId });
@@ -94,7 +84,7 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={disabled || loading}
+                disabled={disabled || isLoading || !isLoaded}
                 className={cn("h-9 px-1.5 hover:bg-accent/50 gap-0.5", className)}
               >
                 <Globe className={cn(
@@ -127,10 +117,10 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
           </div>
 
           {/* Available configs */}
-          {configs.map((config) => (
+          {configs.filter(c => c.id).map((config) => (
             <button
               key={config.id}
-              onClick={() => handleConfigChange(config.id)}
+              onClick={() => handleConfigChange(config.id!)}
               className={cn(
                 "w-full flex items-start gap-3 p-3 rounded-md transition-colors text-left",
                 "hover:bg-accent",
