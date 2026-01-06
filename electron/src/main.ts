@@ -1,6 +1,7 @@
 // electron/src/main.ts
-import { app, BrowserWindow, ipcMain, dialog, webContents } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, webContents, protocol, net } from 'electron';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { startGoServer, stopGoServer, GoServerInfo } from './go-server';
 
 let mainWindow: BrowserWindow | null = null;
@@ -171,6 +172,13 @@ function registerIpcHandlers() {
 }
 
 app.whenReady().then(async () => {
+  // 注册 local-file 协议，用于在开发模式下加载本地文件
+  // 这解决了从 http://localhost 加载 file:// 资源的安全限制
+  protocol.handle('local-file', (request) => {
+    const filePath = decodeURIComponent(request.url.replace('local-file://', ''));
+    return net.fetch(pathToFileURL(filePath).toString());
+  });
+
   try {
     console.log('[Electron] Starting Go server...');
     goServerInfo = await startGoServer();
