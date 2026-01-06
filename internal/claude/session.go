@@ -156,8 +156,9 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 		s.cmd.Dir = s.Config.ProjectPath
 	}
 
-	// Inherit current environment
+	// Inherit current environment and ensure full shell PATH
 	s.cmd.Env = os.Environ()
+	s.cmd.Env = ensureFullShellPath(s.cmd.Env)
 
 	// Add custom API configuration via environment variables
 	// This is the recommended approach and avoids FSWatcher issues with --settings
@@ -167,6 +168,10 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	if s.Config.AuthToken != "" {
 		s.cmd.Env = append(s.cmd.Env, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", s.Config.AuthToken))
 	}
+
+	// Disable non-essential network traffic (telemetry, update checks, etc.)
+	// This ensures Claude Code runs in a more controlled/private mode
+	s.cmd.Env = append(s.cmd.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true")
 
 	// Setup pipes
 	s.stdout, err = s.cmd.StdoutPipe()
@@ -374,4 +379,46 @@ func (s *Session) GetStatus() *SessionStatus {
 	}
 
 	return status
+}
+
+// ensureFullShellPath ensures the environment has the full PATH from user's login shell.
+// This is necessary because GUI apps (like Electron) don't inherit shell PATH on macOS.
+func ensureFullShellPath(env []string) []string {
+	// Get user's default shell
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/zsh" // Default on modern macOS
+	}
+
+	// Execute login shell to get the full PATH
+	// Using -l (login) and -c to run a command
+	cmd := exec.Command(shell, "-l", "-c", "echo $PATH")
+	output, err := cmd.Output()
+	if err != nil {
+		log.Printf("[Session] Failed to get shell PATH: %v, using current PATH", err)
+		return env
+	}
+
+	shellPath := strings.TrimSpace(string(output))
+	if shellPath == "" {
+		return env
+	}
+
+	// Update or append PATH in the environment
+	pathFound := false
+	for i, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			env[i] = "PATH=" + shellPath
+			pathFound = true
+			log.Printf("[Session] Updated PATH from login shell")
+			break
+		}
+	}
+
+	if !pathFound {
+		env = append(env, "PATH="+shellPath)
+		log.Printf("[Session] Added PATH from login shell")
+	}
+
+	return env
 }
