@@ -198,26 +198,75 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     });
   }, []);
 
+  // Track previous projectPath to detect changes
+  const prevProjectPathRef = useRef(sessionState.projectPath);
+  // Track if we're in the middle of a project switch (to prevent session restoration during reset)
+  const isProjectSwitchingRef = useRef(false);
+
+  // Reset session state when projectPath changes (project switch)
+  useEffect(() => {
+    if (prevProjectPathRef.current && prevProjectPathRef.current !== sessionState.projectPath) {
+      console.log('[AiCodeSession] Project path changed, resetting session state:', {
+        from: prevProjectPathRef.current,
+        to: sessionState.projectPath
+      });
+
+      // Mark that we're switching projects
+      isProjectSwitchingRef.current = true;
+
+      // Reset session state for new project
+      messagesState.clearMessages();
+      sessionState.setClaudeSessionId(null);
+      sessionState.setExtractedSessionInfo(null);
+      sessionState.setIsFirstPrompt(true);
+      loadedSessionIdRef.current = null;
+      setError(null);
+
+      // Allow session restoration after state is reset
+      // Use microtask to ensure state updates are flushed
+      queueMicrotask(() => {
+        isProjectSwitchingRef.current = false;
+      });
+    }
+    prevProjectPathRef.current = sessionState.projectPath;
+  }, [sessionState.projectPath]);
+
   // Session restoration from localStorage - deferred to avoid blocking initial render
   useEffect(() => {
+    // Skip if already loaded or if we're in the middle of a project switch
     if (loadedSessionIdRef.current) {
       console.log('[AiCodeSession] Already loaded session, skipping:', loadedSessionIdRef.current);
       return;
     }
 
-    if (sessionState.projectPath && !sessionState.extractedSessionInfo) {
-      // Defer session restoration to next frame to allow initial render
-      requestAnimationFrame(() => {
-        // Double-check after yield
-        if (loadedSessionIdRef.current) return;
+    // Capture current projectPath for the async callback
+    const currentProjectPath = sessionState.projectPath;
 
-        console.log('[AiCodeSession] Attempting to restore session from localStorage for provider:', defaultProvider);
+    if (currentProjectPath && !sessionState.extractedSessionInfo) {
+      // Defer session restoration to next frame to allow initial render and state reset
+      requestAnimationFrame(() => {
+        // Double-check after yield - skip if project is switching or already loaded
+        if (loadedSessionIdRef.current || isProjectSwitchingRef.current) {
+          console.log('[AiCodeSession] Skipping session restore: switching=', isProjectSwitchingRef.current, 'loaded=', loadedSessionIdRef.current);
+          return;
+        }
+
+        // Check if projectPath changed while waiting (use ref for latest value)
+        if (sessionState.projectPathRef.current !== currentProjectPath) {
+          console.log('[AiCodeSession] ProjectPath changed while waiting, skipping restore:', {
+            captured: currentProjectPath,
+            current: sessionState.projectPathRef.current
+          });
+          return;
+        }
+
+        console.log('[AiCodeSession] Attempting to restore session from localStorage for provider:', defaultProvider, 'projectPath:', currentProjectPath);
 
         const sessions = SessionPersistenceService.getSessionIndex();
         const projectSessions = sessions
           .map(sid => SessionPersistenceService.loadSession(sid))
           .filter(s => {
-            if (!s || s.projectPath !== sessionState.projectPath) return false;
+            if (!s || s.projectPath !== currentProjectPath) return false;
             // 兼容旧的 session（没有 provider 字段的默认为 claude）
             const sessionProvider = s.provider || 'claude';
             return sessionProvider === defaultProvider;
@@ -238,6 +287,8 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
           // Load session history in background
           loadRestoredHistory(restoredSession);
+        } else {
+          console.log('[AiCodeSession] No sessions found for project:', currentProjectPath, 'provider:', defaultProvider);
         }
       });
     }
@@ -385,6 +436,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
   // ==================================================================
 
   const loadRestoredHistory = async (restoredSession: any) => {
+    // Capture the projectPath at the start of loading
+    const targetProjectPath = restoredSession.projectPath;
+
     try {
       processState.setIsLoading(true);
       const history = await providers.loadHistory(
@@ -392,6 +446,16 @@ ${message ? `**说明**:\n${message}` : ''}`;
         restoredSession.projectId,
         restoredSession.provider || defaultProvider
       );
+
+      // Check if projectPath changed during async load
+      if (sessionState.projectPathRef.current !== targetProjectPath) {
+        console.log('[AiCodeSession] ProjectPath changed during history load, discarding results:', {
+          target: targetProjectPath,
+          current: sessionState.projectPathRef.current
+        });
+        loadedSessionIdRef.current = null;
+        return;
+      }
 
       if (history && history.length > 0) {
         const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {

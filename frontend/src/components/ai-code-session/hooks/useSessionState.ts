@@ -7,7 +7,7 @@
  * - Session restoration from localStorage
  */
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import type { Session, SessionInfo } from "../types";
 
 export interface UseSessionStateOptions {
@@ -34,29 +34,42 @@ export interface UseSessionStateReturn {
 }
 
 /**
+ * Compute the best project path from available sources
+ */
+function computeProjectPath(session?: Session, initialProjectPath?: string): string {
+  // 优先使用 initialProjectPath（如果它存在且不为空）
+  if (initialProjectPath && initialProjectPath.trim() !== "") {
+    return initialProjectPath;
+  }
+  // 其次使用 session.project_path
+  if (session?.project_path && session.project_path.trim() !== "") {
+    return session.project_path;
+  }
+  // 最后使用 session.project_id（某些情况下可能有用）
+  if (session?.project_id) {
+    return session.project_id;
+  }
+  // 如果都没有，返回空字符串（这会在 AiCodeSession 中触发错误提示）
+  return "";
+}
+
+/**
  * Hook to manage session state
- * 🔧 修复：正确处理 projectPath 的初始化，避免空字符串导致的问题
+ * 🔧 修复：响应 projectPath 变化，支持项目切换
  */
 export function useSessionState(options: UseSessionStateOptions): UseSessionStateReturn {
   const { session, initialProjectPath } = options;
 
-  // 🔧 修复：更智能的 projectPath 初始化逻辑
-  const [projectPath] = useState(() => {
-    // 优先使用 initialProjectPath（如果它存在且不为空）
-    if (initialProjectPath && initialProjectPath.trim() !== "") {
-      return initialProjectPath;
+  // 🔧 修复：使用 useState 并响应 prop 变化
+  const [projectPath, setProjectPath] = useState(() => computeProjectPath(session, initialProjectPath));
+
+  // 当 initialProjectPath 或 session 变化时，更新 projectPath
+  useEffect(() => {
+    const newPath = computeProjectPath(session, initialProjectPath);
+    if (newPath && newPath !== projectPath) {
+      setProjectPath(newPath);
     }
-    // 其次使用 session.project_path
-    if (session?.project_path && session.project_path.trim() !== "") {
-      return session.project_path;
-    }
-    // 最后使用 session.project_id（某些情况下可能有用）
-    if (session?.project_id) {
-      return session.project_id;
-    }
-    // 如果都没有，返回空字符串（这会在 AiCodeSession 中触发错误提示）
-    return "";
-  });
+  }, [initialProjectPath, session?.project_path, session?.project_id]);
 
   const [claudeSessionId, setClaudeSessionId] = useState<string | null>(null);
   const [extractedSessionInfo, setExtractedSessionInfo] = useState<SessionInfo | null>(null);

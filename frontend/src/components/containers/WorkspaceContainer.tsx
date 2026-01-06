@@ -210,7 +210,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       case 'chat':
         return (
           <AiCodeSession
-            key={tab.id}
+            key={`${tab.id}-${tab.providerId || 'claude'}`}
             session={tab.sessionData}
             initialProjectPath={tab.projectPath}
             defaultProvider={tab.providerId}
