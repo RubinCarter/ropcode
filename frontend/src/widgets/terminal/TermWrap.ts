@@ -15,6 +15,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { FitAddon } from '@xterm/addon-fit';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 
 /**
  * 缓存 WebGL 支持检测结果
@@ -90,6 +91,9 @@ export class TermWrap {
   /** WebglAddon - GPU 加速渲染（可选） */
   private webglAddon?: WebglAddon;
 
+  /** Unicode11Addon - 正确处理 Unicode 字符宽度 */
+  private readonly unicode11Addon: Unicode11Addon;
+
   /** 容器元素 */
   private readonly container: HTMLDivElement;
 
@@ -133,6 +137,11 @@ export class TermWrap {
     // 初始化 WebLinksAddon
     this.webLinksAddon = new WebLinksAddon(this.handleLinkClick.bind(this));
     this.terminal.loadAddon(this.webLinksAddon);
+
+    // 初始化 Unicode11Addon - 正确处理 Powerline 符号等 Unicode 字符宽度
+    this.unicode11Addon = new Unicode11Addon();
+    this.terminal.loadAddon(this.unicode11Addon);
+    this.terminal.unicode.activeVersion = '11';
 
     // 尝试加载 WebGL addon（如果支持且启用）
     if (this.options.useWebGL !== false && detectWebGLSupport()) {
