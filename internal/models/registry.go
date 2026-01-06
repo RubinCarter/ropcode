@@ -18,19 +18,45 @@ func NewRegistry(db *database.Database) *Registry {
 	return &Registry{db: db}
 }
 
-// Initialize ensures all builtin models are in the database
+// Initialize ensures all builtin models are in the database and syncs changes
 // This should be called at application startup
 func (r *Registry) Initialize() error {
 	builtins := BuiltinModels()
 
+	// Build a map of current builtin model IDs for quick lookup
+	builtinModelIDs := make(map[string]bool)
 	for _, builtin := range builtins {
-		exists, err := r.db.ModelConfigExists(builtin.ModelID)
-		if err != nil {
-			return fmt.Errorf("failed to check model existence: %w", err)
-		}
+		builtinModelIDs[builtin.ModelID] = true
+	}
 
-		if !exists {
-			// Generate a UUID for the builtin model
+	// Get all existing models from database
+	existingModels, err := r.db.GetAllModelConfigs()
+	if err != nil {
+		return fmt.Errorf("failed to get existing models: %w", err)
+	}
+
+	// Delete builtin models that are no longer in the builtin list
+	for _, existing := range existingModels {
+		if existing.IsBuiltin && !builtinModelIDs[existing.ModelID] {
+			if err := r.db.DeleteModelConfig(existing.ID); err != nil {
+				return fmt.Errorf("failed to delete obsolete builtin model %s: %w", existing.ModelID, err)
+			}
+		}
+	}
+
+	// Insert or update builtin models
+	for _, builtin := range builtins {
+		existing, err := r.db.GetModelConfigByModelID(builtin.ModelID)
+		if err == nil && existing != nil {
+			// Model exists - update IsDefault if changed (for builtin models only)
+			if existing.IsBuiltin && existing.IsDefault != builtin.IsDefault {
+				if err := r.db.SetModelConfigDefault(existing.ID); err != nil {
+					// If setting default fails, just log and continue
+					// This can happen if another model is already default
+				}
+			}
+		} else {
+			// Model doesn't exist - create it
 			builtin.ID = uuid.New().String()
 			if err := r.db.SaveModelConfig(builtin); err != nil {
 				return fmt.Errorf("failed to save builtin model %s: %w", builtin.ModelID, err)

@@ -384,15 +384,6 @@ const CODEX_MODELS: Model[] = [
 
 const GEMINI_MODELS: Model[] = [
   {
-    id: "auto",
-    name: "Auto",
-    description: "Let the system automatically choose the best model",
-    icon: <Sparkles className="h-3.5 w-3.5" />,
-    shortName: "A",
-    color: "text-muted-foreground",
-    provider: "gemini"
-  },
-  {
     id: "gemini-2.5-pro",
     name: "Gemini 2.5 Pro",
     description: "For complex tasks requiring deep reasoning and creativity",
