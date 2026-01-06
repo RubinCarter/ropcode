@@ -11,7 +11,7 @@
  * - Easier to understand and maintain
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Copy,
@@ -35,7 +35,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { TooltipProvider, TooltipSimple } from "@/components/ui/tooltip-modern";
 import { SplitPane } from "@/components/ui/split-pane";
 import { WebviewPreview } from "../WebviewPreview";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
@@ -70,7 +70,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // REFS (Must be declared before hooks that use them)
   // ==================================================================
 
-  const parentRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const floatingPromptRef = useRef<FloatingPromptInputRef>(null);
   const isIMEComposingRef = useRef(false);
   const loadedSessionIdRef = useRef<string | null>(null);
@@ -158,15 +158,11 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const [isScrollPaused, setIsScrollPaused] = useState(false);
 
   // ==================================================================
-  // VIRTUALIZER for message list
+  // VIRTUOSO for message list
   // ==================================================================
 
-  const rowVirtualizer = useVirtualizer({
-    count: messagesState.displayableMessages.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 150,
-    overscan: 8, // Increased overscan to reduce blank areas during fast scrolling
-  });
+  // Track if user is at the bottom for auto-scroll behavior
+  const [atBottom, setAtBottom] = useState(true);
 
   // ==================================================================
   // EFFECTS
@@ -193,57 +189,14 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     onStreamingChange?.(processState.isLoading, sessionState.claudeSessionId);
   }, [processState.isLoading, sessionState.claudeSessionId, onStreamingChange]);
 
-  // Auto-scroll to bottom when new messages arrive
-  // Use ref to track previous length and avoid unnecessary scrolls
-  const prevMessageLengthRef = useRef(0);
-  const scrollThrottleRef = useRef<number | null>(null);
-  const lastScrollTimeRef = useRef(0);
-
-  useEffect(() => {
-    const currentLength = messagesState.displayableMessages.length;
-    const prevLength = prevMessageLengthRef.current;
-    prevMessageLengthRef.current = currentLength;
-
-    // Only scroll when new messages are added (not on initial mount or filtering changes)
-    if (currentLength > 0 && currentLength > prevLength && !isScrollPaused) {
-      const now = Date.now();
-      const timeSinceLastScroll = now - lastScrollTimeRef.current;
-
-      // Throttle scroll during streaming to prevent visual jitter
-      // Minimum 100ms between scrolls during active streaming
-      const scrollDelay = processState.isLoading ? Math.max(100 - timeSinceLastScroll, 0) : 0;
-
-      // Cancel any pending scroll
-      if (scrollThrottleRef.current) {
-        cancelAnimationFrame(scrollThrottleRef.current);
-      }
-
-      // Schedule scroll after delay
-      const scheduleScroll = () => {
-        scrollThrottleRef.current = requestAnimationFrame(() => {
-          lastScrollTimeRef.current = Date.now();
-          // Always use virtualizer's scrollToIndex for consistent behavior
-          // This ensures virtual items are properly calculated before scrolling
-          rowVirtualizer.scrollToIndex(currentLength - 1, {
-            align: 'end',
-            behavior: processState.isLoading ? 'auto' : 'smooth'
-          });
-        });
-      };
-
-      if (scrollDelay > 0) {
-        setTimeout(scheduleScroll, scrollDelay);
-      } else {
-        scheduleScroll();
-      }
-    }
-
-    return () => {
-      if (scrollThrottleRef.current) {
-        cancelAnimationFrame(scrollThrottleRef.current);
-      }
-    };
-  }, [messagesState.displayableMessages.length, isScrollPaused, processState.isLoading]);
+  // Helper function to scroll to bottom (for manual scroll buttons and history loading)
+  const scrollToBottom = useCallback((behavior: 'auto' | 'smooth' = 'smooth') => {
+    virtuosoRef.current?.scrollToIndex({
+      index: 'LAST',
+      align: 'end',
+      behavior
+    });
+  }, []);
 
   // Session restoration from localStorage - deferred to avoid blocking initial render
   useEffect(() => {
@@ -462,20 +415,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
         });
         messagesState.setMessages(loadedMessages);
 
-        // Scroll to bottom
+        // Scroll to bottom after history loads
         setTimeout(() => {
-          if (loadedMessages.length > 0) {
-            const scrollElement = parentRef.current;
-            if (scrollElement) {
-              rowVirtualizer.scrollToIndex(loadedMessages.length - 1, { align: 'end', behavior: 'auto' });
-              requestAnimationFrame(() => {
-                scrollElement.scrollTo({
-                  top: scrollElement.scrollHeight,
-                  behavior: 'auto'
-                });
-              });
-            }
-          }
+          scrollToBottom('auto');
         }, 100);
       }
     } catch (err) {
@@ -531,20 +473,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
         messagesState.setMessages(loadedMessages);
         sessionState.setIsFirstPrompt(false);
 
-        // Scroll to bottom
+        // Scroll to bottom after history loads
         setTimeout(() => {
-          if (loadedMessages.length > 0) {
-            const scrollElement = parentRef.current;
-            if (scrollElement) {
-              rowVirtualizer.scrollToIndex(loadedMessages.length - 1, { align: 'end', behavior: 'auto' });
-              requestAnimationFrame(() => {
-                scrollElement.scrollTo({
-                  top: scrollElement.scrollHeight,
-                  behavior: 'auto'
-                });
-              });
-            }
-          }
+          scrollToBottom('auto');
         }, 100);
       }
     } catch (err) {
@@ -866,73 +797,82 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
   const messagesList = (
     <div className="relative flex-1">
-      <div
-        ref={parentRef}
-        className="h-full overflow-y-auto pb-32"
-        style={{
-          contain: 'strict',
+      <Virtuoso
+        ref={virtuosoRef}
+        data={messagesState.displayableMessages}
+        className="h-full"
+
+        // followOutput handles auto-scrolling during streaming
+        // Returns false to disable, 'auto' for instant scroll, 'smooth' for animated
+        followOutput={(isAtBottom) => {
+          // User manually paused scrolling
+          if (isScrollPaused) return false;
+          // User scrolled away from bottom - don't auto-scroll
+          if (!isAtBottom) return false;
+          // During streaming: use 'auto' to avoid animation lag
+          // Otherwise: use 'smooth' for better UX
+          return processState.isLoading ? 'auto' : 'smooth';
         }}
-      >
-        <div
-          className="relative w-full max-w-6xl mx-auto px-4 pt-8 pb-4"
-          style={{
-            height: `${rowVirtualizer.getTotalSize()}px`,
-            minHeight: '100px',
-          }}
-        >
-          {/* AnimatePresence removed to prevent conflict with virtual scrolling
-              Virtual scrolling dynamically adds/removes DOM elements, but AnimatePresence
-              expects a stable list to properly track enter/exit animations.
-              This combination causes visual glitches and "missing" elements. */}
-          {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-            const message = messagesState.displayableMessages[virtualItem.index];
-            // Use stable key based on message content to avoid unnecessary re-renders
-            const stableKey = message.uuid || `msg-${virtualItem.index}`;
-            return (
-              <div
-                key={stableKey}
-                data-index={virtualItem.index}
-                ref={(el) => el && rowVirtualizer.measureElement(el)}
-                className="absolute inset-x-4 pb-4"
-                style={{
-                  top: virtualItem.start,
-                }}
-              >
-                <StreamMessage
-                  message={message}
-                  streamMessages={messagesState.messages}
-                  onLinkDetected={handleLinkDetected}
-                  agentOutputMap={messagesState.agentOutputMap}
-                />
-              </div>
-            );
-          })}
-        </div>
 
-        {/* Loading indicator */}
-        {processState.isLoading && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.15 }}
-            className="flex items-center justify-center py-4 mb-20"
-          >
-            <div className="rotating-symbol text-primary" />
-          </motion.div>
+        // Track when user scrolls away from bottom
+        atBottomStateChange={setAtBottom}
+        atBottomThreshold={100}
+
+        // Start at the bottom (most recent messages)
+        initialTopMostItemIndex={messagesState.displayableMessages.length > 0
+          ? messagesState.displayableMessages.length - 1
+          : 0}
+
+        // Stable keys prevent unnecessary re-renders
+        computeItemKey={(index, message) => message.uuid || `msg-${index}`}
+
+        // Render each message
+        itemContent={(index, message) => (
+          <div className="w-full max-w-6xl mx-auto px-4 pb-4 pt-2">
+            <StreamMessage
+              message={message}
+              streamMessages={messagesState.messages}
+              onLinkDetected={handleLinkDetected}
+              agentOutputMap={messagesState.agentOutputMap}
+            />
+          </div>
         )}
 
-        {/* Error indicator */}
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.15 }}
-            className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mb-20 mx-4"
-          >
-            {error}
-          </motion.div>
-        )}
-      </div>
+        // Custom components for loading/error states
+        components={{
+          Header: () => <div className="pt-6" />,
+          Footer: () => (
+            <>
+              {/* Loading indicator */}
+              {processState.isLoading && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="flex items-center justify-center py-4"
+                >
+                  <div className="rotating-symbol text-primary" />
+                </motion.div>
+              )}
+
+              {/* Error indicator */}
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mx-4 max-w-6xl"
+                >
+                  {error}
+                </motion.div>
+              )}
+
+              {/* Bottom spacer for floating input (needs extra space for queued prompts and image previews) */}
+              <div className="h-60" />
+            </>
+          ),
+        }}
+      />
 
       {/* Scroll buttons */}
       {messagesState.displayableMessages.length > 5 && (
@@ -974,22 +914,11 @@ ${message ? `**说明**:\n${message}` : ''}`;
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    if (messagesState.displayableMessages.length > 0) {
-                      parentRef.current?.scrollTo({
-                        top: 0,
-                        behavior: 'smooth'
-                      });
-                      setTimeout(() => {
-                        if (parentRef.current) {
-                          parentRef.current.scrollTop = 1;
-                          requestAnimationFrame(() => {
-                            if (parentRef.current) {
-                              parentRef.current.scrollTop = 0;
-                            }
-                          });
-                        }
-                      }, 500);
-                    }
+                    virtuosoRef.current?.scrollToIndex({
+                      index: 0,
+                      align: 'start',
+                      behavior: 'smooth'
+                    });
                   }}
                   className="px-3 py-2 hover:bg-accent rounded-none"
                 >
@@ -1006,20 +935,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => {
-                    if (messagesState.displayableMessages.length > 0) {
-                      parentRef.current?.scrollTo({
-                        top: parentRef.current.scrollHeight,
-                        behavior: 'smooth'
-                      });
-                      setTimeout(() => {
-                        rowVirtualizer.scrollToIndex(messagesState.displayableMessages.length - 1, {
-                          align: 'end',
-                          behavior: 'smooth'
-                        });
-                      }, 100);
-                    }
-                  }}
+                  onClick={() => scrollToBottom('smooth')}
                   className="px-3 py-2 hover:bg-accent rounded-none"
                 >
                   <ChevronDown className="h-4 w-4" />

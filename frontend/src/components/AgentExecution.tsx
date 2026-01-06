@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   ArrowLeft, 
@@ -31,7 +31,7 @@ import { StreamMessage } from "./StreamMessage";
 type UnlistenFn = () => void;
 import { ExecutionControlBar } from "./ExecutionControlBar";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { HooksEditor } from "./HooksEditor";
 import { useTrackEvent, useComponentMetrics, useFeatureAdoptionTracking } from "@/hooks";
 import { useTabState } from "@/hooks/useTabState";
@@ -119,11 +119,9 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   const [hasUserScrolled, setHasUserScrolled] = useState(false);
   const [isFullscreenModalOpen, setIsFullscreenModalOpen] = useState(false);
   
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const fullscreenScrollRef = useRef<HTMLDivElement>(null);
-  const fullscreenMessagesEndRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const fullscreenVirtuosoRef = useRef<VirtuosoHandle>(null);
+  const [atBottom, setAtBottom] = useState(true);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const elapsedTimeIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [runId, setRunId] = useState<number | null>(null);
@@ -240,20 +238,14 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
     });
   }, [messages]);
 
-  // Virtualizers for efficient, smooth scrolling of potentially very long outputs
-  const rowVirtualizer = useVirtualizer({
-    count: displayableMessages.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: () => 150, // fallback estimate; dynamically measured afterwards
-    overscan: 5,
-  });
-
-  const fullscreenRowVirtualizer = useVirtualizer({
-    count: displayableMessages.length,
-    getScrollElement: () => fullscreenScrollRef.current,
-    estimateSize: () => 150,
-    overscan: 5,
-  });
+  // Helper to scroll to bottom
+  const scrollToBottom = useCallback((ref: React.RefObject<VirtuosoHandle>, behavior: 'auto' | 'smooth' = 'smooth') => {
+    ref.current?.scrollToIndex({
+      index: 'LAST',
+      align: 'end',
+      behavior
+    });
+  }, []);
 
   useEffect(() => {
     // Clean up listeners on unmount
@@ -264,32 +256,6 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       }
     };
   }, []);
-
-  // Check if user is at the very bottom of the scrollable container
-  const isAtBottom = () => {
-    const container = isFullscreenModalOpen ? fullscreenScrollRef.current : scrollContainerRef.current;
-    if (container) {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      return distanceFromBottom < 1;
-    }
-    return true;
-  };
-
-  useEffect(() => {
-    if (displayableMessages.length === 0) return;
-
-    // Auto-scroll only if the user has not manually scrolled OR they are still at the bottom
-    const shouldAutoScroll = !hasUserScrolled || isAtBottom();
-
-    if (shouldAutoScroll) {
-      if (isFullscreenModalOpen) {
-        fullscreenRowVirtualizer.scrollToIndex(displayableMessages.length - 1, { align: "end", behavior: "smooth" });
-      } else {
-        rowVirtualizer.scrollToIndex(displayableMessages.length - 1, { align: "end", behavior: "smooth" });
-      }
-    }
-  }, [displayableMessages.length, hasUserScrolled, isFullscreenModalOpen, rowVirtualizer, fullscreenRowVirtualizer]);
 
   // Update elapsed time while running
   useEffect(() => {
@@ -804,71 +770,59 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
         {/* Scrollable Output Display */}
         <div className="flex-1 overflow-hidden">
           <div className="w-full max-w-5xl mx-auto h-full">
-            <div 
-              ref={scrollContainerRef}
-              className="h-full overflow-y-auto p-6 space-y-8"
-              onScroll={() => {
-                // Mark that user has scrolled manually
-                if (!hasUserScrolled) {
-                  setHasUserScrolled(true);
-                }
-                
-                // If user scrolls back to bottom, re-enable auto-scroll
-                if (isAtBottom()) {
-                  setHasUserScrolled(false);
-                }
-              }}
-            >
-              <div ref={messagesContainerRef}>
-              {messages.length === 0 && !isRunning && (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <Terminal className="h-16 w-16 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">Ready to Execute</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Enter a task to run the agent
-                  </p>
-                </div>
-              )}
-
-              {isRunning && messages.length === 0 && (
-                <div className="flex items-center justify-center h-full">
-                  <div className="flex items-center gap-3">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                    <span className="text-sm text-muted-foreground">Initializing agent...</span>
-                  </div>
-                </div>
-              )}
-
-              <div
-                className="relative w-full"
-                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-              >
-                <AnimatePresence>
-                  {rowVirtualizer.getVirtualItems().map((virtualItem) => {
-                    const message = displayableMessages[virtualItem.index];
-                    return (
-                      <motion.div
-                        key={virtualItem.key}
-                        data-index={virtualItem.index}
-                        ref={(el) => el && rowVirtualizer.measureElement(el)}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="absolute inset-x-4 pb-4"
-                        style={{ top: virtualItem.start }}
-                      >
-                        <ErrorBoundary>
-                          <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
-                        </ErrorBoundary>
-                      </motion.div>
-                    );
-                  })}
-                </AnimatePresence>
+            {messages.length === 0 && !isRunning ? (
+              <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                <Terminal className="h-16 w-16 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">Ready to Execute</h3>
+                <p className="text-sm text-muted-foreground">
+                  Enter a task to run the agent
+                </p>
               </div>
-              
-              <div ref={messagesEndRef} />
+            ) : isRunning && messages.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <span className="text-sm text-muted-foreground">Initializing agent...</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <Virtuoso
+                ref={virtuosoRef}
+                data={displayableMessages}
+                className="h-full"
+                style={{ padding: '1.5rem' }}
+
+                // Auto-scroll during streaming
+                followOutput={(isAtBottom) => {
+                  if (!isAtBottom) return false;
+                  return isRunning ? 'auto' : 'smooth';
+                }}
+
+                // Track bottom state
+                atBottomStateChange={setAtBottom}
+                atBottomThreshold={100}
+
+                // Start at bottom
+                initialTopMostItemIndex={displayableMessages.length > 0 ? displayableMessages.length - 1 : 0}
+
+                // Stable keys
+                computeItemKey={(index, message) => `msg-${index}-${message.type}`}
+
+                // Render each message
+                itemContent={(index, message) => (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="pb-4"
+                  >
+                    <ErrorBoundary>
+                      <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                    </ErrorBoundary>
+                  </motion.div>
+                )}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -945,70 +899,60 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
           </div>
 
           {/* Modal Content */}
-          <div className="flex-1 overflow-hidden p-6">
-            <div 
-              ref={fullscreenScrollRef}
-              className="h-full overflow-y-auto space-y-8"
-              onScroll={() => {
-                // Mark that user has scrolled manually
-                if (!hasUserScrolled) {
-                  setHasUserScrolled(true);
-                }
-                
-                // If user scrolls back to bottom, re-enable auto-scroll
-                if (isAtBottom()) {
-                  setHasUserScrolled(false);
-                }
-              }}
-            >
-              {messages.length === 0 && !isRunning && (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  <Terminal className="h-16 w-16 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-medium mb-2">Ready to Execute</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Enter a task to run the agent
-                  </p>
-                </div>
-              )}
-
-              {isRunning && messages.length === 0 && (
-                <div className="flex items-center justify-center h-full">
-                  <div className="flex items-center gap-3">
-                    <Loader2 className="h-6 w-6 animate-spin" />
-                    <span className="text-sm text-muted-foreground">Initializing agent...</span>
-                  </div>
-                </div>
-              )}
-
-              <div
-                className="relative w-full max-w-5xl mx-auto"
-                style={{ height: `${fullscreenRowVirtualizer.getTotalSize()}px` }}
-              >
-                <AnimatePresence>
-                  {fullscreenRowVirtualizer.getVirtualItems().map((virtualItem) => {
-                    const message = displayableMessages[virtualItem.index];
-                    return (
-                      <motion.div
-                        key={virtualItem.key}
-                        data-index={virtualItem.index}
-                        ref={(el) => el && fullscreenRowVirtualizer.measureElement(el)}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="absolute inset-x-4 pb-4"
-                        style={{ top: virtualItem.start }}
-                      >
-                        <ErrorBoundary>
-                          <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
-                        </ErrorBoundary>
-                      </motion.div>
-                    );
-                  })}
-                </AnimatePresence>
+          <div className="flex-1 overflow-hidden">
+            {messages.length === 0 && !isRunning ? (
+              <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                <Terminal className="h-16 w-16 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-medium mb-2">Ready to Execute</h3>
+                <p className="text-sm text-muted-foreground">
+                  Enter a task to run the agent
+                </p>
               </div>
-              
-              <div ref={fullscreenMessagesEndRef} />
-            </div>
+            ) : isRunning && messages.length === 0 ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="flex items-center gap-3">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  <span className="text-sm text-muted-foreground">Initializing agent...</span>
+                </div>
+              </div>
+            ) : (
+              <Virtuoso
+                ref={fullscreenVirtuosoRef}
+                data={displayableMessages}
+                className="h-full"
+                style={{ padding: '1.5rem' }}
+
+                // Auto-scroll during streaming
+                followOutput={(isAtBottom) => {
+                  if (!isAtBottom) return false;
+                  return isRunning ? 'auto' : 'smooth';
+                }}
+
+                // Track bottom state
+                atBottomStateChange={setAtBottom}
+                atBottomThreshold={100}
+
+                // Start at bottom
+                initialTopMostItemIndex={displayableMessages.length > 0 ? displayableMessages.length - 1 : 0}
+
+                // Stable keys
+                computeItemKey={(index, message) => `fullscreen-msg-${index}-${message.type}`}
+
+                // Render each message
+                itemContent={(index, message) => (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="pb-4 max-w-5xl mx-auto"
+                  >
+                    <ErrorBoundary>
+                      <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                    </ErrorBoundary>
+                  </motion.div>
+                )}
+              />
+            )}
           </div>
         </div>
       )}
