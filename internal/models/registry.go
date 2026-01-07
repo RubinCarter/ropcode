@@ -9,6 +9,7 @@ import (
 )
 
 // Registry manages model configurations
+// Builtin models are returned directly from code, user-defined models are stored in database
 type Registry struct {
 	db *database.Database
 }
@@ -18,56 +19,173 @@ func NewRegistry(db *database.Database) *Registry {
 	return &Registry{db: db}
 }
 
-// Initialize ensures all builtin models are in the database
-// This should be called at application startup
+// Initialize is called at application startup
 func (r *Registry) Initialize() error {
-	builtins := BuiltinModels()
-
-	for _, builtin := range builtins {
-		exists, err := r.db.ModelConfigExists(builtin.ModelID)
-		if err != nil {
-			return fmt.Errorf("failed to check model existence: %w", err)
-		}
-
-		if !exists {
-			// Generate a UUID for the builtin model
-			builtin.ID = uuid.New().String()
-			if err := r.db.SaveModelConfig(builtin); err != nil {
-				return fmt.Errorf("failed to save builtin model %s: %w", builtin.ModelID, err)
-			}
-		}
-	}
-
 	return nil
 }
 
 // GetAllModels returns all model configs (builtin + user-defined)
+// The is_default flag is updated based on user settings
 func (r *Registry) GetAllModels() ([]*database.ModelConfig, error) {
-	return r.db.GetAllModelConfigs()
+	// Get user's default model choices per provider
+	defaultModels := r.getDefaultModelChoices()
+
+	// Copy builtin models and update is_default based on user settings
+	var result []*database.ModelConfig
+	for _, m := range BuiltinModels() {
+		// Create a copy to avoid modifying the original
+		model := *m
+		// Check if user has set a custom default for this provider
+		if customDefault, ok := defaultModels[model.ProviderID]; ok {
+			model.IsDefault = (model.ModelID == customDefault)
+		}
+		result = append(result, &model)
+	}
+
+	// Get user-defined models from database
+	userModels, err := r.db.GetAllModelConfigs()
+	if err != nil {
+		return result, nil // Return builtins even if DB fails
+	}
+
+	// Update is_default for user models too
+	for _, m := range userModels {
+		if customDefault, ok := defaultModels[m.ProviderID]; ok {
+			m.IsDefault = (m.ModelID == customDefault)
+		}
+		result = append(result, m)
+	}
+
+	return result, nil
+}
+
+// getDefaultModelChoices returns a map of provider_id -> default model_id from settings
+func (r *Registry) getDefaultModelChoices() map[string]string {
+	defaults := make(map[string]string)
+	providers := []string{"claude", "codex", "gemini"}
+	for _, p := range providers {
+		if val, err := r.db.GetSetting(defaultModelSettingKey(p)); err == nil && val != "" {
+			defaults[p] = val
+		}
+	}
+	return defaults
 }
 
 // GetEnabledModels returns only enabled model configs
 func (r *Registry) GetEnabledModels() ([]*database.ModelConfig, error) {
-	return r.db.GetEnabledModelConfigs()
+	// Get user's default model choices per provider
+	defaultModels := r.getDefaultModelChoices()
+	var result []*database.ModelConfig
+
+	// Add enabled builtin models
+	for _, m := range BuiltinModels() {
+		if m.IsEnabled {
+			model := *m
+			if customDefault, ok := defaultModels[model.ProviderID]; ok {
+				model.IsDefault = (model.ModelID == customDefault)
+			}
+			result = append(result, &model)
+		}
+	}
+
+	// Add enabled user-defined models from database
+	userModels, err := r.db.GetEnabledModelConfigs()
+	if err != nil {
+		return result, nil // Return builtins even if DB fails
+	}
+
+	for _, m := range userModels {
+		if customDefault, ok := defaultModels[m.ProviderID]; ok {
+			m.IsDefault = (m.ModelID == customDefault)
+		}
+		result = append(result, m)
+	}
+
+	return result, nil
 }
 
 // GetModelsByProvider returns all models for a specific provider
 func (r *Registry) GetModelsByProvider(providerID string) ([]*database.ModelConfig, error) {
-	return r.db.GetModelConfigsByProvider(providerID)
+	// Get user's default model choice for this provider
+	customDefault, _ := r.db.GetSetting(defaultModelSettingKey(providerID))
+	var result []*database.ModelConfig
+
+	// Add builtin models for provider
+	for _, m := range BuiltinModels() {
+		if m.ProviderID == providerID {
+			model := *m
+			if customDefault != "" {
+				model.IsDefault = (model.ModelID == customDefault)
+			}
+			result = append(result, &model)
+		}
+	}
+
+	// Add user-defined models for provider from database
+	userModels, err := r.db.GetModelConfigsByProvider(providerID)
+	if err != nil {
+		return result, nil // Return builtins even if DB fails
+	}
+
+	for _, m := range userModels {
+		if customDefault != "" {
+			m.IsDefault = (m.ModelID == customDefault)
+		}
+		result = append(result, m)
+	}
+
+	return result, nil
 }
 
 // GetModel returns a model config by ID
+// For builtin models, ID is the model_id; for user models, ID is the UUID
 func (r *Registry) GetModel(id string) (*database.ModelConfig, error) {
+	// Check builtin models first (use model_id as lookup)
+	if builtin := GetBuiltinModel(id); builtin != nil {
+		return builtin, nil
+	}
+
+	// Check database for user-defined model
 	return r.db.GetModelConfig(id)
 }
 
 // GetModelByModelID returns a model config by model_id
 func (r *Registry) GetModelByModelID(modelID string) (*database.ModelConfig, error) {
+	// Check builtin models first
+	if builtin := GetBuiltinModel(modelID); builtin != nil {
+		return builtin, nil
+	}
+
+	// Check database for user-defined model
 	return r.db.GetModelConfigByModelID(modelID)
+}
+
+// defaultModelSettingKey returns the settings key for storing a provider's default model
+func defaultModelSettingKey(providerID string) string {
+	return "default_model_" + providerID
 }
 
 // GetDefaultModel returns the default model for a provider
 func (r *Registry) GetDefaultModel(providerID string) (*database.ModelConfig, error) {
+	// First check if user has set a custom default via settings
+	settingKey := defaultModelSettingKey(providerID)
+	customDefault, err := r.db.GetSetting(settingKey)
+	if err == nil && customDefault != "" {
+		// Try to find the model by model_id
+		model, err := r.GetModelByModelID(customDefault)
+		if err == nil && model != nil {
+			return model, nil
+		}
+	}
+
+	// Fall back to builtin default
+	for _, m := range BuiltinModels() {
+		if m.ProviderID == providerID && m.IsDefault {
+			return m, nil
+		}
+	}
+
+	// Check database for user-defined default model
 	return r.db.GetDefaultModelConfig(providerID)
 }
 
@@ -84,7 +202,12 @@ func (r *Registry) CreateModel(config *database.ModelConfig) error {
 		return fmt.Errorf("display_name is required")
 	}
 
-	// Check if model_id already exists
+	// Check if model_id conflicts with a builtin model
+	if GetBuiltinModel(config.ModelID) != nil {
+		return fmt.Errorf("model_id %s conflicts with a builtin model", config.ModelID)
+	}
+
+	// Check if model_id already exists in database
 	exists, err := r.db.ModelConfigExists(config.ModelID)
 	if err != nil {
 		return err
@@ -103,6 +226,11 @@ func (r *Registry) CreateModel(config *database.ModelConfig) error {
 
 // UpdateModel updates a user-defined model (builtin models cannot be updated)
 func (r *Registry) UpdateModel(id string, updates *database.ModelConfig) error {
+	// Check if trying to update a builtin model
+	if GetBuiltinModel(id) != nil {
+		return fmt.Errorf("cannot modify builtin model")
+	}
+
 	existing, err := r.db.GetModelConfig(id)
 	if err != nil {
 		return err
@@ -122,21 +250,50 @@ func (r *Registry) UpdateModel(id string, updates *database.ModelConfig) error {
 
 // DeleteModel deletes a user-defined model (builtin models cannot be deleted)
 func (r *Registry) DeleteModel(id string) error {
+	// Check if trying to delete a builtin model
+	if GetBuiltinModel(id) != nil {
+		return fmt.Errorf("cannot delete builtin model")
+	}
+
 	return r.db.DeleteModelConfig(id)
 }
 
 // SetModelEnabled enables or disables a model
+// For builtin models, this is a no-op (they are always enabled)
 func (r *Registry) SetModelEnabled(id string, enabled bool) error {
+	// Builtin models cannot have their enabled state changed
+	if GetBuiltinModel(id) != nil {
+		return fmt.Errorf("cannot change enabled state of builtin model")
+	}
+
 	return r.db.SetModelConfigEnabled(id, enabled)
 }
 
 // SetDefaultModel sets a model as the default for its provider
+// Uses settings storage for both builtin and user-defined models
 func (r *Registry) SetDefaultModel(id string) error {
-	return r.db.SetModelConfigDefault(id)
+	// Find the model to get its provider ID
+	model, err := r.GetModelByModelID(id)
+	if err != nil {
+		return fmt.Errorf("model not found: %s", id)
+	}
+	if model == nil {
+		return fmt.Errorf("model not found: %s", id)
+	}
+
+	// Save the default model choice in settings
+	settingKey := defaultModelSettingKey(model.ProviderID)
+	return r.db.SaveSetting(settingKey, model.ModelID)
 }
 
 // GetThinkingLevels returns the thinking levels for a model
 func (r *Registry) GetThinkingLevels(modelID string) ([]database.ThinkingLevel, error) {
+	// Check builtin models first
+	if builtin := GetBuiltinModel(modelID); builtin != nil {
+		return builtin.ThinkingLevels, nil
+	}
+
+	// Check database for user-defined model
 	config, err := r.db.GetModelConfigByModelID(modelID)
 	if err != nil {
 		return nil, err

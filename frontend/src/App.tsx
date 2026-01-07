@@ -61,6 +61,13 @@ function AppContent() {
   // Initialize analytics lifecycle tracking
   useAppLifecycle();
 
+  // Initialize global provider API configs
+  useEffect(() => {
+    import('@/stores/providerApiStore').then(({ useProviderApiStore }) => {
+      useProviderApiStore.getState().loadConfigs();
+    });
+  }, []);
+
   // Note: currentProjectPath is now managed by ContainerContext, used directly in CustomTitlebar
 
   // Listen for sidebar state changes

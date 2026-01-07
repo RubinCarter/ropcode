@@ -69,10 +69,14 @@ export namespace main {
 export namespace database {
   export interface ProviderApiConfig {
     id?: string;
-    provider_name: string;
-    api_key?: string;
+    name: string;
+    provider_id: string;
     base_url?: string;
-    project_path?: string;
+    auth_token?: string;
+    is_default: boolean;
+    is_builtin?: boolean;
+    created_at?: string;
+    updated_at?: string;
   }
   // ProviderInfo stores provider configuration for a project
   export interface ProviderInfo {

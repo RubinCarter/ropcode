@@ -26,6 +26,7 @@ import { SkillPicker } from "./SkillPicker";
 import { ImagePreview } from "./ImagePreview";
 import { ProviderApiQuickSelector } from "./ProviderApiQuickSelector";
 import { api, type FileEntry, type SlashCommand, type Skill, type ModelConfig, type ThinkingLevel } from "@/lib/api";
+import { useProviderApiStore } from "@/stores/providerApiStore";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
@@ -383,39 +384,39 @@ const CODEX_MODELS: Model[] = [
 
 const GEMINI_MODELS: Model[] = [
   {
-    id: "auto",
-    name: "Auto",
-    description: "Let the system automatically choose the best model",
-    icon: <Sparkles className="h-3.5 w-3.5" />,
-    shortName: "A",
-    color: "text-muted-foreground",
+    id: "gemini-3-pro",
+    name: "Gemini 3 Pro",
+    description: "Latest flagship model for complex tasks",
+    icon: <Brain className="h-3.5 w-3.5" />,
+    shortName: "3 Pro",
+    color: "text-primary",
+    provider: "gemini"
+  },
+  {
+    id: "gemini-3-flash",
+    name: "Gemini 3 Flash",
+    description: "Fast and capable latest generation model",
+    icon: <Zap className="h-3.5 w-3.5" />,
+    shortName: "3 Flash",
+    color: "text-blue-500",
     provider: "gemini"
   },
   {
     id: "gemini-2.5-pro",
     name: "Gemini 2.5 Pro",
-    description: "For complex tasks requiring deep reasoning and creativity",
+    description: "For complex tasks requiring deep reasoning",
     icon: <Brain className="h-3.5 w-3.5" />,
-    shortName: "Pro",
-    color: "text-primary",
+    shortName: "2.5 Pro",
+    color: "text-primary/80",
     provider: "gemini"
   },
   {
     id: "gemini-2.5-flash",
     name: "Gemini 2.5 Flash",
-    description: "For tasks requiring a balance of speed and reasoning",
+    description: "Balance of speed and reasoning",
     icon: <Zap className="h-3.5 w-3.5" />,
-    shortName: "Flash",
-    color: "text-blue-500",
-    provider: "gemini"
-  },
-  {
-    id: "gemini-2.5-flash-lite",
-    name: "Gemini 2.5 Flash Lite",
-    description: "For simple, quick tasks",
-    icon: <Lightbulb className="h-3.5 w-3.5" />,
-    shortName: "Lite",
-    color: "text-green-500",
+    shortName: "2.5 Flash",
+    color: "text-blue-400",
     provider: "gemini"
   }
 ];
@@ -498,6 +499,9 @@ const FloatingPromptInputInner = (
   );
   const [selectedProviderApiId, setSelectedProviderApiId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // Global provider API config store
+  const { isLoaded: isProviderApiConfigLoaded, loadProjectConfig, getSelectedConfigId, setSelectedConfigId } = useProviderApiStore();
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [thinkingModePickerOpen, setThinkingModePickerOpen] = useState(false);
@@ -682,33 +686,24 @@ const FloatingPromptInputInner = (
   }, []);
 
   // Load provider API config on mount and when projectPath/provider changes
-  // This ensures providerApiId is available before any message is sent
+  // Uses global store for caching and faster access
   useEffect(() => {
-    if (!projectPath) return;
+    if (!projectPath || !isProviderApiConfigLoaded) return;
 
-    const loadProviderApiConfig = async () => {
-      try {
-        // First try to get project-specific config
-        const config = await api.getProjectProviderApiConfig(projectPath, selectedProvider);
-        if (config && config.id) {
-          setSelectedProviderApiId(config.id);
-          return;
-        }
+    // Check if we already have a cached config for this project+provider
+    const cachedConfigId = getSelectedConfigId(projectPath, selectedProvider);
+    if (cachedConfigId) {
+      setSelectedProviderApiId(cachedConfigId);
+      return;
+    }
 
-        // Fallback to default config for this provider
-        const allConfigs = await api.listProviderApiConfigs();
-        const providerConfigs = allConfigs.filter(c => c.provider_id === selectedProvider);
-        const defaultConfig = providerConfigs.find(c => c.is_default);
-        if (defaultConfig) {
-          setSelectedProviderApiId(defaultConfig.id);
-        }
-      } catch (error) {
-        console.error('Failed to load provider API config:', error);
+    // Load from backend and cache in store
+    loadProjectConfig(projectPath, selectedProvider).then((configId) => {
+      if (configId) {
+        setSelectedProviderApiId(configId);
       }
-    };
-
-    loadProviderApiConfig();
-  }, [projectPath, selectedProvider]);
+    });
+  }, [projectPath, selectedProvider, isProviderApiConfigLoaded, getSelectedConfigId, loadProjectConfig]);
 
   // Helper: Get enabled models for a provider from API configs, with fallback to hardcoded
   const getProviderModels = useCallback((providerId: string): Model[] => {
@@ -1387,6 +1382,12 @@ const FloatingPromptInputInner = (
       return;
     }
 
+    // Block sending if provider API config is not yet loaded
+    if (!isProviderApiConfigLoaded) {
+      console.warn('[FloatingPromptInput] Provider API config not loaded yet, blocking send');
+      return;
+    }
+
     if (prompt.trim() && !disabled) {
       let finalPrompt = prompt.trim();
 
@@ -1764,7 +1765,7 @@ const FloatingPromptInputInner = (
                   >
                     <Button
                       onClick={handleSend}
-                      disabled={!prompt.trim() || disabled}
+                      disabled={!prompt.trim() || disabled || !isProviderApiConfigLoaded}
                       size="default"
                       className="min-w-[60px]"
                     >
@@ -1885,6 +1886,10 @@ const FloatingPromptInputInner = (
                     value={selectedProviderApiId}
                     onConfigChange={(configId) => {
                       setSelectedProviderApiId(configId);
+                      // Also update global store cache
+                      if (configId) {
+                        setSelectedConfigId(projectPath, selectedProvider, configId);
+                      }
                     }}
                   />
                 )}
@@ -2079,7 +2084,7 @@ const FloatingPromptInputInner = (
                     >
                       <Button
                         onClick={isLoading ? onCancel : handleSend}
-                        disabled={isLoading ? false : (!prompt.trim() || disabled)}
+                        disabled={isLoading ? false : (!prompt.trim() || disabled || !isProviderApiConfigLoaded)}
                         variant={isLoading ? "destructive" : prompt.trim() ? "default" : "ghost"}
                         size="icon"
                         className={cn(

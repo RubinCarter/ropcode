@@ -18,6 +18,7 @@ export type ClaudeAgent = claude.ClaudeAgent;
 export type ClaudeMdFile = string;
 export type ClaudeInstallation = { path: string; version?: string };
 export type ProviderSession = claude.ProviderSession;
+export type ProviderApiConfig = database.ProviderApiConfig;
 export type Action = main.Action;
 export type ActionsResult = main.ActionsResult;
 

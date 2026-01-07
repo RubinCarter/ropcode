@@ -970,11 +970,12 @@ func (d *Database) GetModelConfigByModelID(modelID string) (*ModelConfig, error)
 	return scanModelConfig(row)
 }
 
-// GetAllModelConfigs retrieves all model configs
+// GetAllModelConfigs retrieves all user-defined model configs
+// Note: Builtin models are returned directly from code, not from database
 func (d *Database) GetAllModelConfigs() ([]*ModelConfig, error) {
 	rows, err := d.db.Query(`
 		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
-		FROM model_configs ORDER BY provider_id, display_name`)
+		FROM model_configs WHERE is_builtin = 0 ORDER BY provider_id, display_name`)
 	if err != nil {
 		return nil, err
 	}
@@ -991,11 +992,12 @@ func (d *Database) GetAllModelConfigs() ([]*ModelConfig, error) {
 	return configs, rows.Err()
 }
 
-// GetModelConfigsByProvider retrieves all model configs for a provider
+// GetModelConfigsByProvider retrieves all user-defined model configs for a provider
+// Note: Builtin models are returned directly from code, not from database
 func (d *Database) GetModelConfigsByProvider(providerID string) ([]*ModelConfig, error) {
 	rows, err := d.db.Query(`
 		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
-		FROM model_configs WHERE provider_id = ? ORDER BY display_name`, providerID)
+		FROM model_configs WHERE provider_id = ? AND is_builtin = 0 ORDER BY display_name`, providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -1012,11 +1014,12 @@ func (d *Database) GetModelConfigsByProvider(providerID string) ([]*ModelConfig,
 	return configs, rows.Err()
 }
 
-// GetEnabledModelConfigs retrieves all enabled model configs
+// GetEnabledModelConfigs retrieves all enabled user-defined model configs
+// Note: Builtin models are returned directly from code, not from database
 func (d *Database) GetEnabledModelConfigs() ([]*ModelConfig, error) {
 	rows, err := d.db.Query(`
 		SELECT id, model_id, provider_id, display_name, description, is_builtin, is_enabled, is_default, thinking_levels, created_at, updated_at
-		FROM model_configs WHERE is_enabled = 1 ORDER BY provider_id, display_name`)
+		FROM model_configs WHERE is_enabled = 1 AND is_builtin = 0 ORDER BY provider_id, display_name`)
 	if err != nil {
 		return nil, err
 	}

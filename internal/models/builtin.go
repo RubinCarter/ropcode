@@ -118,10 +118,26 @@ func BuiltinModels() []*database.ModelConfig {
 
 		// Gemini models - use Claude-style prompt engineering for thinking depth
 		{
-			ModelID:     "auto",
+			ModelID:     "gemini-3-pro",
 			ProviderID:  "gemini",
-			DisplayName: "Auto",
-			Description: "Let the system automatically choose the best model",
+			DisplayName: "Gemini 3 Pro",
+			Description: "Latest flagship model for complex tasks",
+			IsBuiltin:   true,
+			IsEnabled:   true,
+			IsDefault:   false,
+			ThinkingLevels: []database.ThinkingLevel{
+				{ID: "auto", Name: "Auto", Budget: "", IsDefault: true},
+				{ID: "think", Name: "Think", Budget: "think", IsDefault: false},
+				{ID: "think_hard", Name: "Think Hard", Budget: "think hard", IsDefault: false},
+				{ID: "think_harder", Name: "Think Harder", Budget: "think harder", IsDefault: false},
+				{ID: "ultrathink", Name: "Ultrathink", Budget: "ultrathink", IsDefault: false},
+			},
+		},
+		{
+			ModelID:     "gemini-3-flash",
+			ProviderID:  "gemini",
+			DisplayName: "Gemini 3 Flash",
+			Description: "Fast and capable latest generation model",
 			IsBuiltin:   true,
 			IsEnabled:   true,
 			IsDefault:   true, // Default for Gemini
@@ -137,7 +153,7 @@ func BuiltinModels() []*database.ModelConfig {
 			ModelID:     "gemini-2.5-pro",
 			ProviderID:  "gemini",
 			DisplayName: "Gemini 2.5 Pro",
-			Description: "For complex tasks requiring deep reasoning and creativity",
+			Description: "For complex tasks requiring deep reasoning",
 			IsBuiltin:   true,
 			IsEnabled:   true,
 			IsDefault:   false,
@@ -153,7 +169,7 @@ func BuiltinModels() []*database.ModelConfig {
 			ModelID:     "gemini-2.5-flash",
 			ProviderID:  "gemini",
 			DisplayName: "Gemini 2.5 Flash",
-			Description: "For tasks requiring a balance of speed and reasoning",
+			Description: "Balance of speed and reasoning",
 			IsBuiltin:   true,
 			IsEnabled:   true,
 			IsDefault:   false,
@@ -163,20 +179,6 @@ func BuiltinModels() []*database.ModelConfig {
 				{ID: "think_hard", Name: "Think Hard", Budget: "think hard", IsDefault: false},
 				{ID: "think_harder", Name: "Think Harder", Budget: "think harder", IsDefault: false},
 				{ID: "ultrathink", Name: "Ultrathink", Budget: "ultrathink", IsDefault: false},
-			},
-		},
-		{
-			ModelID:     "gemini-2.5-flash-lite",
-			ProviderID:  "gemini",
-			DisplayName: "Gemini 2.5 Flash Lite",
-			Description: "For simple, quick tasks",
-			IsBuiltin:   true,
-			IsEnabled:   true,
-			IsDefault:   false,
-			ThinkingLevels: []database.ThinkingLevel{
-				{ID: "auto", Name: "Auto", Budget: "", IsDefault: true},
-				{ID: "think", Name: "Think", Budget: "think", IsDefault: false},
-				{ID: "think_hard", Name: "Think Hard", Budget: "think hard", IsDefault: false},
 			},
 		},
 	}
