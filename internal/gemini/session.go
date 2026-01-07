@@ -242,8 +242,25 @@ func (s *Session) transformToUnified(line string) string {
 	case "message":
 		// Message events
 		role, _ := parsed["role"].(string)
-		content, _ := parsed["content"].(string)
 		isDelta, _ := parsed["delta"].(bool)
+
+		// Content can be a string or an array of content parts
+		var textContent string
+		switch c := parsed["content"].(type) {
+		case string:
+			textContent = c
+		case []interface{}:
+			// Handle array of content parts (common in Gemini responses)
+			for _, part := range c {
+				if partMap, ok := part.(map[string]interface{}); ok {
+					if text, ok := partMap["text"].(string); ok {
+						textContent += text
+					}
+				}
+			}
+		}
+
+		log.Printf("[Gemini Session] Message event: role=%s, content_length=%d, is_delta=%v", role, len(textContent), isDelta)
 
 		if role == "user" {
 			unified := map[string]interface{}{
@@ -253,7 +270,7 @@ func (s *Session) transformToUnified(line string) string {
 				"message": map[string]interface{}{
 					"role": "user",
 					"content": []map[string]interface{}{
-						{"type": "text", "text": content},
+						{"type": "text", "text": textContent},
 					},
 				},
 			}
@@ -261,18 +278,21 @@ func (s *Session) transformToUnified(line string) string {
 			return string(result)
 		} else if role == "assistant" {
 			// Skip empty messages
-			if content == "" {
+			if textContent == "" {
+				log.Printf("[Gemini Session] Skipping empty assistant message")
 				return ""
 			}
+			// Note: Set is_delta to false so message is added directly without buffering
+			// This ensures Gemini responses display immediately
 			unified := map[string]interface{}{
 				"cwd":      s.Config.ProjectPath,
 				"provider": "gemini",
 				"type":     "assistant",
-				"is_delta": isDelta,
+				"is_delta": false,
 				"message": map[string]interface{}{
 					"role": "assistant",
 					"content": []map[string]interface{}{
-						{"type": "text", "text": content},
+						{"type": "text", "text": textContent},
 					},
 				},
 			}

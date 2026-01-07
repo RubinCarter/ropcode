@@ -384,30 +384,39 @@ const CODEX_MODELS: Model[] = [
 
 const GEMINI_MODELS: Model[] = [
   {
+    id: "gemini-3-pro",
+    name: "Gemini 3 Pro",
+    description: "Latest flagship model for complex tasks",
+    icon: <Brain className="h-3.5 w-3.5" />,
+    shortName: "3 Pro",
+    color: "text-primary",
+    provider: "gemini"
+  },
+  {
+    id: "gemini-3-flash",
+    name: "Gemini 3 Flash",
+    description: "Fast and capable latest generation model",
+    icon: <Zap className="h-3.5 w-3.5" />,
+    shortName: "3 Flash",
+    color: "text-blue-500",
+    provider: "gemini"
+  },
+  {
     id: "gemini-2.5-pro",
     name: "Gemini 2.5 Pro",
-    description: "For complex tasks requiring deep reasoning and creativity",
+    description: "For complex tasks requiring deep reasoning",
     icon: <Brain className="h-3.5 w-3.5" />,
-    shortName: "Pro",
-    color: "text-primary",
+    shortName: "2.5 Pro",
+    color: "text-primary/80",
     provider: "gemini"
   },
   {
     id: "gemini-2.5-flash",
     name: "Gemini 2.5 Flash",
-    description: "For tasks requiring a balance of speed and reasoning",
+    description: "Balance of speed and reasoning",
     icon: <Zap className="h-3.5 w-3.5" />,
-    shortName: "Flash",
-    color: "text-blue-500",
-    provider: "gemini"
-  },
-  {
-    id: "gemini-2.5-flash-lite",
-    name: "Gemini 2.5 Flash Lite",
-    description: "For simple, quick tasks",
-    icon: <Lightbulb className="h-3.5 w-3.5" />,
-    shortName: "Lite",
-    color: "text-green-500",
+    shortName: "2.5 Flash",
+    color: "text-blue-400",
     provider: "gemini"
   }
 ];
