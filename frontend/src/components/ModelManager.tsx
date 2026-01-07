@@ -120,9 +120,14 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
     }
   };
 
-  const handleToggleEnabled = async (id: string, currentEnabled: boolean) => {
+  const handleToggleEnabled = async (model: ModelConfig) => {
+    // Builtin models cannot be disabled
+    if (model.is_builtin) {
+      setToast?.({ message: "Cannot disable built-in models", type: "error" });
+      return;
+    }
     try {
-      await api.setModelConfigEnabled(id, !currentEnabled);
+      await api.setModelConfigEnabled(model.id, !model.is_enabled);
       loadModels();
     } catch (err) {
       console.error("Failed to toggle model:", err);
@@ -130,9 +135,10 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
     }
   };
 
-  const handleSetDefault = async (id: string) => {
+  const handleSetDefault = async (model: ModelConfig) => {
     try {
-      await api.setModelConfigDefault(id);
+      // Use model_id for setting default (works for both builtin and user-defined)
+      await api.setModelConfigDefault(model.model_id);
       setToast?.({ message: "Default model updated", type: "success" });
       loadModels();
     } catch (err) {
@@ -400,7 +406,7 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
                         <div className="divide-y">
                           {providerModels.map((model) => (
                             <div
-                              key={model.id}
+                              key={model.id || model.model_id}
                               className="p-4 flex items-center justify-between hover:bg-muted/20"
                             >
                               <div className="flex-1">
@@ -439,28 +445,30 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
                               </div>
 
                               <div className="flex items-center gap-2">
-                                {/* Enable/Disable */}
-                                <button
-                                  onClick={() => handleToggleEnabled(model.id, model.is_enabled)}
-                                  className={cn(
-                                    "p-1.5 rounded hover:bg-muted",
-                                    model.is_enabled
-                                      ? "text-foreground"
-                                      : "text-muted-foreground"
-                                  )}
-                                  title={model.is_enabled ? "Disable" : "Enable"}
-                                >
-                                  {model.is_enabled ? (
-                                    <Eye className="h-4 w-4" />
-                                  ) : (
-                                    <EyeOff className="h-4 w-4" />
-                                  )}
-                                </button>
+                                {/* Enable/Disable - only for non-builtin models */}
+                                {!model.is_builtin && (
+                                  <button
+                                    onClick={() => handleToggleEnabled(model)}
+                                    className={cn(
+                                      "p-1.5 rounded hover:bg-muted",
+                                      model.is_enabled
+                                        ? "text-foreground"
+                                        : "text-muted-foreground"
+                                    )}
+                                    title={model.is_enabled ? "Disable" : "Enable"}
+                                  >
+                                    {model.is_enabled ? (
+                                      <Eye className="h-4 w-4" />
+                                    ) : (
+                                      <EyeOff className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                )}
 
                                 {/* Set Default */}
                                 {!model.is_default && model.is_enabled && (
                                   <button
-                                    onClick={() => handleSetDefault(model.id)}
+                                    onClick={() => handleSetDefault(model)}
                                     className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-amber-500"
                                     title="Set as default"
                                   >
