@@ -373,6 +373,24 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     };
   }, [sessionState.effectiveSession, sessionState.projectPath, sessionState.claudeSessionId, messagesState.messages.length]);
 
+  // Force Virtuoso to re-measure when page becomes visible
+  // This fixes the issue where the chat area appears blank after switching apps
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Use requestAnimationFrame to ensure the DOM is ready
+        requestAnimationFrame(() => {
+          // Trigger a re-render by scrolling to current position
+          // This forces Virtuoso to re-measure its container
+          virtuosoRef.current?.scrollBy({ top: 0 });
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   // Listen for element selection from WebViewer
   useEffect(() => {
     const handleElementSelected = (event: CustomEvent) => {
