@@ -2563,20 +2563,21 @@ export const ThinkingWidget: React.FC<{
 
 /**
  * Widget for WebFetch tool - displays URL fetching with optional prompts
+ * Collapsible by default to prevent scroll jitter from dynamic content height
  */
-export const WebFetchWidget: React.FC<{ 
+export const WebFetchWidget: React.FC<{
   url: string;
   prompt?: string;
   result?: any;
 }> = ({ url, prompt, result }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showFullContent, setShowFullContent] = useState(false);
-  
+
   // Extract result content if available
   let fetchedContent = '';
   let isLoading = !result;
   let hasError = false;
-  
+
   if (result) {
     if (typeof result.content === 'string') {
       fetchedContent = result.content;
@@ -2591,20 +2592,20 @@ export const WebFetchWidget: React.FC<{
         fetchedContent = JSON.stringify(result.content, null, 2);
       }
     }
-    
+
     // Check if there's an error
-    hasError = result.is_error || 
+    hasError = result.is_error ||
                fetchedContent.toLowerCase().includes('error') ||
                fetchedContent.toLowerCase().includes('failed');
   }
-  
+
   // Truncate content for preview
   const maxPreviewLength = 500;
   const isTruncated = fetchedContent.length > maxPreviewLength;
   const previewContent = isTruncated && !showFullContent
     ? fetchedContent.substring(0, maxPreviewLength) + '...'
     : fetchedContent;
-  
+
   // Extract domain from URL for display
   const getDomain = (urlString: string) => {
     try {
@@ -2614,68 +2615,84 @@ export const WebFetchWidget: React.FC<{
       return urlString;
     }
   };
-  
-  const handleUrlClick = async () => {
+
+  const handleUrlClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     try {
       await open(url);
     } catch (error) {
       console.error('Failed to open URL:', error);
     }
   };
-  
+
+  // Content length indicator
+  const contentLength = fetchedContent.length;
+  const contentSizeLabel = contentLength > 1000
+    ? `${Math.round(contentLength / 1000)}k chars`
+    : contentLength > 0
+    ? `${contentLength} chars`
+    : '';
+
   return (
-    <div className="flex flex-col gap-2">
-      {/* Header with URL and optional prompt */}
-      <div className="space-y-2">
-        {/* URL Display */}
-        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/5 border border-purple-500/10">
-          <Globe className="h-4 w-4 text-purple-500/70" />
-          <span className="text-xs font-medium uppercase tracking-wider text-purple-600/70 dark:text-purple-400/70">Fetching</span>
-          <button
+    <div className="rounded-lg border border-purple-500/20 bg-purple-500/5 overflow-hidden">
+      {/* Clickable Header */}
+      <button
+        onClick={() => !isLoading && setIsExpanded(!isExpanded)}
+        disabled={isLoading}
+        className="w-full px-3 py-2 flex items-center justify-between hover:bg-purple-500/10 transition-colors disabled:cursor-default"
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Globe className="h-4 w-4 text-purple-500/70 flex-shrink-0" />
+          <span className="text-xs font-medium uppercase tracking-wider text-purple-600/70 dark:text-purple-400/70 flex-shrink-0">
+            Fetching
+          </span>
+          <span
             onClick={handleUrlClick}
-            className="text-sm text-foreground/80 hover:text-foreground flex-1 truncate text-left hover:underline decoration-purple-500/50"
+            className="text-sm text-muted-foreground/80 truncate hover:underline decoration-purple-500/50 cursor-pointer"
           >
-            {url}
-          </button>
+            {getDomain(url)}
+          </span>
         </div>
-        
-        {/* Prompt Display */}
-        {prompt && (
-          <div className="ml-6 space-y-1">
-            <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronRight className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-90")} />
-              <Info className="h-3 w-3" />
-              <span>Analysis Prompt</span>
-            </button>
-            
-            {isExpanded && (
-              <div className="rounded-lg border bg-muted/30 p-3 ml-4">
-                <p className="text-sm text-foreground/90">
-                  {prompt}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-      
-      {/* Results */}
-      {isLoading ? (
-        <div className="rounded-lg border bg-background/50 backdrop-blur-sm overflow-hidden">
-          <div className="px-3 py-2 flex items-center gap-2 text-muted-foreground">
+        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          {isLoading ? (
             <div className="animate-pulse flex items-center gap-1">
               <div className="h-1 w-1 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
               <div className="h-1 w-1 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
               <div className="h-1 w-1 bg-purple-500 rounded-full animate-bounce"></div>
             </div>
-            <span className="text-sm">Fetching content from {getDomain(url)}...</span>
-          </div>
+          ) : hasError ? (
+            <span className="text-xs text-destructive">Error</span>
+          ) : contentSizeLabel ? (
+            <span className="text-xs text-muted-foreground">{contentSizeLabel}</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">No content</span>
+          )}
+          {!isLoading && (
+            <ChevronRight className={cn(
+              "h-4 w-4 text-purple-500/50 transition-transform",
+              isExpanded && "rotate-90"
+            )} />
+          )}
         </div>
-      ) : fetchedContent ? (
-        <div className="rounded-lg border bg-background/50 backdrop-blur-sm overflow-hidden">
+      </button>
+
+      {/* Expandable Content */}
+      {isExpanded && !isLoading && (
+        <div className="border-t border-purple-500/20">
+          {/* Prompt Display */}
+          {prompt && (
+            <div className="px-3 py-2 border-b border-purple-500/10 bg-purple-500/5">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                <Info className="h-3 w-3" />
+                <span>Analysis Prompt</span>
+              </div>
+              <p className="text-sm text-foreground/90 ml-4">
+                {prompt}
+              </p>
+            </div>
+          )}
+
+          {/* Fetched Content */}
           {hasError ? (
             <div className="px-3 py-2">
               <div className="flex items-center gap-2 text-destructive">
@@ -2686,7 +2703,7 @@ export const WebFetchWidget: React.FC<{
                 {fetchedContent}
               </pre>
             </div>
-          ) : (
+          ) : fetchedContent ? (
             <div className="p-3 space-y-2">
               {/* Content Header */}
               <div className="flex items-center justify-between">
@@ -2713,7 +2730,7 @@ export const WebFetchWidget: React.FC<{
                   </button>
                 )}
               </div>
-              
+
               {/* Fetched Content */}
               <div className="relative">
                 <div className={cn(
@@ -2729,16 +2746,14 @@ export const WebFetchWidget: React.FC<{
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      ) : (
-        <div className="rounded-lg border bg-background/50 backdrop-blur-sm overflow-hidden">
-          <div className="px-3 py-2">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Info className="h-4 w-4" />
-              <span className="text-sm">No content returned</span>
+          ) : (
+            <div className="px-3 py-2">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Info className="h-4 w-4" />
+                <span className="text-sm">No content returned</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>
