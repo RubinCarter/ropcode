@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { StreamMessage } from '../StreamMessage';
@@ -23,6 +23,44 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
 }) => {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [atBottom, setAtBottom] = useState(true);
+
+  // Force Virtuoso to re-measure when page becomes visible or window resizes
+  // This fixes the issue where the message list appears blank after fullscreen or app switching
+  useEffect(() => {
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const forceVirtuosoRemeasure = () => {
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollBy({ top: 0 });
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        forceVirtuosoRemeasure();
+      }
+    };
+
+    const handleResize = () => {
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+      resizeTimeout = setTimeout(() => {
+        forceVirtuosoRemeasure();
+      }, 150);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('resize', handleResize);
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+    };
+  }, []);
 
   // Scroll to bottom helper
   const scrollToBottom = useCallback(() => {
