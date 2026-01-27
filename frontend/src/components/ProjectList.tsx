@@ -148,6 +148,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const [removingProjects, setRemovingProjects] = useState<Set<string>>(new Set());
   const [deleteProjectDialogOpen, setDeleteProjectDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  // Local cache of workspace branch names (path -> branch name)
+  const [workspaceBranches, setWorkspaceBranches] = useState<Record<string, string>>({});
 
   // Listen SSH sync progress to show up/down in list
   useEffect(() => {
@@ -298,6 +300,35 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       }
     });
   }, [workspaceRunningStates, getWorkspaceStatus, setWorkspaceStatus]);
+
+  // Poll workspace branch names to detect git branch renames
+  useEffect(() => {
+    if (allWorkspacePaths.length === 0) return;
+
+    const fetchBranches = async () => {
+      const branches: Record<string, string> = {};
+      await Promise.all(
+        allWorkspacePaths.map(async (path) => {
+          try {
+            const branch = await api.getCurrentBranch(path);
+            if (branch) {
+              branches[path] = branch;
+            }
+          } catch {
+            // Ignore errors for individual paths
+          }
+        })
+      );
+      setWorkspaceBranches(branches);
+    };
+
+    // Initial fetch
+    fetchBranches();
+
+    // Poll every 5 seconds
+    const interval = setInterval(fetchBranches, 5000);
+    return () => clearInterval(interval);
+  }, [allWorkspacePaths]);
 
   // Determine how many projects to show
   const projectsPerPage = showAll ? 10 : 5;
@@ -727,7 +758,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                       <div className="flex-shrink-0 h-2 w-2 bg-blue-500 rounded-full border border-background" />
                                     )}
                                     <span className="truncate">
-                                      {workspace.branch || workspace.name}
+                                      {workspaceBranches[claudeProvider.path] || workspace.branch || workspace.name}
                                     </span>
                                   </div>
                                   <div className="text-xs text-muted-foreground truncate">

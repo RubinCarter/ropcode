@@ -3,7 +3,10 @@
  * 用于检测和处理 Git worktree 相关功能
  */
 
-import { api, type WorktreeInfo } from "./api";
+import { api, type main } from "./api";
+
+// Re-export WorktreeInfo type for consumers
+export type WorktreeInfo = main.WorktreeInfo;
 
 /**
  * 检测当前项目是否为 Git worktree 子分支
@@ -12,17 +15,17 @@ import { api, type WorktreeInfo } from "./api";
  */
 export async function detectWorktree(projectPath: string): Promise<WorktreeInfo> {
   try {
-    // 调用 Rust 后端获取 worktree 信息
+    // 调用 Go 后端获取 worktree 信息
     const info = await api.detectWorktree(projectPath);
     return info;
   } catch (error) {
     console.error("Failed to detect worktree:", error);
     // 返回默认值表示不是 worktree
     return {
-      currentPath: projectPath,
-      rootPath: projectPath,
-      mainBranch: "main",
-      isWorktreeChild: false,
+      current_path: projectPath,
+      root_path: projectPath,
+      main_branch: "main",
+      is_worktree: false,
     };
   }
 }
@@ -39,13 +42,13 @@ export function wrapFirstMessageWithWorktreeInstructions(
 ): string {
   return `<system_instruction>
 You are working inside Ropcode, a Mac app that lets the user run many coding agents in parallel.
-Your work should take place in the ${worktreeInfo.currentPath}, which has been set up for you to work in.
+Your work should take place in the ${worktreeInfo.current_path}, which has been set up for you to work in.
 
-Do NOT read or write files outside the workspace directory. DO NOT EVER read or write files at ${worktreeInfo.rootPath}. EVERY absolute path you use should start with ${worktreeInfo.currentPath}.
+Do NOT read or write files outside the workspace directory. DO NOT EVER read or write files at ${worktreeInfo.root_path}. EVERY absolute path you use should start with ${worktreeInfo.current_path}.
 
 Exception: you may read pasted/dragged images stored under ~/.ropcode/temp-images/ (read-only).
 
-The user has indicated their remote target for this repository is branch ${worktreeInfo.mainBranch}. Use this for actions like creating new PRs, bisecting, etc., unless explicitly told to use another branch by the user.
+The user has indicated their remote target for this repository is branch ${worktreeInfo.main_branch}. Use this for actions like creating new PRs, bisecting, etc., unless explicitly told to use another branch by the user.
 
 If the user asks you to work on several unrelated tasks in parallel, you can suggest they start new workspaces.
 </system_instruction>
@@ -72,17 +75,22 @@ export async function maybeWrapFirstMessage(
   userMessage: string,
   isFirstPrompt: boolean
 ): Promise<string> {
+  console.log('[Worktree] maybeWrapFirstMessage called:', { projectPath, isFirstPrompt });
+
   // 只在第一条消息时检查
   if (!isFirstPrompt) {
+    console.log('[Worktree] Skipping wrap: not first prompt');
     return userMessage;
   }
 
   const worktreeInfo = await detectWorktree(projectPath);
+  console.log('[Worktree] detectWorktree result:', worktreeInfo);
 
-  if (worktreeInfo.isWorktreeChild) {
+  if (worktreeInfo.is_worktree) {
     console.log('[Worktree] Wrapping first message with worktree instructions');
     return wrapFirstMessageWithWorktreeInstructions(worktreeInfo, userMessage);
   }
 
+  console.log('[Worktree] Not a worktree child, returning original message');
   return userMessage;
 }

@@ -53,7 +53,12 @@ export namespace main {
   export interface ClaudeInstallation { path: string; version: string; }
   export interface GitRepoStatus { branch: string; dirty: boolean; }
   export interface CloneRepositoryResult { success: boolean; path: string; }
-  export interface WorktreeInfo { hasWorktree: boolean; mainBranch: string; }
+  export interface WorktreeInfo {
+    current_path: string;
+    root_path: string;
+    main_branch: string;
+    is_worktree: boolean;
+  }
   export interface FileEntry { name: string; path: string; isDir: boolean; }
   export interface MCPAddResult { success: boolean; message: string; }
   export interface MCPImportResult { imported: string[]; errors: string[]; }
