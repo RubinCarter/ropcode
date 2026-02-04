@@ -6,6 +6,31 @@ import { usePtySession } from '@/hooks/usePtySession';
 import { useThemeContext } from '@/contexts/ThemeContext';
 import type { TermWrap } from '@/widgets/terminal/TermWrap';
 
+/**
+ * 将 CSS 颜色值转换为 hex 格式
+ * xterm.js 不支持 oklch 等现代颜色格式，需要转换
+ */
+function cssColorToHex(cssColor: string): string {
+  // 创建临时元素来解析颜色
+  const tempEl = document.createElement('div');
+  tempEl.style.color = cssColor;
+  document.body.appendChild(tempEl);
+  const computedColor = getComputedStyle(tempEl).color;
+  document.body.removeChild(tempEl);
+
+  // 解析 rgb/rgba 格式
+  const match = computedColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (match) {
+    const r = parseInt(match[1], 10);
+    const g = parseInt(match[2], 10);
+    const b = parseInt(match[3], 10);
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+  }
+
+  // 如果解析失败，返回原值
+  return cssColor;
+}
+
 interface XtermTerminalProps {
   sessionId: string;
   workspaceId: string;
@@ -78,75 +103,64 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   useEffect(() => {
     if (!attachedTermWrap || !containerRef.current) return;
 
-    const terminal = attachedTermWrap.getTerminal();
+    const applyTheme = () => {
+      const terminal = attachedTermWrap.getTerminal();
 
-    // 从 CSS 变量获取当前主题的背景色和前景色
-    const styles = getComputedStyle(document.documentElement);
-    const background = styles.getPropertyValue('--color-background').trim() || '#1e1e1e';
-    const foreground = styles.getPropertyValue('--color-foreground').trim() || '#d4d4d4';
+      // 从 CSS 变量获取当前主题的背景色和前景色
+      // 注意：CSS 变量使用 oklch 格式，但 xterm.js 不支持，需要转换为 hex
+      const styles = getComputedStyle(document.documentElement);
+      const rawBackground = styles.getPropertyValue('--color-background').trim() || '#1e1e1e';
+      const rawForeground = styles.getPropertyValue('--color-foreground').trim() || '#d4d4d4';
+      const background = cssColorToHex(rawBackground);
+      const foreground = cssColorToHex(rawForeground);
 
-    // 智能判断主题类型
-    let selectionBackground: string;
-    let selectionInactiveBackground: string;
-
-    if (theme === 'light') {
-      selectionBackground = 'rgba(59, 130, 246, 0.3)';
-      selectionInactiveBackground = 'rgba(59, 130, 246, 0.15)';
-    } else if (theme === 'dark') {
-      selectionBackground = 'rgba(255, 255, 255, 0.3)';
-      selectionInactiveBackground = 'rgba(255, 255, 255, 0.15)';
-    } else if (theme === 'gray') {
-      selectionBackground = 'rgba(255, 255, 255, 0.25)';
-      selectionInactiveBackground = 'rgba(255, 255, 255, 0.12)';
-    } else if (theme === 'system') {
+      // 判断是否为浅色主题（基于实际应用的 CSS 类）
       const rootClasses = document.documentElement.classList;
-      if (rootClasses.contains('theme-light')) {
+      const isLightTheme = rootClasses.contains('theme-light');
+
+      let selectionBackground: string;
+      let selectionInactiveBackground: string;
+
+      if (isLightTheme) {
         selectionBackground = 'rgba(59, 130, 246, 0.3)';
         selectionInactiveBackground = 'rgba(59, 130, 246, 0.15)';
       } else {
         selectionBackground = 'rgba(255, 255, 255, 0.25)';
         selectionInactiveBackground = 'rgba(255, 255, 255, 0.12)';
       }
-    } else {
-      // 自定义主题：根据背景色亮度智能选择
-      const oklchMatch = background.match(/oklch\(([\d.]+)/);
-      const lightness = oklchMatch ? parseFloat(oklchMatch[1]) : 0.5;
 
-      if (lightness > 0.6) {
-        selectionBackground = 'rgba(59, 130, 246, 0.3)';
-        selectionInactiveBackground = 'rgba(59, 130, 246, 0.15)';
-      } else {
-        const activeOpacity = lightness < 0.15 ? 0.3 : 0.25;
-        const inactiveOpacity = lightness < 0.15 ? 0.15 : 0.12;
-        selectionBackground = `rgba(255, 255, 255, ${activeOpacity})`;
-        selectionInactiveBackground = `rgba(255, 255, 255, ${inactiveOpacity})`;
+      try {
+        terminal.options.theme = {
+          background,
+          foreground,
+          selectionBackground,
+          selectionForeground: undefined,
+          selectionInactiveBackground,
+        };
+
+        if (containerRef.current) {
+          containerRef.current.style.backgroundColor = background;
+        }
+
+        const termEl = (terminal as any).element as HTMLElement | null;
+        if (termEl) {
+          termEl.style.backgroundColor = background;
+          const viewport = termEl.querySelector('.xterm-viewport') as HTMLElement | null;
+          if (viewport) viewport.style.backgroundColor = background;
+        }
+
+        if (terminal.rows > 0) {
+          terminal.refresh(0, terminal.rows - 1);
+        }
+      } catch (err) {
+        // Theme application may fail
       }
-    }
+    };
 
-    try {
-      terminal.options.theme = {
-        background,
-        foreground,
-        selectionBackground,
-        selectionForeground: undefined,
-        selectionInactiveBackground,
-      };
-
-      containerRef.current.style.backgroundColor = background;
-
-      const termEl = (terminal as any).element as HTMLElement | null;
-      if (termEl) {
-        termEl.style.backgroundColor = background;
-        const viewport = termEl.querySelector('.xterm-viewport') as HTMLElement | null;
-        if (viewport) viewport.style.backgroundColor = background;
-      }
-
-      if (terminal.rows > 0) {
-        terminal.refresh(0, terminal.rows - 1);
-      }
-    } catch (err) {
-      // Theme application may fail
-    }
+    // 延迟执行以确保 CSS 变量已更新
+    requestAnimationFrame(() => {
+      applyTheme();
+    });
   }, [attachedTermWrap, theme, systemTheme, customColors]);
 
   // 当变为活动时，重新 fit
