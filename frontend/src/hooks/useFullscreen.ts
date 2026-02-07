@@ -2,16 +2,7 @@
  * useFullscreen Hook
  *
  * 提供 macOS 原生全屏功能的 React hook
- * 使用 Electron IPC 调用 BrowserWindow.setFullScreen 方法
- *
- * @example
- * ```tsx
- * const { toggleFullscreen, isFullscreen } = useFullscreen();
- *
- * <Button onClick={toggleFullscreen}>
- *   {isFullscreen ? <Minimize2 /> : <Maximize2 />}
- * </Button>
- * ```
+ * 使用 Electron IPC 事件推送全屏状态变化（而非 resize 轮询）
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -29,55 +20,77 @@ interface UseFullscreenReturn {
   isSupported: boolean;
 }
 
+/** Sync the `is-fullscreen` class on <html> so CSS can respond */
+function syncFullscreenClass(fullscreen: boolean) {
+  if (fullscreen) {
+    document.documentElement.classList.add('is-fullscreen');
+  } else {
+    document.documentElement.classList.remove('is-fullscreen');
+  }
+}
+
 export function useFullscreen(): UseFullscreenReturn {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
 
   // 检查是否支持全屏（仅 macOS）
   useEffect(() => {
-    const checkSupport = () => {
-      // 通过 navigator 检测平台
-      const isMac = navigator.platform.toLowerCase().includes('mac') ||
-                    navigator.userAgent.toLowerCase().includes('mac');
-      setIsSupported(isMac);
-    };
-
-    checkSupport();
+    const isMac = navigator.platform.toLowerCase().includes('mac') ||
+                  navigator.userAgent.toLowerCase().includes('mac');
+    setIsSupported(isMac);
   }, []);
 
   // 监听全屏状态变化
   useEffect(() => {
-    const updateFullscreenState = async () => {
-      // 使用 Electron API 获取全屏状态
+    // 初始化状态
+    const initState = async () => {
       if (window.electronAPI?.isFullscreen) {
         try {
           const fullscreen = await window.electronAPI.isFullscreen();
-          setIsFullscreen(fullscreen ?? false);
+          const value = fullscreen ?? false;
+          setIsFullscreen(value);
+          syncFullscreenClass(value);
         } catch (error) {
           console.error('Failed to get fullscreen state:', error);
         }
       }
     };
+    initState();
 
-    // 初始化状态
-    updateFullscreenState();
+    // 优先使用 Electron 主进程推送的全屏事件（无 IPC 延迟）
+    if (window.electronAPI?.onFullscreenChanged) {
+      const unlisten = window.electronAPI.onFullscreenChanged((fullscreen) => {
+        setIsFullscreen(fullscreen);
+        syncFullscreenClass(fullscreen);
+      });
+      return unlisten;
+    }
 
-    // 监听窗口 resize 事件
+    // 回退：监听 resize 事件（非 Electron 环境）
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
     const handleResize = () => {
-      updateFullscreenState();
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(async () => {
+        if (window.electronAPI?.isFullscreen) {
+          try {
+            const fullscreen = await window.electronAPI.isFullscreen();
+            const value = fullscreen ?? false;
+            setIsFullscreen(value);
+            syncFullscreenClass(value);
+          } catch (error) {
+            console.error('Failed to get fullscreen state:', error);
+          }
+        }
+      }, 200);
     };
 
     window.addEventListener('resize', handleResize);
-
     return () => {
       window.removeEventListener('resize', handleResize);
+      if (resizeTimeout) clearTimeout(resizeTimeout);
     };
   }, []);
 
-  /**
-   * 切换全屏状态
-   * 使用 Electron API 切换全屏
-   */
   const toggleFullscreen = useCallback(async () => {
     if (!isSupported) {
       console.warn('Fullscreen is only supported on macOS');
@@ -90,32 +103,20 @@ export function useFullscreen(): UseFullscreenReturn {
     }
 
     try {
-      // 获取当前全屏状态并切换
       const currentFullscreen = await window.electronAPI.isFullscreen();
       await window.electronAPI.setFullscreen(!currentFullscreen);
-
-      // 更新状态（延迟一点以等待动画完成）
-      setTimeout(async () => {
-        const fullscreen = await window.electronAPI!.isFullscreen();
-        setIsFullscreen(fullscreen ?? false);
-      }, 300);
+      // State will be updated by the onFullscreenChanged event
     } catch (error) {
       console.error('Failed to toggle fullscreen:', error);
     }
   }, [isSupported]);
 
-  /**
-   * 进入全屏
-   */
   const enterFullscreen = useCallback(async () => {
     if (!isFullscreen) {
       await toggleFullscreen();
     }
   }, [isFullscreen, toggleFullscreen]);
 
-  /**
-   * 退出全屏
-   */
   const exitFullscreen = useCallback(async () => {
     if (isFullscreen) {
       await toggleFullscreen();

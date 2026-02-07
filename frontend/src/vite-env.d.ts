@@ -41,6 +41,7 @@ interface Window {
       url: string;
     }) => void) => void;
     sendToWebview: (webContentsId: number, channel: string, ...args: any[]) => void;
+    onFullscreenChanged: (callback: (isFullscreen: boolean) => void) => () => void;
   };
 }
 

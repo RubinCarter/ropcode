@@ -53,5 +53,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.send('webview:sendToWebview', webContentsId, channel, ...args);
   },
 
+  // Fullscreen state change listener (push-based, no polling needed)
+  onFullscreenChanged: (callback: (isFullscreen: boolean) => void) => {
+    const handler = (_: any, isFullscreen: boolean) => callback(isFullscreen);
+    ipcRenderer.on('window:fullscreen-changed', handler);
+    return () => {
+      ipcRenderer.removeListener('window:fullscreen-changed', handler);
+    };
+  },
+
 });
 

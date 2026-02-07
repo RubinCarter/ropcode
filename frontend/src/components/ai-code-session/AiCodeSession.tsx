@@ -373,15 +373,11 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     };
   }, [sessionState.effectiveSession, sessionState.projectPath, sessionState.claudeSessionId, messagesState.messages.length]);
 
-  // Force Virtuoso to re-measure when page becomes visible or window resizes
-  // This fixes the issue where the chat area appears blank after switching apps or entering fullscreen
+  // Force Virtuoso to re-measure when page becomes visible or fullscreen changes.
+  // Uses Electron's push-based fullscreen event instead of resize polling.
   useEffect(() => {
-    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-
     const forceVirtuosoRemeasure = () => {
       requestAnimationFrame(() => {
-        // Trigger a re-render by scrolling to current position
-        // This forces Virtuoso to re-measure its container
         virtuosoRef.current?.scrollBy({ top: 0 });
       });
     };
@@ -392,25 +388,29 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
       }
     };
 
-    const handleResize = () => {
-      // Debounce resize events to avoid excessive re-renders during fullscreen animation
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
-      resizeTimeout = setTimeout(() => {
-        forceVirtuosoRemeasure();
-      }, 150);
-    };
+    let unlisten: (() => void) | undefined;
+    if (window.electronAPI?.onFullscreenChanged) {
+      unlisten = window.electronAPI.onFullscreenChanged(() => {
+        setTimeout(forceVirtuosoRemeasure, 500);
+      });
+    } else {
+      let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+      const handleResize = () => {
+        if (resizeTimeout) clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(forceVirtuosoRemeasure, 300);
+      };
+      window.addEventListener('resize', handleResize);
+      unlisten = () => {
+        window.removeEventListener('resize', handleResize);
+        if (resizeTimeout) clearTimeout(resizeTimeout);
+      };
+    }
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('resize', handleResize);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('resize', handleResize);
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
+      unlisten?.();
     };
   }, []);
 

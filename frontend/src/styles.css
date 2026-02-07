@@ -42,6 +42,36 @@ html {
   clip-path: inset(0 round var(--radius-lg));
 }
 
+/*
+ * Fullscreen overrides — remove clip-path, border-radius, and box-shadow
+ * that interfere with fixed-position portals (dialogs, dropdowns, popovers)
+ * and cause GPU compositing issues with backdrop-filter.
+ *
+ * The `is-fullscreen` class is toggled by useFullscreen hook via Electron IPC.
+ */
+html.is-fullscreen {
+  border-radius: 0;
+  clip-path: none;
+}
+
+html.is-fullscreen body {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+html.is-fullscreen #root {
+  border-radius: 0;
+}
+
+/* Disable backdrop-blur in fullscreen to prevent GPU compositing flicker */
+html.is-fullscreen .backdrop-blur-sm,
+html.is-fullscreen .backdrop-blur-md,
+html.is-fullscreen .backdrop-blur-lg,
+html.is-fullscreen [class*="backdrop-blur"] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 /* Agent Highlight Styles */
 .agent-highlight {
   @apply inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border font-mono text-sm font-medium bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30;
@@ -356,6 +386,11 @@ button:focus-visible,
 html.is-macos body {
   /* Maintain rounded-corner shape and add a gentle 1px inner outline */
   box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+/* Remove window outline in fullscreen (no rounded corners, no gap) */
+html.is-macos.is-fullscreen body {
+  box-shadow: none;
 }
 
 /* Typography Utility Classes */

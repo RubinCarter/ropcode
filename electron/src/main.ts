@@ -71,6 +71,14 @@ async function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
+  // Notify renderer of fullscreen state changes
+  mainWindow.on('enter-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen-changed', true);
+  });
+  mainWindow.on('leave-full-screen', () => {
+    mainWindow?.webContents.send('window:fullscreen-changed', false);
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });

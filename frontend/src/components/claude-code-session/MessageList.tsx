@@ -24,11 +24,10 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [atBottom, setAtBottom] = useState(true);
 
-  // Force Virtuoso to re-measure when page becomes visible or window resizes
-  // This fixes the issue where the message list appears blank after fullscreen or app switching
+  // Force Virtuoso to re-measure when page becomes visible or fullscreen changes.
+  // Uses Electron's push-based fullscreen event instead of resize polling to avoid
+  // triggering re-measures during the fullscreen transition animation.
   useEffect(() => {
-    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-
     const forceVirtuosoRemeasure = () => {
       requestAnimationFrame(() => {
         virtuosoRef.current?.scrollBy({ top: 0 });
@@ -41,24 +40,34 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
       }
     };
 
-    const handleResize = () => {
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
-      resizeTimeout = setTimeout(() => {
-        forceVirtuosoRemeasure();
-      }, 150);
-    };
+    // Listen for fullscreen changes via Electron IPC (debounced to fire after transition)
+    let unlisten: (() => void) | undefined;
+    if (window.electronAPI?.onFullscreenChanged) {
+      unlisten = window.electronAPI.onFullscreenChanged(() => {
+        // Wait for the macOS fullscreen animation to settle
+        setTimeout(forceVirtuosoRemeasure, 500);
+      });
+    } else {
+      // Fallback: debounced resize for non-Electron environments
+      let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+      const handleResize = () => {
+        if (resizeTimeout) clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(forceVirtuosoRemeasure, 300);
+      };
+      window.addEventListener('resize', handleResize);
+      const cleanupResize = () => {
+        window.removeEventListener('resize', handleResize);
+        if (resizeTimeout) clearTimeout(resizeTimeout);
+      };
+      // Store cleanup for the return
+      unlisten = cleanupResize;
+    }
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('resize', handleResize);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('resize', handleResize);
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
+      unlisten?.();
     };
   }, []);
 
