@@ -1256,27 +1256,23 @@ ${message ? `**说明**:\n${message}` : ''}`;
             />
           </div>
 
-          {/* Token Counter */}
+          {/* Token Counter – positioned above the input bar, non-interactive */}
+          <AnimatePresence>
           {messagesState.totalTokens > 0 && (
-            <div className="absolute bottom-0 right-0 left-0 z-30 pointer-events-none">
-              <div className="max-w-6xl mx-auto">
-                <div className="flex justify-end px-4 pb-2">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    className="bg-background/95 backdrop-blur-md border rounded-full px-3 py-1 shadow-lg pointer-events-auto"
-                  >
-                    <div className="flex items-center gap-1.5 text-xs">
-                      <Hash className="h-3 w-3 text-muted-foreground" />
-                      <span className="font-mono">{messagesState.totalTokens.toLocaleString()}</span>
-                      <span className="text-muted-foreground">tokens</span>
-                    </div>
-                  </motion.div>
-                </div>
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 0.7, y: 0 }}
+              exit={{ opacity: 0, y: 4 }}
+              className="absolute bottom-16 right-6 z-20 pointer-events-none"
+            >
+              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                <Hash className="h-2.5 w-2.5" />
+                <span className="font-mono">{messagesState.totalTokens.toLocaleString()}</span>
+                <span>tokens</span>
               </div>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </ErrorBoundary>
 
       </div>
