@@ -986,7 +986,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.8 }}
           transition={{ delay: 0.5 }}
-          className="pointer-events-none absolute bottom-32 left-0 right-0 z-50 flex justify-end px-4"
+          className="pointer-events-none absolute bottom-32 left-0 right-0 z-30 flex justify-end px-4"
         >
           <div className="max-w-6xl w-full flex justify-end">
           <div className="flex items-center bg-background/95 backdrop-blur-md border rounded-full shadow-lg overflow-hidden pointer-events-auto">
@@ -1196,7 +1196,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
             )}
           </AnimatePresence>
 
-          <div className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-50">
+          <div className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30">
             <FloatingPromptInput
               ref={floatingPromptRef}
               onSend={handleSendPrompt}
