@@ -28,7 +28,7 @@ export interface UsePromptQueueReturn {
   setQueuedPromptsCollapsed: (collapsed: boolean) => void;
 
   // Actions
-  addToQueue: (prompt: string, model: string) => void;
+  addToQueue: (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string) => void;
   removeFromQueue: (id: string) => void;
   clearQueue: () => void;
 
@@ -119,11 +119,13 @@ export function usePromptQueue(options: UsePromptQueueOptions): UsePromptQueueRe
   }, [isLoading, projectPath, isPendingSend]);  // Removed wasLoading and onProcessNext from deps
 
   // Helper functions
-  const addToQueue = (prompt: string, model: string) => {
+  const addToQueue = (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string) => {
     const newPrompt: QueuedPrompt = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       prompt,
-      model
+      model,
+      providerApiId,
+      thinkingMode,
     };
     setQueuedPrompts(prev => [...prev, newPrompt]);
     console.log('[usePromptQueue] Added prompt to queue:', newPrompt.id);

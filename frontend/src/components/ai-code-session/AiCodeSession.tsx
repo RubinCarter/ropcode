@@ -110,7 +110,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     isLoading: processState.isLoading,
     isPendingSend: processState.isPendingSend,
     projectPath: sessionState.projectPath,
-    onProcessNext: (prompt) => handleSendPrompt(prompt.prompt, prompt.model),
+    onProcessNext: (prompt) => handleSendPrompt(prompt.prompt, prompt.model, prompt.providerApiId, prompt.thinkingMode),
   });
 
   // Session events - depends on all other hooks
@@ -602,7 +602,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
     // Queue if already loading
     if (processState.isLoading) {
       console.log('[AiCodeSession] Session busy, queueing prompt');
-      queueState.addToQueue(prompt, model);
+      queueState.addToQueue(prompt, model, providerApiId, thinkingMode);
       return;
     }
 

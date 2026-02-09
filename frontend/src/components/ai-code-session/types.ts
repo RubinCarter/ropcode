@@ -64,6 +64,8 @@ export interface QueuedPrompt {
   id: string;
   prompt: string;
   model: string;
+  providerApiId?: string | null;
+  thinkingMode?: string;
 }
 
 /**
