@@ -1,5 +1,5 @@
 // electron/src/main.ts
-import { app, BrowserWindow, ipcMain, dialog, webContents, protocol, net } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, webContents, protocol, net, Menu, MenuItem, clipboard, shell } from 'electron';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { startGoServer, stopGoServer, GoServerInfo } from './go-server';
@@ -70,6 +70,44 @@ async function createWindow() {
   if (isDev) {
     mainWindow.webContents.openDevTools();
   }
+
+  // Native context menu (copy/paste/select all/copy link)
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const menu = new Menu();
+
+    // Link actions
+    if (params.linkURL) {
+      menu.append(new MenuItem({
+        label: 'Copy Link',
+        click: () => clipboard.writeText(params.linkURL),
+      }));
+      menu.append(new MenuItem({
+        label: 'Open Link in Browser',
+        click: () => shell.openExternal(params.linkURL),
+      }));
+      menu.append(new MenuItem({ type: 'separator' }));
+    }
+
+    if (params.isEditable) {
+      menu.append(new MenuItem({ role: 'undo' }));
+      menu.append(new MenuItem({ role: 'redo' }));
+      menu.append(new MenuItem({ type: 'separator' }));
+      menu.append(new MenuItem({ role: 'cut' }));
+      menu.append(new MenuItem({ role: 'copy' }));
+      menu.append(new MenuItem({ role: 'paste' }));
+      menu.append(new MenuItem({ role: 'selectAll' }));
+    } else if (params.selectionText) {
+      menu.append(new MenuItem({ role: 'copy' }));
+      menu.append(new MenuItem({ type: 'separator' }));
+      menu.append(new MenuItem({ role: 'selectAll' }));
+    } else {
+      menu.append(new MenuItem({ role: 'selectAll' }));
+    }
+
+    if (menu.items.length > 0) {
+      menu.popup();
+    }
+  });
 
   // Notify renderer of fullscreen state changes
   mainWindow.on('enter-full-screen', () => {
