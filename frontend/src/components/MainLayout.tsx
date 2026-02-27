@@ -3,6 +3,8 @@ import { Sidebar } from '@/components/Sidebar';
 import { ContainerManager } from '@/components/containers';
 import { useContainerContext } from '@/contexts/ContainerContext';
 import { useSystemTabContext } from '@/contexts/SystemTabContext';
+import { useIsMobile } from '@/hooks/useIsMobile';
+import { MobileLayout } from '@/components/mobile/MobileLayout';
 
 interface MainLayoutProps {
   /**
@@ -77,6 +79,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     activateTab('mcp');
     onMCPClick?.();
   };
+
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    return <MobileLayout />;
+  }
 
   return (
     <div className={`h-full flex ${className || ''}`}>

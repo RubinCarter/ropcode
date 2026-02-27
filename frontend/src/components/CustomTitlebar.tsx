@@ -3,6 +3,7 @@ import { Minus, Square, X, ChevronRight, GitBranch, Upload, Folder, Trash2 } fro
 import { WindowMinimise, WindowToggleMaximise, Quit } from '@/lib/rpc-window';
 import { motion } from 'framer-motion';
 import { useFullscreen, usePageVisibilityPolling } from '@/hooks';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ContainerTabManager } from '@/components/containers';
@@ -42,6 +43,8 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
   // 检测是否在 Electron 环境中运行（Electron 有原生的 macOS 窗口按钮）
   const isElectron = !!window.electronAPI;
+
+  const isMobile = useIsMobile();
 
   const [isHovered, setIsHovered] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(rightSidebarOpenProp);
@@ -254,6 +257,8 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       immediate: true,
     }
   );
+
+  if (isMobile) return null;
 
   // 推送到主分支
   const handlePushToMain = async () => {

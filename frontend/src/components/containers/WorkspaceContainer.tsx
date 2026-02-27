@@ -4,6 +4,7 @@ import { WorkspaceTabProvider, useWorkspaceTabContext } from '@/contexts/Workspa
 import { RightSidebar } from '@/components/right-sidebar';
 import { Loader2 } from 'lucide-react';
 import { providers } from '@/lib/providers';
+import { useIsMobile } from '@/hooks/useIsMobile';
 import { WorkspaceTabManager } from './WorkspaceTabManager';
 
 // Lazy load heavy components
@@ -382,6 +383,7 @@ const WorkspaceTabManagerPortal: React.FC<{ visible: boolean }> = ({ visible }) 
 
 export const WorkspaceContainer: React.FC<WorkspaceContainerProps> = ({ workspaceId, visible }) => {
   const [rightSidebarOpen, setRightSidebarOpen] = React.useState(true);
+  const isMobile = useIsMobile();
 
   // 监听全局 toggle-right-sidebar 事件
   React.useEffect(() => {
@@ -406,12 +408,14 @@ export const WorkspaceContainer: React.FC<WorkspaceContainerProps> = ({ workspac
           <WorkspaceContent workspaceId={workspaceId} />
         </div>
         {/* 右侧栏 - 默认 35% 宽度 */}
-        <RightSidebar
-          isOpen={rightSidebarOpen}
-          onToggle={() => setRightSidebarOpen(!rightSidebarOpen)}
-          defaultWidthPercent={35}
-          currentProjectPath={workspaceId}
-        />
+        {!isMobile && (
+          <RightSidebar
+            isOpen={rightSidebarOpen}
+            onToggle={() => setRightSidebarOpen(!rightSidebarOpen)}
+            defaultWidthPercent={35}
+            currentProjectPath={workspaceId}
+          />
+        )}
       </div>
     </WorkspaceTabProvider>
   );
