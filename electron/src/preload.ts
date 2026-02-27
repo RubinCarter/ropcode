@@ -1,5 +1,14 @@
 // electron/src/preload.ts
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webFrame } from 'electron';
+
+// Inject __ROPCODE_WS_PORT__ and __ROPCODE_AUTH_KEY__ into the page context.
+// This uses the same global variables that the Go backend injects into HTML
+// for browser access, so the frontend can use a single unified read path.
+const wsPort = process.env.ROPCODE_WS_PORT || '0';
+const authKey = process.env.ROPCODE_AUTH_KEY || '';
+webFrame.executeJavaScript(
+  `window.__ROPCODE_WS_PORT__=${wsPort};window.__ROPCODE_AUTH_KEY__="${authKey}";`
+);
 
 // 暴露安全的 API 给渲染进程
 contextBridge.exposeInMainWorld('electronAPI', {

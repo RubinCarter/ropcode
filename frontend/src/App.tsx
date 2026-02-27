@@ -16,11 +16,17 @@ import { useAppLifecycle } from "@/hooks";
 import { StartupIntro } from "@/components/StartupIntro";
 import { wsClient } from "@/lib/ws-rpc-client";
 
-// 从 electronAPI 获取 WebSocket 配置（Electron 模式）
-// 从 URL 参数获取配置（Web 开发模式）
+// WebSocket 连接配置
+// 优先级: Go 后端注入的全局变量 > Electron preload > URL 参数
+// Go 后端在 serve index.html 时注入 __ROPCODE_WS_PORT__ / __ROPCODE_AUTH_KEY__
+// Electron preload 也通过 webFrame.executeJavaScript 注入同样的全局变量
 const urlParams = new URLSearchParams(window.location.search);
-const wsPort = window.electronAPI?.wsPort || urlParams.get('wsPort');
-const authKey = window.electronAPI?.authKey || urlParams.get('authKey');
+const wsPort = window.__ROPCODE_WS_PORT__
+  || window.electronAPI?.wsPort
+  || urlParams.get('wsPort');
+const authKey = window.__ROPCODE_AUTH_KEY__
+  || window.electronAPI?.authKey
+  || urlParams.get('authKey');
 
 // WebSocket 连接 Promise（用于组件等待连接完成）
 let wsConnectionPromise: Promise<void> | null = null;

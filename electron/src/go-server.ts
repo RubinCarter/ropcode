@@ -41,6 +41,10 @@ export function startGoServer(): Promise<GoServerInfo> {
         ...process.env,
         ROPCODE_AUTH_KEY: authKey,
         ROPCODE_MODE: 'websocket',
+        // Dev mode: Go reverse proxies to Vite dev server for browser access
+        ...(isDev ? { ROPCODE_VITE_URL: 'http://localhost:5173' } : {}),
+        // Production: Go serves static frontend files from resources
+        ...(!isDev ? { ROPCODE_FRONTEND_DIR: path.join(process.resourcesPath, 'frontend') } : {}),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

@@ -2,13 +2,19 @@
 package websocket
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -57,6 +63,7 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.Handle("/", s.frontendHandler())
 
 	s.httpServer = &http.Server{Handler: mux}
 
@@ -188,4 +195,114 @@ func (s *Server) BroadcastEvent(eventType string, payload interface{}) {
 // GetPort 返回服务器端口
 func (s *Server) GetPort() int {
 	return s.port
+}
+
+// frontendHandler returns an http.Handler that serves the frontend.
+// In dev mode (ROPCODE_VITE_URL set): reverse proxy to Vite dev server.
+// In production (ROPCODE_FRONTEND_DIR set): serve static files from disk.
+// In both cases, index.html responses are injected with wsPort and authKey.
+func (s *Server) frontendHandler() http.Handler {
+	viteURL := os.Getenv("ROPCODE_VITE_URL")
+	frontendDir := os.Getenv("ROPCODE_FRONTEND_DIR")
+
+	var handler http.Handler
+
+	if viteURL != "" {
+		// Dev mode: reverse proxy to Vite dev server
+		target, err := url.Parse(viteURL)
+		if err != nil {
+			log.Printf("Invalid ROPCODE_VITE_URL: %v", err)
+			return http.NotFoundHandler()
+		}
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		originalDirector := proxy.Director
+		proxy.Director = func(req *http.Request) {
+			originalDirector(req)
+			req.Host = target.Host
+		}
+		// Intercept responses to inject script into HTML
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			ct := resp.Header.Get("Content-Type")
+			if !strings.Contains(ct, "text/html") {
+				return nil
+			}
+			return s.injectScriptIntoResponse(resp)
+		}
+		handler = proxy
+	} else if frontendDir != "" {
+		// Production: serve static files with HTML injection
+		handler = s.staticFrontendHandler(frontendDir)
+	} else {
+		// No frontend configured
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "Ropcode server running on port %d. No frontend configured.", s.port)
+		})
+	}
+
+	return handler
+}
+
+// staticFrontendHandler serves static files and injects script into index.html.
+func (s *Server) staticFrontendHandler(dir string) http.Handler {
+	fs := http.Dir(dir)
+	fileServer := http.FileServer(fs)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// For SPA: if file doesn't exist, serve index.html
+		path := r.URL.Path
+		if path == "/" {
+			path = "/index.html"
+		}
+
+		// Check if the requested file exists
+		fullPath := filepath.Join(dir, filepath.Clean(path))
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			// SPA fallback: serve index.html for non-file routes
+			path = "/index.html"
+		}
+
+		// If serving index.html, inject the script
+		if path == "/index.html" {
+			htmlPath := filepath.Join(dir, "index.html")
+			data, err := os.ReadFile(htmlPath)
+			if err != nil {
+				http.Error(w, "index.html not found", http.StatusNotFound)
+				return
+			}
+			injected := s.injectScriptIntoHTML(data)
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(injected)
+			return
+		}
+
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
+// connectInfoScript returns the <script> tag to inject into index.html.
+func (s *Server) connectInfoScript() string {
+	return fmt.Sprintf(`<script>window.__ROPCODE_WS_PORT__=%d;window.__ROPCODE_AUTH_KEY__="%s";</script>`, s.port, s.authKey)
+}
+
+// injectScriptIntoHTML inserts the connect info script before </head>.
+func (s *Server) injectScriptIntoHTML(html []byte) []byte {
+	script := s.connectInfoScript()
+	return bytes.Replace(html, []byte("</head>"), []byte(script+"\n</head>"), 1)
+}
+
+// injectScriptIntoResponse reads the response body, injects the script, and replaces the body.
+func (s *Server) injectScriptIntoResponse(resp *http.Response) error {
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return err
+	}
+
+	injected := s.injectScriptIntoHTML(body)
+	resp.Body = io.NopCloser(bytes.NewReader(injected))
+	resp.ContentLength = int64(len(injected))
+	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(injected)))
+	return nil
 }

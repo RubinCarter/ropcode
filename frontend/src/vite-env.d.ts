@@ -1,6 +1,10 @@
 /// <reference types="vite/client" />
 
 interface Window {
+  // Injected by Go backend (in HTML) or Electron preload (via webFrame)
+  __ROPCODE_WS_PORT__?: number;
+  __ROPCODE_AUTH_KEY__?: string;
+
   electronAPI?: {
     wsPort?: number;
     authKey?: string;

@@ -17,6 +17,10 @@ extraResources:
     to: bin/ropcode-server
     filter:
       - "**/*"
+  - from: frontend/dist
+    to: frontend
+    filter:
+      - "**/*"
 
 mac:
   target:
