@@ -147,7 +147,8 @@ export class TermWrap {
     if (this.options.useWebGL !== false && detectWebGLSupport()) {
       if (this.options.lazyWebGL) {
         // 延迟加载：在后台异步加载，不阻塞初始化
-        requestIdleCallback(() => this.loadWebGLAddon());
+        const idle = typeof requestIdleCallback === 'function' ? requestIdleCallback : (cb: () => void) => setTimeout(cb, 100);
+        idle(() => this.loadWebGLAddon());
       } else {
         // 同步加载（默认行为）
         this.loadWebGLAddon();
