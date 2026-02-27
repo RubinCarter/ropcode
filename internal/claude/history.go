@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Message represents a single message in the session history
@@ -248,6 +249,181 @@ func FindSessionFile(claudeDir, projectID, sessionID string) (string, error) {
 	}
 
 	return "", fmt.Errorf("session file not found for session %s in project %s", sessionID, projectID)
+}
+
+// SessionInfo represents metadata about a Claude session
+type SessionInfo struct {
+	ID               string `json:"id"`
+	ProjectID        string `json:"project_id"`
+	ProjectPath      string `json:"project_path"`
+	CreatedAt        int64  `json:"created_at"`
+	MessageTimestamp string `json:"message_timestamp,omitempty"`
+	FirstMessage     string `json:"first_message,omitempty"`
+}
+
+// ListProjectSessions scans ~/.claude/projects/{projectHash}/ for JSONL session files
+// and returns metadata for each session found
+func ListProjectSessions(claudeDir, projectPath string) ([]SessionInfo, error) {
+	projectHash := GetProjectHash(projectPath)
+	projectDir := filepath.Join(claudeDir, "projects", projectHash)
+
+	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
+		return []SessionInfo{}, nil
+	}
+
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read project directory: %w", err)
+	}
+
+	var sessions []SessionInfo
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".jsonl") {
+			continue
+		}
+		// Skip agent session files
+		if strings.HasPrefix(name, "agent-") {
+			continue
+		}
+
+		sessionID := strings.TrimSuffix(name, ".jsonl")
+		filePath := filepath.Join(projectDir, name)
+
+		info, err := extractClaudeSessionInfo(filePath, sessionID, projectHash, projectPath)
+		if err != nil {
+			// Skip files that can't be parsed
+			continue
+		}
+		sessions = append(sessions, *info)
+	}
+
+	return sessions, nil
+}
+
+// extractClaudeSessionInfo reads a JSONL file to extract session metadata
+// Only reads the first few lines and the file stat for timestamps
+func extractClaudeSessionInfo(filePath, sessionID, projectHash, projectPath string) (*SessionInfo, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+
+	scanner := bufio.NewScanner(file)
+	const maxCapacity = 1024 * 1024
+	buf := make([]byte, maxCapacity)
+	scanner.Buffer(buf, maxCapacity)
+
+	var firstTimestamp string
+	var firstMessage string
+	lineCount := 0
+	const maxLinesToScan = 50
+
+	for scanner.Scan() {
+		lineCount++
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &raw); err != nil {
+			continue
+		}
+
+		// Capture first timestamp for createdAt
+		if firstTimestamp == "" {
+			if ts, ok := raw["timestamp"].(string); ok {
+				firstTimestamp = ts
+			}
+		}
+
+		// Look for first user message content
+		if firstMessage == "" {
+			if msg, ok := raw["message"].(map[string]interface{}); ok {
+				if role, _ := msg["role"].(string); role == "user" {
+					firstMessage = extractTextContent(msg)
+				}
+			}
+		}
+
+		// Stop scanning after enough lines to get metadata
+		if lineCount >= maxLinesToScan && firstMessage != "" {
+			break
+		}
+	}
+
+	// If we haven't found a lastTimestamp from scanning (file might be large),
+	// use file modification time
+	var createdAt int64
+	if firstTimestamp != "" {
+		if t, err := parseTimestamp(firstTimestamp); err == nil {
+			createdAt = t.Unix()
+		}
+	}
+	if createdAt == 0 {
+		createdAt = stat.ModTime().Unix()
+	}
+
+	// Use file mod time as message_timestamp since it reflects the latest activity
+	messageTimestamp := stat.ModTime().UTC().Format("2006-01-02T15:04:05.000Z")
+
+	// Truncate first message
+	if len(firstMessage) > 100 {
+		firstMessage = firstMessage[:100] + "..."
+	}
+
+	return &SessionInfo{
+		ID:               sessionID,
+		ProjectID:        projectHash,
+		ProjectPath:      projectPath,
+		CreatedAt:        createdAt,
+		MessageTimestamp: messageTimestamp,
+		FirstMessage:     firstMessage,
+	}, nil
+}
+
+// extractTextContent extracts text from a Claude message content field
+func extractTextContent(msg map[string]interface{}) string {
+	content := msg["content"]
+	switch c := content.(type) {
+	case string:
+		return c
+	case []interface{}:
+		for _, item := range c {
+			if m, ok := item.(map[string]interface{}); ok {
+				if t, _ := m["type"].(string); t == "text" {
+					if text, ok := m["text"].(string); ok {
+						return text
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// parseTimestamp parses an ISO 8601 timestamp string
+func parseTimestamp(ts string) (time.Time, error) {
+	// Try common formats
+	formats := []string{
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05.999Z",
+		time.RFC3339,
+		time.RFC3339Nano,
+	}
+	for _, format := range formats {
+		if t, err := time.Parse(format, ts); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unable to parse timestamp: %s", ts)
 }
 
 // ComputeProjectHash computes the MD5 hash of a project path (as used by Claude)

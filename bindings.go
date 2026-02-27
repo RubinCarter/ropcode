@@ -538,10 +538,25 @@ func (a *App) ListProviderSessions(projectPath, provider string) ([]ProviderSess
 	case "claude":
 		fallthrough
 	default:
-		// For Claude, we use the existing session system via database
-		// This should not be called for Claude - use getProjectSessions instead
-		log.Printf("[ListProviderSessions] Claude sessions should use getProjectSessions API")
-		return []ProviderSession{}, nil
+		// Scan ~/.claude/projects/{projectHash}/ for JSONL session files
+		claudeDir := a.config.ClaudeDir
+		claudeSessions, err := claude.ListProjectSessions(claudeDir, projectPath)
+		if err != nil {
+			log.Printf("[ListProviderSessions] Failed to list Claude sessions: %v", err)
+			return []ProviderSession{}, nil
+		}
+		sessions := make([]ProviderSession, len(claudeSessions))
+		for i, s := range claudeSessions {
+			sessions[i] = ProviderSession{
+				ID:               s.ID,
+				ProjectID:        s.ProjectID,
+				ProjectPath:      s.ProjectPath,
+				CreatedAt:        s.CreatedAt,
+				MessageTimestamp: s.MessageTimestamp,
+			}
+		}
+		log.Printf("[ListProviderSessions] Found %d Claude sessions for project: %s", len(sessions), projectPath)
+		return sessions, nil
 	}
 }
 

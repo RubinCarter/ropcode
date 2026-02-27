@@ -63,7 +63,14 @@ export namespace main {
   export interface MCPAddResult { success: boolean; message: string; }
   export interface MCPImportResult { imported: string[]; errors: string[]; }
   export interface MCPProjectConfig { mcpServers: Record<string, any>; }
-  export interface ProviderSession { sessionId: string; conversationId: string; }
+  export interface ProviderSession {
+    id: string;
+    project_id: string;
+    project_path: string;
+    created_at: number;
+    message_timestamp?: string;
+    first_message?: string;
+  }
   export interface HookValidationResult { valid: boolean; error?: string; }
   export interface UsageStats { totalRequests: number; }
   export interface ClaudeAgentEntry { name: string; category: string; }
