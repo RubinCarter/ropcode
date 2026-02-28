@@ -77,9 +77,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Use external collapsed state if provided, otherwise use internal
   const isCollapsed = externalCollapsed !== undefined ? externalCollapsed : internalCollapsed;
 
-  // Load projects on mount
+  // Load projects on mount and on WebSocket reconnect
   useEffect(() => {
     loadProjects();
+    const unsub = wsClient.onConnect(() => {
+      loadProjects();
+    });
+    return unsub;
   }, []);
 
   /**

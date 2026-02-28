@@ -26,6 +26,24 @@ export interface WSMessage {
 
 type EventHandler = (payload: any) => void;
 
+/**
+ * Generate a UUID that works in non-secure contexts (HTTP).
+ * crypto.randomUUID() requires a secure context (HTTPS or localhost),
+ * so we fall back to crypto.getRandomValues() which works everywhere.
+ */
+function generateId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback: build a v4-style UUID from getRandomValues
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 1
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 class WSRpcClient {
   private ws: WebSocket | null = null;
   private pending: Map<string, { resolve: (value: any) => void; reject: (reason: any) => void }> = new Map();
@@ -37,12 +55,14 @@ class WSRpcClient {
   private authKey: string = '';
   private connectPromise: Promise<void> | null = null;
   private connectResolvers: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
+  private onConnectCallbacks: Set<() => void> = new Set();
 
   /**
    * 初始化连接
    */
   async connect(port: number, authKey?: string): Promise<void> {
-    const url = new URL(`ws://127.0.0.1:${port}/ws`);
+    const host = window.location.hostname || '127.0.0.1';
+    const url = new URL(`ws://${host}:${port}/ws`);
     if (authKey) {
       url.searchParams.set('authKey', authKey);
     }
@@ -62,17 +82,10 @@ class WSRpcClient {
       return;
     }
 
-    // 如果正在连接，等待连接完成
-    if (this.connectPromise) {
-      return Promise.race([
-        this.connectPromise,
-        new Promise<void>((_, reject) => {
-          setTimeout(() => reject(new Error('Connection timeout')), timeout);
-        }),
-      ]);
-    }
-
-    // 如果还没开始连接，等待连接事件
+    // Always use connectResolvers approach: this handles both "connecting" and
+    // "reconnecting after failure" cases. The previous approach of awaiting
+    // connectPromise would fail immediately if the initial connection had
+    // already rejected.
     return new Promise((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         const index = this.connectResolvers.findIndex(r => r.resolve === resolve);
@@ -106,6 +119,8 @@ class WSRpcClient {
           // 通知所有等待连接的 resolvers
           this.connectResolvers.forEach(r => r.resolve());
           this.connectResolvers = [];
+          // Fire onConnect callbacks (e.g. to reload data after reconnect)
+          this.onConnectCallbacks.forEach(cb => { try { cb(); } catch (e) { console.error('[WSRpc] onConnect callback error:', e); } });
           resolve();
         };
 
@@ -128,6 +143,31 @@ class WSRpcClient {
     });
   }
 
+  /**
+   * Refresh authKey by fetching the current page HTML from Go server.
+   * Go injects __ROPCODE_AUTH_KEY__ into every HTML response, so after
+   * a Go restart the new key can be obtained this way.
+   */
+  private async refreshAuthKey(): Promise<void> {
+    try {
+      const resp = await fetch(window.location.origin, { cache: 'no-store' });
+      const html = await resp.text();
+      const match = html.match(/__ROPCODE_AUTH_KEY__="([^"]+)"/);
+      if (match && match[1] && match[1] !== this.authKey) {
+        console.log('[WSRpc] AuthKey refreshed');
+        this.authKey = match[1];
+        // Rebuild wsUrl with new authKey
+        const url = new URL(this.wsUrl);
+        url.searchParams.set('authKey', this.authKey);
+        this.wsUrl = url.toString();
+        // Also update global for other consumers
+        (window as any).__ROPCODE_AUTH_KEY__ = this.authKey;
+      }
+    } catch (err) {
+      console.warn('[WSRpc] Failed to refresh authKey:', err);
+    }
+  }
+
   private scheduleReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error('[WSRpc] Max reconnect attempts reached');
@@ -138,7 +178,9 @@ class WSRpcClient {
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     console.log(`[WSRpc] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
-    setTimeout(() => {
+    setTimeout(async () => {
+      // On auth failures, try to get the latest authKey from Go server
+      await this.refreshAuthKey();
       this.doConnect().catch(console.error);
     }, delay);
   }
@@ -184,7 +226,7 @@ class WSRpcClient {
       throw new Error('WebSocket not connected');
     }
 
-    const id = crypto.randomUUID();
+    const id = generateId();
     const request: WSMessage = {
       kind: 'rpc_request',
       request: { id, method, params },
@@ -260,6 +302,15 @@ class WSRpcClient {
    */
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Register a callback that fires whenever a WebSocket connection is established
+   * (including reconnections). Returns an unsubscribe function.
+   */
+  onConnect(cb: () => void): () => void {
+    this.onConnectCallbacks.add(cb);
+    return () => { this.onConnectCallbacks.delete(cb); };
   }
 }
 
