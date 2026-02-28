@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
+import { wsClient } from "@/lib/ws-rpc-client";
 import { useProcessChanged } from "@/hooks";
 
 export interface UseProcessStateOptions {
@@ -71,9 +72,14 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
     }
   }, [projectPath, provider]);
 
-  // Sync on mount and when project path changes
+  // Sync on mount, when project path changes, and on WebSocket reconnect
+  // (reconnect sync catches missed process:changed events while disconnected)
   useEffect(() => {
     syncProcessState();
+    const unsub = wsClient.onConnect(() => {
+      syncProcessState();
+    });
+    return unsub;
   }, [syncProcessState]);
 
   // Subscribe to process state changes via event system

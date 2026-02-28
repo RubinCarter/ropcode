@@ -30,6 +30,7 @@ export interface UseSessionStateReturn {
 
   // Refs for stable access
   projectPathRef: React.MutableRefObject<string>;
+  claudeSessionIdRef: React.MutableRefObject<string | null>;
   extractedSessionInfoRef: React.MutableRefObject<SessionInfo | null>;
 }
 
@@ -77,10 +78,12 @@ export function useSessionState(options: UseSessionStateOptions): UseSessionStat
 
   // Refs for stable access in callbacks
   const projectPathRef = useRef(projectPath);
+  const claudeSessionIdRef = useRef(claudeSessionId);
   const extractedSessionInfoRef = useRef(extractedSessionInfo);
 
   // Keep refs in sync
   projectPathRef.current = projectPath;
+  claudeSessionIdRef.current = claudeSessionId;
   extractedSessionInfoRef.current = extractedSessionInfo;
 
   // Compute effective session (prioritize extracted over prop)
@@ -107,6 +110,7 @@ export function useSessionState(options: UseSessionStateOptions): UseSessionStat
     setExtractedSessionInfo,
     setIsFirstPrompt,
     projectPathRef,
+    claudeSessionIdRef,
     extractedSessionInfoRef,
   };
 }

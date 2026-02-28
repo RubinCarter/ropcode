@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Popover } from "@/components/ui/popover";
 import { api } from "@/lib/api";
+import { wsClient } from "@/lib/ws-rpc-client";
 import { providers } from "@/lib/providers";
 import { cn } from "@/lib/utils";
 import { StreamMessage } from "../StreamMessage";
@@ -411,6 +412,72 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       unlisten?.();
+    };
+  }, []);
+
+  // Recover missed messages after WebSocket reconnection.
+  // Mobile browsers kill WS when backgrounded, so streaming events are lost.
+  // On reconnect, compare local message count with backend and sync the gap.
+  useEffect(() => {
+    let isFirstConnect = true;
+    let recoverTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const unsub = wsClient.onConnect(() => {
+      // Skip the first connect — normal session restore handles that
+      if (isFirstConnect) {
+        isFirstConnect = false;
+        return;
+      }
+
+      // Debounce: onConnect may fire multiple times during reconnect flapping
+      if (recoverTimer) clearTimeout(recoverTimer);
+      recoverTimer = setTimeout(async () => {
+        recoverTimer = null;
+        const sessionId = sessionState.claudeSessionIdRef?.current;
+        const projectPath = sessionState.projectPathRef.current;
+        const projectId = sessionState.extractedSessionInfoRef.current?.projectId;
+        if (!sessionId || !projectPath || !projectId) return;
+
+        try {
+          console.log('[AiCodeSession] Syncing after reconnect, local messages:', messagesState.messagesLengthRef.current);
+
+          // Sync process state — check if task completed while disconnected
+          const running = await api.isClaudeSessionRunningForProject(projectPath, defaultProvider);
+          if (!running) {
+            processState.setIsLoading(false);
+            processState.hasActiveSessionRef.current = false;
+          }
+
+          // Reload full history and compare with local state
+          // loadHistory expects (sessionId, projectId, provider)
+          const history = await providers.loadHistory(sessionId, projectId, defaultProvider);
+          if (history && history.length > messagesState.messagesLengthRef.current) {
+            console.log('[AiCodeSession] Syncing', history.length - messagesState.messagesLengthRef.current, 'missed messages');
+            const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
+              let messageType = entry.type;
+              if (!messageType) {
+                if (entry.role === "user" || entry.message?.role === "user" || entry.user_message) {
+                  messageType = "user";
+                } else if (entry.subtype === "init" || entry.session_id) {
+                  messageType = "system";
+                } else {
+                  messageType = "assistant";
+                }
+              }
+              return { ...entry, type: messageType };
+            });
+            messagesState.setMessages(loadedMessages);
+            setTimeout(() => scrollToBottom('auto'), 100);
+          }
+        } catch (err) {
+          console.error('[AiCodeSession] Failed to sync after reconnect:', err instanceof Error ? err.message : err);
+        }
+      }, 500);
+    });
+
+    return () => {
+      unsub();
+      if (recoverTimer) clearTimeout(recoverTimer);
     };
   }, []);
 
