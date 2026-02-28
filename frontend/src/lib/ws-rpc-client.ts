@@ -49,13 +49,17 @@ class WSRpcClient {
   private pending: Map<string, { resolve: (value: any) => void; reject: (reason: any) => void }> = new Map();
   private eventListeners: Map<string, Set<EventHandler>> = new Map();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
+  private maxReconnectAttempts = Infinity;
   private reconnectDelay = 1000;
+  private maxReconnectDelay = 5000;
   private wsUrl: string = '';
   private authKey: string = '';
   private connectPromise: Promise<void> | null = null;
   private connectResolvers: Array<{ resolve: () => void; reject: (err: Error) => void }> = [];
   private onConnectCallbacks: Set<() => void> = new Set();
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Guard against concurrent doConnect() calls
+  private connecting = false;
 
   /**
    * 初始化连接
@@ -68,6 +72,35 @@ class WSRpcClient {
     }
     this.wsUrl = url.toString();
     this.authKey = authKey || '';
+
+    // iOS Safari pauses JS execution immediately when backgrounded and kills
+    // the WS connection after ~30s.  When the user returns, frozen timers and
+    // stale onclose events can fire in unpredictable order, so we use a
+    // heavy-handed "force reconnect" that tears down ALL state and starts fresh.
+    //
+    // We track the timestamp when the page was hidden.  If the page was
+    // hidden for less than a few seconds (e.g. quick app-switcher peek),
+    // skip the force reconnect — the existing connection is fine.
+    let hiddenAt = 0;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAt = Date.now();
+        return;
+      }
+      // visibilityState === 'visible'
+      if (!this.wsUrl) return;
+
+      const elapsed = Date.now() - hiddenAt;
+      if (elapsed < 3000 && this.isConnected()) {
+        // Quick tab switch — connection is likely still alive
+        console.log(`[WSRpc] Page visible after ${elapsed}ms, connection alive, skipping reconnect`);
+        return;
+      }
+
+      // Either was hidden for a while or connection is already dead
+      this.forceReconnect();
+    });
+
     this.connectPromise = this.doConnect();
     return this.connectPromise;
   }
@@ -108,12 +141,89 @@ class WSRpcClient {
     });
   }
 
+  /**
+   * Safe wrapper that prevents concurrent doConnect() calls.
+   * If already connecting, this is a no-op (the pending connection will
+   * resolve connectResolvers when it succeeds).
+   */
+  private safeConnect(): void {
+    if (this.connecting) {
+      console.log('[WSRpc] Already connecting, skipping duplicate attempt');
+      return;
+    }
+    this.doConnect().catch(console.error);
+  }
+
+  /**
+   * Force a fresh reconnection, tearing down all existing state.
+   * Designed for iOS visibility restore where frozen timers and stale
+   * onclose events make the normal reconnect path unreliable.
+   */
+  private forceReconnect(): void {
+    console.log('[WSRpc] Force reconnect (visibility restore)');
+
+    // 1. Cancel any frozen/pending scheduled reconnect timer
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    // 2. Kill the old socket immediately so its stale onclose won't
+    //    interfere with the new connection we're about to create.
+    if (this.ws) {
+      this.ws.onopen = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      try { this.ws.close(); } catch (_) { /* ignore */ }
+      this.ws = null;
+    }
+
+    // 3. Reset all connection state
+    this.connecting = false;
+    this.reconnectAttempts = 0;
+
+    // 4. Reject stale pending RPC calls — they won't get responses
+    this.pending.forEach(({ reject: rej }) => rej(new Error('WebSocket force reconnect')));
+    this.pending.clear();
+
+    // 5. Connect immediately — don't await refreshAuthKey; if auth
+    //    fails the normal scheduleReconnect path will handle retry
+    //    with key refresh.
+    this.doConnect().catch(console.error);
+  }
+
   private doConnect(): Promise<void> {
+    // Prevent concurrent connection attempts
+    if (this.connecting) {
+      // Return a promise that resolves when the current attempt completes
+      return new Promise((resolve, reject) => {
+        this.connectResolvers.push({ resolve, reject });
+      });
+    }
+    this.connecting = true;
+
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(this.wsUrl);
+        // Close any previous socket to avoid orphaned connections.
+        // Null out event handlers first so the old socket's onclose
+        // doesn't trigger scheduleReconnect.
+        if (this.ws) {
+          this.ws.onopen = null;
+          this.ws.onclose = null;
+          this.ws.onerror = null;
+          this.ws.onmessage = null;
+          try { this.ws.close(); } catch (_) { /* ignore */ }
+          this.ws = null;
+        }
 
-        this.ws.onopen = () => {
+        let connected = false;
+        const ws = new WebSocket(this.wsUrl);
+        this.ws = ws;
+
+        ws.onopen = () => {
+          connected = true;
+          this.connecting = false;
           console.log('[WSRpc] Connected');
           this.reconnectAttempts = 0;
           // 通知所有等待连接的 resolvers
@@ -124,20 +234,41 @@ class WSRpcClient {
           resolve();
         };
 
-        this.ws.onmessage = (event) => {
+        ws.onmessage = (event) => {
           this.handleMessage(event.data);
         };
 
-        this.ws.onclose = () => {
+        ws.onclose = () => {
+          // Ignore close events from superseded sockets
+          if (this.ws !== ws) return;
+
           console.log('[WSRpc] Disconnected');
+          this.connecting = false;
+          if (!connected) {
+            // Connection never opened — reject pending waiters
+            this.connectResolvers.forEach(r => r.reject(new Error('Connection closed before open')));
+            this.connectResolvers = [];
+          }
+          // Reject all pending RPC calls so they don't hang
+          this.pending.forEach(({ reject: rej }) => rej(new Error('WebSocket disconnected')));
+          this.pending.clear();
           this.scheduleReconnect();
         };
 
-        this.ws.onerror = (error) => {
+        ws.onerror = (error) => {
+          // Ignore errors from superseded sockets
+          if (this.ws !== ws) return;
+
           console.error('[WSRpc] Error:', error);
-          reject(error);
+          // Only reject if connection was never established.
+          // After onopen, errors are handled by onclose → scheduleReconnect.
+          if (!connected) {
+            this.connecting = false;
+            reject(error);
+          }
         };
       } catch (error) {
+        this.connecting = false;
         reject(error);
       }
     });
@@ -175,13 +306,19 @@ class WSRpcClient {
     }
 
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const delay = Math.min(
+      this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+      this.maxReconnectDelay
+    );
     console.log(`[WSRpc] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
-    setTimeout(async () => {
-      // On auth failures, try to get the latest authKey from Go server
-      await this.refreshAuthKey();
-      this.doConnect().catch(console.error);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      // Connect first, refresh authKey in parallel — don't let a slow
+      // fetch delay reconnection.  If auth fails, the next retry will
+      // have the refreshed key.
+      this.refreshAuthKey().catch(() => {});
+      this.safeConnect();
     }, delay);
   }
 
@@ -222,8 +359,9 @@ class WSRpcClient {
    * 发送 RPC 调用
    */
   async call<T = any>(method: string, ...params: any[]): Promise<T> {
+    // If disconnected, wait for reconnection instead of failing immediately
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket not connected');
+      await this.waitForConnection(10000);
     }
 
     const id = generateId();
