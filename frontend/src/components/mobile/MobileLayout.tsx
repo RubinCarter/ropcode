@@ -103,6 +103,25 @@ export const MobileLayout: React.FC = () => {
     setActiveTab('chat');
   }, [switchToWorkspace]);
 
+  const handleCreateWorkspace = useCallback(async (project: Project) => {
+    const { generateWorkspaceName } = await import('@/lib/nameGenerator');
+    try {
+      const name = generateWorkspaceName();
+      await api.createWorkspace(project.path, name, name);
+      const projectList = await api.listProjects();
+      setProjects(projectList);
+      const updatedProject = projectList.find(p => p.path === project.path);
+      const newWorkspace = updatedProject?.workspaces?.find(ws => ws.name === name || ws.branch === name);
+      const claudeProvider = newWorkspace?.providers?.find(p => p.provider_id === 'claude');
+      if (claudeProvider?.path) {
+        switchToWorkspace(claudeProvider.path);
+        setActiveTab('chat');
+      }
+    } catch (err) {
+      console.error('Failed to create workspace:', err);
+    }
+  }, [switchToWorkspace]);
+
   const handleTabChange = useCallback((tab: MobileTab) => {
     setActiveTab(tab);
   }, []);
@@ -125,7 +144,7 @@ export const MobileLayout: React.FC = () => {
                 projects={projects}
                 onProjectClick={handleProjectClick}
                 onOpenProject={() => {}}
-                onCreateWorkspace={() => {}}
+                onCreateWorkspace={handleCreateWorkspace}
                 onRefresh={loadProjects}
                 loading={loading}
                 activeProjectPath={activeProjectPath}
