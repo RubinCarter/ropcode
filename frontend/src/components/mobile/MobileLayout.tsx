@@ -5,6 +5,7 @@ import { MobileSettingsPage } from './MobileSettingsPage';
 import { ContainerManager } from '@/components/containers';
 import { ProjectList } from '@/components/ProjectList';
 import { useContainerContext } from '@/contexts/ContainerContext';
+import { WorkspaceTabProvider } from '@/contexts/WorkspaceTabContext';
 import { api, type Project } from '@/lib/api';
 import { Loader2 } from 'lucide-react';
 import { RightSidebar } from '@/components/right-sidebar';
@@ -88,12 +89,14 @@ export const MobileLayout: React.FC = () => {
         {activeTab === 'status' && (
           <div className="h-full">
             {activeProjectPath ? (
-              <RightSidebar
-                isOpen={true}
-                defaultWidthPercent={100}
-                currentProjectPath={activeProjectPath}
-                className="relative w-full"
-              />
+              <WorkspaceTabProvider workspaceId={activeProjectPath}>
+                <RightSidebar
+                  isOpen={true}
+                  defaultWidthPercent={100}
+                  currentProjectPath={activeProjectPath}
+                  className="relative w-full"
+                />
+              </WorkspaceTabProvider>
             ) : (
               <div className="flex items-center justify-center h-full text-muted-foreground">
                 <p className="text-sm">Select a project first</p>

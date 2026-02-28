@@ -193,16 +193,32 @@ class WSRpcClient {
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
 
-      // 设置超时
+      // 设置超时（默认 30 秒）
+      const timeout = this.getTimeout(method);
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`RPC call ${method} timed out`));
         }
-      }, 30000);
+      }, timeout);
 
       this.ws!.send(JSON.stringify(request));
     });
+  }
+
+  /**
+   * 根据方法名返回超时时间（毫秒）
+   */
+  private getTimeout(method: string): number {
+    const longTimeoutMethods = [
+      'LoadProviderSessionHistory',
+      'LoadSessionHistory',
+      'LoadAgentSessionHistory',
+    ];
+    if (longTimeoutMethods.includes(method)) {
+      return 120000; // 2 minutes for history loading
+    }
+    return 30000;
   }
 
   /**
