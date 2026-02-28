@@ -50,12 +50,19 @@ func NewServer(app interface{}) *Server {
 	}
 }
 
+// defaultPort is the preferred port for the server.
+const defaultPort = 5173
+
 // Start 启动 WebSocket 服务器
 func (s *Server) Start(ctx context.Context) (int, error) {
-	// 找到可用端口
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	// Try fixed port first, fallback to random
+	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", defaultPort))
 	if err != nil {
-		return 0, fmt.Errorf("failed to find available port: %w", err)
+		log.Printf("Port %d occupied, falling back to random port", defaultPort)
+		listener, err = net.Listen("tcp", "0.0.0.0:0")
+		if err != nil {
+			return 0, fmt.Errorf("failed to find available port: %w", err)
+		}
 	}
 
 	s.port = listener.Addr().(*net.TCPAddr).Port
@@ -198,14 +205,13 @@ func (s *Server) GetPort() int {
 }
 
 // frontendHandler returns an http.Handler that serves the frontend.
-// In dev mode (ROPCODE_VITE_URL set): reverse proxy to Vite dev server.
+// In dev mode (ROPCODE_VITE_URL set): reverse proxy to Vite dev server,
+// including WebSocket upgrade requests (for Vite HMR).
 // In production (ROPCODE_FRONTEND_DIR set): serve static files from disk.
 // In both cases, index.html responses are injected with wsPort and authKey.
 func (s *Server) frontendHandler() http.Handler {
 	viteURL := os.Getenv("ROPCODE_VITE_URL")
 	frontendDir := os.Getenv("ROPCODE_FRONTEND_DIR")
-
-	var handler http.Handler
 
 	if viteURL != "" {
 		// Dev mode: reverse proxy to Vite dev server
@@ -228,20 +234,95 @@ func (s *Server) frontendHandler() http.Handler {
 			}
 			return s.injectScriptIntoResponse(resp)
 		}
-		handler = proxy
+
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// WebSocket upgrade on non-/ws paths → proxy to Vite (HMR)
+			if isWebSocketUpgrade(r) {
+				s.proxyWebSocket(w, r, target)
+				return
+			}
+			proxy.ServeHTTP(w, r)
+		})
 	} else if frontendDir != "" {
 		// Production: serve static files with HTML injection
-		handler = s.staticFrontendHandler(frontendDir)
-	} else {
-		// No frontend configured
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/plain")
-			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, "Ropcode server running on port %d. No frontend configured.", s.port)
-		})
+		return s.staticFrontendHandler(frontendDir)
 	}
 
-	return handler
+	// No frontend configured
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Ropcode server running on port %d. No frontend configured.", s.port)
+	})
+}
+
+// isWebSocketUpgrade checks if the request is a WebSocket upgrade.
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
+}
+
+// proxyWebSocket proxies a WebSocket upgrade request to a backend target
+// at the TCP level, preserving all headers (including Sec-WebSocket-Protocol).
+// It hijacks the client connection and dials the backend as raw TCP, then
+// copies bytes bidirectionally without any WebSocket frame parsing.
+func (s *Server) proxyWebSocket(w http.ResponseWriter, r *http.Request, target *url.URL) {
+	// Build backend address
+	backendAddr := target.Host
+	if !strings.Contains(backendAddr, ":") {
+		if target.Scheme == "https" {
+			backendAddr += ":443"
+		} else {
+			backendAddr += ":80"
+		}
+	}
+
+	// Dial backend as raw TCP
+	backendConn, err := net.Dial("tcp", backendAddr)
+	if err != nil {
+		log.Printf("WS proxy: failed to dial backend %s: %v", backendAddr, err)
+		http.Error(w, "WebSocket proxy failed", http.StatusBadGateway)
+		return
+	}
+	defer backendConn.Close()
+
+	// Rewrite the request URL path for the backend
+	r.URL.Scheme = target.Scheme
+	r.URL.Host = target.Host
+	r.Host = target.Host
+
+	// Write the original HTTP upgrade request to the backend
+	if err := r.Write(backendConn); err != nil {
+		log.Printf("WS proxy: failed to write request to backend: %v", err)
+		http.Error(w, "WebSocket proxy failed", http.StatusBadGateway)
+		return
+	}
+
+	// Hijack the client connection
+	hijacker, ok := w.(http.Hijacker)
+	if !ok {
+		log.Printf("WS proxy: ResponseWriter does not support hijacking")
+		http.Error(w, "WebSocket proxy failed", http.StatusInternalServerError)
+		return
+	}
+	clientConn, _, err := hijacker.Hijack()
+	if err != nil {
+		log.Printf("WS proxy: failed to hijack client connection: %v", err)
+		return
+	}
+	defer clientConn.Close()
+
+	// Bidirectional copy at TCP level
+	done := make(chan struct{}, 2)
+	go func() {
+		io.Copy(backendConn, clientConn)
+		done <- struct{}{}
+	}()
+	go func() {
+		io.Copy(clientConn, backendConn)
+		done <- struct{}{}
+	}()
+	<-done
 }
 
 // staticFrontendHandler serves static files and injects script into index.html.

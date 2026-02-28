@@ -50,19 +50,8 @@ async function createWindow() {
     trafficLightPosition: { x: 10, y: 10 },
   });
 
-  // 构建加载 URL
-  let loadUrl: string;
-  if (isDev) {
-    // 开发模式：连接 Vite 开发服务器
-    loadUrl = 'http://localhost:5173';
-  } else {
-    // 生产模式：加载打包的前端
-    // 前端被复制到 electron/dist/frontend/
-    const frontendPath = path.join(__dirname, 'frontend', 'index.html');
-    console.log('[Electron] __dirname:', __dirname);
-    console.log('[Electron] Resolved frontend path:', frontendPath);
-    loadUrl = `file://${frontendPath}`;
-  }
+  // Dev and Prod both load from Go server (unified single port)
+  const loadUrl = `http://localhost:${goServerInfo!.port}`;
 
   console.log('[Electron] Loading URL:', loadUrl);
   await mainWindow.loadURL(loadUrl);

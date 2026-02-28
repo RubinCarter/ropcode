@@ -14,9 +14,14 @@ const tabTitles: Record<MobileTab, string> = {
 };
 
 export const MobileHeader: React.FC<MobileHeaderProps> = ({ activeTab }) => {
+  const port = typeof window !== 'undefined' ? window.location.port : '';
+
   return (
-    <header className="h-11 bg-background/95 backdrop-blur-sm border-b border-border flex items-center px-4 shrink-0 z-[100]">
+    <header className="h-11 bg-background/95 backdrop-blur-sm border-b border-border flex items-center justify-between px-4 shrink-0 z-[100]">
       <h1 className="text-sm font-semibold">{tabTitles[activeTab]}</h1>
+      {port && (
+        <span className="text-xs text-muted-foreground font-mono">:{port}</span>
+      )}
     </header>
   );
 };

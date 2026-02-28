@@ -543,8 +543,14 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         {/* ContainerTabManager - 根据 activeType 显示对应的 TabManager */}
         <ContainerTabManager className="self-stretch" />
 
-        {/* 右侧 - Workspace Name 和 Open in 按钮 */}
+        {/* 右侧 - Port + Workspace Name 和 Open in 按钮 */}
         <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
+          {/* Port indicator */}
+          {typeof window !== 'undefined' && window.location.port && (
+            <span className="text-[11px] text-muted-foreground font-mono px-2.5 py-1.5 rounded-md bg-accent/50 border border-border/50">
+              :{window.location.port}
+            </span>
+          )}
           {/* Workspace Name - 显示在 Open in 按钮左侧，点击打开 Finder */}
           {workspaceInfo && (
             <button

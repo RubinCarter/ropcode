@@ -17,12 +17,12 @@ import { StartupIntro } from "@/components/StartupIntro";
 import { wsClient } from "@/lib/ws-rpc-client";
 
 // WebSocket 连接配置
-// 优先级: Go 后端注入的全局变量 > Electron preload > URL 参数
-// Go 后端在 serve index.html 时注入 __ROPCODE_WS_PORT__ / __ROPCODE_AUTH_KEY__
-// Electron preload 也通过 webFrame.executeJavaScript 注入同样的全局变量
+// 页面由 Go 后端 serve，location.port 就是 Go 端口
+// 优先级: Go 注入全局变量 > Electron preload > location.port > URL 参数
 const urlParams = new URLSearchParams(window.location.search);
 const wsPort = window.__ROPCODE_WS_PORT__
   || window.electronAPI?.wsPort
+  || parseInt(location.port, 10)
   || urlParams.get('wsPort');
 const authKey = window.__ROPCODE_AUTH_KEY__
   || window.electronAPI?.authKey
@@ -293,7 +293,7 @@ function AppContent() {
   }, []);
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col" style={{ height: 'calc(var(--app-height, 100vh))' }}>
       {/* Custom Titlebar with integrated TabManager */}
       <CustomTitlebar
         sidebarCollapsed={sidebarCollapsed}
