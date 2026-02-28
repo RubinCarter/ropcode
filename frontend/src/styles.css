@@ -313,6 +313,13 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Prevent mobile browser auto-zoom on input focus (requires font-size >= 16px) */
+@media (max-width: 767px) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
 /* Placeholder text styling */
 input::placeholder,
 textarea::placeholder {

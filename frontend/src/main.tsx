@@ -1,3 +1,4 @@
+import "@/lib/debug-log"; // must be first — patches console before anything logs
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
@@ -47,6 +48,29 @@ analytics.initialize();
 
 // Start resource monitoring (check every 2 minutes)
 resourceMonitor.startMonitoring(120000);
+
+// Lock the app height using window.innerHeight on load.
+// On mobile browsers, 100vh includes the URL bar, causing content to be hidden.
+// window.innerHeight gives the actual visible area. We set it once and only update
+// on orientation change or significant resize (not on keyboard show/hide).
+(() => {
+  const setAppHeight = () => {
+    document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+  };
+  setAppHeight();
+  // Update on orientation change
+  window.addEventListener('orientationchange', () => {
+    setTimeout(setAppHeight, 100);
+  });
+  // Update on resize only if width changes (keyboard changes height but not width)
+  let lastWidth = window.innerWidth;
+  window.addEventListener('resize', () => {
+    if (window.innerWidth !== lastWidth) {
+      lastWidth = window.innerWidth;
+      setAppHeight();
+    }
+  });
+})();
 
 // Add a macOS-specific class to the <html> element to enable platform-specific styling
 // Browser-safe detection using navigator properties (works in Tauri and web preview)

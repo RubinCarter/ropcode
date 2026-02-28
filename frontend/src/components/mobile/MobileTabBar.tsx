@@ -10,8 +10,8 @@ interface MobileTabBarProps {
 }
 
 const tabs: { id: MobileTab; label: string; icon: React.ElementType }[] = [
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'projects', label: 'Projects', icon: FolderOpen },
+  { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'status', label: 'Status', icon: PanelRight },
   { id: 'settings', label: 'Settings', icon: Settings },
@@ -20,7 +20,7 @@ const tabs: { id: MobileTab; label: string; icon: React.ElementType }[] = [
 export const MobileTabBar: React.FC<MobileTabBarProps> = ({ activeTab, onTabChange }) => {
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-[100] bg-background/95 backdrop-blur-sm border-t border-border"
+      className="shrink-0 z-[100] bg-background/95 backdrop-blur-sm border-t border-border"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       <div className="flex items-center justify-around h-14">
