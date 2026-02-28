@@ -320,6 +320,14 @@ body {
   }
 }
 
+/* iOS keyboard open: lock viewport to prevent auto-scroll */
+html.keyboard-open,
+html.keyboard-open body {
+  position: fixed !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+
 /* Placeholder text styling */
 input::placeholder,
 textarea::placeholder {

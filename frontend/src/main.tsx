@@ -51,18 +51,29 @@ resourceMonitor.startMonitoring(120000);
 
 // Lock the app height using window.innerHeight on load.
 // On mobile browsers, 100vh includes the URL bar, causing content to be hidden.
-// window.innerHeight gives the actual visible area. We set it once and only update
-// on orientation change or significant resize (not on keyboard show/hide).
+// window.innerHeight gives the actual visible area.
+//
+// iOS Safari keyboard handling:
+//   - window.innerHeight does NOT change when iOS keyboard opens
+//   - visualViewport.height DOES change (e.g. 695 → 331)
+//   - iOS auto-scrolls the page upward, creating a blank gap
+//   - Fix: update --app-height to visualViewport.height when keyboard opens,
+//     and lock html/body with position:fixed to prevent iOS scroll
 (() => {
-  const setAppHeight = () => {
-    document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+  const isMobile = window.innerWidth < 768;
+  const fullHeight = window.innerHeight;
+
+  const setAppHeight = (h?: number) => {
+    document.documentElement.style.setProperty('--app-height', `${h ?? window.innerHeight}px`);
   };
   setAppHeight();
+
   // Update on orientation change
   window.addEventListener('orientationchange', () => {
-    setTimeout(setAppHeight, 100);
+    setTimeout(() => setAppHeight(), 100);
   });
-  // Update on resize only if width changes (keyboard changes height but not width)
+
+  // Update on resize only if width changes (desktop browser resize)
   let lastWidth = window.innerWidth;
   window.addEventListener('resize', () => {
     if (window.innerWidth !== lastWidth) {
@@ -70,6 +81,29 @@ resourceMonitor.startMonitoring(120000);
       setAppHeight();
     }
   });
+
+  // Mobile: track visualViewport to handle iOS keyboard
+  if (isMobile && window.visualViewport) {
+    const vv = window.visualViewport;
+    // Threshold: if viewport shrinks by more than 100px, keyboard is likely open
+    const KEYBOARD_THRESHOLD = 100;
+
+    vv.addEventListener('resize', () => {
+      const heightDiff = fullHeight - vv.height;
+      if (heightDiff > KEYBOARD_THRESHOLD) {
+        // Keyboard is open — shrink app to visible area
+        setAppHeight(vv.height);
+        document.documentElement.classList.add('keyboard-open');
+        // Prevent iOS from scrolling the viewport
+        window.scrollTo(0, 0);
+      } else {
+        // Keyboard is closed — restore full height
+        setAppHeight(fullHeight);
+        document.documentElement.classList.remove('keyboard-open');
+        window.scrollTo(0, 0);
+      }
+    });
+  }
 })();
 
 // Add a macOS-specific class to the <html> element to enable platform-specific styling
