@@ -415,68 +415,149 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     };
   }, []);
 
-  // Recover missed messages after WebSocket reconnection.
-  // Mobile browsers kill WS when backgrounded, so streaming events are lost.
-  // On reconnect, compare local message count with backend and sync the gap.
+  // Recover missed messages after WebSocket reconnection or visibility restore.
+  //
+  // On iOS Safari, the WS dies when backgrounded.  When the user returns:
+  //   1. forceReconnect() tears down old WS and creates a new connection
+  //   2. But the React component may unmount/remount during this process
+  //      (e.g. tab switching, layout changes), which unsubscribes the
+  //      onConnect callback before the new connection fires it.
+  //
+  // To be robust against this, we trigger recovery from TWO sources:
+  //   a) wsClient.onConnect — for when WS reconnects while component is mounted
+  //   b) visibilitychange — for when component remounts AFTER WS already connected
+  //
+  // We skip recovery when localCount === 0 (initial mount, session restore
+  // handles that) and debounce to avoid duplicate syncs.
   useEffect(() => {
-    let isFirstConnect = true;
     let recoverTimer: ReturnType<typeof setTimeout> | null = null;
+    let isMounted = true;
 
-    const unsub = wsClient.onConnect(() => {
-      // Skip the first connect — normal session restore handles that
-      if (isFirstConnect) {
-        isFirstConnect = false;
+    const recoverMessages = async (trigger: string) => {
+      if (!isMounted) return;
+
+      const localCount = messagesState.messagesLengthRef.current;
+      // Skip if no messages loaded yet — initial session restore will handle it
+      if (localCount === 0) {
+        console.log(`[AiCodeSession] Recovery (${trigger}): skipped — no local messages yet, initial restore will handle`);
         return;
       }
 
-      // Debounce: onConnect may fire multiple times during reconnect flapping
-      if (recoverTimer) clearTimeout(recoverTimer);
-      recoverTimer = setTimeout(async () => {
-        recoverTimer = null;
-        const sessionId = sessionState.claudeSessionIdRef?.current;
-        const projectPath = sessionState.projectPathRef.current;
-        const projectId = sessionState.extractedSessionInfoRef.current?.projectId;
-        if (!sessionId || !projectPath || !projectId) return;
+      // Gather session identifiers from refs
+      let sessionId = sessionState.claudeSessionIdRef?.current;
+      const projectPath = sessionState.projectPathRef.current;
+      let projectId = sessionState.extractedSessionInfoRef.current?.projectId;
 
-        try {
-          console.log('[AiCodeSession] Syncing after reconnect, local messages:', messagesState.messagesLengthRef.current);
-
-          // Sync process state — check if task completed while disconnected
-          const running = await api.isClaudeSessionRunningForProject(projectPath, defaultProvider);
-          if (!running) {
-            processState.setIsLoading(false);
-            processState.hasActiveSessionRef.current = false;
-          }
-
-          // Reload full history and compare with local state
-          // loadHistory expects (sessionId, projectId, provider)
-          const history = await providers.loadHistory(sessionId, projectId, defaultProvider);
-          if (history && history.length > messagesState.messagesLengthRef.current) {
-            console.log('[AiCodeSession] Syncing', history.length - messagesState.messagesLengthRef.current, 'missed messages');
-            const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
-              let messageType = entry.type;
-              if (!messageType) {
-                if (entry.role === "user" || entry.message?.role === "user" || entry.user_message) {
-                  messageType = "user";
-                } else if (entry.subtype === "init" || entry.session_id) {
-                  messageType = "system";
-                } else {
-                  messageType = "assistant";
-                }
-              }
-              return { ...entry, type: messageType };
-            });
-            messagesState.setMessages(loadedMessages);
-            setTimeout(() => scrollToBottom('auto'), 100);
-          }
-        } catch (err) {
-          console.error('[AiCodeSession] Failed to sync after reconnect:', err instanceof Error ? err.message : err);
+      // Fallback: if refs are empty, try localStorage
+      if ((!sessionId || !projectId) && projectPath) {
+        const sessions = SessionPersistenceService.getSessionIndex();
+        const saved = sessions
+          .map(sid => SessionPersistenceService.loadSession(sid))
+          .filter(s => s && s.projectPath === projectPath && (s.provider || 'claude') === defaultProvider)
+          .sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
+        if (saved.length > 0 && saved[0]) {
+          sessionId = sessionId || saved[0].sessionId;
+          projectId = projectId || saved[0].projectId;
+          console.log(`[AiCodeSession] Recovery (${trigger}): used localStorage fallback`);
         }
+      }
+
+      if (!sessionId || !projectPath || !projectId) {
+        console.log(`[AiCodeSession] Recovery (${trigger}): skipped — missing identifiers`, {
+          sessionId: !!sessionId, projectPath: !!projectPath, projectId: !!projectId
+        });
+        return;
+      }
+
+      try {
+        console.log(`[AiCodeSession] Recovery (${trigger}): syncing, local messages:`, localCount);
+
+        // Sync process state — check if task completed while disconnected
+        const running = await api.isClaudeSessionRunningForProject(projectPath, defaultProvider);
+        if (!isMounted) return;
+        if (!running) {
+          processState.setIsLoading(false);
+          processState.hasActiveSessionRef.current = false;
+        }
+
+        // Reload full history from backend JSONL
+        const history = await providers.loadHistory(sessionId, projectId, defaultProvider);
+        if (!isMounted) return;
+
+        if (!history || history.length === 0) {
+          console.log(`[AiCodeSession] Recovery (${trigger}): backend returned empty history`);
+          return;
+        }
+
+        console.log(`[AiCodeSession] Recovery (${trigger}): backend has`, history.length, 'messages, local has', localCount);
+
+        // Replace if backend has same or more messages (JSONL has complete
+        // messages vs local state which may have partial streaming deltas)
+        if (history.length >= localCount) {
+          const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
+            let messageType = entry.type;
+            if (!messageType) {
+              if (entry.role === "user" || entry.message?.role === "user" || entry.user_message) {
+                messageType = "user";
+              } else if (entry.subtype === "init" || entry.session_id) {
+                messageType = "system";
+              } else {
+                messageType = "assistant";
+              }
+            }
+            return { ...entry, type: messageType };
+          });
+          messagesState.setMessages(loadedMessages);
+          console.log(`[AiCodeSession] Recovery (${trigger}): replaced with`, loadedMessages.length, 'messages from backend');
+          setTimeout(() => scrollToBottom('auto'), 100);
+        }
+      } catch (err) {
+        console.error(`[AiCodeSession] Recovery (${trigger}) failed:`, err instanceof Error ? err.message : err);
+      }
+    };
+
+    const scheduleRecover = (trigger: string) => {
+      if (recoverTimer) clearTimeout(recoverTimer);
+      recoverTimer = setTimeout(() => {
+        recoverTimer = null;
+        recoverMessages(trigger);
       }, 500);
+    };
+
+    // Source A: WS reconnection while component is mounted
+    const unsub = wsClient.onConnect(() => {
+      console.log('[AiCodeSession] WS connected, scheduling recovery check');
+      scheduleRecover('onConnect');
     });
 
+    // Source B: Page becomes visible (covers component remount after WS reconnected)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && wsClient.isConnected()) {
+        console.log('[AiCodeSession] Page visible + WS connected, scheduling recovery check');
+        scheduleRecover('visibilitychange');
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Source C: Component mounted while page is already visible and WS connected.
+    // This covers the case where the component remounts AFTER both WS reconnect
+    // and visibilitychange have already fired.  We use a longer delay (2s) to
+    // let the normal session restore path run first.
+    if (document.visibilityState === 'visible' && wsClient.isConnected()) {
+      setTimeout(() => {
+        if (!isMounted) return;
+        // Only recover if session restore has already loaded messages
+        if (messagesState.messagesLengthRef.current > 0) {
+          console.log('[AiCodeSession] Mount recovery check: messages exist, syncing');
+          scheduleRecover('mount');
+        }
+      }, 2000);
+    }
+
     return () => {
+      isMounted = false;
       unsub();
+      document.removeEventListener('visibilitychange', handleVisibility);
       if (recoverTimer) clearTimeout(recoverTimer);
     };
   }, []);
