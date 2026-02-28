@@ -100,17 +100,47 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
 
   const commandListRef = useRef<HTMLDivElement>(null);
 
-  // Calculate position based on anchor element - use useLayoutEffect to avoid flicker
+  // Calculate position based on anchor element - continuously track position
+  // to handle iOS keyboard open/close which moves the anchor element
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const pickerHeight = isMobile ? Math.min(300, window.innerHeight * 0.5) : 400;
+
   useLayoutEffect(() => {
-    if (anchorRef?.current) {
-      const rect = anchorRef.current.getBoundingClientRect();
-      // Position above the anchor element
+    if (!anchorRef?.current) return;
+
+    const updatePosition = () => {
+      const el = anchorRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const margin = 10;
+      let top = rect.top - pickerHeight - margin;
+      // Clamp to viewport top
+      if (top < 0) top = 4;
       setPosition({
-        top: rect.top - 410, // 400px height + 10px margin
-        left: rect.left,
+        top,
+        left: isMobile ? 4 : rect.left,
       });
+    };
+
+    updatePosition();
+
+    // Re-calculate on visualViewport resize (keyboard open/close)
+    const vv = window.visualViewport;
+    if (vv) {
+      vv.addEventListener('resize', updatePosition);
+      vv.addEventListener('scroll', updatePosition);
     }
-  }, [anchorRef]);
+    // Also re-calculate on window resize
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', updatePosition);
+        vv.removeEventListener('scroll', updatePosition);
+      }
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [anchorRef, pickerHeight, isMobile]);
   
   // Analytics tracking
   const trackEvent = useTrackEvent();
@@ -310,13 +340,13 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
       transition={{ duration: 0.15, ease: "easeOut" }}
       className={cn(
         usePortal ? "fixed z-[9999]" : "absolute bottom-full mb-2 left-0 z-50",
-        "w-[600px] h-[400px]",
+        isMobile ? "w-[calc(100vw-8px)]" : "w-[600px]",
         "bg-background border border-border rounded-lg shadow-lg",
         "flex flex-col overflow-hidden",
         "will-change-transform transform-gpu",
         className
       )}
-      style={usePortal && position ? { top: position.top, left: position.left } : undefined}
+      style={usePortal && position ? { top: position.top, left: position.left, height: pickerHeight } : { height: pickerHeight }}
     >
       {/* Header */}
       <div className="border-b border-border p-3">

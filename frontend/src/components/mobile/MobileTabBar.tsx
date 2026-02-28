@@ -20,6 +20,7 @@ const tabs: { id: MobileTab; label: string; icon: React.ElementType }[] = [
 export const MobileTabBar: React.FC<MobileTabBarProps> = ({ activeTab, onTabChange }) => {
   return (
     <nav
+      data-mobile-tabbar
       className="shrink-0 z-[100] bg-background/95 backdrop-blur-sm border-t border-border"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >

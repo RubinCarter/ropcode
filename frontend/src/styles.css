@@ -328,6 +328,12 @@ html.keyboard-open body {
   overflow: hidden !important;
 }
 
+/* Hide mobile header and tab bar when keyboard is open to maximize content space */
+html.keyboard-open [data-mobile-header],
+html.keyboard-open [data-mobile-tabbar] {
+  display: none !important;
+}
+
 /* Placeholder text styling */
 input::placeholder,
 textarea::placeholder {
