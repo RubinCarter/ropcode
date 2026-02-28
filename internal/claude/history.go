@@ -7,11 +7,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+// maxScanCapacity is the maximum buffer size for bufio.Scanner.
+// Claude JSONL files can contain very long lines (base64 images, large tool results),
+// so we need a generous limit.
+const maxScanCapacity = 10 * 1024 * 1024 // 10MB
 
 // Message represents a single message in the session history
 type Message struct {
@@ -73,14 +79,11 @@ func BuildMessageIndex(filePath string) (*MessageIndex, error) {
 	lineNum := 0
 	scanner := bufio.NewScanner(file)
 
-	// Increase buffer size for potentially large lines
-	const maxCapacity = 1024 * 1024 // 1MB
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
+	buf := make([]byte, maxScanCapacity)
+	scanner.Buffer(buf, maxScanCapacity)
 
 	for scanner.Scan() {
 		lineNum++
-		// Every line in a JSONL file is a message
 		lineNumbers = append(lineNumbers, lineNum)
 	}
 
@@ -110,10 +113,8 @@ func ReadMessagesRange(filePath string, start, end int) ([]Message, error) {
 	lineNum := 0
 	scanner := bufio.NewScanner(file)
 
-	// Increase buffer size for potentially large lines
-	const maxCapacity = 1024 * 1024 // 1MB
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
+	buf := make([]byte, maxScanCapacity)
+	scanner.Buffer(buf, maxScanCapacity)
 
 	for scanner.Scan() {
 		lineNum++
@@ -145,8 +146,32 @@ func ReadMessagesRange(filePath string, start, end int) ([]Message, error) {
 	return messages, nil
 }
 
-// ReadAllMessages reads all messages from a JSONL file
+// ReadAllMessages reads all messages from a JSONL file.
+// For large files (>5MB), only the last 500 messages are returned to avoid
+// excessive memory usage and WebSocket transfer overhead.
 func ReadAllMessages(filePath string) ([]Message, error) {
+	const maxMessages = 500
+	const largeSizeThreshold = 5 * 1024 * 1024 // 5MB
+
+	stat, err := os.Stat(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat file: %w", err)
+	}
+
+	if stat.Size() > largeSizeThreshold {
+		// Large file: count lines first (fast, no JSON parsing), then read last N
+		totalLines, err := countLines(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to count lines: %w", err)
+		}
+		start := totalLines - maxMessages + 1
+		if start < 1 {
+			start = 1
+		}
+		return ReadMessagesRange(filePath, start, totalLines)
+	}
+
+	// Small file: read all messages
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -156,18 +181,14 @@ func ReadAllMessages(filePath string) ([]Message, error) {
 	messages := []Message{}
 	scanner := bufio.NewScanner(file)
 
-	// Increase buffer size for potentially large lines
-	const maxCapacity = 1024 * 1024 // 1MB
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
+	buf := make([]byte, maxScanCapacity)
+	scanner.Buffer(buf, maxScanCapacity)
 
 	for scanner.Scan() {
 		var msg Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
-			// Skip malformed lines but continue processing
 			continue
 		}
-
 		messages = append(messages, msg)
 	}
 
@@ -176,6 +197,34 @@ func ReadAllMessages(filePath string) ([]Message, error) {
 	}
 
 	return messages, nil
+}
+
+// countLines counts the number of lines in a file by counting newline bytes.
+// This avoids bufio.Scanner's line-length limits which fail on very long lines.
+func countLines(filePath string) (int, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+
+	buf := make([]byte, 64*1024)
+	count := 0
+	for {
+		n, err := file.Read(buf)
+		for i := 0; i < n; i++ {
+			if buf[i] == '\n' {
+				count++
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return 0, err
+		}
+	}
+	return count, nil
 }
 
 // StreamMessages reads messages from a JSONL file and sends them via a channel
@@ -192,10 +241,8 @@ func StreamMessages(filePath string, eventChan chan<- Message, errorChan chan<- 
 
 	scanner := bufio.NewScanner(file)
 
-	// Increase buffer size for potentially large lines
-	const maxCapacity = 1024 * 1024 // 1MB
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
+	buf := make([]byte, maxScanCapacity)
+	scanner.Buffer(buf, maxScanCapacity)
 
 	lineNum := 0
 	for scanner.Scan() {
@@ -319,9 +366,8 @@ func extractClaudeSessionInfo(filePath, sessionID, projectHash, projectPath stri
 	}
 
 	scanner := bufio.NewScanner(file)
-	const maxCapacity = 1024 * 1024
-	buf := make([]byte, maxCapacity)
-	scanner.Buffer(buf, maxCapacity)
+	buf := make([]byte, maxScanCapacity)
+	scanner.Buffer(buf, maxScanCapacity)
 
 	var firstTimestamp string
 	var firstMessage string
