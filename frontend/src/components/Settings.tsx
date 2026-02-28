@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Plus, 
@@ -30,6 +31,7 @@ import { ProxySettings } from "./ProxySettings";
 import { ProviderApiManager } from "./ProviderApiManager";
 import { ClaudeAgentsManager } from "./ClaudeAgentsManager";
 import { PluginsManager } from "./PluginsManager";
+import { DebugLogs } from "./DebugLogs";
 import { useTheme, useTrackEvent } from "@/hooks";
 import { analytics } from "@/lib/analytics";
 import { TabPersistenceService } from "@/services/tabPersistence";
@@ -63,6 +65,7 @@ interface EnvironmentVariable {
 export const Settings: React.FC<SettingsProps> = ({
   className,
 }) => {
+  const isMobile = useIsMobile();
   const [settings, setSettings] = useState<ClaudeSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -339,7 +342,7 @@ export const Settings: React.FC<SettingsProps> = ({
     <div className={cn("h-full overflow-y-auto", className)}>
       <div className="max-w-6xl mx-auto flex flex-col h-full">
         {/* Header */}
-        <div className="p-6">
+        <div className={isMobile ? "p-3" : "p-6"}>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-heading-1">Settings</h1>
@@ -394,20 +397,21 @@ export const Settings: React.FC<SettingsProps> = ({
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className={`flex-1 overflow-y-auto ${isMobile ? 'p-3' : 'p-6'}`}>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid grid-cols-11 w-full mb-6 h-auto p-1">
-              <TabsTrigger value="general" className="py-2.5 px-3">General</TabsTrigger>
-              <TabsTrigger value="permissions" className="py-2.5 px-3">Permissions</TabsTrigger>
-              <TabsTrigger value="environment" className="py-2.5 px-3">Environment</TabsTrigger>
-              <TabsTrigger value="advanced" className="py-2.5 px-3">Advanced</TabsTrigger>
-              <TabsTrigger value="hooks" className="py-2.5 px-3">Hooks</TabsTrigger>
-              <TabsTrigger value="commands" className="py-2.5 px-3">Commands</TabsTrigger>
-              <TabsTrigger value="agents" className="py-2.5 px-3">Agents</TabsTrigger>
-              <TabsTrigger value="plugins" className="py-2.5 px-3">Plugins</TabsTrigger>
-              <TabsTrigger value="providers" className="py-2.5 px-3">Providers</TabsTrigger>
-              <TabsTrigger value="storage" className="py-2.5 px-3">Storage</TabsTrigger>
-              <TabsTrigger value="proxy" className="py-2.5 px-3">Proxy</TabsTrigger>
+            <TabsList className={isMobile ? "flex overflow-x-auto w-full mb-6 h-auto p-1" : "grid grid-cols-12 w-full mb-6 h-auto p-1"}>
+              <TabsTrigger value="general" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>General</TabsTrigger>
+              <TabsTrigger value="permissions" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Permissions</TabsTrigger>
+              <TabsTrigger value="environment" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Environment</TabsTrigger>
+              <TabsTrigger value="advanced" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Advanced</TabsTrigger>
+              <TabsTrigger value="hooks" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Hooks</TabsTrigger>
+              <TabsTrigger value="commands" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Commands</TabsTrigger>
+              <TabsTrigger value="agents" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Agents</TabsTrigger>
+              <TabsTrigger value="plugins" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Plugins</TabsTrigger>
+              <TabsTrigger value="providers" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Providers</TabsTrigger>
+              <TabsTrigger value="storage" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Storage</TabsTrigger>
+              <TabsTrigger value="proxy" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Proxy</TabsTrigger>
+              <TabsTrigger value="debug" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Debug</TabsTrigger>
             </TabsList>
             
             {/* General Settings */}
@@ -1098,7 +1102,14 @@ export const Settings: React.FC<SettingsProps> = ({
                 />
               </Card>
             </TabsContent>
-            
+
+            {/* Debug Logs */}
+            <TabsContent value="debug">
+              <Card className="p-6">
+                <DebugLogs />
+              </Card>
+            </TabsContent>
+
           </Tabs>
         </div>
       )}

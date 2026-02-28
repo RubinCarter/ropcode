@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Plus, Terminal, Globe, Trash2, Info, Loader2 } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +35,7 @@ export const MCPAddServer: React.FC<MCPAddServerProps> = ({
   onServerAdded,
   onError,
 }) => {
+  const isMobile = useIsMobile();
   const [transport, setTransport] = useState<"stdio" | "sse">("stdio");
   const [saving, setSaving] = useState(false);
   
@@ -271,7 +273,7 @@ export const MCPAddServer: React.FC<MCPAddServerProps> = ({
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={`${isMobile ? 'p-3' : 'p-6'} space-y-6`}>
       <div>
         <h3 className="text-base font-semibold">Add MCP Server</h3>
         <p className="text-sm text-muted-foreground mt-1">
@@ -293,7 +295,7 @@ export const MCPAddServer: React.FC<MCPAddServerProps> = ({
 
         {/* Stdio Server */}
         <TabsContent value="stdio" className="space-y-6">
-          <Card className="p-6 space-y-6">
+          <Card className={`${isMobile ? 'p-3' : 'p-6'} space-y-6`}>
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="stdio-name">Server Name</Label>
@@ -376,7 +378,7 @@ export const MCPAddServer: React.FC<MCPAddServerProps> = ({
 
         {/* SSE Server */}
         <TabsContent value="sse" className="space-y-6">
-          <Card className="p-6 space-y-6">
+          <Card className={`${isMobile ? 'p-3' : 'p-6'} space-y-6`}>
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="sse-name">Server Name</Label>

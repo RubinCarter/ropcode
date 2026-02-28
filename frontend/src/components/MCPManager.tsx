@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AlertCircle, Loader2 } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Toast, ToastContainer } from "@/components/ui/toast";
@@ -27,6 +28,7 @@ interface MCPManagerProps {
 export const MCPManager: React.FC<MCPManagerProps> = ({
   className: _className,
 }) => {
+  const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState("servers");
   const [servers, setServers] = useState<MCPServer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,7 +100,7 @@ export const MCPManager: React.FC<MCPManagerProps> = ({
     <div className="h-full overflow-y-auto">
       <div className="max-w-6xl mx-auto flex flex-col h-full">
         {/* Header */}
-        <div className="p-6">
+        <div className={isMobile ? "p-3" : "p-6"}>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-heading-1">MCP Servers</h1>
@@ -116,7 +118,7 @@ export const MCPManager: React.FC<MCPManagerProps> = ({
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="mx-6 mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/50 flex items-center gap-2 text-body-small text-destructive"
+              className={`${isMobile ? 'mx-3' : 'mx-6'} mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/50 flex items-center gap-2 text-body-small text-destructive`}
             >
               <AlertCircle className="h-4 w-4" />
               {error}
@@ -130,9 +132,9 @@ export const MCPManager: React.FC<MCPManagerProps> = ({
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className={`flex-1 overflow-y-auto ${isMobile ? 'p-3' : 'p-6'}`}>
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList className="grid grid-cols-3 w-full max-w-md mb-6 h-auto p-1">
+              <TabsList className={`grid grid-cols-3 w-full mb-6 h-auto p-1 ${isMobile ? '' : 'max-w-md'}`}>
                 <TabsTrigger value="servers" className="py-2.5 px-3">
                   Servers
                 </TabsTrigger>

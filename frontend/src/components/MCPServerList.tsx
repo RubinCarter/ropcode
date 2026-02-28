@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { 
   Network, 
   Globe, 
@@ -50,6 +51,7 @@ export const MCPServerList: React.FC<MCPServerListProps> = ({
   onServerRemoved,
   onRefresh,
 }) => {
+  const isMobile = useIsMobile();
   const [removingServer, setRemovingServer] = useState<string | null>(null);
   const [testingServer, setTestingServer] = useState<string | null>(null);
   const [expandedServers, setExpandedServers] = useState<Set<string>>(new Set());
@@ -257,7 +259,7 @@ export const MCPServerList: React.FC<MCPServerListProps> = ({
               )}
             </div>
             
-            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            <div className={`flex items-center gap-2 flex-shrink-0 ${isMobile ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
               <Button
                 variant="ghost"
                 size="sm"
@@ -380,7 +382,7 @@ export const MCPServerList: React.FC<MCPServerListProps> = ({
   }
 
   return (
-    <div className="p-6">
+    <div className={isMobile ? "p-3" : "p-6"}>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>

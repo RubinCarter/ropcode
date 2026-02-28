@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Download, Upload, FileText, Loader2, Info, Network, Settings2 } from "lucide-react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -24,6 +25,7 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
   onImportCompleted,
   onError,
 }) => {
+  const isMobile = useIsMobile();
   const [importingDesktop, setImportingDesktop] = useState(false);
   const [importingJson, setImportingJson] = useState(false);
   const [importScope, setImportScope] = useState("local");
@@ -161,7 +163,7 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={`${isMobile ? 'p-3' : 'p-6'} space-y-6`}>
       <div>
         <h3 className="text-base font-semibold">Import & Export</h3>
         <p className="text-sm text-muted-foreground mt-1">
