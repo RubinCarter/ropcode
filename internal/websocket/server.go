@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -146,8 +147,15 @@ func (s *Server) readPump(client *Client) {
 		s.clientsMu.Lock()
 		delete(s.clients, client.ID)
 		s.clientsMu.Unlock()
-		client.Conn.Close()
+		client.Close()
 	}()
+
+	// Configure ping/pong keepalive
+	client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	client.Conn.SetPongHandler(func(string) error {
+		client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 
 	for {
 		_, message, err := client.Conn.ReadMessage()

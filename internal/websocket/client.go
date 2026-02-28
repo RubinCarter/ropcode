@@ -4,16 +4,27 @@ package websocket
 import (
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
 
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = 25 * time.Second
+)
+
 // Client 表示一个 WebSocket 客户端连接
 type Client struct {
-	ID   string
-	Conn *websocket.Conn
-	Send chan []byte
-	mu   sync.Mutex
+	ID        string
+	Conn      *websocket.Conn
+	Send      chan []byte
+	mu        sync.Mutex
+	closeOnce sync.Once
 }
 
 // NewClient 创建新的客户端
@@ -68,20 +79,41 @@ func (c *Client) SendResponse(id string, result interface{}, errMsg string) erro
 	})
 }
 
-// WritePump 将 Send 通道中的消息写入 WebSocket
+// WritePump 将 Send 通道中的消息写入 WebSocket, and sends periodic pings
+// to keep the connection alive across mobile NAT and proxy timeouts.
 func (c *Client) WritePump() {
-	defer c.Conn.Close()
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.Conn.Close()
+	}()
 
-	for message := range c.Send {
-		if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
-			return
+	for {
+		select {
+		case message, ok := <-c.Send:
+			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// Channel closed — send close frame
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
 
-// Close 关闭客户端连接
+// Close 关闭客户端连接 (safe to call multiple times)
 func (c *Client) Close() {
-	close(c.Send)
+	c.closeOnce.Do(func() {
+		close(c.Send)
+	})
 }
 
 // 错误定义
