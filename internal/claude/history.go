@@ -43,8 +43,9 @@ type MessageIndex struct {
 
 // GetProjectHash computes the hash used by Claude for project directory names
 func GetProjectHash(projectPath string) string {
-	// Claude uses MD5 hash of the project path, then replaces / with -
+	// Claude replaces both "/" and "." with "-" in the path
 	normalized := strings.ReplaceAll(projectPath, "/", "-")
+	normalized = strings.ReplaceAll(normalized, ".", "-")
 	return normalized
 }
 
