@@ -223,7 +223,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   // Check ALL providers (claude, codex, etc.), not just 'claude'
   const allWorkspacePaths = useMemo(() => {
     const paths: string[] = [];
-    projects.forEach(project => {
+    (projects ?? []).forEach(project => {
       if (project.workspaces) {
         project.workspaces.forEach(ws => {
           // Find any AI provider (claude, codex, etc.)
