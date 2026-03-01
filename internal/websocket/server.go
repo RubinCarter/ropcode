@@ -77,6 +77,7 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/api/upload-attachment", s.handleUploadAttachment)
 	mux.Handle("/", s.frontendHandler())
 
 	s.httpServer = &http.Server{Handler: mux}
@@ -400,6 +401,76 @@ func (s *Server) injectScriptIntoResponse(resp *http.Response) error {
 	resp.ContentLength = int64(len(injected))
 	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(injected)))
 	return nil
+}
+
+// handleUploadAttachment handles file uploads via HTTP multipart/form-data
+func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) {
+	// 1. Validate request method
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 2. Parse multipart form (max 50MB)
+	err := r.ParseMultipartForm(50 << 20) // 50MB
+	if err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Get uploaded file
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Failed to read file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// 4. Get optional projectPath
+	projectPath := r.FormValue("projectPath")
+
+	// 5. Generate safe filename: timestamp_originalname
+	timestamp := time.Now().Format("20060102-150405")
+	safeFilename := sanitizeFilename(header.Filename)
+	finalFilename := fmt.Sprintf("%s_%s", timestamp, safeFilename)
+
+	// 6. Ensure storage directory exists
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "Failed to get home directory", http.StatusInternalServerError)
+		return
+	}
+	attachmentsDir := filepath.Join(homeDir, ".claude", "attachments")
+	err = os.MkdirAll(attachmentsDir, 0755)
+	if err != nil {
+		http.Error(w, "Failed to create directory", http.StatusInternalServerError)
+		return
+	}
+
+	// 7. Create destination file
+	destPath := filepath.Join(attachmentsDir, finalFilename)
+	dest, err := os.Create(destPath)
+	if err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	defer dest.Close()
+
+	// 8. Write file content
+	_, err = io.Copy(dest, file)
+	if err != nil {
+		http.Error(w, "Failed to write file", http.StatusInternalServerError)
+		return
+	}
+
+	// 9. Return file path
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"filePath": destPath,
+		"filename": finalFilename,
+	})
+
+	log.Printf("Uploaded attachment: %s (projectPath: %s)", finalFilename, projectPath)
 }
 
 // sanitizeFilename cleans a filename to prevent path traversal attacks
