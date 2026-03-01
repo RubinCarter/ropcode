@@ -457,20 +457,23 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 	defer dest.Close()
 
 	// 8. Write file content
-	_, err = io.Copy(dest, file)
+	written, err := io.Copy(dest, file)
 	if err != nil {
+		os.Remove(destPath) // Clean up incomplete file
 		http.Error(w, "Failed to write file", http.StatusInternalServerError)
 		return
 	}
 
 	// 9. Return file path
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"filePath": destPath,
 		"filename": finalFilename,
-	})
+	}); err != nil {
+		log.Printf("Failed to encode upload response: %v", err)
+	}
 
-	log.Printf("Uploaded attachment: %s (projectPath: %s)", finalFilename, projectPath)
+	log.Printf("Uploaded attachment: %s (%d bytes, projectPath: %s)", finalFilename, written, projectPath)
 }
 
 // sanitizeFilename cleans a filename to prevent path traversal attacks
