@@ -221,6 +221,28 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 		})
 	}
 
+	// Broadcast user message to all clients for multi-client sync
+	// This ensures all connected clients (iOS, Mac, Web) see the user's prompt
+	if emitter != nil && s.Config.Prompt != "" {
+		userMessage := map[string]interface{}{
+			"type":       "user",
+			"session_id": s.ID,
+			"cwd":        s.Config.ProjectPath,
+			"message": map[string]interface{}{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type": "text",
+						"text": s.Config.Prompt,
+					},
+				},
+			},
+		}
+		userJSON, _ := json.Marshal(userMessage)
+		log.Printf("[Session] Broadcasting user message to all clients")
+		emitter.Emit("claude-output", string(userJSON))
+	}
+
 	// Start reading output in goroutines
 	// Claude CLI will output its own system/init message - we just forward it
 	// This matches the Rust implementation which doesn't emit its own init
