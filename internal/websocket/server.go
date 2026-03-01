@@ -420,12 +420,13 @@ func sanitizeFilename(filename string) string {
 
 	// 3. Limit filename length to maxFilenameLength characters
 	if len(filename) > maxFilenameLength {
-		ext := filepath.Ext(filename)
+		originalExt := filepath.Ext(filename)
+		ext := originalExt
 		// Limit extension length to prevent panic
 		if len(ext) > maxFilenameLength/2 {
 			ext = ext[:maxFilenameLength/2]
 		}
-		nameWithoutExt := strings.TrimSuffix(filename, filepath.Ext(filename))
+		nameWithoutExt := strings.TrimSuffix(filename, originalExt)
 		maxNameLength := maxFilenameLength - len(ext)
 		if len(nameWithoutExt) > maxNameLength {
 			nameWithoutExt = nameWithoutExt[:maxNameLength]
