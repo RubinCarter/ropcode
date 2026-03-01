@@ -78,6 +78,7 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/upload-attachment", s.handleUploadAttachment)
+	mux.HandleFunc("/local-file/", s.handleLocalFile)
 	mux.Handle("/", s.frontendHandler())
 
 	s.httpServer = &http.Server{Handler: mux}
@@ -514,4 +515,31 @@ func sanitizeFilename(filename string) string {
 	}
 
 	return filename
+}
+
+// handleLocalFile serves local files by path for image preview.
+// URL format: /local-file/<url-encoded-absolute-path>
+// This allows iOS and other remote clients to load local images via HTTP.
+func (s *Server) handleLocalFile(w http.ResponseWriter, r *http.Request) {
+	// Extract and decode the file path from URL
+	encodedPath := strings.TrimPrefix(r.URL.Path, "/local-file/")
+	filePath, err := url.QueryUnescape(encodedPath)
+	if err != nil {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	// Security: only allow files under home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if !strings.HasPrefix(filePath, homeDir+"/") && !strings.HasPrefix(filePath, "/tmp/") {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Serve the file
+	http.ServeFile(w, r, filePath)
 }
