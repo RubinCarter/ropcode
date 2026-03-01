@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AttachmentMenu } from './AttachmentMenu';
@@ -8,31 +8,40 @@ interface AttachmentButtonProps {
   disabled?: boolean;
 }
 
+const isMobile = (): boolean => {
+  const hasCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const hasTouchScreen = window.matchMedia('(hover: none)').matches;
+  const isMobileUA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  return (hasCoarsePointer && hasTouchScreen) || isMobileUA;
+};
+
 export const AttachmentButton: React.FC<AttachmentButtonProps> = ({
   onFileSelected,
   disabled = false,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const mobileFileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleToggleMenu = () => {
-    if (!disabled) {
+  const handleClick = () => {
+    if (disabled) return;
+    if (isMobile()) {
+      // On mobile, let the OS native picker handle everything
+      mobileFileInputRef.current?.click();
+    } else {
       setIsMenuOpen((prev) => !prev);
     }
   };
 
-  const handleClose = () => {
-    setIsMenuOpen(false);
-  };
-
-  const handleFileSelected = (file: File) => {
-    setIsMenuOpen(false);
-    onFileSelected(file);
+  const handleMobileFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) onFileSelected(file);
+    e.target.value = '';
   };
 
   return (
     <div className="relative">
       <button
-        onClick={handleToggleMenu}
+        onClick={handleClick}
         disabled={disabled}
         title="添加附件"
         aria-label="添加附件"
@@ -45,10 +54,23 @@ export const AttachmentButton: React.FC<AttachmentButtonProps> = ({
         <Paperclip className="h-3.5 w-3.5" />
       </button>
 
+      {/* Mobile: single hidden input, OS handles picker natively */}
+      <input
+        ref={mobileFileInputRef}
+        type="file"
+        accept="*/*"
+        className="hidden"
+        onChange={handleMobileFileChange}
+      />
+
+      {/* Desktop: custom menu */}
       <AttachmentMenu
         isOpen={isMenuOpen}
-        onClose={handleClose}
-        onFileSelected={handleFileSelected}
+        onClose={() => setIsMenuOpen(false)}
+        onFileSelected={(file) => {
+          setIsMenuOpen(false);
+          onFileSelected(file);
+        }}
       />
     </div>
   );
