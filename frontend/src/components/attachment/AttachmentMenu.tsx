@@ -66,7 +66,10 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
     >
       {/* Browse files (all platforms) */}
       <button
-        onClick={() => fileInputRef.current?.click()}
+        onClick={(e) => {
+          e.stopPropagation();
+          fileInputRef.current?.click();
+        }}
         className={menuItemClass}
       >
         <FolderOpen className="h-4 w-4 shrink-0" />
@@ -76,7 +79,10 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
       {/* Camera capture (mobile only) */}
       {mobile && (
         <button
-          onClick={() => cameraInputRef.current?.click()}
+          onClick={(e) => {
+            e.stopPropagation();
+            cameraInputRef.current?.click();
+          }}
           className={cn(menuItemClass, 'border-t border-border')}
         >
           <Camera className="h-4 w-4 shrink-0" />
@@ -87,7 +93,10 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
       {/* Photo library (mobile only) */}
       {mobile && (
         <button
-          onClick={() => photoInputRef.current?.click()}
+          onClick={(e) => {
+            e.stopPropagation();
+            photoInputRef.current?.click();
+          }}
           className={cn(menuItemClass, 'border-t border-border')}
         >
           <Image className="h-4 w-4 shrink-0" />
