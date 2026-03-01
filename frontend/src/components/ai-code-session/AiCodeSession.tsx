@@ -432,6 +432,8 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   useEffect(() => {
     let recoverTimer: ReturnType<typeof setTimeout> | null = null;
     let isMounted = true;
+    let lastRecoveryTime = 0;
+    const MIN_RECOVERY_INTERVAL = 5000; // 5秒最小间隔
 
     const recoverMessages = async (trigger: string) => {
       if (!isMounted) return;
@@ -442,6 +444,20 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         console.log(`[AiCodeSession] Recovery (${trigger}): skipped — no local messages yet, initial restore will handle`);
         return;
       }
+
+      // Skip if currently streaming to avoid clearing incomplete assistant messages
+      if (processState.isLoading) {
+        console.log(`[AiCodeSession] Recovery (${trigger}): skipped — still streaming`);
+        return;
+      }
+
+      // Debounce: skip if recovered recently
+      const now = Date.now();
+      if (now - lastRecoveryTime < MIN_RECOVERY_INTERVAL) {
+        console.log(`[AiCodeSession] Recovery (${trigger}): skipped — too soon (${Math.round((now - lastRecoveryTime) / 1000)}s since last)`);
+        return;
+      }
+      lastRecoveryTime = now;
 
       // Gather session identifiers from refs
       let sessionId = sessionState.claudeSessionIdRef?.current;
@@ -491,69 +507,71 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
         console.log(`[AiCodeSession] Recovery (${trigger}): backend has`, history.length, 'messages, local has', localCount);
 
-        // DIAGNOSTIC: 对比本地和后端的最后一条消息
+        // Prepare backend messages with proper types
+        const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
+          let messageType = entry.type;
+          if (!messageType) {
+            if (entry.role === "user" || entry.message?.role === "user" || entry.user_message) {
+              messageType = "user";
+            } else if (entry.subtype === "init" || entry.session_id) {
+              messageType = "system";
+            } else {
+              messageType = "assistant";
+            }
+          }
+          // Ensure timestamp exists (use current time if missing)
+          if (!entry.timestamp) {
+            entry.timestamp = Date.now();
+          }
+          return { ...entry, type: messageType };
+        });
+
+        // Compare timestamps instead of counts to avoid false positives during streaming
         const currentMessages = messagesState.messages;
-        if (currentMessages.length > 0 && history.length > 0) {
+        let shouldReplace = false;
+
+        if (currentMessages.length === 0) {
+          // No local messages, always load from backend
+          shouldReplace = true;
+          console.log(`[AiCodeSession] Recovery (${trigger}): no local messages, loading from backend`);
+        } else if (loadedMessages.length === 0) {
+          // Backend has no messages, keep local state
+          shouldReplace = false;
+          console.log(`[AiCodeSession] Recovery (${trigger}): backend empty, keeping local state`);
+        } else {
           const localLast = currentMessages[currentMessages.length - 1];
-          const backendLast = history[history.length - 1];
-          console.log(`[AiCodeSession] Recovery (${trigger}): Comparing last message:`);
-          console.log('  Local last:', {
-            type: localLast.type,
-            role: localLast.role,
-            contentLength: localLast.content?.length || 0,
-            contentPreview: localLast.content?.slice(0, 100),
-            hasStreamDelta: !!localLast.stream_delta
-          });
-          console.log('  Backend last:', {
-            type: backendLast.type,
-            role: backendLast.role,
-            contentLength: backendLast.content?.length || 0,
-            contentPreview: backendLast.content?.slice(0, 100),
-            messageText: backendLast.message?.text?.slice(0, 100)
+          const backendLast = loadedMessages[loadedMessages.length - 1];
+
+          const localTimestamp = localLast.timestamp || 0;
+          const backendTimestamp = backendLast.timestamp || 0;
+
+          console.log(`[AiCodeSession] Recovery (${trigger}): Comparing timestamps:`, {
+            local: { count: currentMessages.length, timestamp: localTimestamp, type: localLast.type },
+            backend: { count: loadedMessages.length, timestamp: backendTimestamp, type: backendLast.type },
           });
 
-          // 对比内容长度差异
-          const localContent = localLast.content || '';
-          const backendContent = backendLast.content || backendLast.message?.text || '';
-          if (localContent.length !== backendContent.length) {
-            console.warn(`[AiCodeSession] Recovery (${trigger}): Content length mismatch!`, {
-              localLength: localContent.length,
-              backendLength: backendContent.length,
-              diff: localContent.length - backendContent.length
-            });
+          if (backendTimestamp > localTimestamp) {
+            // Backend has newer messages, sync
+            shouldReplace = true;
+            console.log(`[AiCodeSession] Recovery (${trigger}): backend has newer messages (${backendTimestamp} > ${localTimestamp}), syncing`);
+          } else if (backendTimestamp === localTimestamp && loadedMessages.length !== currentMessages.length) {
+            // Same timestamp but different count = local has streaming deltas (normal during streaming)
+            shouldReplace = false;
+            console.log(`[AiCodeSession] Recovery (${trigger}): same timestamp but different count (local has streaming deltas), skipping sync`);
+          } else if (backendTimestamp === localTimestamp && loadedMessages.length === currentMessages.length) {
+            // Same timestamp and same count = already in sync
+            shouldReplace = false;
+            console.log(`[AiCodeSession] Recovery (${trigger}): already in sync, no update needed`);
+          } else {
+            // Local timestamp is newer (shouldn't happen normally, but keep local state to be safe)
+            shouldReplace = false;
+            console.log(`[AiCodeSession] Recovery (${trigger}): local timestamp is newer, keeping local state`);
           }
         }
 
-        // Replace if backend has same or more messages (JSONL has complete
-        // messages vs local state which may have partial streaming deltas)
-        if (history.length >= localCount) {
-          const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
-            let messageType = entry.type;
-            if (!messageType) {
-              if (entry.role === "user" || entry.message?.role === "user" || entry.user_message) {
-                messageType = "user";
-              } else if (entry.subtype === "init" || entry.session_id) {
-                messageType = "system";
-              } else {
-                messageType = "assistant";
-              }
-            }
-            return { ...entry, type: messageType };
-          });
+        if (shouldReplace) {
           messagesState.setMessages(loadedMessages);
-          console.log(`[AiCodeSession] Recovery (${trigger}): replaced with`, loadedMessages.length, 'messages from backend');
-
-          // DIAGNOSTIC: 确认恢复后的最后一条消息
-          if (loadedMessages.length > 0) {
-            const recoveredLast = loadedMessages[loadedMessages.length - 1];
-            console.log(`[AiCodeSession] Recovery (${trigger}): After recovery, last message:`, {
-              type: recoveredLast.type,
-              role: recoveredLast.role,
-              contentLength: recoveredLast.content?.length || 0,
-              contentPreview: recoveredLast.content?.slice(0, 100)
-            });
-          }
-
+          console.log(`[AiCodeSession] Recovery (${trigger}): replaced with ${loadedMessages.length} messages from backend`);
           setTimeout(() => scrollToBottom('auto'), 100);
         }
       } catch (err) {

@@ -168,6 +168,11 @@ export function useMessages(): UseMessagesReturn {
 
   // Helper functions
   const addMessage = (message: ClaudeStreamMessage) => {
+    // Ensure message has timestamp
+    if (!message.timestamp) {
+      message.timestamp = Date.now();
+    }
+
     // Handle delta messages - accumulate into last assistant message with batching
     if (message.type === 'assistant' && (message as any).is_delta && message.message?.content) {
       const deltaContent = message.message?.content || [];
