@@ -116,6 +116,44 @@ export function useMessages(): UseMessagesReturn {
   const deltaBufferRef = useRef<string>('');
   const deltaFlushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Helper function to check if a user message is duplicate
+  const isDuplicateUserMessage = (existingMessages: ClaudeStreamMessage[], newMessage: ClaudeStreamMessage): boolean => {
+    if (newMessage.type !== 'user' || !newMessage.message?.content) {
+      return false;
+    }
+
+    // Extract text content from the new message
+    const newTextContent = newMessage.message.content
+      .filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text)
+      .join('');
+
+    if (!newTextContent) {
+      return false;
+    }
+
+    // Check last 3 messages for duplicates (to handle near-simultaneous adds)
+    const recentMessages = existingMessages.slice(-3);
+
+    for (const msg of recentMessages) {
+      if (msg.type !== 'user' || !msg.message?.content) {
+        continue;
+      }
+
+      const existingTextContent = msg.message.content
+        .filter((c: any) => c.type === 'text')
+        .map((c: any) => c.text)
+        .join('');
+
+      // If content matches exactly, it's a duplicate
+      if (existingTextContent === newTextContent) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
   // Helper functions
   const addMessage = (message: ClaudeStreamMessage) => {
     // Handle delta messages - accumulate into last assistant message with batching
@@ -230,12 +268,30 @@ export function useMessages(): UseMessagesReturn {
               };
             }
           }
+
+          // Deduplicate user messages before adding
+          if (message.type === 'user' && isDuplicateUserMessage(prev, message)) {
+            return updatedMessages;
+          }
+
           return [...updatedMessages, message];
         }
+
+        // Deduplicate user messages before adding
+        if (message.type === 'user' && isDuplicateUserMessage(prev, message)) {
+          return prev;
+        }
+
         return [...prev, message];
       });
     } else {
-      setMessages(prev => [...prev, message]);
+      setMessages(prev => {
+        // Deduplicate user messages before adding
+        if (message.type === 'user' && isDuplicateUserMessage(prev, message)) {
+          return prev;
+        }
+        return [...prev, message];
+      });
     }
   };
 
