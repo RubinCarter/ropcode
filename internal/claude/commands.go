@@ -57,7 +57,7 @@ type PluginEntry struct {
 
 // ListSlashCommands lists all slash commands (default + user + project + plugin)
 func ListSlashCommands(projectPath string) ([]SlashCommand, error) {
-	var commands []SlashCommand
+	commands := make([]SlashCommand, 0)
 
 	// 1. Add default/built-in commands
 	commands = append(commands, createDefaultCommands()...)
@@ -188,7 +188,7 @@ func createDefaultCommands() []SlashCommand {
 
 // loadCommandsFromDir loads all markdown commands from a directory
 func loadCommandsFromDir(dir string, scope string, cmdType CommandType) ([]SlashCommand, error) {
-	var commands []SlashCommand
+	commands := make([]SlashCommand, 0)
 
 	// Check if directory exists
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -353,7 +353,7 @@ func extractCommandInfo(filePath, baseDir string) (string, *string) {
 
 // loadPluginCommands loads commands from all installed plugins
 func loadPluginCommands(homeDir string) []SlashCommand {
-	var commands []SlashCommand
+	commands := make([]SlashCommand, 0)
 
 	pluginsDir := filepath.Join(homeDir, ".claude", "plugins")
 	installedFile := filepath.Join(pluginsDir, "installed_plugins.json")

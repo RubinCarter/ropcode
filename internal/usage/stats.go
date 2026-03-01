@@ -217,7 +217,7 @@ func (c *Collector) scanJSONLFile(path string) ([]*UsageEntry, error) {
 	}
 	defer file.Close()
 
-	var entries []*UsageEntry
+	entries := make([]*UsageEntry, 0)
 	scanner := bufio.NewScanner(file)
 
 	// Increase buffer size for large lines
@@ -259,7 +259,7 @@ func (c *Collector) scanAllJSONLFiles() ([]*UsageEntry, error) {
 		return []*UsageEntry{}, nil
 	}
 
-	var allEntries []*UsageEntry
+	allEntries := make([]*UsageEntry, 0)
 
 	err := filepath.Walk(projectsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -525,7 +525,7 @@ func (c *Collector) aggregateSessionDetails(entries []*UsageEntry) []*SessionDet
 	}
 
 	// Convert map to slice
-	var sessions []*SessionDetail
+	sessions := make([]*SessionDetail, 0)
 	for _, detail := range sessionMap {
 		sessions = append(sessions, detail)
 	}

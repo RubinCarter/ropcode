@@ -170,7 +170,7 @@ func (d *Database) GetAllProviderApiConfigs() ([]*ProviderApiConfig, error) {
 	}
 	defer rows.Close()
 
-	var configs []*ProviderApiConfig
+	configs := make([]*ProviderApiConfig, 0)
 	for rows.Next() {
 		config := &ProviderApiConfig{}
 		err := rows.Scan(&config.ID, &config.Name, &config.ProviderID, &config.BaseURL, &config.AuthToken,
@@ -267,7 +267,7 @@ func (d *Database) GetAllProjectIndexes() ([]*ProjectIndex, error) {
 	}
 	defer rows.Close()
 
-	var projects []*ProjectIndex
+	projects := make([]*ProjectIndex, 0)
 	for rows.Next() {
 		var data string
 		if err := rows.Scan(&data); err != nil {
@@ -298,7 +298,7 @@ func (d *Database) ListAgents() ([]*Agent, error) {
 	}
 	defer rows.Close()
 
-	var agents []*Agent
+	agents := make([]*Agent, 0)
 	for rows.Next() {
 		agent := &Agent{}
 		var createdAt, updatedAt int64
@@ -525,7 +525,7 @@ func (d *Database) ListAgentRuns(agentID *int64, limit int) ([]*AgentRun, error)
 	}
 	defer rows.Close()
 
-	var runs []*AgentRun
+	runs := make([]*AgentRun, 0)
 	for rows.Next() {
 		run, err := scanAgentRunRow(rows)
 		if err != nil {
@@ -546,7 +546,7 @@ func (d *Database) ListRunningAgentRuns() ([]*AgentRun, error) {
 	}
 	defer rows.Close()
 
-	var runs []*AgentRun
+	runs := make([]*AgentRun, 0)
 	for rows.Next() {
 		run, err := scanAgentRunRow(rows)
 		if err != nil {
@@ -659,7 +659,7 @@ func (d *Database) ListTables() ([]string, error) {
 	}
 	defer rows.Close()
 
-	var tables []string
+	tables := make([]string, 0)
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
@@ -719,7 +719,7 @@ func (d *Database) ReadTable(table string, page, pageSize int) (*TableData, erro
 	}
 
 	// Read rows
-	var data []map[string]interface{}
+	data := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		// Create a slice of interface{} to hold each column value
 		values := make([]interface{}, len(columns))
@@ -871,7 +871,7 @@ func (d *Database) ExecuteSQL(query string) (*TableData, error) {
 	}
 
 	// Read rows
-	var data []map[string]interface{}
+	data := make([]map[string]interface{}, 0)
 	for rows.Next() {
 		values := make([]interface{}, len(columns))
 		valuePtrs := make([]interface{}, len(columns))
@@ -981,7 +981,7 @@ func (d *Database) GetAllModelConfigs() ([]*ModelConfig, error) {
 	}
 	defer rows.Close()
 
-	var configs []*ModelConfig
+	configs := make([]*ModelConfig, 0)
 	for rows.Next() {
 		config, err := scanModelConfigRow(rows)
 		if err != nil {
@@ -1003,7 +1003,7 @@ func (d *Database) GetModelConfigsByProvider(providerID string) ([]*ModelConfig,
 	}
 	defer rows.Close()
 
-	var configs []*ModelConfig
+	configs := make([]*ModelConfig, 0)
 	for rows.Next() {
 		config, err := scanModelConfigRow(rows)
 		if err != nil {
@@ -1025,7 +1025,7 @@ func (d *Database) GetEnabledModelConfigs() ([]*ModelConfig, error) {
 	}
 	defer rows.Close()
 
-	var configs []*ModelConfig
+	configs := make([]*ModelConfig, 0)
 	for rows.Next() {
 		config, err := scanModelConfigRow(rows)
 		if err != nil {

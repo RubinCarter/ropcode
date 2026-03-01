@@ -62,7 +62,7 @@ type ClaudeMdFile struct {
 }
 
 func FindClaudeMdFiles(projectPath string) ([]ClaudeMdFile, error) {
-	var files []ClaudeMdFile
+	files := make([]ClaudeMdFile, 0)
 
 	// Check project root
 	rootMd := filepath.Join(projectPath, "CLAUDE.md")

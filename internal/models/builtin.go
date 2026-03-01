@@ -196,7 +196,7 @@ func GetBuiltinModel(modelID string) *database.ModelConfig {
 
 // GetBuiltinModelsByProvider returns all builtin models for a provider
 func GetBuiltinModelsByProvider(providerID string) []*database.ModelConfig {
-	var models []*database.ModelConfig
+	models := make([]*database.ModelConfig, 0)
 	for _, model := range BuiltinModels() {
 		if model.ProviderID == providerID {
 			models = append(models, model)

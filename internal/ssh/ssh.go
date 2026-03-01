@@ -68,7 +68,7 @@ func (m *Manager) loadConnections() {
 		return // File doesn't exist or can't be read
 	}
 
-	var connections []SshConnection
+	connections := make([]SshConnection, 0)
 	if err := json.Unmarshal(data, &connections); err != nil {
 		return
 	}
