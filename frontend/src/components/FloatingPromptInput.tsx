@@ -33,6 +33,8 @@ import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
 import { EventsOn } from "@/lib/rpc-events";
 import { useIsMobile } from '@/hooks/useIsMobile';
+import { AttachmentButton } from './attachment';
+import { uploadAttachment, UploadError } from '../utils/uploadAttachment';
 
 interface FloatingPromptInputProps {
   /**
@@ -518,6 +520,7 @@ const FloatingPromptInputInner = (
   const [cursorPosition, setCursorPosition] = useState(0);
   const [embeddedImages, setEmbeddedImages] = useState<string[]>([]);
   const [dragActive, setDragActive] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Model configs from API
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([]);
@@ -1541,6 +1544,27 @@ const FloatingPromptInputInner = (
     // File processing is handled by WebSocket EventsOn
   };
 
+  const handleAttachmentSelected = async (file: File) => {
+    setUploadError(null);
+    try {
+      const result = await uploadAttachment(
+        file,
+        undefined,   // serverPort: let uploadAttachment use window.location.port
+        projectPath, // projectPath prop
+      );
+      // Insert file reference into prompt
+      setPrompt((prev) => `${prev}@${result.filePath} `);
+    } catch (error) {
+      if (error instanceof UploadError) {
+        setUploadError(error.message);
+      } else {
+        setUploadError('上传失败，请重试');
+      }
+      // Clear error after 5 seconds
+      setTimeout(() => setUploadError(null), 5000);
+    }
+  };
+
   const handleRemoveImage = (index: number) => {
     // Remove the corresponding @mention from the prompt
     const imagePath = embeddedImages[index];
@@ -2315,6 +2339,11 @@ const FloatingPromptInputInner = (
                     </motion.div>
                   </TooltipSimple>
 
+                  <AttachmentButton
+                    onFileSelected={handleAttachmentSelected}
+                    disabled={isLoading || disabled}
+                  />
+
                   <TooltipSimple content={isLoading ? "Stop generation" : "Send message (⌘+Enter)"} side="top">
                     <motion.div
                       whileTap={{ scale: 0.97 }}
@@ -2380,6 +2409,23 @@ const FloatingPromptInputInner = (
                     />
                   )}
                 </AnimatePresence>
+
+                {/* Upload error message */}
+                {uploadError && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    right: 0,
+                    color: 'var(--color-error, #ff6b6b)',
+                    fontSize: '12px',
+                    padding: '4px 8px',
+                    marginBottom: '4px',
+                    whiteSpace: 'nowrap',
+                    pointerEvents: 'none',
+                  }}>
+                    {uploadError}
+                  </div>
+                )}
               </div>
 
               {/* Extra menu items - Right side, fixed at bottom */}
