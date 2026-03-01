@@ -95,9 +95,17 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
 
       setFiles(parsedFiles);
     } catch (err) {
-      console.error('Failed to fetch git status:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      setFiles([]);
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+      // Silently ignore git errors for non-git directories (exit status 128 = not a git repo)
+      if (errMsg.includes('exit status 128') || errMsg.includes('not a git repo') || errMsg.includes('failed to get current branch')) {
+        setError(null);
+        setCurrentBranch('');
+        setFiles([]);
+      } else {
+        console.error('Failed to fetch git status:', err);
+        setError(errMsg);
+        setFiles([]);
+      }
     } finally {
       setLoading(false);
     }
