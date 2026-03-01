@@ -524,38 +524,64 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
           }
         }
 
-        // Replace if backend has same or more messages (JSONL has complete
-        // messages vs local state which may have partial streaming deltas)
-        if (history.length >= localCount) {
-          const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
-            let messageType = entry.type;
-            if (!messageType) {
-              if (entry.role === "user" || entry.message?.role === "user" || entry.user_message) {
-                messageType = "user";
-              } else if (entry.subtype === "init" || entry.session_id) {
-                messageType = "system";
-              } else {
-                messageType = "assistant";
-              }
-            }
-            return { ...entry, type: messageType };
+        // CRITICAL FIX: 当本地消息多于后端时,记录多余的消息并仍然用后端覆盖
+        // 这种情况通常发生在:
+        // 1. 流式 delta 消息已添加到前端 React 状态,但后端还未写入 JSONL
+        // 2. iOS 切换应用导致 WebSocket 断开,前端状态未及时持久化
+        // 3. 用户消息被重复广播添加
+        if (localCount > history.length) {
+          console.warn(`[AiCodeSession] Recovery (${trigger}): Local has MORE messages than backend!`, {
+            localCount,
+            backendCount: history.length,
+            extraMessages: localCount - history.length
           });
-          messagesState.setMessages(loadedMessages);
-          console.log(`[AiCodeSession] Recovery (${trigger}): replaced with`, loadedMessages.length, 'messages from backend');
-
-          // DIAGNOSTIC: 确认恢复后的最后一条消息
-          if (loadedMessages.length > 0) {
-            const recoveredLast = loadedMessages[loadedMessages.length - 1];
-            console.log(`[AiCodeSession] Recovery (${trigger}): After recovery, last message:`, {
-              type: recoveredLast.type,
-              role: recoveredLast.role,
-              contentLength: recoveredLast.content?.length || 0,
-              contentPreview: recoveredLast.content?.slice(0, 100)
-            });
-          }
-
-          setTimeout(() => scrollToBottom('auto'), 100);
+          // 记录多余的消息用于诊断
+          const extraMessages = currentMessages.slice(history.length);
+          console.warn(`[AiCodeSession] Recovery (${trigger}): Extra local messages:`,
+            extraMessages.map(m => ({
+              type: m.type,
+              role: m.role,
+              contentPreview: m.content?.slice(0, 50),
+              hasStreamDelta: !!m.stream_delta
+            }))
+          );
         }
+
+        // ALWAYS use backend JSONL as source of truth
+        // Backend JSONL is the persisted, authoritative data source
+        // Local state may contain:
+        // - Partial streaming deltas not yet flushed to JSONL
+        // - Duplicate messages from broadcasting
+        // - Phantom messages from disconnection during streaming
+        const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
+          let messageType = entry.type;
+          if (!messageType) {
+            if (entry.role === "user" || entry.message?.role === "user" || entry.user_message) {
+              messageType = "user";
+            } else if (entry.subtype === "init" || entry.session_id) {
+              messageType = "system";
+            } else {
+              messageType = "assistant";
+            }
+          }
+          return { ...entry, type: messageType };
+        });
+
+        messagesState.setMessages(loadedMessages);
+        console.log(`[AiCodeSession] Recovery (${trigger}): replaced with`, loadedMessages.length, 'messages from backend');
+
+        // DIAGNOSTIC: 确认恢复后的最后一条消息
+        if (loadedMessages.length > 0) {
+          const recoveredLast = loadedMessages[loadedMessages.length - 1];
+          console.log(`[AiCodeSession] Recovery (${trigger}): After recovery, last message:`, {
+            type: recoveredLast.type,
+            role: recoveredLast.role,
+            contentLength: recoveredLast.content?.length || 0,
+            contentPreview: recoveredLast.content?.slice(0, 100)
+          });
+        }
+
+        setTimeout(() => scrollToBottom('auto'), 100);
       } catch (err) {
         console.error(`[AiCodeSession] Recovery (${trigger}) failed:`, err instanceof Error ? err.message : err);
       }
