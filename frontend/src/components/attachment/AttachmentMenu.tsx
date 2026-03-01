@@ -9,10 +9,12 @@ interface AttachmentMenuProps {
 }
 
 const isMobile = (): boolean => {
-  return (
-    window.matchMedia('(pointer: coarse)').matches ||
-    /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-  );
+  // Check for touch device AND coarse pointer (true mobile, not desktop with touch screen)
+  const hasCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const hasTouchScreen = window.matchMedia('(hover: none)').matches;
+  const isMobileUA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  return (hasCoarsePointer && hasTouchScreen) || isMobileUA;
 };
 
 export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
