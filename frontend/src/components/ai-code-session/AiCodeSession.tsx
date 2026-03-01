@@ -491,6 +491,39 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
         console.log(`[AiCodeSession] Recovery (${trigger}): backend has`, history.length, 'messages, local has', localCount);
 
+        // DIAGNOSTIC: 对比本地和后端的最后一条消息
+        const currentMessages = messagesState.messages;
+        if (currentMessages.length > 0 && history.length > 0) {
+          const localLast = currentMessages[currentMessages.length - 1];
+          const backendLast = history[history.length - 1];
+          console.log(`[AiCodeSession] Recovery (${trigger}): Comparing last message:`);
+          console.log('  Local last:', {
+            type: localLast.type,
+            role: localLast.role,
+            contentLength: localLast.content?.length || 0,
+            contentPreview: localLast.content?.slice(0, 100),
+            hasStreamDelta: !!localLast.stream_delta
+          });
+          console.log('  Backend last:', {
+            type: backendLast.type,
+            role: backendLast.role,
+            contentLength: backendLast.content?.length || 0,
+            contentPreview: backendLast.content?.slice(0, 100),
+            messageText: backendLast.message?.text?.slice(0, 100)
+          });
+
+          // 对比内容长度差异
+          const localContent = localLast.content || '';
+          const backendContent = backendLast.content || backendLast.message?.text || '';
+          if (localContent.length !== backendContent.length) {
+            console.warn(`[AiCodeSession] Recovery (${trigger}): Content length mismatch!`, {
+              localLength: localContent.length,
+              backendLength: backendContent.length,
+              diff: localContent.length - backendContent.length
+            });
+          }
+        }
+
         // Replace if backend has same or more messages (JSONL has complete
         // messages vs local state which may have partial streaming deltas)
         if (history.length >= localCount) {
@@ -509,6 +542,18 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
           });
           messagesState.setMessages(loadedMessages);
           console.log(`[AiCodeSession] Recovery (${trigger}): replaced with`, loadedMessages.length, 'messages from backend');
+
+          // DIAGNOSTIC: 确认恢复后的最后一条消息
+          if (loadedMessages.length > 0) {
+            const recoveredLast = loadedMessages[loadedMessages.length - 1];
+            console.log(`[AiCodeSession] Recovery (${trigger}): After recovery, last message:`, {
+              type: recoveredLast.type,
+              role: recoveredLast.role,
+              contentLength: recoveredLast.content?.length || 0,
+              contentPreview: recoveredLast.content?.slice(0, 100)
+            });
+          }
+
           setTimeout(() => scrollToBottom('auto'), 100);
         }
       } catch (err) {
