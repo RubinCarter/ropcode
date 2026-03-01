@@ -3684,7 +3684,6 @@ func (a *App) SavePastedImage(base64Data, filename string) (string, error) {
 	return filePath, nil
 }
 
-
 // OpenInExternalApp opens a file or path in an external application
 func (a *App) OpenInExternalApp(appType, path string) error {
 	switch appType {

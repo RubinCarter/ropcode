@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -39,6 +40,11 @@ type Server struct {
 	clientsMu  sync.RWMutex
 	httpServer *http.Server
 }
+
+const (
+	maxFilenameLength = 200
+	defaultFilename   = "unnamed_file"
+)
 
 // NewServer 创建新的 WebSocket 服务器
 func NewServer(app interface{}) *Server {
@@ -71,6 +77,8 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/api/upload-attachment", s.handleUploadAttachment)
+	mux.HandleFunc("/local-file/", s.handleLocalFile)
 	mux.Handle("/", s.frontendHandler())
 
 	s.httpServer = &http.Server{Handler: mux}
@@ -394,4 +402,144 @@ func (s *Server) injectScriptIntoResponse(resp *http.Response) error {
 	resp.ContentLength = int64(len(injected))
 	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(injected)))
 	return nil
+}
+
+// handleUploadAttachment handles file uploads via HTTP multipart/form-data
+func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) {
+	// 1. Validate request method
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 2. Parse multipart form (max 50MB)
+	err := r.ParseMultipartForm(50 << 20) // 50MB
+	if err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	// 3. Get uploaded file
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "Failed to read file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// 4. Get optional projectPath
+	projectPath := r.FormValue("projectPath")
+
+	// 5. Generate safe filename: timestamp_originalname
+	timestamp := time.Now().Format("20060102-150405")
+	safeFilename := sanitizeFilename(header.Filename)
+	finalFilename := fmt.Sprintf("%s_%s", timestamp, safeFilename)
+
+	// 6. Ensure storage directory exists
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "Failed to get home directory", http.StatusInternalServerError)
+		return
+	}
+	attachmentsDir := filepath.Join(homeDir, ".claude", "attachments")
+	err = os.MkdirAll(attachmentsDir, 0755)
+	if err != nil {
+		http.Error(w, "Failed to create directory", http.StatusInternalServerError)
+		return
+	}
+
+	// 7. Create destination file
+	destPath := filepath.Join(attachmentsDir, finalFilename)
+	dest, err := os.Create(destPath)
+	if err != nil {
+		http.Error(w, "Failed to save file", http.StatusInternalServerError)
+		return
+	}
+	defer dest.Close()
+
+	// 8. Write file content
+	written, err := io.Copy(dest, file)
+	if err != nil {
+		os.Remove(destPath) // Clean up incomplete file
+		http.Error(w, "Failed to write file", http.StatusInternalServerError)
+		return
+	}
+
+	// 9. Return file path
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(map[string]string{
+		"filePath": destPath,
+		"filename": finalFilename,
+	}); err != nil {
+		log.Printf("Failed to encode upload response: %v", err)
+	}
+
+	log.Printf("Uploaded attachment: %s (%d bytes, projectPath: %s)", finalFilename, written, projectPath)
+}
+
+// sanitizeFilename cleans a filename to prevent path traversal attacks
+// and ensure it's safe to use for storage.
+func sanitizeFilename(filename string) string {
+	// 1. Extract base filename (removes any path components)
+	filename = filepath.Base(filename)
+
+	// 2. Remove any remaining path separators and special characters
+	filename = strings.Map(func(r rune) rune {
+		// Allow alphanumeric, dots, hyphens, underscores
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '.' || r == '-' || r == '_' {
+			return r
+		}
+		// Replace other characters with underscore
+		return '_'
+	}, filename)
+
+	// 3. Limit filename length to maxFilenameLength characters
+	if len(filename) > maxFilenameLength {
+		originalExt := filepath.Ext(filename)
+		ext := originalExt
+		// Limit extension length to prevent panic
+		if len(ext) > maxFilenameLength/2 {
+			ext = ext[:maxFilenameLength/2]
+		}
+		nameWithoutExt := strings.TrimSuffix(filename, originalExt)
+		maxNameLength := maxFilenameLength - len(ext)
+		if len(nameWithoutExt) > maxNameLength {
+			nameWithoutExt = nameWithoutExt[:maxNameLength]
+		}
+		filename = nameWithoutExt + ext
+	}
+
+	// 4. Ensure filename is not empty
+	if filename == "" || filename == "." || filename == ".." {
+		filename = defaultFilename
+	}
+
+	return filename
+}
+
+// handleLocalFile serves local files by path for image preview.
+// URL format: /local-file/<url-encoded-absolute-path>
+// This allows iOS and other remote clients to load local images via HTTP.
+func (s *Server) handleLocalFile(w http.ResponseWriter, r *http.Request) {
+	// Extract and decode the file path from URL
+	encodedPath := strings.TrimPrefix(r.URL.Path, "/local-file/")
+	filePath, err := url.QueryUnescape(encodedPath)
+	if err != nil {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	// Security: only allow files under home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if !strings.HasPrefix(filePath, homeDir+"/") && !strings.HasPrefix(filePath, "/tmp/") {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Serve the file
+	http.ServeFile(w, r, filePath)
 }
