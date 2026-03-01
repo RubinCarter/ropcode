@@ -1,4 +1,6 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
+import { Paperclip } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { AttachmentMenu } from './AttachmentMenu';
 
 interface AttachmentButtonProps {
@@ -11,7 +13,6 @@ export const AttachmentButton: React.FC<AttachmentButtonProps> = ({
   disabled = false,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const handleToggleMenu = () => {
     if (!disabled) {
@@ -29,40 +30,19 @@ export const AttachmentButton: React.FC<AttachmentButtonProps> = ({
   };
 
   return (
-    <div style={{ position: 'relative' }}>
+    <div className="relative">
       <button
-        ref={buttonRef}
         onClick={handleToggleMenu}
         disabled={disabled}
         title="添加附件"
         aria-label="添加附件"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '32px',
-          height: '32px',
-          borderRadius: '6px',
-          border: 'none',
-          background: 'none',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          opacity: disabled ? 0.5 : 1,
-          color: 'var(--text-secondary, #aaa)',
-          fontSize: '16px',
-          transition: 'background-color 0.15s, color 0.15s',
-        }}
-        onMouseEnter={(e) => {
-          if (!disabled) {
-            e.currentTarget.style.backgroundColor = 'var(--bg-hover, rgba(255,255,255,0.1))';
-            e.currentTarget.style.color = 'var(--text-primary, #fff)';
-          }
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.backgroundColor = '';
-          e.currentTarget.style.color = 'var(--text-secondary, #aaa)';
-        }}
+        className={cn(
+          'inline-flex items-center justify-center h-8 w-8 rounded-md text-sm font-medium transition-colors',
+          'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+          'disabled:pointer-events-none disabled:opacity-50',
+        )}
       >
-        📎
+        <Paperclip className="h-3.5 w-3.5" />
       </button>
 
       <AttachmentMenu

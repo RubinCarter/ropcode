@@ -1,4 +1,6 @@
 import React, { useRef, useEffect } from 'react';
+import { FolderOpen, Camera, Image } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface AttachmentMenuProps {
   isOpen: boolean;
@@ -49,63 +51,34 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
 
   if (!isOpen) return null;
 
+  const menuItemClass = cn(
+    'flex items-center gap-2 w-full px-3 py-2 text-sm text-left',
+    'text-foreground hover:bg-accent hover:text-accent-foreground',
+    'transition-colors cursor-pointer border-none bg-transparent',
+  );
+
   return (
     <div
       ref={menuRef}
-      style={{
-        position: 'absolute',
-        bottom: '100%',
-        right: 0,
-        marginBottom: '8px',
-        backgroundColor: 'var(--bg-secondary, #2a2a2a)',
-        border: '1px solid var(--border-color, #444)',
-        borderRadius: '8px',
-        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
-        overflow: 'hidden',
-        zIndex: 1000,
-        minWidth: '160px',
-      }}
+      className="absolute bottom-full right-0 mb-2 z-50 min-w-40 overflow-hidden rounded-md border border-border bg-popover shadow-md"
     >
       {/* Browse files (all platforms) */}
       <button
         onClick={() => fileInputRef.current?.click()}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          width: '100%',
-          padding: '10px 16px',
-          background: 'none',
-          border: 'none',
-          cursor: 'pointer',
-          color: 'var(--text-primary, #fff)',
-          fontSize: '14px',
-          textAlign: 'left',
-        }}
+        className={menuItemClass}
       >
-        📁 浏览文件
+        <FolderOpen className="h-4 w-4 shrink-0" />
+        浏览文件
       </button>
 
       {/* Camera capture (mobile only) */}
       {mobile && (
         <button
           onClick={() => cameraInputRef.current?.click()}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            width: '100%',
-            padding: '10px 16px',
-            background: 'none',
-            border: 'none',
-            borderTop: '1px solid var(--border-color, #444)',
-            cursor: 'pointer',
-            color: 'var(--text-primary, #fff)',
-            fontSize: '14px',
-            textAlign: 'left',
-          }}
+          className={cn(menuItemClass, 'border-t border-border')}
         >
-          📷 拍照上传
+          <Camera className="h-4 w-4 shrink-0" />
+          拍照上传
         </button>
       )}
 
@@ -113,22 +86,10 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
       {mobile && (
         <button
           onClick={() => photoInputRef.current?.click()}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            width: '100%',
-            padding: '10px 16px',
-            background: 'none',
-            border: 'none',
-            borderTop: '1px solid var(--border-color, #444)',
-            cursor: 'pointer',
-            color: 'var(--text-primary, #fff)',
-            fontSize: '14px',
-            textAlign: 'left',
-          }}
+          className={cn(menuItemClass, 'border-t border-border')}
         >
-          🖼️ 相册选择
+          <Image className="h-4 w-4 shrink-0" />
+          相册选择
         </button>
       )}
 
@@ -137,7 +98,7 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
         ref={fileInputRef}
         type="file"
         accept="*/*"
-        style={{ display: 'none' }}
+        className="hidden"
         onChange={handleFileChange}
       />
       <input
@@ -145,14 +106,14 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
         type="file"
         accept="image/*"
         capture="environment"
-        style={{ display: 'none' }}
+        className="hidden"
         onChange={handleFileChange}
       />
       <input
         ref={photoInputRef}
         type="file"
         accept="image/*"
-        style={{ display: 'none' }}
+        className="hidden"
         onChange={handleFileChange}
       />
     </div>
