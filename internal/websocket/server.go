@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -394,4 +395,38 @@ func (s *Server) injectScriptIntoResponse(resp *http.Response) error {
 	resp.ContentLength = int64(len(injected))
 	resp.Header.Set("Content-Length", fmt.Sprintf("%d", len(injected)))
 	return nil
+}
+
+// sanitizeFilename cleans a filename to prevent path traversal attacks
+// and ensure it's safe to use for storage.
+func sanitizeFilename(filename string) string {
+	// 1. Extract base filename (removes any path components)
+	filename = filepath.Base(filename)
+
+	// 2. Remove any remaining path separators and special characters
+	filename = strings.Map(func(r rune) rune {
+		// Allow alphanumeric, dots, hyphens, underscores
+		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '.' || r == '-' || r == '_' {
+			return r
+		}
+		// Replace other characters with underscore
+		return '_'
+	}, filename)
+
+	// 3. Limit filename length to 200 characters
+	if len(filename) > 200 {
+		ext := filepath.Ext(filename)
+		nameWithoutExt := strings.TrimSuffix(filename, ext)
+		if len(nameWithoutExt) > 200-len(ext) {
+			nameWithoutExt = nameWithoutExt[:200-len(ext)]
+		}
+		filename = nameWithoutExt + ext
+	}
+
+	// 4. Ensure filename is not empty
+	if filename == "" || filename == "." || filename == ".." {
+		filename = "unnamed_file"
+	}
+
+	return filename
 }
