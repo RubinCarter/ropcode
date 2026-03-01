@@ -31,8 +31,8 @@ export async function uploadAttachment(
     throw new UploadError(`文件大小不能超过 50MB（当前大小：${(file.size / 1024 / 1024).toFixed(1)}MB）`);
   }
 
-  // 2. Determine server URL
-  const port = serverPort ?? window.location.port ?? '5173';
+  // 2. Determine server URL - use Go server port injected at runtime
+  const port = serverPort ?? window.__ROPCODE_WS_PORT__ ?? window.location.port ?? '5173';
   const baseUrl = `http://localhost:${port}`;
 
   // 3. Build FormData
