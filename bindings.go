@@ -18,7 +18,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/google/uuid"
 	"ropcode/internal/claude"
@@ -3683,67 +3682,6 @@ func (a *App) SavePastedImage(base64Data, filename string) (string, error) {
 	}
 
 	return filePath, nil
-}
-
-// SaveAttachment saves an uploaded file from base64 data to ~/.claude/attachments/
-func (a *App) SaveAttachment(base64Data, filename string) (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-
-	attachmentsDir := filepath.Join(homeDir, ".claude", "attachments")
-	if err := os.MkdirAll(attachmentsDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create attachments directory: %w", err)
-	}
-
-	// Sanitize filename and add timestamp prefix
-	safeFilename := attachmentSanitizeFilename(filename)
-	timestamp := time.Now().Format("20060102-150405")
-	finalFilename := fmt.Sprintf("%s_%s", timestamp, safeFilename)
-
-	// Remove data URL prefix if present (e.g., "data:image/png;base64,")
-	if idx := strings.Index(base64Data, ","); idx != -1 {
-		base64Data = base64Data[idx+1:]
-	}
-
-	fileData, err := base64.StdEncoding.DecodeString(base64Data)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode base64 data: %w", err)
-	}
-
-	filePath := filepath.Join(attachmentsDir, finalFilename)
-	if err := os.WriteFile(filePath, fileData, 0644); err != nil {
-		return "", fmt.Errorf("failed to write attachment file: %w", err)
-	}
-
-	return filePath, nil
-}
-
-// attachmentSanitizeFilename cleans a filename to prevent path traversal
-func attachmentSanitizeFilename(filename string) string {
-	filename = filepath.Base(filename)
-	filename = strings.Map(func(r rune) rune {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) || r == '.' || r == '-' || r == '_' {
-			return r
-		}
-		return '_'
-	}, filename)
-	if len(filename) > 200 {
-		ext := filepath.Ext(filename)
-		if len(ext) > 100 {
-			ext = ext[:100]
-		}
-		name := strings.TrimSuffix(filename, filepath.Ext(filename))
-		if len(name) > 200-len(ext) {
-			name = name[:200-len(ext)]
-		}
-		filename = name + ext
-	}
-	if filename == "" || filename == "." || filename == ".." {
-		filename = "unnamed_file"
-	}
-	return filename
 }
 
 // OpenInExternalApp opens a file or path in an external application
