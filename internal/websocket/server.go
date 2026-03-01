@@ -41,6 +41,11 @@ type Server struct {
 	httpServer *http.Server
 }
 
+const (
+	maxFilenameLength = 200
+	defaultFilename   = "unnamed_file"
+)
+
 // NewServer 创建新的 WebSocket 服务器
 func NewServer(app interface{}) *Server {
 	authKey := os.Getenv("ROPCODE_AUTH_KEY")
@@ -413,19 +418,24 @@ func sanitizeFilename(filename string) string {
 		return '_'
 	}, filename)
 
-	// 3. Limit filename length to 200 characters
-	if len(filename) > 200 {
+	// 3. Limit filename length to maxFilenameLength characters
+	if len(filename) > maxFilenameLength {
 		ext := filepath.Ext(filename)
-		nameWithoutExt := strings.TrimSuffix(filename, ext)
-		if len(nameWithoutExt) > 200-len(ext) {
-			nameWithoutExt = nameWithoutExt[:200-len(ext)]
+		// Limit extension length to prevent panic
+		if len(ext) > maxFilenameLength/2 {
+			ext = ext[:maxFilenameLength/2]
+		}
+		nameWithoutExt := strings.TrimSuffix(filename, filepath.Ext(filename))
+		maxNameLength := maxFilenameLength - len(ext)
+		if len(nameWithoutExt) > maxNameLength {
+			nameWithoutExt = nameWithoutExt[:maxNameLength]
 		}
 		filename = nameWithoutExt + ext
 	}
 
 	// 4. Ensure filename is not empty
 	if filename == "" || filename == "." || filename == ".." {
-		filename = "unnamed_file"
+		filename = defaultFilename
 	}
 
 	return filename
