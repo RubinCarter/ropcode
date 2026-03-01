@@ -122,8 +122,14 @@ export function useMessages(): UseMessagesReturn {
       return false;
     }
 
+    // Ensure content is an array
+    const newContent = Array.isArray(newMessage.message.content) ? newMessage.message.content : [];
+    if (newContent.length === 0) {
+      return false;
+    }
+
     // Extract text content from the new message
-    const newTextContent = newMessage.message.content
+    const newTextContent = newContent
       .filter((c: any) => c.type === 'text')
       .map((c: any) => c.text)
       .join('');
@@ -140,7 +146,13 @@ export function useMessages(): UseMessagesReturn {
         continue;
       }
 
-      const existingTextContent = msg.message.content
+      // Ensure content is an array
+      const existingContent = Array.isArray(msg.message.content) ? msg.message.content : [];
+      if (existingContent.length === 0) {
+        continue;
+      }
+
+      const existingTextContent = existingContent
         .filter((c: any) => c.type === 'text')
         .map((c: any) => c.text)
         .join('');
