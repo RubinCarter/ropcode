@@ -90,12 +90,15 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize Claude session manager
 	a.claudeManager = claude.NewSessionManager(ctx, eventEmitter)
+	a.claudeManager.SetProcessEmitter(&claudeProcessEmitter{eventHub: a.eventHub})
 
 	// Initialize Gemini session manager
 	a.geminiManager = gemini.NewSessionManager(ctx, eventEmitter)
+	a.geminiManager.SetProcessEmitter(&geminiProcessEmitter{eventHub: a.eventHub})
 
 	// Initialize Codex session manager
 	a.codexManager = codex.NewSessionManager(ctx, eventEmitter)
+	a.codexManager.SetProcessEmitter(&codexProcessEmitter{eventHub: a.eventHub})
 
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution
@@ -164,6 +167,48 @@ type eventEmitter struct {
 
 func (e *eventEmitter) Emit(eventName string, data interface{}) {
 	e.eventHub.Emit(eventName, data)
+}
+
+// claudeProcessEmitter adapts EventHub to claude.ProcessChangedEmitter
+type claudeProcessEmitter struct {
+	eventHub *eventhub.EventHub
+}
+
+func (e *claudeProcessEmitter) EmitProcessChanged(event claude.ProcessChangedEvent) {
+	e.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
+		PID:      event.PID,
+		Cwd:      event.Cwd,
+		State:    event.State,
+		ExitCode: event.ExitCode,
+	})
+}
+
+// geminiProcessEmitter adapts EventHub to gemini.ProcessChangedEmitter
+type geminiProcessEmitter struct {
+	eventHub *eventhub.EventHub
+}
+
+func (e *geminiProcessEmitter) EmitProcessChanged(event gemini.ProcessChangedEvent) {
+	e.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
+		PID:      event.PID,
+		Cwd:      event.Cwd,
+		State:    event.State,
+		ExitCode: event.ExitCode,
+	})
+}
+
+// codexProcessEmitter adapts EventHub to codex.ProcessChangedEmitter
+type codexProcessEmitter struct {
+	eventHub *eventhub.EventHub
+}
+
+func (e *codexProcessEmitter) EmitProcessChanged(event codex.ProcessChangedEvent) {
+	e.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
+		PID:      event.PID,
+		Cwd:      event.Cwd,
+		State:    event.State,
+		ExitCode: event.ExitCode,
+	})
 }
 
 // SetBroadcaster sets the WebSocket broadcaster

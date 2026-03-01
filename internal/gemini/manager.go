@@ -11,11 +11,12 @@ import (
 )
 
 type SessionManager struct {
-	ctx        context.Context
-	emitter    EventEmitter
-	sessions   map[string]*Session
-	binaryPath string
-	mu         sync.RWMutex
+	ctx             context.Context
+	emitter         EventEmitter
+	processEmitter  ProcessChangedEmitter
+	sessions        map[string]*Session
+	binaryPath      string
+	mu              sync.RWMutex
 }
 
 // NewSessionManager creates a new Gemini session manager
@@ -46,6 +47,13 @@ func (m *SessionManager) GetBinaryPath() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.binaryPath
+}
+
+// SetProcessEmitter sets the process changed emitter
+func (m *SessionManager) SetProcessEmitter(emitter ProcessChangedEmitter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.processEmitter = emitter
 }
 
 // discoverBinary attempts to find the Gemini binary in common locations
@@ -102,7 +110,7 @@ func (m *SessionManager) StartSession(config SessionConfig) (string, error) {
 	session := NewSession(config)
 
 	// Start the session
-	if err := session.Start(m.ctx, m.binaryPath, m.emitter); err != nil {
+	if err := session.Start(m.ctx, m.binaryPath, m.emitter, m.processEmitter); err != nil {
 		return "", fmt.Errorf("failed to start session: %w", err)
 	}
 

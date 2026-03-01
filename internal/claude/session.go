@@ -54,16 +54,30 @@ type Session struct {
 	// Note: No stdin - Claude CLI with -p flag doesn't need stdin input
 	// This matches the Rust implementation which only configures stdout/stderr
 
-	outputBuf []byte
-	stderrBuf []byte // Collect stderr output to show as single error message
-	mu        sync.RWMutex
-	done      chan struct{}
-	cancelled bool
+	outputBuf       []byte
+	stderrBuf       []byte // Collect stderr output to show as single error message
+	mu              sync.RWMutex
+	done            chan struct{}
+	cancelled       bool
+	processEmitter  ProcessChangedEmitter
 }
 
 // EventEmitter interface for emitting events
 type EventEmitter interface {
 	Emit(eventName string, data interface{})
+}
+
+// ProcessChangedEmitter interface for emitting process state changes
+type ProcessChangedEmitter interface {
+	EmitProcessChanged(event ProcessChangedEvent)
+}
+
+// ProcessChangedEvent represents a process state change
+type ProcessChangedEvent struct {
+	PID      int    `json:"pid"`
+	Cwd      string `json:"cwd"`
+	State    string `json:"state"` // "running", "stopped"
+	ExitCode *int   `json:"exitCode,omitempty"`
 }
 
 // NewSession creates a new session instance
@@ -85,13 +99,16 @@ func NewSession(config SessionConfig) *Session {
 }
 
 // Start starts the Claude session
-func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmitter) error {
+func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmitter, processEmitter ProcessChangedEmitter) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.Status == "running" {
 		return fmt.Errorf("session already running")
 	}
+
+	// Store processEmitter for later use
+	s.processEmitter = processEmitter
 
 	// Build command arguments - following the original Rust implementation
 	args := []string{}
@@ -195,6 +212,15 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	s.Status = "running"
 	s.StartedAt = time.Now()
 
+	// Emit process started event
+	if s.processEmitter != nil {
+		s.processEmitter.EmitProcessChanged(ProcessChangedEvent{
+			PID:   s.cmd.Process.Pid,
+			Cwd:   s.Config.ProjectPath,
+			State: "running",
+		})
+	}
+
 	// Start reading output in goroutines
 	// Claude CLI will output its own system/init message - we just forward it
 	// This matches the Rust implementation which doesn't emit its own init
@@ -270,6 +296,10 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	err := s.cmd.Wait()
 
 	s.mu.Lock()
+	pid := s.cmd.Process.Pid
+	projectPath := s.Config.ProjectPath
+	processEmitter := s.processEmitter
+
 	if s.cancelled {
 		s.Status = "cancelled"
 	} else if err != nil {
@@ -280,6 +310,22 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	}
 	stderrOutput := string(s.stderrBuf)
 	s.mu.Unlock()
+
+	// Emit process stopped event
+	if processEmitter != nil {
+		var exitCode int
+		if err != nil {
+			exitCode = 1
+		} else {
+			exitCode = 0
+		}
+		processEmitter.EmitProcessChanged(ProcessChangedEvent{
+			PID:      pid,
+			Cwd:      projectPath,
+			State:    "stopped",
+			ExitCode: &exitCode,
+		})
+	}
 
 	close(s.done)
 
