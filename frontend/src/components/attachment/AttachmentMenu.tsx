@@ -52,7 +52,7 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
   if (!isOpen) return null;
 
   const menuItemClass = cn(
-    'flex items-center gap-2 w-full px-3 py-2 text-sm text-left',
+    'flex items-center gap-2 w-full px-4 py-2.5 text-sm text-left',
     'text-foreground hover:bg-accent hover:text-accent-foreground',
     'transition-colors cursor-pointer border-none bg-transparent',
   );
@@ -60,7 +60,7 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
   return (
     <div
       ref={menuRef}
-      className="absolute bottom-full right-0 mb-2 z-50 min-w-40 overflow-hidden rounded-md border border-border bg-popover shadow-md"
+      className="absolute bottom-full right-0 mb-2 z-50 min-w-[160px] overflow-hidden rounded-md border border-border bg-popover shadow-md py-1"
     >
       {/* Browse files (all platforms) */}
       <button
