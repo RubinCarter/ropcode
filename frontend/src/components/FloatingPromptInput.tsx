@@ -1547,11 +1547,7 @@ const FloatingPromptInputInner = (
   const handleAttachmentSelected = async (file: File) => {
     setUploadError(null);
     try {
-      const result = await uploadAttachment(
-        file,
-        undefined,   // serverPort: let uploadAttachment use window.location.port
-        projectPath, // projectPath prop
-      );
+      const result = await uploadAttachment(file);
       // Insert file reference into prompt
       setPrompt((prev) => `${prev}@${result.filePath} `);
     } catch (error) {
