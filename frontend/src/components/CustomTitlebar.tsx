@@ -168,7 +168,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
           branchName
         });
       } catch (error) {
-        console.error('[CustomTitlebar] Failed to get workspace info:', error);
+        // Silently ignore git errors for non-git directories
         // Still set workspace name even if branch fetch fails
         const workspaceName = currentProjectPath.split('/').pop() || currentProjectPath.split('\\').pop() || 'Unknown';
         setWorkspaceInfo({

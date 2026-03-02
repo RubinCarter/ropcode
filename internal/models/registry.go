@@ -31,7 +31,7 @@ func (r *Registry) GetAllModels() ([]*database.ModelConfig, error) {
 	defaultModels := r.getDefaultModelChoices()
 
 	// Copy builtin models and update is_default based on user settings
-	var result []*database.ModelConfig
+	result := make([]*database.ModelConfig, 0)
 	for _, m := range BuiltinModels() {
 		// Create a copy to avoid modifying the original
 		model := *m
@@ -75,7 +75,7 @@ func (r *Registry) getDefaultModelChoices() map[string]string {
 func (r *Registry) GetEnabledModels() ([]*database.ModelConfig, error) {
 	// Get user's default model choices per provider
 	defaultModels := r.getDefaultModelChoices()
-	var result []*database.ModelConfig
+	result := make([]*database.ModelConfig, 0)
 
 	// Add enabled builtin models
 	for _, m := range BuiltinModels() {
@@ -108,7 +108,7 @@ func (r *Registry) GetEnabledModels() ([]*database.ModelConfig, error) {
 func (r *Registry) GetModelsByProvider(providerID string) ([]*database.ModelConfig, error) {
 	// Get user's default model choice for this provider
 	customDefault, _ := r.db.GetSetting(defaultModelSettingKey(providerID))
-	var result []*database.ModelConfig
+	result := make([]*database.ModelConfig, 0)
 
 	// Add builtin models for provider
 	for _, m := range BuiltinModels() {

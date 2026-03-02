@@ -55,7 +55,7 @@ func (p *ClaudeProvider) SupportedModels() []ModelInfo {
 
 // DiscoverInstallations attempts to find installed instances of Claude Code
 func (p *ClaudeProvider) DiscoverInstallations() ([]Installation, error) {
-	var installations []Installation
+	installations := make([]Installation, 0)
 	seen := make(map[string]bool)
 
 	// Check common locations

@@ -17,5 +17,10 @@
     "concurrently": "^8.2.2",
     "electron": "28.3.3",
     "electron-builder": "^26.0.0"
-  }
+  },
+  "author": {
+    "name": "Ropcode",
+    "email": "support@ropcode.com"
+  },
+  "homepage": "https://ropcode.com"
 }

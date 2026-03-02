@@ -23,7 +23,7 @@ type ClaudeAgent struct {
 // User agents are located in ~/.claude/agents/*.md
 // Project agents are located in <project>/.claude/agents/*.md
 func ListClaudeConfigAgents(projectPath string) ([]ClaudeAgent, error) {
-	var agents []ClaudeAgent
+	agents := make([]ClaudeAgent, 0)
 
 	// Get home directory for user agents
 	homeDir, err := os.UserHomeDir()
@@ -52,7 +52,7 @@ func ListClaudeConfigAgents(projectPath string) ([]ClaudeAgent, error) {
 
 // listAgentsInDir lists all .md files in a directory as ClaudeAgent
 func listAgentsInDir(dir string, scope string) ([]ClaudeAgent, error) {
-	var agents []ClaudeAgent
+	agents := make([]ClaudeAgent, 0)
 
 	// Check if directory exists
 	if _, err := os.Stat(dir); os.IsNotExist(err) {

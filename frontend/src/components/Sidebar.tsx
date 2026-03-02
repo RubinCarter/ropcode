@@ -105,7 +105,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setLoading(true);
       setError(null);
       const projectList = await api.listProjects();
-      setProjects(projectList);
+      setProjects(projectList ?? []);
     } catch (err) {
       console.error('Failed to load projects:', err);
       setError('Failed to load projects');
@@ -147,7 +147,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       // Reload projects list to get the new workspace with correct path from backend
       const projectList = await api.listProjects();
-      setProjects(projectList);
+      setProjects(projectList ?? []);
 
       // Find the newly created workspace from the refreshed project list
       const updatedProject = projectList.find(p => p.path === project.path);

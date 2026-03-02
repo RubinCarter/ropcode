@@ -6,15 +6,34 @@ set -e
 
 echo "=== Ropcode Electron Build ==="
 
+# 检测当前操作系统
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  CURRENT_OS="darwin"
+  BUILDER_TARGET="--mac"
+elif [[ "$OSTYPE" == "linux"* ]]; then
+  CURRENT_OS="linux"
+  BUILDER_TARGET="--linux"
+elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "cygwin"* ]] || [[ "$OSTYPE" == "win32"* ]]; then
+  CURRENT_OS="win32"
+  BUILDER_TARGET="--win"
+else
+  echo "Unsupported OS: $OSTYPE"
+  exit 1
+fi
+
+echo "Detected OS: $CURRENT_OS ($OSTYPE)"
+
 # 1. 构建 Go 服务器
 echo "Building Go server..."
 mkdir -p bin/darwin/arm64 bin/darwin/x64 bin/linux/x64 bin/win32/x64
 
-if [[ "$OSTYPE" == "darwin"* ]]; then
+if [[ "$CURRENT_OS" == "darwin" ]]; then
   GOOS=darwin GOARCH=arm64 go build -tags server -o bin/darwin/arm64/ropcode-server .
   GOOS=darwin GOARCH=amd64 go build -tags server -o bin/darwin/x64/ropcode-server .
-elif [[ "$OSTYPE" == "linux"* ]]; then
+elif [[ "$CURRENT_OS" == "linux" ]]; then
   GOOS=linux GOARCH=amd64 go build -tags server -o bin/linux/x64/ropcode-server .
+elif [[ "$CURRENT_OS" == "win32" ]]; then
+  GOOS=windows GOARCH=amd64 go build -tags server -o bin/win32/x64/ropcode-server.exe .
 fi
 
 echo "Go server built."
@@ -41,8 +60,23 @@ mkdir -p electron/dist/frontend
 cp -r frontend/dist/* electron/dist/frontend/
 echo "Frontend copied."
 
-# 5. 打包
-echo "Packaging with electron-builder..."
-npx electron-builder --config electron-builder.yml
+# 5. 根据当前 OS 生成临时 electron-builder 配置
+echo "Preparing electron-builder config for $CURRENT_OS..."
+if [[ "$CURRENT_OS" == "darwin" ]]; then
+  SERVER_BIN="bin/darwin/\${arch}/ropcode-server"
+elif [[ "$CURRENT_OS" == "linux" ]]; then
+  SERVER_BIN="bin/linux/x64/ropcode-server"
+elif [[ "$CURRENT_OS" == "win32" ]]; then
+  SERVER_BIN="bin/win32/x64/ropcode-server.exe"
+fi
+
+sed "s|from: bin/darwin/\${arch}/ropcode-server|from: $SERVER_BIN|" electron-builder.yml > electron-builder-tmp.yml
+
+# 6. 打包
+echo "Packaging with electron-builder ($BUILDER_TARGET)..."
+npx electron-builder $BUILDER_TARGET --config electron-builder-tmp.yml
+
+# 7. 清理临时配置
+rm -f electron-builder-tmp.yml
 
 echo "=== Build Complete ==="

@@ -134,7 +134,7 @@ func (m *Manager) ListInstalled() ([]Plugin, error) {
 		return nil, fmt.Errorf("failed to parse installed_plugins.json: %w", err)
 	}
 
-	var plugins []Plugin
+	plugins := make([]Plugin, 0)
 	for pluginID, records := range installed.Plugins {
 		for _, record := range records {
 			metadata, err := m.readPluginMetadataWithFallback(pluginID, record.InstallPath)
@@ -227,7 +227,7 @@ func (m *Manager) ListAgents(pluginID string) ([]PluginAgent, error) {
 		return nil, fmt.Errorf("failed to read agents directory: %w", err)
 	}
 
-	var agents []PluginAgent
+	agents := make([]PluginAgent, 0)
 	pluginName := strings.Split(pluginID, "@")[0]
 
 	for _, entry := range entries {
@@ -272,7 +272,7 @@ func (m *Manager) ListCommands(pluginID string) ([]PluginCommand, error) {
 		return nil, fmt.Errorf("failed to read commands directory: %w", err)
 	}
 
-	var commands []PluginCommand
+	commands := make([]PluginCommand, 0)
 	pluginName := strings.Split(pluginID, "@")[0]
 
 	for _, entry := range entries {
@@ -319,7 +319,7 @@ func (m *Manager) ListSkills(pluginID string) ([]PluginSkill, error) {
 		return nil, fmt.Errorf("failed to read skills directory: %w", err)
 	}
 
-	var skills []PluginSkill
+	skills := make([]PluginSkill, 0)
 	pluginName := strings.Split(pluginID, "@")[0]
 
 	for _, entry := range entries {

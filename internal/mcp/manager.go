@@ -365,7 +365,7 @@ func (m *Manager) listMcpServersFromSettings() ([]*MCPServer, error) {
 		return []*MCPServer{}, nil
 	}
 
-	var servers []*MCPServer
+	servers := make([]*MCPServer, 0)
 	for name, configData := range mcpServers {
 		configMap, ok := configData.(map[string]interface{})
 		if !ok {
