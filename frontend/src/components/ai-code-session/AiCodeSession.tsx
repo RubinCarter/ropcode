@@ -505,8 +505,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
           return;
         }
 
-        console.log(`[AiCodeSession] Recovery (${trigger}): backend has`, history.length, 'messages, local has', localCount);
-
         // Prepare backend messages with proper types
         const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
           let messageType = entry.type;
@@ -519,60 +517,26 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
               messageType = "assistant";
             }
           }
-          // Ensure timestamp exists (use current time if missing)
-          if (!entry.timestamp) {
-            entry.timestamp = Date.now();
-          }
           return { ...entry, type: messageType };
         });
 
-        // Compare timestamps instead of counts to avoid false positives during streaming
-        const currentMessages = messagesState.messages;
-        let shouldReplace = false;
+        // Compare timestamps to detect missed messages.
+        // All timestamps are now ISO 8601 strings (e.g. "2026-03-02T07:20:22.652Z"),
+        // which are lexicographically comparable, so string comparison works correctly.
+        // IMPORTANT: use messagesRef (ref) instead of messagesState.messages (stale closure)
+        // because this runs inside useEffect([], []) whose closure captures initial empty [].
+        const currentMessages = messagesState.messagesRef.current;
+        const backendLastTs = loadedMessages[loadedMessages.length - 1]?.timestamp as string || '';
+        const localLastTs = currentMessages[currentMessages.length - 1]?.timestamp as string || '';
 
-        if (currentMessages.length === 0) {
-          // No local messages, always load from backend
-          shouldReplace = true;
-          console.log(`[AiCodeSession] Recovery (${trigger}): no local messages, loading from backend`);
-        } else if (loadedMessages.length === 0) {
-          // Backend has no messages, keep local state
-          shouldReplace = false;
-          console.log(`[AiCodeSession] Recovery (${trigger}): backend empty, keeping local state`);
-        } else {
-          const localLast = currentMessages[currentMessages.length - 1];
-          const backendLast = loadedMessages[loadedMessages.length - 1];
+        console.log(`[AiCodeSession] Recovery (${trigger}): backend last ts=${backendLastTs}, local last ts=${localLastTs}, local count=${currentMessages.length}`);
 
-          const localTimestamp = localLast.timestamp || 0;
-          const backendTimestamp = backendLast.timestamp || 0;
-
-          console.log(`[AiCodeSession] Recovery (${trigger}): Comparing timestamps:`, {
-            local: { count: currentMessages.length, timestamp: localTimestamp, type: localLast.type },
-            backend: { count: loadedMessages.length, timestamp: backendTimestamp, type: backendLast.type },
-          });
-
-          if (backendTimestamp > localTimestamp) {
-            // Backend has newer messages, sync
-            shouldReplace = true;
-            console.log(`[AiCodeSession] Recovery (${trigger}): backend has newer messages (${backendTimestamp} > ${localTimestamp}), syncing`);
-          } else if (backendTimestamp === localTimestamp && loadedMessages.length !== currentMessages.length) {
-            // Same timestamp but different count = local has streaming deltas (normal during streaming)
-            shouldReplace = false;
-            console.log(`[AiCodeSession] Recovery (${trigger}): same timestamp but different count (local has streaming deltas), skipping sync`);
-          } else if (backendTimestamp === localTimestamp && loadedMessages.length === currentMessages.length) {
-            // Same timestamp and same count = already in sync
-            shouldReplace = false;
-            console.log(`[AiCodeSession] Recovery (${trigger}): already in sync, no update needed`);
-          } else {
-            // Local timestamp is newer (shouldn't happen normally, but keep local state to be safe)
-            shouldReplace = false;
-            console.log(`[AiCodeSession] Recovery (${trigger}): local timestamp is newer, keeping local state`);
-          }
-        }
-
-        if (shouldReplace) {
+        if (backendLastTs > localLastTs) {
+          console.log(`[AiCodeSession] Recovery (${trigger}): backend has newer messages, replacing local (${currentMessages.length}) with backend (${loadedMessages.length})`);
           messagesState.setMessages(loadedMessages);
-          console.log(`[AiCodeSession] Recovery (${trigger}): replaced with ${loadedMessages.length} messages from backend`);
           setTimeout(() => scrollToBottom('auto'), 100);
+        } else {
+          console.log(`[AiCodeSession] Recovery (${trigger}): local is up to date, skipping`);
         }
       } catch (err) {
         console.error(`[AiCodeSession] Recovery (${trigger}) failed:`, err instanceof Error ? err.message : err);
@@ -601,21 +565,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
-
-    // Source C: Component mounted while page is already visible and WS connected.
-    // This covers the case where the component remounts AFTER both WS reconnect
-    // and visibilitychange have already fired.  We use a longer delay (2s) to
-    // let the normal session restore path run first.
-    if (document.visibilityState === 'visible' && wsClient.isConnected()) {
-      setTimeout(() => {
-        if (!isMounted) return;
-        // Only recover if session restore has already loaded messages
-        if (messagesState.messagesLengthRef.current > 0) {
-          console.log('[AiCodeSession] Mount recovery check: messages exist, syncing');
-          scheduleRecover('mount');
-        }
-      }, 2000);
-    }
 
     return () => {
       isMounted = false;
@@ -838,6 +787,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
       // Add user message to UI
       const userMessage: ClaudeStreamMessage = {
         type: "user",
+        timestamp: new Date().toISOString(),
         message: {
           content: [{ type: "text", text: prompt }]
         }

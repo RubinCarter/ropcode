@@ -28,6 +28,7 @@ export interface UseMessagesReturn {
 
   // Refs
   messagesLengthRef: React.MutableRefObject<number>;
+  messagesRef: React.MutableRefObject<ClaudeStreamMessage[]>;
 }
 
 /**
@@ -37,9 +38,11 @@ export function useMessages(): UseMessagesReturn {
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
   const [totalTokens, setTotalTokens] = useState(0);
 
-  // Ref for stable access in callbacks
+  // Refs for stable access in callbacks (avoids stale closure in useEffect([]))
   const messagesLengthRef = useRef(messages.length);
   messagesLengthRef.current = messages.length;
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   // Filter displayable messages
   const displayableMessages = useMemo(
@@ -116,61 +119,36 @@ export function useMessages(): UseMessagesReturn {
   const deltaBufferRef = useRef<string>('');
   const deltaFlushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Helper function to check if a user message is duplicate
-  const isDuplicateUserMessage = (existingMessages: ClaudeStreamMessage[], newMessage: ClaudeStreamMessage): boolean => {
-    if (newMessage.type !== 'user' || !newMessage.message?.content) {
-      return false;
-    }
-
-    // Ensure content is an array
-    const newContent = Array.isArray(newMessage.message.content) ? newMessage.message.content : [];
-    if (newContent.length === 0) {
-      return false;
-    }
-
-    // Extract text content from the new message
-    const newTextContent = newContent
-      .filter((c: any) => c.type === 'text')
-      .map((c: any) => c.text)
-      .join('');
-
-    if (!newTextContent) {
-      return false;
-    }
-
-    // Check last 3 messages for duplicates (to handle near-simultaneous adds)
-    const recentMessages = existingMessages.slice(-3);
-
-    for (const msg of recentMessages) {
-      if (msg.type !== 'user' || !msg.message?.content) {
-        continue;
-      }
-
-      // Ensure content is an array
-      const existingContent = Array.isArray(msg.message.content) ? msg.message.content : [];
-      if (existingContent.length === 0) {
-        continue;
-      }
-
-      const existingTextContent = existingContent
-        .filter((c: any) => c.type === 'text')
-        .map((c: any) => c.text)
-        .join('');
-
-      // If content matches exactly, it's a duplicate
-      if (existingTextContent === newTextContent) {
-        return true;
-      }
-    }
-
-    return false;
-  };
+  // Counter for locally-added user messages pending broadcast echo.
+  // When the frontend adds a user message locally (before backend broadcasts it),
+  // we increment this counter. When a broadcast user message arrives, we decrement
+  // and skip it — that echo is for the same message we already added.
+  // A counter (not a boolean) handles rapid successive sends correctly.
+  const pendingLocalUserMessagesRef = useRef<number>(0);
 
   // Helper functions
   const addMessage = (message: ClaudeStreamMessage) => {
-    // Ensure message has timestamp
+    // Ensure message has timestamp (ISO 8601 string to match JSONL format)
     if (!message.timestamp) {
-      message.timestamp = Date.now();
+      message.timestamp = new Date().toISOString();
+    }
+
+    // Skip broadcast user messages that we already added locally.
+    // When this client sends a prompt, it calls addMessage() for instant display,
+    // then the backend broadcasts the same user message (with source:"broadcast")
+    // to all clients. We skip that echo here; other clients (which didn't send
+    // the message) won't have a pending count and will add it normally.
+    if (message.type === 'user' && (message as any).source === 'broadcast') {
+      if (pendingLocalUserMessagesRef.current > 0) {
+        pendingLocalUserMessagesRef.current--;
+        return;
+      }
+      // No pending local message — this was sent by another client, add it
+    }
+
+    // Track locally-added user messages (non-broadcast) so we can skip the echo
+    if (message.type === 'user' && (message as any).source !== 'broadcast') {
+      pendingLocalUserMessagesRef.current++;
     }
 
     // Handle delta messages - accumulate into last assistant message with batching
@@ -286,27 +264,13 @@ export function useMessages(): UseMessagesReturn {
             }
           }
 
-          // Deduplicate user messages before adding
-          if (message.type === 'user' && isDuplicateUserMessage(prev, message)) {
-            return updatedMessages;
-          }
-
           return [...updatedMessages, message];
-        }
-
-        // Deduplicate user messages before adding
-        if (message.type === 'user' && isDuplicateUserMessage(prev, message)) {
-          return prev;
         }
 
         return [...prev, message];
       });
     } else {
       setMessages(prev => {
-        // Deduplicate user messages before adding
-        if (message.type === 'user' && isDuplicateUserMessage(prev, message)) {
-          return prev;
-        }
         return [...prev, message];
       });
     }
@@ -326,5 +290,6 @@ export function useMessages(): UseMessagesReturn {
     addMessage,
     clearMessages,
     messagesLengthRef,
+    messagesRef,
   };
 }
