@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ContainerTabManager } from '@/components/containers';
 import { useContainerContext } from '@/contexts/ContainerContext';
+import { InstanceSwitcher } from '@/components/InstanceSwitcher';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -545,11 +546,9 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
         {/* 右侧 - Port + Workspace Name 和 Open in 按钮 */}
         <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
-          {/* Port indicator */}
+          {/* Instance Switcher (port indicator + dropdown) */}
           {typeof window !== 'undefined' && window.location.port && (
-            <span className="text-[11px] text-muted-foreground font-mono px-2.5 py-1.5 rounded-md bg-accent/50 border border-border/50">
-              :{window.location.port}
-            </span>
+            <InstanceSwitcher />
           )}
           {/* Workspace Name - 显示在 Open in 按钮左侧，点击打开 Finder */}
           {workspaceInfo && (
