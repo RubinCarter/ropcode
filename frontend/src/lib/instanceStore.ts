@@ -100,10 +100,13 @@ export function getCurrentInstance(): RopcodeInstance {
  */
 export function switchToInstance(instance: RopcodeInstance): void {
   const instances = getInstances();
-  const remotes = instances.filter((i) => !i.isLocal);
+  // Collect all instances except the target, marking them as remote
+  const toPass = instances
+    .filter((i) => i.url !== instance.url)
+    .map((i) => ({ ...i, isLocal: false }));
   const targetUrl = new URL(instance.url);
-  if (remotes.length > 0) {
-    targetUrl.searchParams.set(URL_PARAM_KEY, btoa(JSON.stringify(remotes)));
+  if (toPass.length > 0) {
+    targetUrl.searchParams.set(URL_PARAM_KEY, btoa(JSON.stringify(toPass)));
   }
   window.location.href = targetUrl.toString();
 }
