@@ -2,6 +2,7 @@
 package websocket
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 )
@@ -95,6 +96,30 @@ func convertParam(param interface{}, targetType reflect.Type) (reflect.Value, er
 			return reflect.ValueOf(uint32(param.(float64))), nil
 		case reflect.Uint64:
 			return reflect.ValueOf(uint64(param.(float64))), nil
+		}
+	}
+
+	// 处理 map[string]interface{} → struct/pointer 转换（JSON 对象参数）
+	if paramValue.Kind() == reflect.Map {
+		destType := targetType
+		isPtr := targetType.Kind() == reflect.Ptr
+		if isPtr {
+			destType = targetType.Elem()
+		}
+		if destType.Kind() == reflect.Struct {
+			// 通过 JSON re-marshal 转换
+			jsonBytes, err := json.Marshal(param)
+			if err != nil {
+				return reflect.Value{}, fmt.Errorf("cannot marshal param to JSON: %w", err)
+			}
+			dest := reflect.New(destType)
+			if err := json.Unmarshal(jsonBytes, dest.Interface()); err != nil {
+				return reflect.Value{}, fmt.Errorf("cannot unmarshal JSON to %s: %w", destType, err)
+			}
+			if isPtr {
+				return dest, nil
+			}
+			return dest.Elem(), nil
 		}
 	}
 
