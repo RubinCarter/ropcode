@@ -226,8 +226,10 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	if emitter != nil && s.Config.Prompt != "" {
 		userMessage := map[string]interface{}{
 			"type":       "user",
+			"source":     "broadcast",
 			"session_id": s.ID,
 			"cwd":        s.Config.ProjectPath,
+			"timestamp":  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
 			"message": map[string]interface{}{
 				"role": "user",
 				"content": []map[string]interface{}{
@@ -239,7 +241,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 			},
 		}
 		userJSON, _ := json.Marshal(userMessage)
-		log.Printf("[Session] Broadcasting user message to all clients")
+		log.Printf("[Session] Broadcasting user message to all clients: session_id=%s, cwd=%s, prompt=%s", s.ID, s.Config.ProjectPath, s.Config.Prompt)
 		emitter.Emit("claude-output", string(userJSON))
 	}
 
