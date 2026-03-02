@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { Check, Plus, X, Server } from 'lucide-react';
 import {
   DropdownMenu,
@@ -16,34 +16,14 @@ import {
 } from '@/lib/instanceStore';
 
 export const InstanceSwitcher: React.FC = () => {
-  const [instances, setInstances] = useState<RopcodeInstance[]>(() => getInstances());
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newLabel, setNewLabel] = useState('');
-  const [open, setOpen] = useState(false);
   const urlInputRef = useRef<HTMLInputElement>(null);
 
+  const instances = getInstances();
   const currentOrigin = window.location.origin;
   const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-
-  // Refresh instances when dropdown opens
-  useEffect(() => {
-    if (open) {
-      setInstances(getInstances());
-    } else {
-      // Reset form when dropdown closes
-      setShowAddForm(false);
-      setNewUrl('');
-      setNewLabel('');
-    }
-  }, [open]);
-
-  // Auto-focus URL input when add form appears
-  useEffect(() => {
-    if (showAddForm && urlInputRef.current) {
-      setTimeout(() => urlInputRef.current?.focus(), 50);
-    }
-  }, [showAddForm]);
 
   const handleAdd = () => {
     const trimmedUrl = newUrl.trim();
@@ -55,8 +35,7 @@ export const InstanceSwitcher: React.FC = () => {
       return;
     }
 
-    const updated = addInstance(trimmedUrl, newLabel.trim() || undefined);
-    setInstances(updated);
+    addInstance(trimmedUrl, newLabel.trim() || undefined);
     setNewUrl('');
     setNewLabel('');
     setShowAddForm(false);
@@ -65,8 +44,7 @@ export const InstanceSwitcher: React.FC = () => {
   const handleRemove = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     e.preventDefault();
-    const updated = removeInstance(id);
-    setInstances(updated);
+    removeInstance(id);
   };
 
   const handleSwitch = (instance: RopcodeInstance) => {
@@ -85,8 +63,15 @@ export const InstanceSwitcher: React.FC = () => {
     }
   };
 
+  const handleShowAddForm = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setShowAddForm(true);
+    // Focus input after a small delay to ensure DOM is ready
+    setTimeout(() => urlInputRef.current?.focus(), 50);
+  };
+
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           onClick={(e) => e.stopPropagation()}
@@ -130,10 +115,7 @@ export const InstanceSwitcher: React.FC = () => {
 
         {!showAddForm ? (
           <DropdownMenuItem
-            onClick={(e) => {
-              e.preventDefault();
-              setShowAddForm(true);
-            }}
+            onClick={handleShowAddForm}
             className="cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 mr-2" />
