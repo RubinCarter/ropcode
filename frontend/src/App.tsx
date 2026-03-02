@@ -15,11 +15,16 @@ import { useTabState } from "@/hooks/useTabState";
 import { useAppLifecycle } from "@/hooks";
 import { StartupIntro } from "@/components/StartupIntro";
 import { wsClient } from "@/lib/ws-rpc-client";
+import { mergeInstancesFromUrl } from '@/lib/instanceStore';
 
 // WebSocket 连接配置
 // 页面由 Go 后端 serve，location.port 就是 Go 端口
 // 优先级: Go 注入全局变量 > Electron preload > location.port > URL 参数
 const urlParams = new URLSearchParams(window.location.search);
+
+// Merge instance list from URL params (for cross-origin sync)
+mergeInstancesFromUrl();
+
 const wsPort = window.__ROPCODE_WS_PORT__
   || window.electronAPI?.wsPort
   || parseInt(location.port, 10)
