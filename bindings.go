@@ -124,9 +124,12 @@ func (a *App) ListProcesses() []string {
 // SaveProviderApiConfig saves a provider API configuration
 func (a *App) SaveProviderApiConfig(config *database.ProviderApiConfig) error {
 	if a.dbManager == nil {
-		return nil
+		return fmt.Errorf("database manager not initialized")
 	}
-	return a.dbManager.SaveProviderApiConfig(config)
+	if err := a.dbManager.SaveProviderApiConfig(config); err != nil {
+		return fmt.Errorf("failed to save provider API config: %w", err)
+	}
+	return nil
 }
 
 // GetProviderApiConfig retrieves a provider API configuration
@@ -179,7 +182,7 @@ func (a *App) GetSetting(key string) (string, error) {
 // CreateProviderApiConfig creates a new provider API configuration
 func (a *App) CreateProviderApiConfig(config *database.ProviderApiConfig) error {
 	if a.dbManager == nil {
-		return nil
+		return fmt.Errorf("database manager not initialized")
 	}
 
 	// Generate new UUID for the config
@@ -188,11 +191,15 @@ func (a *App) CreateProviderApiConfig(config *database.ProviderApiConfig) error 
 	// If this is being set as default, unset other defaults for the same provider
 	if config.IsDefault {
 		if err := a.dbManager.ClearDefaultProviderApiConfig(config.ProviderID); err != nil {
-			return err
+			return fmt.Errorf("failed to clear default config: %w", err)
 		}
 	}
 
-	return a.dbManager.SaveProviderApiConfig(config)
+	if err := a.dbManager.SaveProviderApiConfig(config); err != nil {
+		return fmt.Errorf("failed to save provider API config: %w", err)
+	}
+
+	return nil
 }
 
 // GetProjectProviderApiConfig retrieves provider API config for a project
