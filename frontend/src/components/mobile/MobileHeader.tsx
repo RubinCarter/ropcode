@@ -1,5 +1,6 @@
 import React from 'react';
 import type { MobileTab } from './MobileTabBar';
+import { InstanceSwitcher } from '@/components/InstanceSwitcher';
 
 interface MobileHeaderProps {
   activeTab: MobileTab;
@@ -19,9 +20,7 @@ export const MobileHeader: React.FC<MobileHeaderProps> = ({ activeTab }) => {
   return (
     <header data-mobile-header className="h-11 bg-background/95 backdrop-blur-sm border-b border-border flex items-center justify-between px-4 shrink-0 z-[100]">
       <h1 className="text-sm font-semibold">{tabTitles[activeTab]}</h1>
-      {port && (
-        <span className="text-xs text-muted-foreground font-mono">:{port}</span>
-      )}
+      {port && <InstanceSwitcher />}
     </header>
   );
 };
