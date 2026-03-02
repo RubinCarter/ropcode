@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { FolderOpen, X, AlertCircle, CheckCircle2, Loader2, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, type Project } from '@/lib/api';
+import { ServerDirPicker } from './ServerDirPicker';
 
 interface OpenProjectDialogProps {
   /** Whether the dialog is open */
@@ -27,6 +28,7 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   const [worktreeInfo, setWorktreeInfo] = useState<any | null>(null);
   const [initGit, setInitGit] = useState(false);
   const [commitAllFiles, setCommitAllFiles] = useState(false);
+  const [showDirPicker, setShowDirPicker] = useState(false);
 
   // Process state
   const [processing, setProcessing] = useState(false);
@@ -35,7 +37,63 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   const [progress, setProgress] = useState(0);
   const [currentOperation, setCurrentOperation] = useState<string>('');
 
+  const isElectron = typeof window !== 'undefined' && window.electronAPI?.openDirectory !== undefined;
+
+  const checkSelectedPath = async (selected: string) => {
+    setSelectedPath(selected);
+    setError(null);
+
+    // Check if it's a worktree by detecting .ropcode directory
+    try {
+      const worktreeResult = await api.detectWorktree(selected);
+      if (worktreeResult.is_worktree) {
+        setIsWorktree(true);
+        setWorktreeInfo(worktreeResult);
+        setIsGitRepo(true);
+        setInitGit(false);
+      } else {
+        setIsWorktree(false);
+        setWorktreeInfo(null);
+        // Check if it's a git repository
+        try {
+          const isGit = await api.isGitRepository(selected);
+          setIsGitRepo(isGit);
+          setInitGit(!isGit); // Default to init if not a git repo
+        } catch (err) {
+          console.error('Failed to check git repository:', err);
+          setIsGitRepo(false);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to detect worktree:', err);
+      setIsWorktree(false);
+      setWorktreeInfo(null);
+      // Fallback to git check
+      try {
+        const isGit = await api.isGitRepository(selected);
+        setIsGitRepo(isGit);
+        setInitGit(!isGit);
+      } catch (err2) {
+        console.error('Failed to check git repository:', err2);
+        setIsGitRepo(false);
+      }
+    }
+  };
+
+  const [homePath, setHomePath] = useState('/');
+
   const handleSelectFolder = async () => {
+    // Web mode: use server-side directory picker
+    if (!isElectron) {
+      try {
+        const home = await api.getHomeDirectory();
+        if (home) setHomePath(home);
+      } catch (_) { /* use fallback */ }
+      setShowDirPicker(true);
+      return;
+    }
+
+    // Electron mode: use native dialog
     try {
       const { open } = await import('@/lib/dialog');
       const result = await open({
@@ -46,45 +104,7 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
       });
 
       if (result && !result.canceled && result.filePaths && result.filePaths.length > 0) {
-        const selected = result.filePaths[0];
-        setSelectedPath(selected);
-        setError(null);
-
-        // Check if it's a worktree by detecting .ropcode directory
-        try {
-          const worktreeResult = await api.detectWorktree(selected);
-          if (worktreeResult.is_worktree) {
-            setIsWorktree(true);
-            setWorktreeInfo(worktreeResult);
-            setIsGitRepo(true);
-            setInitGit(false);
-          } else {
-            setIsWorktree(false);
-            setWorktreeInfo(null);
-            // Check if it's a git repository
-            try {
-              const isGit = await api.isGitRepository(selected);
-              setIsGitRepo(isGit);
-              setInitGit(!isGit); // Default to init if not a git repo
-            } catch (err) {
-              console.error('Failed to check git repository:', err);
-              setIsGitRepo(false);
-            }
-          }
-        } catch (err) {
-          console.error('Failed to detect worktree:', err);
-          setIsWorktree(false);
-          setWorktreeInfo(null);
-          // Fallback to git check
-          try {
-            const isGit = await api.isGitRepository(selected);
-            setIsGitRepo(isGit);
-            setInitGit(!isGit);
-          } catch (err2) {
-            console.error('Failed to check git repository:', err2);
-            setIsGitRepo(false);
-          }
-        }
+        await checkSelectedPath(result.filePaths[0]);
       }
     } catch (err) {
       console.error('Failed to open folder picker:', err);
@@ -166,6 +186,7 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
     setWorktreeInfo(null);
     setInitGit(false);
     setCommitAllFiles(false);
+    setShowDirPicker(false);
     setProcessing(false);
     setError(null);
     setStage('selecting');
@@ -213,6 +234,17 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   if (!isOpen) return null;
 
   return (
+    <>
+    {showDirPicker && (
+      <ServerDirPicker
+        initialPath={selectedPath || homePath}
+        onSelect={async (path) => {
+          setShowDirPicker(false);
+          await checkSelectedPath(path);
+        }}
+        onCancel={() => setShowDirPicker(false)}
+      />
+    )}
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
@@ -269,9 +301,20 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
               <input
                 type="text"
                 value={selectedPath}
-                readOnly
-                placeholder="No folder selected"
-                className="flex-1 px-3 py-2 text-sm border rounded-md bg-muted/50"
+                onChange={(e) => setSelectedPath(e.target.value)}
+                onBlur={async () => {
+                  if (selectedPath.trim()) {
+                    await checkSelectedPath(selectedPath.trim());
+                  }
+                }}
+                onKeyDown={async (e) => {
+                  if (e.key === 'Enter' && selectedPath.trim()) {
+                    e.preventDefault();
+                    await checkSelectedPath(selectedPath.trim());
+                  }
+                }}
+                placeholder="Enter path or click Browse"
+                className="flex-1 px-3 py-2 text-sm border rounded-md bg-muted/50 font-mono"
               />
               <Button
                 onClick={handleSelectFolder}
@@ -400,5 +443,6 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
         </div>
       </div>
     </div>
+    </>
   );
 };
