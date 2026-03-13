@@ -141,7 +141,7 @@ export const InstanceSwitcher: React.FC = () => {
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Name (optional)"
+              placeholder="Remote"
               className="flex h-8 w-full rounded-md border px-2 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 bg-transparent"
               style={{
                 borderColor: 'var(--color-input)',
