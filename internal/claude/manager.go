@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type SessionManager struct {
@@ -246,6 +247,19 @@ func (m *SessionManager) SendMessage(sessionID, prompt string) error {
 	}
 
 	return session.SendMessage(prompt, m.emitter)
+}
+
+// WaitForInit waits for an interactive session to complete initialization
+func (m *SessionManager) WaitForInit(sessionID string, timeout time.Duration) error {
+	m.mu.RLock()
+	session, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	return session.WaitForInit(timeout)
 }
 
 // GetInteractiveSessionForProject returns the running interactive session for a project, if any

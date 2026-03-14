@@ -1616,7 +1616,20 @@ func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID st
 		}
 	}
 
-	return a.claudeManager.StartSession(config)
+	sessionID, err := a.claudeManager.StartSession(config)
+	if err != nil {
+		return "", err
+	}
+
+	// Wait for the interactive session to complete initialization (control_request/response)
+	// This must complete before SendClaudeMessage can be called
+	if err := a.claudeManager.WaitForInit(sessionID, 30*time.Second); err != nil {
+		// If initialization fails, terminate the session
+		_ = a.claudeManager.TerminateSession(sessionID)
+		return "", fmt.Errorf("interactive session initialization failed: %w", err)
+	}
+
+	return sessionID, nil
 }
 
 // SendClaudeMessage sends a message to a running interactive Claude session

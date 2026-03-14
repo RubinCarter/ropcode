@@ -323,6 +323,22 @@ func (s *Session) sendInitialize() {
 	}
 }
 
+// WaitForInit blocks until the interactive session is initialized or timeout/error occurs
+func (s *Session) WaitForInit(timeout time.Duration) error {
+	if !s.interactive {
+		return fmt.Errorf("session is not in interactive mode")
+	}
+
+	select {
+	case <-s.initDone:
+		return nil
+	case <-s.done:
+		return fmt.Errorf("session exited before initialization completed")
+	case <-time.After(timeout):
+		return fmt.Errorf("initialization timed out after %v", timeout)
+	}
+}
+
 // SendMessage sends a user message to the interactive Claude CLI process via stdin
 func (s *Session) SendMessage(prompt string, emitter EventEmitter) error {
 	s.mu.RLock()
@@ -456,7 +472,9 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 				}
 
 				// Add session_id and cwd to the message for frontend routing
-				if msg["session_id"] == nil {
+				// In interactive mode, always override session_id with Go-side session ID
+				// so frontend can use it for SendClaudeMessage RPC calls
+				if s.interactive || msg["session_id"] == nil {
 					msg["session_id"] = s.ID
 				}
 				if msg["cwd"] == nil {
