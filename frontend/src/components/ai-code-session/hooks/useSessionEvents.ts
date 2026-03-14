@@ -23,6 +23,7 @@ export interface UseSessionEventsOptions {
   setExtractedSessionInfo: (info: SessionInfo | null) => void;
   setIsLoading: (loading: boolean) => void;
   setIsPendingSend: (pending: boolean) => void;
+  setInteractiveSessionId: (id: string | null) => void;
 
   // Refs for stable access
   projectPathRef: React.MutableRefObject<string>;
@@ -41,6 +42,9 @@ export interface UseSessionEventsOptions {
   trackFileOperation: (operation: 'create' | 'modify' | 'delete') => void;
   trackCodeBlock: () => void;
   trackError: () => void;
+
+  // Queue processing
+  processNextInQueue: () => void;
 
   // Other dependencies
   totalTokens: number;
@@ -67,6 +71,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     setClaudeSessionId,
     setExtractedSessionInfo,
     setIsLoading,
+    setInteractiveSessionId,
     projectPathRef,
     extractedSessionInfoRef,
     messagesLengthRef,
@@ -74,6 +79,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     hasActiveSessionRef,
     addMessage,
     syncProcessState,
+    processNextInQueue,
     trackToolExecution,
     trackToolFailure,
     trackFileOperation,
@@ -121,6 +127,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         }
 
         // If this is a new session, sync state immediately
+        // But in interactive mode, don't override isLoading from process state
         if (!oldSessionId || message.session_id !== oldSessionId) {
           const currentProjectPath = projectPathRef.current;
           if (currentProjectPath) {
@@ -132,8 +139,11 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
 
               // Check the actual provider session state (Gemini/Codex/Claude) instead of defaulting to Claude
               api.isClaudeSessionRunningForProject(currentProjectPath, provider).then(running => {
-                setIsLoading(running);
                 hasActiveSessionRef.current = running;
+                // In interactive mode, isLoading is controlled by message flow,
+                // not by process running state. The process is always running.
+                // Only set isLoading from process state for batch mode.
+                // For init messages, isLoading should already be true (set when sending).
               }).catch(err => {
                 console.error('[useSessionEvents] Failed to sync state:', err);
               });
@@ -230,13 +240,30 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         trackError();
       }
 
-      // In interactive mode, result messages should reset loading state
-      // because the process stays alive and claude-complete won't fire
+      // Handle result messages
       if (message.type === 'result') {
-        setIsLoading(false);
-        hasActiveSessionRef.current = false;
+        console.log('[useSessionEvents] Result message received, session_id:', message.session_id);
 
-        // Set workspace status to idle
+        // IMPORTANT: Set interactiveSessionId BEFORE isLoading=false
+        // This ensures that when useProcessChanged fires (process still running),
+        // interactiveSessionIdRef.current is already set, preventing it from
+        // re-setting isLoading=true
+        if (message.session_id) {
+          // Save the interactive session ID so we can send more messages to it
+          setInteractiveSessionId(message.session_id);
+          // Don't clear hasActiveSessionRef - the process is still running
+        } else {
+          // Batch mode: session is complete
+          hasActiveSessionRef.current = false;
+          setInteractiveSessionId(null);
+        }
+
+        setIsLoading(false);
+
+        // Process next queued prompt if any
+        processNextInQueue();
+
+        // Set workspace status to idle (AI is not actively responding)
         const currentProjectPath = projectPathRef.current;
         if (currentProjectPath) {
           setWorkspaceStatus(currentProjectPath, 'idle');
@@ -285,13 +312,16 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
 
   /**
    * Handle completion events
+   * This fires when the process actually terminates (not just a result message)
    */
   const processComplete = useCallback(async (_success: boolean) => {
-    setIsLoading(false);
     hasActiveSessionRef.current = false;
+    // Process terminated, clear interactive session (update ref immediately)
+    setInteractiveSessionId(null);
+    setIsLoading(false);
 
-    // Sync process state after completion
-    await syncProcessState();
+    // Process next queued prompt if any
+    processNextInQueue();
 
     // Set workspace status to idle when session completes
     // Note: WorkspaceTodoContext will automatically convert to 'unread' if todos were completed
@@ -299,7 +329,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     if (currentProjectPath) {
       setWorkspaceStatus(currentProjectPath, 'idle');
     }
-  }, [setIsLoading, hasActiveSessionRef, syncProcessState, projectPathRef, setWorkspaceStatus]);
+  }, [setIsLoading, hasActiveSessionRef, setInteractiveSessionId, processNextInQueue, projectPathRef, setWorkspaceStatus]);
 
   // Set up browser event listeners
   useEffect(() => {

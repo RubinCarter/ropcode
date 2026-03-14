@@ -4,6 +4,7 @@ package claude
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -239,13 +240,16 @@ func (m *SessionManager) SendMessage(sessionID, prompt string) error {
 	m.mu.RUnlock()
 
 	if !exists {
+		log.Printf("[SendMessage] Session not found: %s", sessionID)
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
 	if !session.IsRunning() {
+		log.Printf("[SendMessage] Session is not running: %s, status=%s", sessionID, session.Status)
 		return fmt.Errorf("session is not running: %s", sessionID)
 	}
 
+	log.Printf("[SendMessage] Sending message to session %s: %s", sessionID, prompt[:min(50, len(prompt))])
 	return session.SendMessage(prompt, m.emitter)
 }
 

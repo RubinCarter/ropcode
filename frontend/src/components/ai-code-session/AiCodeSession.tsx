@@ -108,9 +108,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
   // Prompt queue - defined before eventsState
   const queueState = usePromptQueue({
-    isLoading: processState.isLoading,
-    isPendingSend: processState.isPendingSend,
-    projectPath: sessionState.projectPath,
     onProcessNext: (prompt) => handleSendPrompt(prompt.prompt, prompt.model, prompt.providerApiId, prompt.thinkingMode),
   });
 
@@ -126,6 +123,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     setExtractedSessionInfo: sessionState.setExtractedSessionInfo,
     setIsLoading: processState.setIsLoading,
     setIsPendingSend: processState.setIsPendingSend,
+    setInteractiveSessionId: processState.setInteractiveSessionId,
     projectPathRef: sessionState.projectPathRef,
     extractedSessionInfoRef: sessionState.extractedSessionInfoRef,
     messagesLengthRef: messagesState.messagesLengthRef,
@@ -133,6 +131,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     hasActiveSessionRef: processState.hasActiveSessionRef,
     addMessage: messagesState.addMessage,
     syncProcessState: processState.syncProcessState,
+    processNextInQueue: queueState.processNextInQueue,
     trackToolExecution: metricsState.trackToolExecution,
     trackToolFailure: metricsState.trackToolFailure,
     trackFileOperation: metricsState.trackFileOperation,
@@ -759,9 +758,10 @@ ${message ? `**说明**:\n${message}` : ''}`;
       return;
     }
 
-    // Queue if already loading
-    if (processState.isLoading) {
-      console.log('[AiCodeSession] Session busy, queueing prompt');
+    // In interactive mode, send directly (Claude CLI handles concurrent messages)
+    // In batch mode, queue if already loading
+    if (processState.isLoading && !processState.interactiveSessionIdRef.current) {
+      console.log('[AiCodeSession] Session busy (batch mode), queueing prompt');
       queueState.addToQueue(prompt, model, providerApiId, thinkingMode);
       return;
     }
@@ -816,19 +816,33 @@ ${message ? `**说明**:\n${message}` : ''}`;
       });
 
       // Execute command
+      // Different logic for Claude (interactive) vs other providers (batch)
+      // Use ref to get latest value, avoiding stale closures in queued callbacks
+      const currentInteractiveSessionId = processState.interactiveSessionIdRef.current;
       const currentEffectiveSession = sessionState.effectiveSession;
-      if (currentEffectiveSession && !sessionState.isFirstPrompt) {
-        console.log('[AiCodeSession] Resuming existing session');
-        trackEvent.sessionResumed(currentEffectiveSession.id);
+
+      if (currentInteractiveSessionId) {
+        // Interactive session is alive (real-time state), send message directly
+        console.log('[AiCodeSession] Sending to active interactive session:', currentInteractiveSessionId);
+        trackEvent.sessionResumed(currentInteractiveSessionId);
         trackEvent.modelSelected(model);
 
         if (defaultProvider === 'claude') {
-          // Interactive mode: send message to existing long-lived process
-          await api.SendClaudeMessage(sessionState.projectPath, currentEffectiveSession.id, wrappedPrompt);
+          await api.SendClaudeMessage(sessionState.projectPath, currentInteractiveSessionId, wrappedPrompt);
         } else {
-          await api.resumeProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined);
+          await api.resumeProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, currentInteractiveSessionId, providerApiId || undefined);
         }
+      } else if (currentEffectiveSession && !sessionState.isFirstPrompt && defaultProvider !== 'claude') {
+        // For non-Claude providers (batch mode), can safely resume from effectiveSession
+        console.log('[AiCodeSession] Resuming batch mode session');
+        trackEvent.sessionResumed(currentEffectiveSession.id);
+        trackEvent.modelSelected(model);
+
+        await api.resumeProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined);
       } else {
+        // Start new session:
+        // - For Claude: always start new if no interactiveSessionId
+        // - For others: start new if no effectiveSession or isFirstPrompt
         console.log('[AiCodeSession] Starting new session');
         sessionState.setIsFirstPrompt(false);
         trackEvent.sessionCreated(model, 'prompt_input');
@@ -839,8 +853,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
           const interactiveSessionId = await api.StartInteractiveClaudeSession(
             sessionState.projectPath, model, providerApiId || undefined
           );
-          // Wait for initialization (the backend sends control_request and waits for response)
-          // Then send the first message
+          // Save interactive session ID immediately so subsequent messages bypass the queue
+          processState.setInteractiveSessionId(interactiveSessionId);
+          // Send the first message
           await api.SendClaudeMessage(sessionState.projectPath, interactiveSessionId, wrappedPrompt);
         } else {
           await api.startProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, providerApiId);
@@ -934,6 +949,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
       processState.setIsLoading(false);
       processState.hasActiveSessionRef.current = false;
+      processState.setInteractiveSessionId(null);  // Clear interactive session
       setError(null);
       queueState.clearQueue();
 
@@ -957,6 +973,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
       processState.setIsLoading(false);
       processState.hasActiveSessionRef.current = false;
+      processState.setInteractiveSessionId(null);  // Clear interactive session
       setError(null);
     }
   };
@@ -1370,6 +1387,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
               onClear={handleClearConversation}
               onCancel={handleCancelExecution}
               isLoading={processState.isLoading}
+              interactiveSessionId={processState.interactiveSessionId}
               disabled={!sessionState.projectPath}
               projectPath={sessionState.projectPath}
               defaultProvider={defaultProvider}

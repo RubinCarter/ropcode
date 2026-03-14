@@ -348,14 +348,18 @@ func (s *Session) SendMessage(prompt string, emitter EventEmitter) error {
 	}
 	if !s.initialized {
 		s.mu.RUnlock()
+		log.Printf("[SendMessage] Session %s not yet initialized", s.ID)
 		return fmt.Errorf("session is not yet initialized")
 	}
 	if s.Status != "running" {
 		s.mu.RUnlock()
+		log.Printf("[SendMessage] Session %s status is not running: %s", s.ID, s.Status)
 		return fmt.Errorf("session is not running")
 	}
 	stdin := s.stdin
 	s.mu.RUnlock()
+
+	log.Printf("[SendMessage] Sending to session %s: %s", s.ID, prompt[:min(50, len(prompt))])
 
 	// Broadcast user message to all frontend clients (same as existing behavior)
 	if emitter != nil {
@@ -482,7 +486,7 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 				}
 				// Re-marshal and send as JSON string
 				enrichedJSON, _ := json.Marshal(msg)
-				log.Printf("[Session] Emitting claude-output (%s): type=%v", outputType, msg["type"])
+				log.Printf("[Session] Emitting claude-output (%s): type=%v subtype=%v", outputType, msg["type"], msg["subtype"])
 				emitter.Emit("claude-output", string(enrichedJSON))
 			} else {
 				// Not JSON - wrap as raw output message with source info
