@@ -898,7 +898,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
   };
 
   const handleCancelExecution = async () => {
-    if (!sessionState.projectPath || !processState.isLoading) return;
+    // Allow cancellation if either loading or interactive session is active
+    if (!sessionState.projectPath || (!processState.isLoading && !processState.interactiveSessionId)) return;
 
     try {
       const sessionStartTimeValue = messagesState.messages.length > 0 ? messagesState.messages[0].timestamp || Date.now() : Date.now();

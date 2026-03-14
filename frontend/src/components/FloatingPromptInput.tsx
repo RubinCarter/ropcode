@@ -2141,8 +2141,15 @@ const FloatingPromptInputInner = (
                     </motion.div>
                   </TooltipSimple>
 
-                  {isLoading && (
-                    <TooltipSimple content="Stop generation" side="top">
+                  {(isLoading || interactiveSessionId) && (
+                    <TooltipSimple
+                      content={
+                        interactiveSessionId
+                          ? (isLoading ? "Stop current task" : "Terminate interactive session")
+                          : "Stop generation"
+                      }
+                      side="top"
+                    >
                       <motion.div
                         whileTap={{ scale: 0.97 }}
                         transition={{ duration: 0.15 }}
