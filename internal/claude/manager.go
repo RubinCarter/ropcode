@@ -231,6 +231,37 @@ func (m *SessionManager) GetSession(sessionID string) *SessionStatus {
 	return session.GetStatus()
 }
 
+// SendMessage sends a message to a running interactive session
+func (m *SessionManager) SendMessage(sessionID, prompt string) error {
+	m.mu.RLock()
+	session, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	if !session.IsRunning() {
+		return fmt.Errorf("session is not running: %s", sessionID)
+	}
+
+	return session.SendMessage(prompt, m.emitter)
+}
+
+// GetInteractiveSessionForProject returns the running interactive session for a project, if any
+func (m *SessionManager) GetInteractiveSessionForProject(projectPath string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, session := range m.sessions {
+		if session.Config.ProjectPath == projectPath && session.IsRunning() && session.IsInteractive() {
+			return session
+		}
+	}
+
+	return nil
+}
+
 // CleanupCompleted removes completed sessions from the manager
 func (m *SessionManager) CleanupCompleted() {
 	m.mu.Lock()

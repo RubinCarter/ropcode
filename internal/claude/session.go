@@ -681,6 +681,13 @@ func (s *Session) IsRunning() bool {
 	return s.Status == "running"
 }
 
+// IsInteractive returns whether the session is in interactive mode
+func (s *Session) IsInteractive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.interactive
+}
+
 // GetStatus returns the current session status
 func (s *Session) GetStatus() *SessionStatus {
 	s.mu.RLock()

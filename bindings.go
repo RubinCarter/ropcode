@@ -1588,6 +1588,46 @@ func (a *App) CancelClaudeExecutionByProject(projectPath string) error {
 	return nil
 }
 
+// StartInteractiveClaudeSession starts or returns an existing interactive Claude session for a project
+func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID string) (string, error) {
+	if a.claudeManager == nil {
+		return "", fmt.Errorf("claude manager not initialized")
+	}
+
+	// Check if there's already a running interactive session for this project
+	existingSession := a.claudeManager.GetInteractiveSessionForProject(projectPath)
+	if existingSession != nil {
+		return existingSession.ID, nil
+	}
+
+	config := claude.SessionConfig{
+		ProjectPath:     projectPath,
+		Model:           model,
+		ProviderApiID:   providerApiID,
+		InteractiveMode: true,
+	}
+
+	// Fetch API configuration if providerApiID is specified
+	if providerApiID != "" && a.dbManager != nil {
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && apiConfig != nil {
+			config.BaseURL = apiConfig.BaseURL
+			config.AuthToken = apiConfig.AuthToken
+		}
+	}
+
+	return a.claudeManager.StartSession(config)
+}
+
+// SendClaudeMessage sends a message to a running interactive Claude session
+func (a *App) SendClaudeMessage(projectPath, sessionID, prompt string) error {
+	if a.claudeManager == nil {
+		return fmt.Errorf("claude manager not initialized")
+	}
+
+	return a.claudeManager.SendMessage(sessionID, prompt)
+}
+
 // IsClaudeSessionRunning checks if a session is running
 func (a *App) IsClaudeSessionRunning(sessionID string) bool {
 	if a.claudeManager == nil {
