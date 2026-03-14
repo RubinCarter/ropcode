@@ -588,6 +588,22 @@ export function CancelClaudeExecutionByProject(projectPath: string): Promise<voi
   return wsClient.call('CancelClaudeExecutionByProject', projectPath);
 }
 
+export function StartInteractiveClaudeSession(
+  projectPath: string,
+  model: string,
+  providerApiId?: string
+): Promise<string> {
+  return wsClient.call('StartInteractiveClaudeSession', projectPath, model, providerApiId || '');
+}
+
+export function SendClaudeMessage(
+  projectPath: string,
+  sessionId: string,
+  prompt: string
+): Promise<void> {
+  return wsClient.call('SendClaudeMessage', projectPath, sessionId, prompt);
+}
+
 export function StartProviderSession(
   provider: string,
   projectPath: string,

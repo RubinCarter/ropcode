@@ -230,6 +230,19 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         trackError();
       }
 
+      // In interactive mode, result messages should reset loading state
+      // because the process stays alive and claude-complete won't fire
+      if (message.type === 'result') {
+        setIsLoading(false);
+        hasActiveSessionRef.current = false;
+
+        // Set workspace status to idle
+        const currentProjectPath = projectPathRef.current;
+        if (currentProjectPath) {
+          setWorkspaceStatus(currentProjectPath, 'idle');
+        }
+      }
+
       addMessage(message);
 
       // Save session after assistant messages

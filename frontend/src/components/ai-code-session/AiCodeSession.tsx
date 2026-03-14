@@ -823,9 +823,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
         trackEvent.modelSelected(model);
 
         if (defaultProvider === 'claude') {
-          await api.resumeClaudeCode(sessionState.projectPath, currentEffectiveSession.id, wrappedPrompt, model, undefined, providerApiId);
+          // Interactive mode: send message to existing long-lived process
+          await api.SendClaudeMessage(sessionState.projectPath, currentEffectiveSession.id, wrappedPrompt);
         } else {
-          // For all other providers (codex, etc.), resumeProviderSession now takes prompt and model
           await api.resumeProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined);
         }
       } else {
@@ -835,7 +835,13 @@ ${message ? `**说明**:\n${message}` : ''}`;
         trackEvent.modelSelected(model);
 
         if (defaultProvider === 'claude') {
-          await api.executeClaudeCode(sessionState.projectPath, wrappedPrompt, model, undefined, providerApiId);
+          // Interactive mode: start long-lived process, then send first message
+          const interactiveSessionId = await api.StartInteractiveClaudeSession(
+            sessionState.projectPath, model, providerApiId || undefined
+          );
+          // Wait for initialization (the backend sends control_request and waits for response)
+          // Then send the first message
+          await api.SendClaudeMessage(sessionState.projectPath, interactiveSessionId, wrappedPrompt);
         } else {
           await api.startProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, providerApiId);
         }
