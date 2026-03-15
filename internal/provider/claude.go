@@ -37,17 +37,27 @@ func (p *ClaudeProvider) SupportedModels() []ModelInfo {
 	return []ModelInfo{
 		{
 			ID:          "sonnet",
-			Name:        "Claude 3.5 Sonnet",
-			Description: "Most capable model for coding tasks",
+			Name:        "Claude Sonnet 4",
+			Description: "Fast and capable, recommended for coding tasks",
 		},
 		{
 			ID:          "opus",
-			Name:        "Claude 3 Opus",
-			Description: "Previous generation flagship model",
+			Name:        "Claude Opus 4.5",
+			Description: "Most capable flagship model for complex tasks",
+		},
+		{
+			ID:          "sonnet[1m]",
+			Name:        "Claude Sonnet 4 [1M]",
+			Description: "Fast and capable with 1M token context window",
+		},
+		{
+			ID:          "opus[1m]",
+			Name:        "Claude Opus 4.5 [1M]",
+			Description: "Most capable flagship model with 1M token context window",
 		},
 		{
 			ID:          "haiku",
-			Name:        "Claude 3 Haiku",
+			Name:        "Claude Haiku 3.5",
 			Description: "Fastest model for simple tasks",
 		},
 	}
