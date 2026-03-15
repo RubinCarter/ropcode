@@ -1588,8 +1588,9 @@ func (a *App) CancelClaudeExecutionByProject(projectPath string) error {
 	return nil
 }
 
-// StartInteractiveClaudeSession starts or returns an existing interactive Claude session for a project
-func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID string) (string, error) {
+// StartInteractiveClaudeSession starts or returns an existing interactive Claude session for a project.
+// resumeSessionID is the Claude-side session ID to resume (pass "" to start fresh).
+func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID, resumeSessionID string) (string, error) {
 	if a.claudeManager == nil {
 		return "", fmt.Errorf("claude manager not initialized")
 	}
@@ -1601,10 +1602,11 @@ func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID st
 	}
 
 	config := claude.SessionConfig{
-		ProjectPath:     projectPath,
-		Model:           model,
-		ProviderApiID:   providerApiID,
-		InteractiveMode: true,
+		ProjectPath:           projectPath,
+		Model:                 model,
+		ProviderApiID:         providerApiID,
+		InteractiveMode:       true,
+		ResumeClaudeSessionID: resumeSessionID,
 	}
 
 	// Fetch API configuration if providerApiID is specified

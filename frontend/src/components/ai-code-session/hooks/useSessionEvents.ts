@@ -152,11 +152,15 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         }
 
         // Update extractedSessionInfo
+        // In interactive mode, prefer claude_session_id (the real Claude session ID) for
+        // persistence so it can be used with --resume on app restart. The session_id field
+        // in interactive mode is the Go UUID which is meaningless after restart.
+        const persistSessionId = (message as any).claude_session_id || message.session_id;
         const projectId = projectPathRef.current.replace(/[^a-zA-Z0-9]/g, '-');
-        if (!extractedSessionInfoRef.current || extractedSessionInfoRef.current.sessionId !== message.session_id) {
-          setExtractedSessionInfo({ sessionId: message.session_id, projectId });
+        if (!extractedSessionInfoRef.current || extractedSessionInfoRef.current.sessionId !== persistSessionId) {
+          setExtractedSessionInfo({ sessionId: persistSessionId, projectId });
           SessionPersistenceService.saveSession(
-            message.session_id,
+            persistSessionId,
             projectId,
             projectPathRef.current,
             provider,

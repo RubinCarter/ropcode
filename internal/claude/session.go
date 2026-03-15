@@ -31,6 +31,9 @@ type SessionConfig struct {
 	// InteractiveMode enables long-lived process mode where messages are sent via stdin
 	// instead of the batch -p mode
 	InteractiveMode bool `json:"interactive_mode,omitempty"`
+	// ResumeClaudeSessionID is the Claude-side session ID to resume in interactive mode.
+	// When set, --resume <id> is passed to Claude CLI so the conversation history is restored.
+	ResumeClaudeSessionID string `json:"resume_claude_session_id,omitempty"`
 	// API configuration from ProviderApiConfig
 	BaseURL   string `json:"base_url,omitempty"`
 	AuthToken string `json:"auth_token,omitempty"`
@@ -65,12 +68,13 @@ type Session struct {
 	processEmitter ProcessChangedEmitter
 
 	// Interactive mode fields
-	stdin       io.WriteCloser
-	interactive bool
-	initialized bool
-	initDone    chan struct{}
-	processing  bool         // True between system.init and result messages
-	emitter     EventEmitter // Save reference for SendMessage to use
+	stdin           io.WriteCloser
+	interactive     bool
+	initialized     bool
+	initDone        chan struct{}
+	processing      bool         // True between system.init and result messages
+	emitter         EventEmitter // Save reference for SendMessage to use
+	claudeSessionID string       // The Claude-side session ID (from system.init), used for --resume
 }
 
 // EventEmitter interface for emitting events
@@ -126,9 +130,13 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 
 	if s.Config.InteractiveMode {
 		// Interactive mode: long-lived process, messages sent via stdin
-		// Do NOT add -p, --resume, --continue arguments
 		// Add --input-format for stdin message protocol
 		args = append(args, "--input-format", "stream-json")
+		// Resume previous conversation if a Claude session ID is provided
+		if s.Config.ResumeClaudeSessionID != "" {
+			args = append(args, "--resume", s.Config.ResumeClaudeSessionID)
+			log.Printf("[Session] Resuming Claude conversation with session ID: %s", s.Config.ResumeClaudeSessionID)
+		}
 	} else {
 		// Batch mode: single prompt execution
 		// Add resume/continue flags first (before prompt)
@@ -475,6 +483,27 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 					}
 				}
 
+				// Save Claude's own session_id before overriding, so we can use it for --resume later
+				if s.interactive {
+					if claudeID, ok := msg["session_id"].(string); ok && claudeID != "" {
+						s.mu.Lock()
+						if s.claudeSessionID == "" {
+							s.claudeSessionID = claudeID
+							log.Printf("[Session] Captured Claude session ID for resume: %s", claudeID)
+						}
+						s.mu.Unlock()
+
+						// For system.init, expose the real Claude session ID as claude_session_id
+						// so the frontend can persist it (via SessionPersistenceService) and use it
+						// to resume the conversation after the process is stopped and restarted.
+						msgType, _ := msg["type"].(string)
+						subtype, _ := msg["subtype"].(string)
+						if msgType == "system" && subtype == "init" {
+							msg["claude_session_id"] = claudeID
+						}
+					}
+				}
+
 				// Add session_id and cwd to the message for frontend routing
 				// In interactive mode, always override session_id with Go-side session ID
 				// so frontend can use it for SendClaudeMessage RPC calls
@@ -708,6 +737,14 @@ func (s *Session) IsInteractive() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.interactive
+}
+
+// GetClaudeSessionID returns the Claude-side session ID captured from CLI output.
+// This ID can be passed as --resume to restore conversation history.
+func (s *Session) GetClaudeSessionID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.claudeSessionID
 }
 
 // GetStatus returns the current session status

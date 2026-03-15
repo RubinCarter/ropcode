@@ -591,9 +591,10 @@ export function CancelClaudeExecutionByProject(projectPath: string): Promise<voi
 export function StartInteractiveClaudeSession(
   projectPath: string,
   model: string,
-  providerApiId?: string
+  providerApiId?: string,
+  resumeSessionId?: string
 ): Promise<string> {
-  return wsClient.call('StartInteractiveClaudeSession', projectPath, model, providerApiId || '');
+  return wsClient.call('StartInteractiveClaudeSession', projectPath, model, providerApiId || '', resumeSessionId || '');
 }
 
 export function SendClaudeMessage(

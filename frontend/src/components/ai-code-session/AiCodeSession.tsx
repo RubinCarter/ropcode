@@ -849,9 +849,12 @@ ${message ? `**说明**:\n${message}` : ''}`;
         trackEvent.modelSelected(model);
 
         if (defaultProvider === 'claude') {
-          // Interactive mode: start long-lived process, then send first message
+          // Interactive mode: start long-lived process, then send first message.
+          // Pass the persisted Claude session ID (from effectiveSession) so the
+          // CLI can resume the conversation with --resume <id> after a stop or restart.
+          const resumeId = !sessionState.isFirstPrompt ? (sessionState.effectiveSession?.id ?? '') : '';
           const interactiveSessionId = await api.StartInteractiveClaudeSession(
-            sessionState.projectPath, model, providerApiId || undefined
+            sessionState.projectPath, model, providerApiId || undefined, resumeId
           );
           // Save interactive session ID immediately so subsequent messages bypass the queue
           processState.setInteractiveSessionId(interactiveSessionId);
