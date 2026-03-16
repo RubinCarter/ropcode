@@ -603,11 +603,11 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                       {/* Project type icon - vertically centered across both lines */}
                       <span className="flex-shrink-0 inline-flex items-center justify-center">
                         {project.project_type === 'ssh' ? (
-                          <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                          <Server className="h-5 w-5 text-muted-foreground" />
                         ) : project.project_type === 'git' ? (
-                          <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                          <GitBranch className="h-5 w-5 text-muted-foreground" />
                         ) : (
-                          <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                          <FolderOpen className="h-5 w-5 text-muted-foreground" />
                         )}
                       </span>
                       <div className="flex-1 min-w-0">
