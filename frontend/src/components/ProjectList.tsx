@@ -559,6 +559,27 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                 });
                 const isProjectActive = isProjectDirectlyActive || isProjectActiveViaWorkspace;
 
+                // Project's own running status
+                const projectIsProcessRunning = workspaceRunningStates.get(project.path) ?? false;
+                const projectContextStatus = getWorkspaceStatus(project.path);
+                const projectInProgressTodos = getInProgressTodos(project.path);
+                let projectStatus = projectContextStatus;
+                if (projectIsProcessRunning && (projectContextStatus === 'idle' || projectContextStatus === 'unread')) {
+                  projectStatus = 'working';
+                }
+
+                // Aggregate workspace statuses for line 2
+                const workspaceAggStatuses = (hasGitSupport && project.workspaces) ? project.workspaces.map(ws => {
+                  const cp = ws.providers.find(p => p.provider_id === 'claude');
+                  if (!cp) return 'idle';
+                  const isRunning = workspaceRunningStates.get(cp.path) ?? false;
+                  const ctxStatus = getWorkspaceStatus(cp.path);
+                  if (isRunning && (ctxStatus === 'idle' || ctxStatus === 'unread')) return 'working';
+                  return ctxStatus;
+                }) : [];
+                const wsWorkingCount = workspaceAggStatuses.filter(s => s === 'working' || s === 'active').length;
+                const wsUnreadCount = workspaceAggStatuses.filter(s => s === 'unread').length;
+
                 return (
                 <div key={project.id} className="mb-0.5">
                   {/* Project Header */}
@@ -568,30 +589,62 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                   )}>
                     <button
                       onClick={() => onProjectClick(project)}
-                      className="flex-1 min-w-0 px-3 py-2 flex items-center gap-2 text-left"
+                      className="flex-1 min-w-0 px-3 py-2 flex items-start gap-2 text-left"
                     >
-                      <span className="font-medium text-sm truncate flex items-center gap-2">
-                        {/* Project type icon */}
-                        <span className="flex-shrink-0 inline-flex items-center justify-center">
-                          {project.project_type === 'ssh' ? (
-                            <Server className="h-3.5 w-3.5 text-muted-foreground" />
-                          ) : project.project_type === 'git' ? (
-                            <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
-                          ) : (
-                            <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
-                          )}
-                        </span>
-                        {isProjectActive && (
-                          <div className="flex-shrink-0 h-2 w-2 bg-blue-500 rounded-full border border-background" />
-                        )}
-                        {getProjectName(project.path)}
-                        {sshSyncMap[project.path] && (
-                          <span className="ml-1 text-xs text-muted-foreground flex items-center gap-1">
-                            {sshSyncMap[project.path].direction === 'upload' ? '↑' : '↓'}
-                            <span>{sshSyncMap[project.path].percent}%</span>
-                          </span>
+                      {/* Project type icon - aligned to first line */}
+                      <span className="flex-shrink-0 inline-flex items-center justify-center mt-0.5">
+                        {project.project_type === 'ssh' ? (
+                          <Server className="h-3.5 w-3.5 text-muted-foreground" />
+                        ) : project.project_type === 'git' ? (
+                          <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+                        ) : (
+                          <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
                         )}
                       </span>
+                      <div className="flex-1 min-w-0">
+                        {/* Line 1: project name + own status */}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {isProjectActive && (
+                            <div className="flex-shrink-0 h-2 w-2 bg-blue-500 rounded-full border border-background" />
+                          )}
+                          <span className="font-medium text-sm truncate">{getProjectName(project.path)}</span>
+                          {sshSyncMap[project.path] && (
+                            <span className="flex-shrink-0 text-xs text-muted-foreground flex items-center gap-1">
+                              {sshSyncMap[project.path].direction === 'upload' ? '↑' : '↓'}
+                              <span>{sshSyncMap[project.path].percent}%</span>
+                            </span>
+                          )}
+                          {projectStatus === 'working' && (
+                            <span className="flex-shrink-0 text-xs text-purple-500 animate-pulse">Working...</span>
+                          )}
+                          {projectStatus === 'unread' && (
+                            <span className="flex-shrink-0 text-xs text-orange-500 font-medium">Unread</span>
+                          )}
+                          {projectStatus === 'active' && projectInProgressTodos[0] && (
+                            <span className="flex-shrink-0 text-xs text-blue-500 truncate">{projectInProgressTodos[0].activeForm}</span>
+                          )}
+                        </div>
+                        {/* Line 2: workspace aggregate - shown when has git workspaces */}
+                        {hasGitSupport && project.workspaces && project.workspaces.length > 0 && (
+                          <div className="text-xs mt-0.5">
+                            {wsWorkingCount > 0 || wsUnreadCount > 0 ? (
+                              <>
+                                {wsWorkingCount > 0 && (
+                                  <span className="text-purple-500">{wsWorkingCount} working</span>
+                                )}
+                                {wsWorkingCount > 0 && wsUnreadCount > 0 && (
+                                  <span className="text-muted-foreground"> · </span>
+                                )}
+                                {wsUnreadCount > 0 && (
+                                  <span className="text-orange-500">{wsUnreadCount} unread</span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">{project.workspaces.length} workspaces</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </button>
                     {/* Delete button - only show on hover */}
                     {!removingProjects.has(project.id) && (
