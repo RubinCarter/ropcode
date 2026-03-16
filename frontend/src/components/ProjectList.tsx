@@ -644,20 +644,14 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                             </span>
                           )}
                         </div>
-                        {/* Line 2: project's own branch + running status */}
+                        {/* Line 2: status when active, branch name when idle (OR logic, same as workspace) */}
                         <div className="text-xs mt-0.5">
                           {projectStatus === 'working' ? (
-                            <span className="text-purple-500 animate-pulse">
-                              {workspaceBranches[project.path] ? `${workspaceBranches[project.path]}/Working...` : 'Working...'}
-                            </span>
+                            <span className="text-purple-500 animate-pulse">Working...</span>
                           ) : projectStatus === 'unread' ? (
-                            <span className="text-orange-500 font-medium">
-                              {workspaceBranches[project.path] ? `${workspaceBranches[project.path]}/Unread` : 'Unread'}
-                            </span>
+                            <span className="text-orange-500 font-medium">Unread</span>
                           ) : projectStatus === 'active' && projectInProgressTodos[0] ? (
-                            <span className="text-blue-500">
-                              {workspaceBranches[project.path] ? `${workspaceBranches[project.path]}/` : ''}{projectInProgressTodos[0].activeForm}
-                            </span>
+                            <span className="text-blue-500">{projectInProgressTodos[0].activeForm}</span>
                           ) : workspaceBranches[project.path] ? (
                             <span className="text-muted-foreground">{workspaceBranches[project.path]}</span>
                           ) : null}
