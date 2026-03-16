@@ -224,6 +224,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const allWorkspacePaths = useMemo(() => {
     const paths: string[] = [];
     (projects ?? []).forEach(project => {
+      // Include project's own path for branch polling and running state
+      if (project.path) {
+        paths.push(project.path);
+      }
       if (project.workspaces) {
         project.workspaces.forEach(ws => {
           // Find any AI provider (claude, codex, etc.)
@@ -607,7 +611,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         )}
                       </span>
                       <div className="flex-1 min-w-0">
-                        {/* Line 1: project name + own status */}
+                        {/* Line 1: project name + workspace aggregate dots */}
                         <div className="flex items-center gap-1.5 min-w-0">
                           {isProjectActive && (
                             <div className="flex-shrink-0 h-2 w-2 bg-blue-500 rounded-full border border-background" />
@@ -619,36 +623,45 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               <span>{sshSyncMap[project.path].percent}%</span>
                             </span>
                           )}
-                          {projectStatus === 'working' && (
-                            <span className="flex-shrink-0 text-xs text-purple-500 animate-pulse">Working...</span>
-                          )}
-                          {projectStatus === 'unread' && (
-                            <span className="flex-shrink-0 text-xs text-orange-500 font-medium">Unread</span>
-                          )}
-                          {projectStatus === 'active' && projectInProgressTodos[0] && (
-                            <span className="flex-shrink-0 text-xs text-blue-500 truncate">{projectInProgressTodos[0].activeForm}</span>
+                          {hasGitSupport && project.workspaces && project.workspaces.length > 0 && (
+                            <span className="flex-shrink-0 flex items-center gap-1 text-xs">
+                              {wsWorkingCount > 0 && (
+                                <span className="flex items-center gap-0.5">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-purple-500 inline-block" />
+                                  <span className="text-purple-500">{wsWorkingCount}</span>
+                                </span>
+                              )}
+                              {wsUnreadCount > 0 && (
+                                <span className="flex items-center gap-0.5">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-orange-500 inline-block" />
+                                  <span className="text-orange-500">{wsUnreadCount}</span>
+                                </span>
+                              )}
+                              <span className="flex items-center gap-0.5">
+                                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground inline-block" />
+                                <span className="text-muted-foreground">{project.workspaces.length}</span>
+                              </span>
+                            </span>
                           )}
                         </div>
-                        {/* Line 2: workspace aggregate - shown when has git workspaces */}
-                        {hasGitSupport && project.workspaces && project.workspaces.length > 0 && (
-                          <div className="text-xs mt-0.5">
-                            {wsWorkingCount > 0 || wsUnreadCount > 0 ? (
-                              <>
-                                {wsWorkingCount > 0 && (
-                                  <span className="text-purple-500">{wsWorkingCount} working</span>
-                                )}
-                                {wsWorkingCount > 0 && wsUnreadCount > 0 && (
-                                  <span className="text-muted-foreground"> · </span>
-                                )}
-                                {wsUnreadCount > 0 && (
-                                  <span className="text-orange-500">{wsUnreadCount} unread</span>
-                                )}
-                              </>
-                            ) : (
-                              <span className="text-muted-foreground">{project.workspaces.length} workspaces</span>
-                            )}
-                          </div>
-                        )}
+                        {/* Line 2: project's own branch + running status */}
+                        <div className="text-xs mt-0.5">
+                          {projectStatus === 'working' ? (
+                            <span className="text-purple-500 animate-pulse">
+                              {workspaceBranches[project.path] ? `${workspaceBranches[project.path]}/Working...` : 'Working...'}
+                            </span>
+                          ) : projectStatus === 'unread' ? (
+                            <span className="text-orange-500 font-medium">
+                              {workspaceBranches[project.path] ? `${workspaceBranches[project.path]}/Unread` : 'Unread'}
+                            </span>
+                          ) : projectStatus === 'active' && projectInProgressTodos[0] ? (
+                            <span className="text-blue-500">
+                              {workspaceBranches[project.path] ? `${workspaceBranches[project.path]}/` : ''}{projectInProgressTodos[0].activeForm}
+                            </span>
+                          ) : workspaceBranches[project.path] ? (
+                            <span className="text-muted-foreground">{workspaceBranches[project.path]}</span>
+                          ) : null}
+                        </div>
                       </div>
                     </button>
                     {/* Delete button - only show on hover */}
