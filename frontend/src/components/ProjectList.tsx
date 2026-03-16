@@ -645,7 +645,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                           )}
                         </div>
                         {/* Line 2: status when active, branch name when idle (OR logic, same as workspace) */}
-                        <div className="text-xs mt-0.5">
+                        <div className="text-[10px] mt-0.5">
                           {projectStatus === 'working' ? (
                             <span className="text-purple-500 animate-pulse">Working...</span>
                           ) : projectStatus === 'unread' ? (
