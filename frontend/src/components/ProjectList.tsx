@@ -588,7 +588,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                     isProjectActive && "bg-accent border-l-2 border-primary"
                   )}>
                     <button
-                      onClick={() => onProjectClick(project)}
+                      onClick={() => {
+                        if (projectStatus === 'unread') {
+                          markAsRead(project.path);
+                        }
+                        onProjectClick(project);
+                      }}
                       className="flex-1 min-w-0 px-3 py-2 flex items-start gap-2 text-left"
                     >
                       {/* Project type icon - aligned to first line */}
