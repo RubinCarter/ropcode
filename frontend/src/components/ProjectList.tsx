@@ -598,10 +598,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         }
                         onProjectClick(project);
                       }}
-                      className="flex-1 min-w-0 px-3 py-2 flex items-start gap-2 text-left"
+                      className="flex-1 min-w-0 px-3 py-2 flex items-center gap-2 text-left"
                     >
-                      {/* Project type icon - aligned to first line */}
-                      <span className="flex-shrink-0 inline-flex items-center justify-center mt-0.5">
+                      {/* Project type icon - vertically centered across both lines */}
+                      <span className="flex-shrink-0 inline-flex items-center justify-center">
                         {project.project_type === 'ssh' ? (
                           <Server className="h-3.5 w-3.5 text-muted-foreground" />
                         ) : project.project_type === 'git' ? (
