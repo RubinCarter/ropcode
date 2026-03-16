@@ -1839,6 +1839,12 @@ const FloatingPromptInputInner = (
               {/* Provider, Provider API, Model & Thinking Mode Selectors - Left side, fixed at bottom */}
               {/* Selectors - collapsed by default, toggle with button */}
                 <div className="flex items-center shrink-0 mb-1 gap-1">
+                  <button
+                    onClick={() => setMobileSelectorsOpen(!mobileSelectorsOpen)}
+                    className="h-9 px-2 rounded-md hover:bg-accent/50 transition-colors flex items-center gap-1 text-muted-foreground"
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                  </button>
                   {mobileSelectorsOpen && (
                     <div className="flex items-center gap-0.5 flex-wrap">
                       {/* Provider Selector */}
@@ -2062,12 +2068,6 @@ const FloatingPromptInputInner = (
                     />
                     </div>
                   )}
-                  <button
-                    onClick={() => setMobileSelectorsOpen(!mobileSelectorsOpen)}
-                    className="h-9 px-2 rounded-md hover:bg-accent/50 transition-colors flex items-center gap-1 text-muted-foreground"
-                  >
-                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                  </button>
                 </div>
 
               {/* Prompt Input - Center */}
