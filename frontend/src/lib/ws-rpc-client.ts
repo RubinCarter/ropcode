@@ -357,8 +357,31 @@ class WSRpcClient {
 
   /**
    * 发送 RPC 调用
+   * Automatically retries once on transient WebSocket errors (force reconnect / disconnected).
    */
   async call<T = any>(method: string, ...params: any[]): Promise<T> {
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await this.doCall<T>(method, params);
+      } catch (err) {
+        const isTransient = err instanceof Error &&
+          (err.message === 'WebSocket force reconnect' || err.message === 'WebSocket disconnected');
+        if (isTransient && attempt < maxAttempts) {
+          console.log(`[WSRpc] Transient error on ${method}, retrying after reconnect (attempt ${attempt}/${maxAttempts})`);
+          await this.waitForConnection(10000);
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error('unreachable');
+  }
+
+  /**
+   * Internal: send a single RPC call over the WebSocket.
+   */
+  private async doCall<T>(method: string, params: any[]): Promise<T> {
     // If disconnected, wait for reconnection instead of failing immediately
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       await this.waitForConnection(10000);
