@@ -76,6 +76,8 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const isIMEComposingRef = useRef(false);
   const loadedSessionIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
 
   // ==================================================================
   // HOOKS - State management extracted to separate hooks
@@ -359,10 +361,10 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         });
       }
 
-      // Save session
-      if (sessionState.effectiveSession && sessionState.claudeSessionId && sessionState.projectPath) {
+      // Save session - use effectiveSession.id (Claude UUID) not claudeSessionId (Go UUID in interactive mode)
+      if (sessionState.effectiveSession && sessionState.projectPath) {
         SessionPersistenceService.saveSession(
-          sessionState.claudeSessionId,
+          sessionState.effectiveSession.id,
           sessionState.effectiveSession.project_id,
           sessionState.projectPath,
           defaultProvider,
@@ -687,30 +689,43 @@ ${message ? `**说明**:\n${message}` : ''}`;
     } catch (err) {
       console.error('[AiCodeSession] Failed to load restored history:', err);
       loadedSessionIdRef.current = null;
+      sessionState.setExtractedSessionInfo(null);
+      // Fallback: if session prop is now available, load via that path
+      const fallbackSession = sessionRef.current;
+      if (fallbackSession) {
+        loadedSessionIdRef.current = fallbackSession.id;
+        sessionState.setClaudeSessionId(fallbackSession.id);
+        sessionState.setExtractedSessionInfo({
+          sessionId: fallbackSession.id,
+          projectId: fallbackSession.project_id,
+        });
+        loadSessionHistory();
+      }
     } finally {
       processState.setIsLoading(false);
     }
   };
 
   const loadSessionHistory = async () => {
-    if (!session) return;
+    const s = sessionRef.current;
+    if (!s) return;
 
     try {
       processState.setIsLoading(true);
       setError(null);
 
       const history = await providers.loadHistory(
-        session.id,
-        session.project_id,
-        (session as any).provider || defaultProvider
+        s.id,
+        s.project_id,
+        (s as any).provider || defaultProvider
       );
 
       if (history && history.length > 0) {
         SessionPersistenceService.saveSession(
-          session.id,
-          session.project_id,
-          session.project_path,
-          (session as any).provider || defaultProvider,
+          s.id,
+          s.project_id,
+          s.project_path,
+          (s as any).provider || defaultProvider,
           history.length
         );
 
