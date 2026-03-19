@@ -39,13 +39,47 @@ type SessionConfig struct {
 	AuthToken string `json:"auth_token,omitempty"`
 }
 
+// ToolProgress holds progress info for an active tool call.
+type ToolProgress struct {
+	ToolName    string  `json:"tool_name,omitempty"`
+	Step        int     `json:"step,omitempty"`
+	TotalSteps  int     `json:"total_steps,omitempty"`
+	Percent     float64 `json:"percent,omitempty"`
+	Description string  `json:"description,omitempty"`
+}
+
+// ApiRetryInfo holds details about the most recent API retry attempt.
+type ApiRetryInfo struct {
+	Reason       string `json:"reason,omitempty"`        // e.g. "rate_limit", "server_error"
+	Attempt      int    `json:"attempt,omitempty"`
+	MaxAttempts  int    `json:"max_attempts,omitempty"`
+	RetryAfterMs int    `json:"retry_after_ms,omitempty"`
+	ErrorStatus  int    `json:"error_status,omitempty"`
+}
+
+// RuntimeState tracks fine-grained Claude session activity derived from the JSONL stream.
+// It is injected into every claude-output event so the frontend can show real-time status.
+type RuntimeState struct {
+	Processing            bool          `json:"processing"`
+	Retrying              bool          `json:"retrying"`
+	RateLimited           bool          `json:"rate_limited"`
+	ActiveTool            string        `json:"active_tool,omitempty"`
+	ActiveToolProgress    *ToolProgress `json:"active_tool_progress,omitempty"`
+	LastApiRetry          *ApiRetryInfo `json:"last_api_retry,omitempty"`
+	LastThinkingPhase     string        `json:"last_thinking_phase,omitempty"`
+	LastPartialTextLength int           `json:"last_partial_text_length,omitempty"`
+	LastEventType         string        `json:"last_event_type,omitempty"`
+	LastEventSubtype      string        `json:"last_event_subtype,omitempty"`
+}
+
 type SessionStatus struct {
-	SessionID   string    `json:"session_id"`
-	ProjectPath string    `json:"project_path"`
-	Model       string    `json:"model"`
-	Status      string    `json:"status"` // "running", "completed", "failed", "cancelled"
-	StartedAt   time.Time `json:"started_at"`
-	PID         int       `json:"pid,omitempty"`
+	SessionID   string       `json:"session_id"`
+	ProjectPath string       `json:"project_path"`
+	Model       string       `json:"model"`
+	Status      string       `json:"status"` // "running", "completed", "failed", "cancelled"
+	StartedAt   time.Time    `json:"started_at"`
+	PID         int          `json:"pid,omitempty"`
+	Runtime     RuntimeState `json:"runtime,omitempty"`
 }
 
 type Session struct {
@@ -72,7 +106,7 @@ type Session struct {
 	interactive     bool
 	initialized     bool
 	initDone        chan struct{}
-	processing      bool         // True between system.init and result messages
+	runtime         RuntimeState // Fine-grained activity state derived from JSONL stream
 	emitter         EventEmitter // Save reference for SendMessage to use
 	claudeSessionID string       // The Claude-side session ID (from system.init), used for --resume
 }
@@ -443,6 +477,9 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 			// Claude CLI outputs JSONL format - try to parse and enrich with cwd/session_id
 			var msg map[string]interface{}
 			if err := json.Unmarshal([]byte(line), &msg); err == nil {
+				// Update runtime state from every message (batch + interactive)
+				s.updateRuntimeStateFromMessage(msg)
+
 				// Interactive mode: filter and track certain message types
 				if s.interactive {
 					msgType, _ := msg["type"].(string)
@@ -465,21 +502,6 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 							log.Printf("[Session] Filtering interactive hook message: subtype=%s", subtype)
 							continue
 						}
-						// Track processing state on init
-						if subtype == "init" {
-							s.mu.Lock()
-							s.processing = true
-							s.mu.Unlock()
-							// Continue to forward this message normally
-						}
-					}
-
-					// Track processing state on result
-					if msgType == "result" {
-						s.mu.Lock()
-						s.processing = false
-						s.mu.Unlock()
-						// Continue to forward this message normally
 					}
 				}
 
@@ -513,6 +535,17 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 				if msg["cwd"] == nil {
 					msg["cwd"] = s.Config.ProjectPath
 				}
+
+				// Inject runtime state so frontend can show fine-grained activity status.
+				// Old clients ignore unknown fields; new clients can read processing/debug_meta.
+				s.mu.RLock()
+				runtimeCopy := s.runtime
+				s.mu.RUnlock()
+				msg["processing"] = runtimeCopy.Processing
+				msg["debug_meta"] = map[string]interface{}{
+					"runtime_state": runtimeCopy,
+				}
+
 				// Re-marshal and send as JSON string
 				enrichedJSON, _ := json.Marshal(msg)
 				log.Printf("[Session] Emitting claude-output (%s): type=%v subtype=%v", outputType, msg["type"], msg["subtype"])
@@ -541,6 +574,143 @@ func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter Ev
 	}
 }
 
+// updateRuntimeStateFromMessage updates s.runtime based on a parsed JSONL message.
+// Called for every stdout JSON line in both batch and interactive modes.
+// Must NOT be called while s.mu is held by the caller.
+func (s *Session) updateRuntimeStateFromMessage(msg map[string]interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	t, _ := msg["type"].(string)
+	subtype, _ := msg["subtype"].(string)
+	s.runtime.LastEventType = t
+	s.runtime.LastEventSubtype = subtype
+
+	switch t {
+	case "system":
+		switch subtype {
+		case "init":
+			s.runtime.Processing = true
+			s.runtime.Retrying = false
+			s.runtime.RateLimited = false
+			s.runtime.ActiveTool = ""
+			s.runtime.ActiveToolProgress = nil
+			s.runtime.LastApiRetry = nil
+
+		case "api_retry":
+			attempt, _ := msg["attempt"].(float64)
+			maxRetries, _ := msg["max_retries"].(float64)
+			delayMs, _ := msg["retry_delay_ms"].(float64)
+			errorStatus, _ := msg["error_status"].(float64)
+			reason, _ := msg["error"].(string)
+			s.runtime.Retrying = true
+			s.runtime.LastApiRetry = &ApiRetryInfo{
+				Reason:       reason,
+				Attempt:      int(attempt),
+				MaxAttempts:  int(maxRetries),
+				RetryAfterMs: int(delayMs),
+				ErrorStatus:  int(errorStatus),
+			}
+
+		case "status":
+			if status, _ := msg["status"].(string); status == "compacting" {
+				s.runtime.Processing = true
+			}
+
+		case "task_started":
+			s.runtime.Processing = true
+
+		case "task_notification":
+			// Task ended; clear active tool if nothing else is running
+			s.runtime.ActiveTool = ""
+			s.runtime.ActiveToolProgress = nil
+
+		case "error":
+			s.runtime.Processing = false
+			s.runtime.Retrying = false
+			s.runtime.ActiveTool = ""
+			s.runtime.ActiveToolProgress = nil
+		}
+
+	case "rate_limit_event":
+		if info, ok := msg["rate_limit_info"].(map[string]interface{}); ok {
+			status, _ := info["status"].(string)
+			if status == "allowed_warning" || status == "rejected" {
+				s.runtime.RateLimited = true
+			} else if status == "allowed" {
+				s.runtime.RateLimited = false
+			}
+		}
+
+	case "tool_progress":
+		toolName, _ := msg["tool_name"].(string)
+		elapsed, _ := msg["elapsed_time_seconds"].(float64)
+		if toolName != "" {
+			s.runtime.ActiveTool = toolName
+			s.runtime.Processing = true
+			s.runtime.ActiveToolProgress = &ToolProgress{
+				ToolName:    toolName,
+				Description: fmt.Sprintf("%.1fs", elapsed),
+			}
+		}
+
+	case "assistant":
+		// Scan content blocks for tool_use (tool starting) and text length
+		if m, ok := msg["message"].(map[string]interface{}); ok {
+			if content, ok := m["content"].([]interface{}); ok {
+				totalText := 0
+				for _, c := range content {
+					part, ok := c.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					switch part["type"] {
+					case "tool_use":
+						if name, _ := part["name"].(string); name != "" {
+							s.runtime.ActiveTool = name
+							s.runtime.Processing = true
+						}
+					case "text":
+						if txt, _ := part["text"].(string); txt != "" {
+							totalText += len([]rune(txt))
+						}
+					case "thinking":
+						s.runtime.LastThinkingPhase = "thinking"
+					}
+				}
+				if totalText > 0 {
+					s.runtime.LastPartialTextLength = totalText
+				}
+			}
+		}
+
+	case "user":
+		// tool_result means a tool call finished
+		if m, ok := msg["message"].(map[string]interface{}); ok {
+			if content, ok := m["content"].([]interface{}); ok {
+				for _, c := range content {
+					part, ok := c.(map[string]interface{})
+					if !ok {
+						continue
+					}
+					if part["type"] == "tool_result" {
+						s.runtime.ActiveTool = ""
+						s.runtime.ActiveToolProgress = nil
+					}
+				}
+			}
+		}
+
+	case "result":
+		s.runtime.Processing = false
+		s.runtime.Retrying = false
+		s.runtime.RateLimited = false
+		s.runtime.ActiveTool = ""
+		s.runtime.ActiveToolProgress = nil
+		s.runtime.LastThinkingPhase = ""
+	}
+}
+
 // waitForCompletion waits for the command to complete
 func (s *Session) waitForCompletion(emitter EventEmitter) {
 	err := s.cmd.Wait()
@@ -558,6 +728,10 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	} else {
 		s.Status = "completed"
 	}
+	s.runtime.Processing = false
+	s.runtime.Retrying = false
+	s.runtime.ActiveTool = ""
+	s.runtime.ActiveToolProgress = nil
 	stderrOutput := string(s.stderrBuf)
 	s.mu.Unlock()
 
@@ -631,6 +805,10 @@ func (s *Session) watchProcessExit(emitter EventEmitter) {
 	} else {
 		s.Status = "completed"
 	}
+	s.runtime.Processing = false
+	s.runtime.Retrying = false
+	s.runtime.ActiveTool = ""
+	s.runtime.ActiveToolProgress = nil
 	stderrOutput := string(s.stderrBuf)
 	s.mu.Unlock()
 
@@ -758,6 +936,7 @@ func (s *Session) GetStatus() *SessionStatus {
 		Model:       s.Config.Model,
 		Status:      s.Status,
 		StartedAt:   s.StartedAt,
+		Runtime:     s.runtime,
 	}
 
 	if s.cmd != nil && s.cmd.Process != nil {
