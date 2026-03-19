@@ -341,6 +341,12 @@ func (s *Session) WaitForInit(timeout time.Duration) error {
 	case <-s.initDone:
 		return nil
 	case <-s.done:
+		s.mu.RLock()
+		stderr := strings.TrimSpace(string(s.stderrBuf))
+		s.mu.RUnlock()
+		if stderr != "" {
+			return fmt.Errorf("session exited before initialization completed: %s", stderr)
+		}
 		return fmt.Errorf("session exited before initialization completed")
 	case <-time.After(timeout):
 		return fmt.Errorf("initialization timed out after %v", timeout)

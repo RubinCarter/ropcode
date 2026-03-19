@@ -1628,6 +1628,24 @@ func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID, r
 	if err := a.claudeManager.WaitForInit(sessionID, 30*time.Second); err != nil {
 		// If initialization fails, terminate the session
 		_ = a.claudeManager.TerminateSession(sessionID)
+
+		// If a resume ID was specified and the session exited immediately, the session file
+		// may no longer exist (e.g., after app reinstall or manual cleanup). Retry without
+		// the resume ID to start a fresh session instead of failing.
+		if resumeSessionID != "" && strings.HasPrefix(err.Error(), "session exited before initialization") {
+			log.Printf("[StartInteractiveClaudeSession] Resume session %s failed (%v), retrying without resume", resumeSessionID, err)
+			config.ResumeClaudeSessionID = ""
+			retryID, retryErr := a.claudeManager.StartSession(config)
+			if retryErr != nil {
+				return "", fmt.Errorf("interactive session initialization failed: %w", retryErr)
+			}
+			if initErr := a.claudeManager.WaitForInit(retryID, 30*time.Second); initErr != nil {
+				_ = a.claudeManager.TerminateSession(retryID)
+				return "", fmt.Errorf("interactive session initialization failed: %w", initErr)
+			}
+			return retryID, nil
+		}
+
 		return "", fmt.Errorf("interactive session initialization failed: %w", err)
 	}
 

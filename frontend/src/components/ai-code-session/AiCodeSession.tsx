@@ -689,6 +689,11 @@ ${message ? `**说明**:\n${message}` : ''}`;
     } catch (err) {
       console.error('[AiCodeSession] Failed to load restored history:', err);
       loadedSessionIdRef.current = null;
+      // Reset session state so the next message starts fresh without a stale --resume ID.
+      // If the session file is missing, passing the old ID to --resume causes Claude to exit
+      // immediately, which surfaces as "session exited before initialization completed".
+      sessionState.setIsFirstPrompt(true);
+      sessionState.setClaudeSessionId(null);
       sessionState.setExtractedSessionInfo(null);
       // Fallback: if session prop is now available, load via that path
       const fallbackSession = sessionRef.current;
