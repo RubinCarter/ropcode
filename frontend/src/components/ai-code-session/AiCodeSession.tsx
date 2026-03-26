@@ -23,6 +23,7 @@ import {
   ArrowUpFromLine
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Popover } from "@/components/ui/popover";
 import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws-rpc-client";
@@ -41,9 +42,12 @@ import { useTrackEvent, useComponentMetrics, useWorkflowTracking } from "@/hooks
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
 import { STOP_STATUS_BUBBLE_DURATION_MS, getStopStatusBubbleState, shouldCompleteStopStatusBubble } from "./utils/stopStatusBubble";
+import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "./utils/clearCommand";
+import { createInitialRuntimeTracker, deriveRuntimeViewState } from "./utils/runtimeState";
+import { describeRuntimeStatus } from "./utils/runtimePresentation";
 
 // Import refactored hooks and types
-import type { AiCodeSessionProps, ClaudeStreamMessage } from "./types";
+import type { AiCodeSessionProps, ClaudeStreamMessage, SessionRuntimeTracker } from "./types";
 import {
   useSessionState,
   useMessages,
@@ -108,6 +112,8 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   useComponentMetrics('AiCodeSession');
   const workflowTracking = useWorkflowTracking('ai_session');
 
+  const [runtimeTracker, setRuntimeTracker] = useState<SessionRuntimeTracker>(createInitialRuntimeTracker());
+
   // Prompt queue - defined before eventsState
   const queueState = usePromptQueue({
     onProcessNext: (prompt) => handleSendPrompt(prompt.prompt, prompt.model, prompt.providerApiId, prompt.thinkingMode),
@@ -126,6 +132,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     setIsLoading: processState.setIsLoading,
     setIsPendingSend: processState.setIsPendingSend,
     setInteractiveSessionId: processState.setInteractiveSessionId,
+    setRuntimeTracker,
     projectPathRef: sessionState.projectPathRef,
     extractedSessionInfoRef: sessionState.extractedSessionInfoRef,
     messagesLengthRef: messagesState.messagesLengthRef,
@@ -149,6 +156,9 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // UI STATE (not extracted to hooks - pure UI concerns)
   // ==================================================================
 
+  const [transportConnected, setTransportConnected] = useState(() => wsClient.isConnected());
+  const [isRecoveringHistory, setIsRecoveringHistory] = useState(false);
+  const [lastTransportConnectAt, setLastTransportConnectAt] = useState<number | null>(() => wsClient.isConnected() ? Date.now() : null);
   const [error, setError] = useState<string | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
   const [showSlashCommandsSettings, setShowSlashCommandsSettings] = useState(false);
@@ -170,6 +180,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
   // Track if user is at the bottom for auto-scroll behavior
   const [atBottom, setAtBottom] = useState(true);
+  const [runtimeNow, setRuntimeNow] = useState(() => Date.now());
 
   // ==================================================================
   // EFFECTS
@@ -205,6 +216,21 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     });
   }, []);
 
+  useEffect(() => {
+    setTransportConnected(wsClient.isConnected());
+    const unsub = wsClient.onConnect(() => {
+      setTransportConnected(true);
+      setLastTransportConnectAt(Date.now());
+    });
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    if (!processState.isLoading) {
+      setTransportConnected(wsClient.isConnected());
+    }
+  }, [processState.isLoading]);
+
   // Track previous projectPath to detect changes
   const prevProjectPathRef = useRef(sessionState.projectPath);
   // Track if we're in the middle of a project switch (to prevent session restoration during reset)
@@ -218,10 +244,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         to: sessionState.projectPath
       });
 
-      // Mark that we're switching projects
       isProjectSwitchingRef.current = true;
-
-      // Reset session state for new project
       messagesState.clearMessages();
       sessionState.setClaudeSessionId(null);
       sessionState.setExtractedSessionInfo(null);
@@ -229,8 +252,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
       loadedSessionIdRef.current = null;
       setError(null);
 
-      // Allow session restoration after state is reset
-      // Use microtask to ensure state updates are flushed
       queueMicrotask(() => {
         isProjectSwitchingRef.current = false;
       });
@@ -240,25 +261,20 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
   // Session restoration from localStorage - deferred to avoid blocking initial render
   useEffect(() => {
-    // Skip if already loaded or if we're in the middle of a project switch
     if (loadedSessionIdRef.current) {
       console.log('[AiCodeSession] Already loaded session, skipping:', loadedSessionIdRef.current);
       return;
     }
 
-    // Capture current projectPath for the async callback
     const currentProjectPath = sessionState.projectPath;
 
     if (currentProjectPath && !sessionState.extractedSessionInfo) {
-      // Defer session restoration to next frame to allow initial render and state reset
       requestAnimationFrame(() => {
-        // Double-check after yield - skip if project is switching or already loaded
         if (loadedSessionIdRef.current || isProjectSwitchingRef.current) {
           console.log('[AiCodeSession] Skipping session restore: switching=', isProjectSwitchingRef.current, 'loaded=', loadedSessionIdRef.current);
           return;
         }
 
-        // Check if projectPath changed while waiting (use ref for latest value)
         if (sessionState.projectPathRef.current !== currentProjectPath) {
           console.log('[AiCodeSession] ProjectPath changed while waiting, skipping restore:', {
             captured: currentProjectPath,
@@ -274,7 +290,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
           .map(sid => SessionPersistenceService.loadSession(sid))
           .filter(s => {
             if (!s || s.projectPath !== currentProjectPath) return false;
-            // 兼容旧的 session（没有 provider 字段的默认为 claude）
             const sessionProvider = s.provider || 'claude';
             return sessionProvider === defaultProvider;
           })
@@ -291,8 +306,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
           });
           sessionState.setClaudeSessionId(restoredSession.sessionId);
           sessionState.setIsFirstPrompt(false);
-
-          // Load session history in background
           loadRestoredHistory(restoredSession);
         } else {
           console.log('[AiCodeSession] No sessions found for project:', currentProjectPath, 'provider:', defaultProvider);
@@ -309,16 +322,11 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         return;
       }
 
-      // Defer session loading to next frame to allow initial render
       requestAnimationFrame(() => {
-        // Double-check after yield
         if (loadedSessionIdRef.current) return;
 
         loadedSessionIdRef.current = session.id;
-
         sessionState.setClaudeSessionId(session.id);
-
-        // Set extractedSessionInfo so that effectiveSession works correctly
         sessionState.setExtractedSessionInfo({
           sessionId: session.id,
           projectId: session.project_id
@@ -492,6 +500,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
       }
 
       try {
+        setIsRecoveringHistory(true);
         console.log(`[AiCodeSession] Recovery (${trigger}): syncing, local messages:`, localCount);
 
         // Sync process state — check if task completed while disconnected
@@ -545,7 +554,11 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
           console.log(`[AiCodeSession] Recovery (${trigger}): local is up to date, skipping`);
         }
       } catch (err) {
-        console.error(`[AiCodeSession] Recovery (${trigger}) failed:`, err instanceof Error ? err.message : err);
+        console.error(`[AiCodeSession] Recovery (${trigger}) failed:`, err);
+      } finally {
+        if (isMounted) {
+          setIsRecoveringHistory(false);
+        }
       }
     };
 
@@ -837,6 +850,59 @@ ${message ? `**说明**:\n${message}` : ''}`;
     completeStopStatusBubble();
   }, [processState.isLoading, processState.interactiveSessionId, completeStopStatusBubble]);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setRuntimeNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const runtimeViewState = deriveRuntimeViewState({
+    tracker: runtimeTracker,
+    local: {
+      isLoading: processState.isLoading,
+      interactiveSessionId: processState.interactiveSessionId,
+      hasActiveProcess: processState.hasActiveSessionRef.current,
+      transportConnected,
+      isRecoveringHistory,
+      isRestoringSession: processState.isLoading && messagesState.messages.length === 0 && Boolean(sessionState.extractedSessionInfo),
+      stopRequested: stopRequestedRef.current || stopStatusBubble.visible,
+      lastTransportConnectAt,
+      loadingStartedAt: processState.loadingStartedAt,
+    },
+    now: runtimeNow,
+  });
+  const runtimeStatus = describeRuntimeStatus(runtimeViewState, runtimeNow);
+
+  const runtimeStatusBar = (
+    <div className="mx-auto w-full max-w-6xl px-4 pt-3">
+      <div className="rounded-xl border bg-background/80 px-4 py-3 shadow-sm backdrop-blur-sm">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-medium">{runtimeStatus.primary}</div>
+            {runtimeStatus.secondary && (
+              <div className="mt-1 truncate text-xs text-muted-foreground">{runtimeStatus.secondary}</div>
+            )}
+          </div>
+          {runtimeStatus.chips.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {runtimeStatus.chips.map((chip) => (
+                <Badge
+                  key={chip}
+                  variant={runtimeStatus.tone === 'error' ? 'destructive' : runtimeStatus.tone === 'warning' ? 'secondary' : 'outline'}
+                  className="text-[10px]"
+                >
+                  {chip}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   const handleSendPrompt = async (
     prompt: string,
     model: string,
@@ -992,9 +1058,20 @@ ${message ? `**说明**:\n${message}` : ''}`;
   const handleLocalClearFallback = async () => {
     console.log('[AiCodeSession] Clearing local conversation fallback');
 
-    stopRequestedRef.current = true;
-    showStopStatusBubble();
-    skipRecoveryUntilRef.current = Date.now() + 5000;
+    const shouldShowStopFeedback = shouldShowStopFeedbackOnLocalClear({
+      provider: defaultProvider,
+      isLoading: processState.isLoading,
+      interactiveSessionId: processState.interactiveSessionId,
+    });
+
+    if (shouldShowStopFeedback) {
+      stopRequestedRef.current = true;
+      showStopStatusBubble();
+      skipRecoveryUntilRef.current = Date.now() + 5000;
+    } else {
+      stopRequestedRef.current = false;
+    }
+
     if (defaultProvider === 'claude' && processState.interactiveSessionId) {
       try {
         await api.cancelClaudeExecutionByProject(sessionState.projectPath);
@@ -1018,7 +1095,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
       type: "system",
       subtype: "info",
       message: {
-        content: [{ type: "text", text: defaultProvider === 'claude' ? "Conversation cleared. Claude session stopped; the next message will start fresh." : "Local conversation view cleared. Provider session was not reset." }]
+        content: [{ type: "text", text: getLocalClearMessage({ provider: defaultProvider, didStopSession: shouldShowStopFeedback }) }]
       }
     };
     messagesState.addMessage(clearMessage);
@@ -1264,18 +1341,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
           Header: () => <div className="pt-6" />,
           Footer: () => (
             <>
-              {/* Loading indicator */}
-              {processState.isLoading && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="flex items-center justify-center py-4"
-                >
-                  <div className="rotating-symbol text-primary" />
-                </motion.div>
-              )}
-
               {/* Error indicator */}
               {error && (
                 <motion.div
@@ -1302,7 +1367,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.8 }}
           transition={{ delay: 0.5 }}
-          className="pointer-events-none absolute bottom-32 left-0 right-0 z-30 flex justify-end px-4"
+          className={cn("pointer-events-none absolute left-0 right-0 z-40 flex justify-end px-4", processState.isLoading ? "bottom-52" : "bottom-32")}
         >
           <div className="max-w-6xl w-full flex justify-end">
           <div className="flex items-center bg-background/95 backdrop-blur-md border rounded-full shadow-lg overflow-hidden pointer-events-auto">
@@ -1432,17 +1497,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
             // Original layout when no preview
             <div className="h-full flex flex-col w-full">
               {messagesList}
-
-              {processState.isLoading && messagesState.messages.length === 0 && (
-                <div className="flex items-center justify-center h-full">
-                  <div className="flex items-center gap-3">
-                    <div className="rotating-symbol text-primary" />
-                    <span className="text-sm text-muted-foreground">
-                      {session ? "Loading session history..." : "Initializing AI Code..."}
-                    </span>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -1513,6 +1567,13 @@ ${message ? `**说明**:\n${message}` : ''}`;
           </AnimatePresence>
 
           <div className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30">
+            {processState.isLoading && (
+              <div className="px-4 pb-3">
+                <div className="mx-auto w-full max-w-6xl">
+                  {runtimeStatusBar}
+                </div>
+              </div>
+            )}
             <FloatingPromptInput
               ref={floatingPromptRef}
               onSend={handleSendPrompt}

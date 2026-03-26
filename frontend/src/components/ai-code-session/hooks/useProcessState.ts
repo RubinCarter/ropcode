@@ -26,6 +26,7 @@ export interface UseProcessStateReturn {
   isPendingSendRef: React.MutableRefObject<boolean>;
   interactiveSessionId: string | null;
   interactiveSessionIdRef: React.MutableRefObject<string | null>;
+  loadingStartedAt: number | null;
 
   // Setters
   setIsLoading: (loading: boolean) => void;
@@ -42,9 +43,10 @@ export interface UseProcessStateReturn {
 export function useProcessState(options: UseProcessStateOptions): UseProcessStateReturn {
   const { projectPath, provider = 'claude' } = options;
 
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoadingState] = useState(false);
   const [isPendingSend, setIsPendingSend] = useState(false);
   const [interactiveSessionId, setInteractiveSessionId] = useState<string | null>(null);
+  const [loadingStartedAt, setLoadingStartedAt] = useState<number | null>(null);
 
   // Refs for stable access
   const hasActiveSessionRef = useRef(false);
@@ -63,13 +65,21 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
     setInteractiveSessionId(sessionId);
   }, []);
 
-  /**
-   * Sync process state with backend
-   * Queries actual process state from ProcessRegistry
-   *
-   * In interactive mode, process is always "running" but that doesn't mean
-   * AI is actively generating. Skip overriding isLoading in interactive mode.
-   */
+  const setIsLoading = useCallback((loading: boolean) => {
+    setIsLoadingState((current) => {
+      if (current === loading) {
+        return current;
+      }
+      return loading;
+    });
+
+    if (loading) {
+      setLoadingStartedAt((current) => current ?? Date.now());
+    } else {
+      setLoadingStartedAt(null);
+    }
+  }, []);
+
   const syncProcessState = useCallback(async () => {
     if (!projectPath) {
       setIsLoading(false);
@@ -132,6 +142,7 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
     isPendingSendRef,
     interactiveSessionId,
     interactiveSessionIdRef,
+    loadingStartedAt,
     setIsLoading,
     setIsPendingSend,
     setInteractiveSessionId: setInteractiveSessionIdWithRef,

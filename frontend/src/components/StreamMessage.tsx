@@ -47,6 +47,7 @@ import {
   WebFetchWidget
 } from "./ToolWidgets";
 import { getUserMessagePresentation } from "./ai-code-session/utils/messagePresentation";
+import { summarizeRuntimeMessage } from "./ai-code-session/utils/runtimePresentation";
 
 interface StreamMessageProps {
   message: ClaudeStreamMessage;
@@ -354,6 +355,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
     return msg.isVisibleInTranscriptOnly === true && msg.isCompactSummary === true;
   };
 
+  const runtimeSummary = summarizeRuntimeMessage(message as any);
+
   try {
     // 🆕 Handle conversation summary messages (check this first!)
     if (isSummaryMessage(message)) {
@@ -430,12 +433,17 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
     // System initialization message
     if (message.type === "system" && message.subtype === "init") {
       return (
-        <SystemInitializedWidget
-          sessionId={message.session_id}
-          model={message.model}
-          cwd={message.cwd}
-          tools={message.tools}
-        />
+        <div className="space-y-2">
+          {runtimeSummary && (
+            <div className="text-xs text-muted-foreground">{runtimeSummary}</div>
+          )}
+          <SystemInitializedWidget
+            sessionId={message.session_id}
+            model={message.model}
+            cwd={message.cwd}
+            tools={message.tools}
+          />
+        </div>
       );
     }
 
@@ -451,6 +459,9 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
             <div className="flex items-start gap-3">
               <Bot className="h-5 w-5 text-primary mt-0.5" />
               <div className="flex-1 space-y-2 min-w-0">
+                {runtimeSummary && (
+                  <div className="text-xs text-muted-foreground">{runtimeSummary}</div>
+                )}
                 {msg.content && Array.isArray(msg.content) && msg.content.map((content: any, idx: number) => {
                   // Text content - render as markdown
                   if (content.type === "text") {
@@ -1204,6 +1215,9 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
           className
         )}>
           <CardContent className="p-4">
+            {runtimeSummary && (
+              <div className="mb-2 text-xs text-muted-foreground">{runtimeSummary}</div>
+            )}
             <button
               onClick={() => setExpanded(!expanded)}
               className="w-full flex items-start gap-3 text-left hover:opacity-80 transition-opacity"

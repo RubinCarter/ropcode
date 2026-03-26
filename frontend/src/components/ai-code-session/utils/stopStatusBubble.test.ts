@@ -75,3 +75,12 @@ test('marks stop bubble complete only after stop lifecycle finishes', async () =
     interactiveSessionId: null,
   }), false);
 });
+
+test('lays out stop bubble above the stop button', async () => {
+  const { getStopStatusControlLayoutClassName } = await loadModule();
+
+  assert.equal(
+    getStopStatusControlLayoutClassName(),
+    'flex flex-col items-center gap-1.5'
+  );
+});
