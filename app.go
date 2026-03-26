@@ -18,6 +18,7 @@ import (
 	"ropcode/internal/plugin"
 	"ropcode/internal/process"
 	"ropcode/internal/pty"
+	appRuntime "ropcode/internal/runtime"
 	"ropcode/internal/session"
 	"ropcode/internal/ssh"
 )
@@ -224,6 +225,36 @@ func (a *App) Startup(ctx context.Context) {
 // Shutdown public method for server mode
 func (a *App) Shutdown(ctx context.Context) {
 	a.shutdown(ctx)
+}
+
+// BootstrapRuntime starts a new App using the shared runtime bootstrap helper.
+func BootstrapRuntime(ctx context.Context) (*App, func(context.Context), error) {
+	return appRuntime.Start(ctx, NewApp)
+}
+
+// EventHub exposes the initialized event hub for read-only runtime composition.
+func (a *App) EventHub() *eventhub.EventHub {
+	return a.eventHub
+}
+
+// Database exposes the initialized database manager for read-only runtime composition.
+func (a *App) Database() *database.Database {
+	return a.dbManager
+}
+
+// ClaudeManager exposes the initialized Claude session manager for read-only runtime composition.
+func (a *App) ClaudeManager() *claude.SessionManager {
+	return a.claudeManager
+}
+
+// GeminiManager exposes the initialized Gemini session manager for read-only runtime composition.
+func (a *App) GeminiManager() *gemini.SessionManager {
+	return a.geminiManager
+}
+
+// CodexManager exposes the initialized Codex session manager for read-only runtime composition.
+func (a *App) CodexManager() *codex.SessionManager {
+	return a.codexManager
 }
 
 // Greet returns a greeting for the given name (keep for testing)

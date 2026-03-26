@@ -16,9 +16,12 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 创建 App 实��
-	app := NewApp()
-	app.Startup(ctx)
+	app, shutdownApp, err := BootstrapRuntime(ctx)
+	if err != nil {
+		fmt.Printf("Failed to bootstrap runtime: %v\n", err)
+		os.Exit(1)
+	}
+	defer shutdownApp(ctx)
 
 	// 创建并启动 WebSocket 服务器
 	wsServer := websocket.NewServer(app)
@@ -39,6 +42,5 @@ func main() {
 	<-sigCh
 
 	fmt.Println("Shutting down...")
-	wsServer.Stop(ctx)
-	app.Shutdown(ctx)
+	_ = wsServer.Stop(ctx)
 }
