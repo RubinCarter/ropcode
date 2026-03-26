@@ -51,3 +51,8 @@ func (c *Config) GetProjectPath(projectPath string) string {
 func (c *Config) GetSessionPath(projectPath, sessionID string) string {
 	return filepath.Join(c.GetProjectPath(projectPath), "sessions", sessionID)
 }
+
+// CLIContextPath returns the path to the persisted CLI context file.
+func (c *Config) CLIContextPath() string {
+	return filepath.Join(c.RopcodeDir, "cli-context.json")
+}

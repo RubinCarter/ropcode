@@ -3,6 +3,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -34,5 +35,14 @@ func TestConfig_GetProjectPath(t *testing.T) {
 
 	if path != expected {
 		t.Errorf("Expected %s, got %s", expected, path)
+	}
+}
+
+func TestConfig_CLIContextPath(t *testing.T) {
+	cfg, _ := Load()
+	expected := filepath.Join(cfg.RopcodeDir, "cli-context.json")
+
+	if cfg.CLIContextPath() != expected {
+		t.Errorf("Expected %s, got %s", expected, cfg.CLIContextPath())
 	}
 }
