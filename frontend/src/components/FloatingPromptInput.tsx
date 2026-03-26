@@ -39,6 +39,9 @@ import {
   shouldForwardClearToProvider,
   shouldUseLocalClearFallback,
 } from './ai-code-session/utils/clearCommand';
+import {
+  getStopStatusControlLayoutClassName,
+} from './ai-code-session/utils/stopStatusBubble';
 
 interface FloatingPromptInputProps {
   /**
@@ -1812,11 +1815,7 @@ const FloatingPromptInputInner = (
                       size="default"
                       className="min-w-[60px]"
                     >
-                      {isLoading ? (
-                        <div className="rotating-symbol text-primary-foreground" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
+                      <Send className="h-4 w-4" />
                     </Button>
                   </motion.div>
                 </TooltipSimple>
@@ -2156,7 +2155,7 @@ const FloatingPromptInputInner = (
                   </TooltipSimple>
 
                   {(isLoading || interactiveSessionId || stopStatusLabel) && (
-                    <div className="flex items-center gap-2">
+                    <div className={getStopStatusControlLayoutClassName()}>
                       {stopStatusLabel && (
                         <div className="rounded-full border border-border/60 bg-background/95 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
                           {stopStatusLabel}

@@ -40,3 +40,7 @@ export function shouldCompleteStopStatusBubble({
 }: StopStatusBubbleCompletionInput): boolean {
   return stopRequested && !isLoading && interactiveSessionId === null;
 }
+
+export function getStopStatusControlLayoutClassName(): string {
+  return 'flex flex-col items-center gap-1.5';
+}

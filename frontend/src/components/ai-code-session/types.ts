@@ -87,6 +87,105 @@ export interface SessionMetrics {
   modelChanges: Array<{ from: string; to: string; timestamp: number }>;
 }
 
+export interface ClaudeToolProgress {
+  tool_name?: string;
+  step?: number;
+  total_steps?: number;
+  percent?: number;
+  description?: string;
+}
+
+export interface ClaudeApiRetryInfo {
+  reason?: string;
+  attempt?: number;
+  max_attempts?: number;
+  retry_after_ms?: number;
+  error_status?: number;
+}
+
+export interface ClaudeRuntimeStateSnapshot {
+  processing: boolean;
+  retrying: boolean;
+  rate_limited: boolean;
+  active_tool?: string;
+  active_tool_progress?: ClaudeToolProgress | null;
+  last_api_retry?: ClaudeApiRetryInfo | null;
+  last_thinking_phase?: string;
+  last_partial_text_length?: number;
+  last_event_type?: string;
+  last_event_subtype?: string;
+}
+
+export interface ClaudeDebugMeta {
+  runtime_state?: ClaudeRuntimeStateSnapshot | null;
+}
+
+export interface SessionRuntimeTracker {
+  snapshot: ClaudeRuntimeStateSnapshot | null;
+  systemInitReceived: boolean;
+  lastUpdatedAt: number | null;
+  lastEventAt: number | null;
+  lastEventType: string | null;
+  lastEventSubtype: string | null;
+  lastTextGrowthAt: number | null;
+  lastPartialTextLength: number;
+  lastToolChangeAt: number | null;
+  lastToolResultAt: number | null;
+  lastResultAt: number | null;
+  lastErrorAt: number | null;
+}
+
+export type SessionRuntimePhase =
+  | 'idle'
+  | 'initializing'
+  | 'recovering'
+  | 'reconnecting'
+  | 'thinking'
+  | 'tool_running'
+  | 'retrying'
+  | 'rate_limited'
+  | 'compacting'
+  | 'waiting'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export type SessionRuntimeSeverity = 'neutral' | 'info' | 'success' | 'warning' | 'error';
+
+export type SessionRuntimeWaitingReason =
+  | 'init'
+  | 'tool'
+  | 'retry'
+  | 'rate_limit'
+  | 'reconnect'
+  | 'recovery'
+  | 'model'
+  | 'result'
+  | 'idle'
+  | null;
+
+export interface SessionRuntimeRetryState {
+  attempt: number;
+  maxAttempts: number;
+  retryAfterMs: number;
+  reason?: string;
+}
+
+export interface SessionRuntimeViewState {
+  phase: SessionRuntimePhase;
+  label: string;
+  detail: string | null;
+  severity: SessionRuntimeSeverity;
+  activeTool: string | null;
+  toolProgressText: string | null;
+  retry: SessionRuntimeRetryState | null;
+  rateLimited: boolean;
+  transportState: 'connected' | 'reconnecting';
+  waitingReason: SessionRuntimeWaitingReason;
+  isStuckLikely: boolean;
+  lastUpdatedAt: number | null;
+}
+
 /**
  * Re-export commonly used types
  */

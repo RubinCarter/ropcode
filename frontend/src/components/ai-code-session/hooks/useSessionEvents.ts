@@ -6,10 +6,11 @@
  */
 
 import { useEffect, useCallback } from "react";
-import type { ClaudeStreamMessage, Session, SessionInfo } from "../types";
+import type { ClaudeStreamMessage, Session, SessionInfo, SessionRuntimeTracker } from "../types";
 import { api } from "@/lib/api";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { useWorkspaceTodo, type TodoItem } from "@/contexts/WorkspaceTodoContext";
+import { createInitialRuntimeTracker, reduceRuntimeTracker } from "../utils/runtimeState";
 
 export interface UseSessionEventsOptions {
   projectPath: string;
@@ -24,6 +25,7 @@ export interface UseSessionEventsOptions {
   setIsLoading: (loading: boolean) => void;
   setIsPendingSend: (pending: boolean) => void;
   setInteractiveSessionId: (id: string | null) => void;
+  setRuntimeTracker: React.Dispatch<React.SetStateAction<SessionRuntimeTracker>>;
 
   // Refs for stable access
   projectPathRef: React.MutableRefObject<string>;
@@ -72,6 +74,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     setExtractedSessionInfo,
     setIsLoading,
     setInteractiveSessionId,
+    setRuntimeTracker,
     projectPathRef,
     extractedSessionInfoRef,
     messagesLengthRef,
@@ -91,6 +94,10 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
 
   const { updateWorkspaceTodos, setWorkspaceStatus } = useWorkspaceTodo();
 
+  useEffect(() => {
+    setRuntimeTracker(createInitialRuntimeTracker());
+  }, [projectPath, setRuntimeTracker]);
+
   /**
    * Handle stream message from backend
    */
@@ -103,6 +110,8 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
 
       const message = JSON.parse(payload) as ClaudeStreamMessage;
       const provider = (message as any).provider || options.provider || 'claude';
+
+      setRuntimeTracker((current) => reduceRuntimeTracker(current, message as any, Date.now()));
 
       // Extract and save session info from init messages
       if (message.type === 'system' && message.subtype === 'init' && message.session_id) {
@@ -310,6 +319,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     trackEvent,
     workflowTracking,
     updateWorkspaceTodos,
+    setRuntimeTracker,
     // Extract provider from message to add to dependencies
     // Note: Since provider is derived from message itself, we don't need to add it to dependencies
   ]);

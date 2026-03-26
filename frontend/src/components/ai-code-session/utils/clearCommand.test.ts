@@ -49,3 +49,22 @@ test('does not require immediately stopping the active Claude session on /clear'
   assert.equal(shouldStopClaudeSessionImmediately('/clear', 'codex'), false);
   assert.equal(shouldStopClaudeSessionImmediately('/clear now', 'claude'), false);
 });
+
+test('describes idle Claude clear without claiming a session was stopped', async () => {
+  const { getLocalClearMessage } = await loadModule();
+
+  assert.equal(
+    getLocalClearMessage({ provider: 'claude', didStopSession: false }),
+    'Conversation cleared. The next message will start a fresh Claude session.'
+  );
+
+  assert.equal(
+    getLocalClearMessage({ provider: 'claude', didStopSession: true }),
+    'Conversation cleared. Claude session stopped; the next message will start fresh.'
+  );
+
+  assert.equal(
+    getLocalClearMessage({ provider: 'codex', didStopSession: false }),
+    'Local conversation view cleared. Provider session was not reset.'
+  );
+});
