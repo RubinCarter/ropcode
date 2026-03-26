@@ -16,22 +16,14 @@ import { useAppLifecycle } from "@/hooks";
 import { StartupIntro } from "@/components/StartupIntro";
 import { wsClient } from "@/lib/ws-rpc-client";
 import { mergeInstancesFromUrl } from '@/lib/instanceStore';
+import { getInitialWebSocketConfig } from '@/lib/ws-config';
 
 // WebSocket 连接配置
 // 页面由 Go 后端 serve，location.port 就是 Go 端口
-// 优先级: Go 注入全局变量 > Electron preload > location.port > URL 参数
-const urlParams = new URLSearchParams(window.location.search);
-
-// Merge instance list from URL params (for cross-origin sync)
+// 优先级: Electron preload > Go 注入全局变量 > location.port > URL 参数
 mergeInstancesFromUrl();
 
-const wsPort = window.__ROPCODE_WS_PORT__
-  || window.electronAPI?.wsPort
-  || parseInt(location.port, 10)
-  || urlParams.get('wsPort');
-const authKey = window.__ROPCODE_AUTH_KEY__
-  || window.electronAPI?.authKey
-  || urlParams.get('authKey');
+const { port: wsPort, authKey } = getInitialWebSocketConfig(window);
 
 // WebSocket 连接 Promise（用于组件等待连接完成）
 let wsConnectionPromise: Promise<void> | null = null;
@@ -49,13 +41,15 @@ if (wsPort) {
 // 导出等待连接的方法供其他组件使用
 export const waitForWebSocket = async (timeout: number = 10000): Promise<void> => {
   if (!wsPort) {
-    // 没有配置 WebSocket，跳过等待
     return;
   }
+
+  if (wsConnectionPromise) {
+    await wsConnectionPromise.catch(() => undefined);
+  }
+
   return wsClient.waitForConnection(timeout);
 };
-
-// View type no longer needed - using MainLayout with tabs
 
 /**
  * AppContent component - Contains the main app logic, wrapped by providers

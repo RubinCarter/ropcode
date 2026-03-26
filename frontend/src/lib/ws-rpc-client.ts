@@ -327,12 +327,9 @@ class WSRpcClient {
     );
     console.log(`[WSRpc] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
-    this.reconnectTimer = setTimeout(() => {
+    this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
-      // Connect first, refresh authKey in parallel — don't let a slow
-      // fetch delay reconnection.  If auth fails, the next retry will
-      // have the refreshed key.
-      this.refreshAuthKey().catch(() => {});
+      await this.refreshAuthKey();
       this.safeConnect();
     }, delay);
   }
