@@ -46,6 +46,7 @@ import {
   WebSearchWidget,
   WebFetchWidget
 } from "./ToolWidgets";
+import { getUserMessagePresentation } from "./ai-code-session/utils/messagePresentation";
 
 interface StreamMessageProps {
   message: ClaudeStreamMessage;
@@ -54,6 +55,50 @@ interface StreamMessageProps {
   onLinkDetected?: (url: string) => void;
   agentOutputMap?: Map<string, any>;
 }
+
+interface CollapsibleTextCardProps {
+  title: string;
+  preview: string;
+  defaultExpanded?: boolean;
+  children: React.ReactNode;
+}
+
+const CollapsibleTextCard: React.FC<CollapsibleTextCardProps> = ({
+  title,
+  preview,
+  defaultExpanded = false,
+  children,
+}) => {
+  const [expanded, setExpanded] = useState(defaultExpanded);
+
+  return (
+    <div className="rounded-lg border bg-muted/30 overflow-hidden">
+      <button
+        onClick={() => setExpanded((value) => !value)}
+        className="w-full flex items-start gap-2 p-3 text-left hover:bg-muted/50 transition-colors"
+      >
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+        )}
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="text-sm font-medium">{title}</div>
+          {!expanded && (
+            <div className="text-xs text-muted-foreground whitespace-pre-wrap break-words">
+              {preview}
+            </div>
+          )}
+        </div>
+      </button>
+      {expanded && (
+        <div className="px-3 pb-3">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
 
 /**
  * Parse text and convert @mentions into styled components
@@ -631,9 +676,9 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
 
       // Handle different message structures
       const msg = message.message || message;
-      
+      const userPresentation = getUserMessagePresentation(message as any);
       let renderedSomething = false;
-      
+
       const renderedCard = (
         <Card className={cn("border-muted-foreground/20 bg-muted/20", className)}>
           <CardContent className="p-4">
@@ -646,20 +691,20 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                     const contentStr = typeof msg.content === 'string' ? msg.content : String(msg.content);
                     if (contentStr.trim() === '') return null;
                     renderedSomething = true;
-                    
+
                     // Check if it's a command message
                     const commandMatch = contentStr.match(/<command-name>(.+?)<\/command-name>[\s\S]*?<command-message>(.+?)<\/command-message>[\s\S]*?<command-args>(.*?)<\/command-args>/);
                     if (commandMatch) {
                       const [, commandName, commandMessage, commandArgs] = commandMatch;
                       return (
-                        <CommandWidget 
-                          commandName={commandName.trim()} 
+                        <CommandWidget
+                          commandName={commandName.trim()}
                           commandMessage={commandMessage.trim()}
                           commandArgs={commandArgs?.trim()}
                         />
                       );
                     }
-                    
+
                     // Check if it's command output
                     const stdoutMatch = contentStr.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
                     if (stdoutMatch) {
@@ -673,6 +718,20 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                       return systemInstructionContent;
                     }
 
+                    if (userPresentation.collapsible) {
+                      return (
+                        <CollapsibleTextCard
+                          title={userPresentation.title}
+                          preview={userPresentation.preview}
+                          defaultExpanded={userPresentation.defaultExpanded}
+                        >
+                          <div className="text-sm whitespace-pre-wrap">
+                            {parseAgentMentions(contentStr, agents)}
+                          </div>
+                        </CollapsibleTextCard>
+                      );
+                    }
+
                     // Otherwise render as plain text with agent mention parsing
                     return (
                       <div className="text-sm whitespace-pre-wrap">
@@ -684,6 +743,46 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
 
                 {/* Handle content that is an array of parts */}
                 {Array.isArray(msg.content) && msg.content.map((content: any, idx: number) => {
+                  if (content.type === "text") {
+                    const textContent = typeof content.text === 'string'
+                      ? content.text
+                      : (content.text?.text || JSON.stringify(content.text || content));
+
+                    if (textContent.trim() === '') return null;
+                    renderedSomething = true;
+
+                    const systemInstructionContent = renderWithSystemInstructions(textContent, agents, `user-arr-${idx}-`);
+                    if (systemInstructionContent) {
+                      return <div key={idx}>{systemInstructionContent}</div>;
+                    }
+
+                    const textPresentation = getUserMessagePresentation({
+                      type: 'user',
+                      message: { content: [{ type: 'text', text: textContent }] },
+                    });
+
+                    if (textPresentation.collapsible) {
+                      return (
+                        <CollapsibleTextCard
+                          key={idx}
+                          title={textPresentation.title}
+                          preview={textPresentation.preview}
+                          defaultExpanded={textPresentation.defaultExpanded}
+                        >
+                          <div className="text-sm whitespace-pre-wrap">
+                            {parseAgentMentions(textContent, agents)}
+                          </div>
+                        </CollapsibleTextCard>
+                      );
+                    }
+
+                    return (
+                      <div key={idx} className="text-sm whitespace-pre-wrap">
+                        {parseAgentMentions(textContent, agents)}
+                      </div>
+                    );
+                  }
+
                   // Tool result
                   if (content.type === "tool_result") {
                     // Skip duplicate tool_result if a dedicated widget is present
