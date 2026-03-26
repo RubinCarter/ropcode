@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 )
 
 type rpcSession interface {
+	Call(method string, params []any, out any) error
+	OnEvent(eventType string, handler func(payload json.RawMessage))
 	Close() error
 }
 
@@ -67,6 +70,8 @@ func runCLIArgs(args []string, stdout io.Writer, stderr io.Writer, deps cliDeps)
 		return runInstanceCommand(state, args[1:])
 	case "context":
 		return runContextCommand(state, args[1:])
+	case "session":
+		return runSessionCommand(state, args[1:])
 	default:
 		writeUsage(stderr)
 		return fmt.Errorf("unknown command %q", strings.Join(args, " "))
@@ -102,4 +107,9 @@ func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  ropcode instance current")
 	fmt.Fprintln(w, "  ropcode instance use <id>")
 	fmt.Fprintln(w, "  ropcode context show [--instance <id>]")
+	fmt.Fprintln(w, "  ropcode session start --cwd <path> --provider <provider> --prompt <text> [--model <model>] [--provider-api-id <id>]")
+	fmt.Fprintln(w, "  ropcode session send --session <id> --cwd <path> --provider <provider> --prompt <text>")
+	fmt.Fprintln(w, "  ropcode session list [--cwd <path>] [--provider <provider>]")
+	fmt.Fprintln(w, "  ropcode session logs --session <id> [--follow]")
+	fmt.Fprintln(w, "  ropcode session stop --session <id>")
 }

@@ -32,8 +32,6 @@ import (
 	"ropcode/internal/usage"
 )
 
-
-
 // ===== PTY Bindings =====
 
 // PtySessionInfo contains information about a PTY session
@@ -505,6 +503,16 @@ type ProviderSession struct {
 	ProjectPath      string `json:"project_path"`
 	CreatedAt        int64  `json:"created_at"`
 	MessageTimestamp string `json:"message_timestamp,omitempty"`
+}
+
+type LiveProviderSession struct {
+	SessionID   string    `json:"session_id"`
+	ProjectPath string    `json:"project_path"`
+	Model       string    `json:"model"`
+	Status      string    `json:"status"`
+	StartedAt   time.Time `json:"started_at"`
+	PID         int       `json:"pid,omitempty"`
+	Provider    string    `json:"provider"`
 }
 
 // ListProviderSessions lists sessions for a project based on provider type
@@ -1543,6 +1551,115 @@ func (a *App) ContinueClaudeCode(projectPath, prompt, model, sessionID, provider
 	}
 
 	return a.claudeManager.StartSession(config)
+}
+
+// SendProviderSessionMessage sends a prompt to an existing provider session.
+func (a *App) SendProviderSessionMessage(provider, projectPath, sessionID, prompt string) (string, error) {
+	switch provider {
+	case "gemini":
+		if a.geminiManager == nil {
+			return "", fmt.Errorf("gemini manager not initialized")
+		}
+		if err := a.geminiManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
+			return "", err
+		}
+		return a.StartProviderSession(provider, projectPath, prompt, "", "")
+	case "codex":
+		if a.codexManager == nil {
+			return "", fmt.Errorf("codex manager not initialized")
+		}
+		if err := a.codexManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
+			return "", err
+		}
+		return a.StartProviderSession(provider, projectPath, prompt, "", "")
+	default:
+		if err := a.SendClaudeMessage(projectPath, sessionID, prompt); err != nil {
+			return "", err
+		}
+		return sessionID, nil
+	}
+}
+
+// ListRunningProviderSessions returns all currently running live sessions across providers.
+func (a *App) ListRunningProviderSessions() []LiveProviderSession {
+	result := make([]LiveProviderSession, 0)
+	if a.claudeManager != nil {
+		for _, session := range a.claudeManager.ListRunningSessions() {
+			result = append(result, LiveProviderSession{
+				SessionID:   session.SessionID,
+				ProjectPath: session.ProjectPath,
+				Model:       session.Model,
+				Status:      session.Status,
+				StartedAt:   session.StartedAt,
+				PID:         session.PID,
+				Provider:    "claude",
+			})
+		}
+	}
+	if a.geminiManager != nil {
+		for _, session := range a.geminiManager.ListRunningSessions() {
+			result = append(result, LiveProviderSession{
+				SessionID:   session.SessionID,
+				ProjectPath: session.ProjectPath,
+				Model:       session.Model,
+				Status:      session.Status,
+				StartedAt:   session.StartedAt,
+				PID:         session.PID,
+				Provider:    "gemini",
+			})
+		}
+	}
+	if a.codexManager != nil {
+		for _, session := range a.codexManager.ListRunningSessions() {
+			result = append(result, LiveProviderSession{
+				SessionID:   session.SessionID,
+				ProjectPath: session.ProjectPath,
+				Model:       session.Model,
+				Status:      session.Status,
+				StartedAt:   session.StartedAt,
+				PID:         session.PID,
+				Provider:    "codex",
+			})
+		}
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StartedAt.After(result[j].StartedAt)
+	})
+	return result
+}
+
+// GetProviderSessionOutput returns buffered output for a live provider session.
+func (a *App) GetProviderSessionOutput(sessionID string) (string, error) {
+	if a.claudeManager != nil {
+		if output, err := a.claudeManager.GetSessionOutput(sessionID); err == nil {
+			return output, nil
+		}
+	}
+	if a.geminiManager != nil {
+		if output, err := a.geminiManager.GetSessionOutput(sessionID); err == nil {
+			return output, nil
+		}
+	}
+	if a.codexManager != nil {
+		if output, err := a.codexManager.GetSessionOutput(sessionID); err == nil {
+			return output, nil
+		}
+	}
+	return "", fmt.Errorf("session not found: %s", sessionID)
+}
+
+// StopProviderSession stops a live provider session by id.
+func (a *App) StopProviderSession(sessionID string) error {
+	if a.claudeManager != nil && a.claudeManager.IsRunning(sessionID) {
+		return a.claudeManager.TerminateSession(sessionID)
+	}
+	if a.geminiManager != nil && a.geminiManager.IsRunning(sessionID) {
+		return a.geminiManager.TerminateSession(sessionID)
+	}
+	if a.codexManager != nil && a.codexManager.IsRunning(sessionID) {
+		return a.codexManager.TerminateSession(sessionID)
+	}
+	return fmt.Errorf("session not found: %s", sessionID)
 }
 
 // CancelClaudeExecution cancels a running session
@@ -3010,18 +3127,18 @@ func (a *App) GetPluginSkill(pluginID, skillName string) (*plugin.PluginSkill, e
 
 // ModelStat represents usage statistics for a model
 type ModelStat struct {
-	Model              string  `json:"model"`
-	TotalTokens        int64   `json:"total_tokens"`
-	TotalInputTokens   int64   `json:"total_input_tokens"`
-	TotalOutputTokens  int64   `json:"total_output_tokens"`
-	TotalCacheCreation int64   `json:"total_cache_creation_tokens"`
-	TotalCacheRead     int64   `json:"total_cache_read_tokens"`
-	SessionCount       int     `json:"session_count"`
-	TotalCost          float64 `json:"total_cost"`
-	InputTokens        int64   `json:"input_tokens"`
-	OutputTokens       int64   `json:"output_tokens"`
-	CacheCreationTokens int64  `json:"cache_creation_tokens"`
-	CacheReadTokens    int64   `json:"cache_read_tokens"`
+	Model               string  `json:"model"`
+	TotalTokens         int64   `json:"total_tokens"`
+	TotalInputTokens    int64   `json:"total_input_tokens"`
+	TotalOutputTokens   int64   `json:"total_output_tokens"`
+	TotalCacheCreation  int64   `json:"total_cache_creation_tokens"`
+	TotalCacheRead      int64   `json:"total_cache_read_tokens"`
+	SessionCount        int     `json:"session_count"`
+	TotalCost           float64 `json:"total_cost"`
+	InputTokens         int64   `json:"input_tokens"`
+	OutputTokens        int64   `json:"output_tokens"`
+	CacheCreationTokens int64   `json:"cache_creation_tokens"`
+	CacheReadTokens     int64   `json:"cache_read_tokens"`
 }
 
 // DayStat represents daily usage statistics
@@ -3061,8 +3178,8 @@ type UsageStats struct {
 // Prices are per million tokens (MTok)
 func calculateTokenCost(model string, inputTokens, outputTokens, cacheCreation, cacheRead int64) float64 {
 	// Default to Sonnet pricing
-	inputPrice := 3.0   // $ per MTok
-	outputPrice := 15.0 // $ per MTok
+	inputPrice := 3.0       // $ per MTok
+	outputPrice := 15.0     // $ per MTok
 	cacheWritePrice := 3.75 // $ per MTok
 	cacheReadPrice := 0.30  // $ per MTok
 
@@ -3610,9 +3727,9 @@ func (a *App) ListClaudeInstallations() ([]ClaudeInstallation, error) {
 
 	// Homebrew installations (macOS/Linux)
 	homebrewPaths := []string{
-		"/opt/homebrew/bin/claude",                  // Apple Silicon
-		"/usr/local/bin/claude",                     // Intel Mac
-		"/home/linuxbrew/.linuxbrew/bin/claude",     // Linux Homebrew
+		"/opt/homebrew/bin/claude",              // Apple Silicon
+		"/usr/local/bin/claude",                 // Intel Mac
+		"/home/linuxbrew/.linuxbrew/bin/claude", // Linux Homebrew
 	}
 	for _, path := range homebrewPaths {
 		if _, seen := seenPaths[path]; seen {
@@ -4148,10 +4265,10 @@ type Action struct {
 	Description string `json:"description,omitempty"`
 	Command     string `json:"command"`
 	Icon        string `json:"icon,omitempty"`
-	Scope       string `json:"scope,omitempty"`       // "global", "project", "workspace" (deprecated, use Type)
-	Type        string `json:"type,omitempty"`        // "global", "project", "workspace"
-	ActionType  string `json:"actionType,omitempty"`  // "script", "web"
-	Shared      bool   `json:"shared,omitempty"`      // for project actions shared across workspaces
+	Scope       string `json:"scope,omitempty"`      // "global", "project", "workspace" (deprecated, use Type)
+	Type        string `json:"type,omitempty"`       // "global", "project", "workspace"
+	ActionType  string `json:"actionType,omitempty"` // "script", "web"
+	Shared      bool   `json:"shared,omitempty"`     // for project actions shared across workspaces
 }
 
 // ActionsResult represents the combined actions from all scopes
