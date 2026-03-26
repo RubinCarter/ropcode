@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,69 @@ func (a *rpcBlockingApp) Slow() string {
 	close(a.startedSlow)
 	<-a.releaseSlow
 	return "slow"
+}
+
+type blockingRegistry struct {
+	heartbeatStarted chan struct{}
+	heartbeatDone    chan struct{}
+	releaseHeartbeat chan struct{}
+	staleWritten     chan struct{}
+
+	startOnce sync.Once
+	doneOnce  sync.Once
+	staleOnce sync.Once
+	mu        sync.Mutex
+	record    *database.InstanceRecord
+}
+
+func newBlockingRegistry() *blockingRegistry {
+	return &blockingRegistry{
+		heartbeatStarted: make(chan struct{}),
+		heartbeatDone:    make(chan struct{}),
+		releaseHeartbeat: make(chan struct{}),
+		staleWritten:     make(chan struct{}),
+		record: &database.InstanceRecord{
+			ID:          "inst-test",
+			HeartbeatAt: 100,
+			Status:      "alive",
+		},
+	}
+}
+
+func (r *blockingRegistry) RegisterInstance(record *database.InstanceRecord) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	copyRecord := *record
+	r.record = &copyRecord
+	return nil
+}
+
+func (r *blockingRegistry) Heartbeat(id string, heartbeatAt int64) error {
+	r.startOnce.Do(func() { close(r.heartbeatStarted) })
+	<-r.releaseHeartbeat
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.record.HeartbeatAt = heartbeatAt
+	r.record.Status = "alive"
+	r.doneOnce.Do(func() { close(r.heartbeatDone) })
+	return nil
+}
+
+func (r *blockingRegistry) MarkStaleInstances(cutoff int64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.record.HeartbeatAt < cutoff {
+		r.record.Status = "stale"
+	}
+	r.staleOnce.Do(func() { close(r.staleWritten) })
+	return 1, nil
+}
+
+func (r *blockingRegistry) snapshot() database.InstanceRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return *r.record
 }
 
 type registryTestApp struct {
@@ -146,6 +210,65 @@ func TestServerStop_MarksInstanceStale(t *testing.T) {
 	}
 	if record.Status != "stale" {
 		t.Fatalf("expected status stale after stop, got %q", record.Status)
+	}
+}
+
+func TestServerStop_DoesNotAllowHeartbeatAfterStop(t *testing.T) {
+	registry := newBlockingRegistry()
+	server := &Server{
+		instanceID: "inst-test",
+		registry:   registry,
+		stopCh:     make(chan struct{}),
+	}
+
+	originalInterval := heartbeatInterval
+	heartbeatInterval = 10 * time.Millisecond
+	defer func() {
+		heartbeatInterval = originalInterval
+	}()
+
+	go server.heartbeatLoop()
+
+	select {
+	case <-registry.heartbeatStarted:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("heartbeat did not start")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- server.Stop(context.Background())
+	}()
+
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Stop failed: %v", err)
+		}
+		t.Fatal("Stop returned before in-flight heartbeat was released")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(registry.releaseHeartbeat)
+
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Stop failed: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Stop did not return")
+	}
+
+	select {
+	case <-registry.staleWritten:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("stop did not mark instance stale")
+	}
+
+	record := registry.snapshot()
+	if record.Status != "stale" {
+		t.Fatalf("expected stale record after stop, got %q", record.Status)
 	}
 }
 

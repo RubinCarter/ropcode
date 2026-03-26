@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -51,6 +52,9 @@ type Server struct {
 	stopErr      error
 	capabilities []string
 	host         string
+
+	heartbeatMu sync.Mutex
+	stopped     atomic.Bool
 }
 
 const (
@@ -147,8 +151,12 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 // Stop 停止服务器
 func (s *Server) Stop(ctx context.Context) error {
 	s.stopOnce.Do(func() {
+		s.stopped.Store(true)
 		close(s.stopCh)
+
+		s.heartbeatMu.Lock()
 		s.markInstanceStopped()
+		s.heartbeatMu.Unlock()
 
 		// 关闭所有客户端
 		s.clientsMu.Lock()
@@ -300,6 +308,17 @@ func (s *Server) registerInstance() error {
 	return nil
 }
 
+func (s *Server) refreshHeartbeat(heartbeatAt int64) error {
+	s.heartbeatMu.Lock()
+	defer s.heartbeatMu.Unlock()
+
+	if s.stopped.Load() || s.registry == nil {
+		return nil
+	}
+
+	return s.registry.Heartbeat(s.instanceID, heartbeatAt)
+}
+
 func (s *Server) heartbeatLoop() {
 	if s.registry == nil {
 		return
@@ -311,7 +330,7 @@ func (s *Server) heartbeatLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			if err := s.registry.Heartbeat(s.instanceID, time.Now().UnixMilli()); err != nil {
+			if err := s.refreshHeartbeat(time.Now().UnixMilli()); err != nil {
 				log.Printf("Failed to refresh instance heartbeat: %v", err)
 			}
 		case <-s.stopCh:
