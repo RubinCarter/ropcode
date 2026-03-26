@@ -76,11 +76,9 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const isIMEComposingRef = useRef(false);
   const loadedSessionIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
+  const pendingFreshClaudeSessionRef = useRef(false);
   const sessionRef = useRef(session);
   sessionRef.current = session;
-
-  // ==================================================================
-  // HOOKS - State management extracted to separate hooks
   // ==================================================================
 
   // Session state
@@ -770,7 +768,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
     }
   };
 
-  const handleSendPrompt = async (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string) => {
+  const handleSendPrompt = async (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string, options?: { forceFreshClaudeSession?: boolean }) => {
     console.log('[AiCodeSession] Sending prompt with thinkingMode:', thinkingMode);
 
     if (!sessionState.projectPath) {
@@ -792,17 +790,31 @@ ${message ? `**说明**:\n${message}` : ''}`;
       setError(null);
       processState.hasActiveSessionRef.current = true;
 
+      const forceFreshClaudeSession =
+        options?.forceFreshClaudeSession === true ||
+        (defaultProvider === 'claude' && pendingFreshClaudeSessionRef.current);
+      pendingFreshClaudeSessionRef.current = false;
+
+      if (forceFreshClaudeSession) {
+        loadedSessionIdRef.current = null;
+        processState.setInteractiveSessionId(null);
+        processState.hasActiveSessionRef.current = false;
+        queueState.clearQueue();
+      }
+
       // Ensure session ID
       if (sessionState.effectiveSession && !sessionState.claudeSessionId) {
         sessionState.setClaudeSessionId(sessionState.effectiveSession.id);
       }
 
-      // Wrap message if needed
-      const wrappedPrompt = await maybeWrapFirstMessage(
-        sessionState.projectPath,
-        prompt,
-        sessionState.isFirstPrompt
-      );
+      const shouldWrapPrompt = !(defaultProvider === 'claude' && prompt.trim() === '/clear');
+      const wrappedPrompt = shouldWrapPrompt
+        ? await maybeWrapFirstMessage(
+            sessionState.projectPath,
+            prompt,
+            sessionState.isFirstPrompt
+          )
+        : prompt;
 
       // Add user message to UI
       const userMessage: ClaudeStreamMessage = {
@@ -872,11 +884,13 @@ ${message ? `**说明**:\n${message}` : ''}`;
           // Interactive mode: start long-lived process, then send first message.
           // Pass the persisted Claude session ID (from effectiveSession) so the
           // CLI can resume the conversation with --resume <id> after a stop or restart.
-          const resumeId = !sessionState.isFirstPrompt ? (sessionState.effectiveSession?.id ?? '') : '';
+          const resumeId = forceFreshClaudeSession
+            ? '__ROP_FRESH_SESSION__'
+            : (!sessionState.isFirstPrompt ? (sessionState.effectiveSession?.id ?? '') : '');
           const interactiveSessionId = await api.StartInteractiveClaudeSession(
             sessionState.projectPath, model, providerApiId || undefined, resumeId
           );
-          // Save interactive session ID immediately so subsequent messages bypass the queue
+  // Save interactive session ID immediately so subsequent messages bypass the queue
           processState.setInteractiveSessionId(interactiveSessionId);
           // Send the first message
           await api.SendClaudeMessage(sessionState.projectPath, interactiveSessionId, wrappedPrompt);
@@ -900,9 +914,10 @@ ${message ? `**说明**:\n${message}` : ''}`;
     }
   };
 
-  const handleClearConversation = () => {
-    console.log('[AiCodeSession] Clearing conversation');
+  const handleLocalClearFallback = () => {
+    console.log('[AiCodeSession] Clearing local conversation fallback');
 
+    pendingFreshClaudeSessionRef.current = defaultProvider === 'claude';
     messagesState.clearMessages();
     sessionState.setClaudeSessionId(null);
     sessionState.setExtractedSessionInfo(null);
@@ -914,7 +929,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
       type: "system",
       subtype: "info",
       message: {
-        content: [{ type: "text", text: "Conversation cleared. Starting fresh! 🎉" }]
+        content: [{ type: "text", text: defaultProvider === 'claude' ? "Conversation cleared. The next Claude message will start a fresh session." : "Local conversation view cleared. Provider session was not reset." }]
       }
     };
     messagesState.addMessage(clearMessage);
@@ -1408,7 +1423,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
             <FloatingPromptInput
               ref={floatingPromptRef}
               onSend={handleSendPrompt}
-              onClear={handleClearConversation}
+              onClear={handleLocalClearFallback}
               onCancel={handleCancelExecution}
               isLoading={processState.isLoading}
               interactiveSessionId={processState.interactiveSessionId}

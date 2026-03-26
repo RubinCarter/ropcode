@@ -35,6 +35,10 @@ import { EventsOn } from "@/lib/rpc-events";
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { AttachmentButton } from './attachment';
 import { uploadAttachment, UploadError } from '../utils/uploadAttachment';
+import {
+  shouldForwardClearToProvider,
+  shouldUseLocalClearFallback,
+} from './ai-code-session/utils/clearCommand';
 
 interface FloatingPromptInputProps {
   /**
@@ -74,7 +78,7 @@ interface FloatingPromptInputProps {
    */
   onCancel?: () => void;
   /**
-   * Callback when /clear command is issued
+   * Callback when local /clear fallback is issued
    */
   onClear?: () => void;
   /**
@@ -1385,8 +1389,8 @@ const FloatingPromptInputInner = (
       return;
     }
 
-    // Check for /clear command
-    if (prompt.trim() === '/clear') {
+    // Keep local clear fallback only for non-Claude providers
+    if (shouldUseLocalClearFallback(prompt, defaultProvider)) {
       onClear?.();
       setPrompt("");
       setEmbeddedImages([]);
@@ -1406,8 +1410,13 @@ const FloatingPromptInputInner = (
       // Apply thinking mode based on provider
       const thinkingMode = currentThinkingModes.find(m => m.id === selectedThinkingMode);
 
-      // For Claude: append thinking phrase to prompt (prompt engineering)
-      if (selectedProvider === 'claude' && thinkingMode && thinkingMode.phrase) {
+      const shouldAppendThinkingPhrase =
+        selectedProvider === 'claude' &&
+        thinkingMode &&
+        thinkingMode.phrase &&
+        !shouldForwardClearToProvider(prompt, selectedProvider);
+
+      if (shouldAppendThinkingPhrase) {
         finalPrompt = `${finalPrompt}.\n\n${thinkingMode.phrase}.`;
       }
 
