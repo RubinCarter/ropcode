@@ -3,6 +3,7 @@ package websocket
 
 import (
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
@@ -20,11 +21,11 @@ const (
 
 // Client 表示一个 WebSocket 客户端连接
 type Client struct {
-	ID        string
-	Conn      *websocket.Conn
-	Send      chan []byte
-	mu        sync.Mutex
-	closeOnce sync.Once
+	ID     string
+	Conn   *websocket.Conn
+	Send   chan []byte
+	mu     sync.Mutex
+	closed bool
 }
 
 // NewClient 创建新的客户端
@@ -40,6 +41,10 @@ func NewClient(id string, conn *websocket.Conn) *Client {
 func (c *Client) SendMessage(msg *WSMessage) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if c.closed {
+		return ErrClientClosed
+	}
 
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -85,12 +90,17 @@ func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.Conn.Close()
+		if c.Conn != nil {
+			c.Conn.Close()
+		}
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.Send:
+			if c.Conn == nil {
+				return
+			}
 			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
 				// Channel closed — send close frame
@@ -101,6 +111,9 @@ func (c *Client) WritePump() {
 				return
 			}
 		case <-ticker.C:
+			if c.Conn == nil {
+				return
+			}
 			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
@@ -111,13 +124,21 @@ func (c *Client) WritePump() {
 
 // Close 关闭客户端连接 (safe to call multiple times)
 func (c *Client) Close() {
-	c.closeOnce.Do(func() {
-		close(c.Send)
-	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return
+	}
+	c.closed = true
+	close(c.Send)
 }
 
 // 错误定义
-var ErrClientBufferFull = &ClientError{Message: "client send buffer full"}
+var (
+	ErrClientBufferFull = &ClientError{Message: "client send buffer full"}
+	ErrClientClosed     = &ClientError{Message: "client closed"}
+)
 
 type ClientError struct {
 	Message string
@@ -125,4 +146,12 @@ type ClientError struct {
 
 func (e *ClientError) Error() string {
 	return e.Message
+}
+
+func (e *ClientError) Is(target error) bool {
+	var other *ClientError
+	if !errors.As(target, &other) {
+		return false
+	}
+	return e.Message == other.Message
 }

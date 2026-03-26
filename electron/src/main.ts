@@ -54,6 +54,20 @@ async function createWindow() {
   const loadUrl = `http://localhost:${goServerInfo!.port}`;
 
   console.log('[Electron] Loading URL:', loadUrl);
+  mainWindow.webContents.once('did-finish-load', async () => {
+    try {
+      const runtimeConfig = await mainWindow?.webContents.executeJavaScript(`({
+        href: window.location.href,
+        injectedAuthKey: window.__ROPCODE_AUTH_KEY__,
+        injectedWsPort: window.__ROPCODE_WS_PORT__,
+        electronAuthKey: window.electronAPI?.authKey,
+        electronWsPort: window.electronAPI?.wsPort,
+      })`);
+      console.log('[Electron] Runtime WS config:', runtimeConfig);
+    } catch (error) {
+      console.error('[Electron] Failed to inspect runtime WS config:', error);
+    }
+  });
   await mainWindow.loadURL(loadUrl);
 
   if (isDev) {

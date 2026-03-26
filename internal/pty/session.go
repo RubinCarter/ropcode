@@ -192,12 +192,13 @@ func (s *Session) Resize(rows, cols int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.Rows = rows
+	s.Cols = cols
+
 	if s.pty == nil {
 		return nil
 	}
 
-	s.Rows = rows
-	s.Cols = cols
 	return s.pty.Resize(cols, rows)
 }
 

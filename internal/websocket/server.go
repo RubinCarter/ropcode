@@ -124,6 +124,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			authKey = authQuery
 		}
 		if authKey != s.authKey {
+			log.Printf("WS auth mismatch: expected=%q header=%q query=%q path=%s", s.authKey, authHeader, authQuery, r.URL.Path)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}

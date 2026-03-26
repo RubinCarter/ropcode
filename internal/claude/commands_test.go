@@ -43,8 +43,8 @@ func TestSlashCommands(t *testing.T) {
 		if cmd.Name != "test-global" {
 			t.Errorf("Expected name 'test-global', got '%s'", cmd.Name)
 		}
-		if cmd.Scope != "global" {
-			t.Errorf("Expected scope 'global', got '%s'", cmd.Scope)
+		if cmd.Scope != "user" {
+			t.Errorf("Expected scope 'user', got '%s'", cmd.Scope)
 		}
 		if cmd.Content != "# Test Global Command\nThis is a test." {
 			t.Errorf("Content mismatch: %s", cmd.Content)
@@ -79,15 +79,15 @@ func TestSlashCommands(t *testing.T) {
 			t.Fatalf("Failed to list commands: %v", err)
 		}
 
-		if len(commands) != 2 {
-			t.Errorf("Expected 2 commands, got %d", len(commands))
+		if len(commands) != len(createDefaultCommands())+2 {
+			t.Errorf("Expected %d commands, got %d", len(createDefaultCommands())+2, len(commands))
 		}
 
-		// Verify we have both global and project commands
+		// Verify we have built-in, user, and project commands
 		hasGlobal := false
 		hasProject := false
 		for _, cmd := range commands {
-			if cmd.Name == "test-global" && cmd.Scope == "global" {
+			if cmd.Name == "test-global" && cmd.Scope == "user" {
 				hasGlobal = true
 			}
 			if cmd.Name == "test-project" && cmd.Scope == "project" {
@@ -96,10 +96,20 @@ func TestSlashCommands(t *testing.T) {
 		}
 
 		if !hasGlobal {
-			t.Error("Global command not found in list")
+			t.Error("User command alias 'global' not found in list")
 		}
 		if !hasProject {
 			t.Error("Project command not found in list")
+		}
+
+		defaultCount := 0
+		for _, cmd := range commands {
+			if cmd.Scope == "default" {
+				defaultCount++
+			}
+		}
+		if defaultCount != len(createDefaultCommands()) {
+			t.Errorf("Expected %d default commands, got %d", len(createDefaultCommands()), defaultCount)
 		}
 	})
 

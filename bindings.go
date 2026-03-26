@@ -861,7 +861,7 @@ func (a *App) PushToMainWorktree(path string) (string, error) {
 			abortCmd.Dir = worktreeInfo.RootPath
 			abortCmd.Run()
 
-			return "", fmt.Errorf("cannot push to main: merge would result in conflicts.\n\n" +
+			return "", errors.New("cannot push to main: merge would result in conflicts.\n\n" +
 				"The main branch has changes that conflict with your worktree branch.\n\n" +
 				"To resolve this:\n" +
 				"1. In your worktree, merge the main branch first:\n" +
@@ -975,7 +975,7 @@ func (a *App) PushToRemote(path string) (string, error) {
 	if err != nil {
 		outputStr := string(output)
 		if strings.Contains(outputStr, "non-fast-forward") || strings.Contains(outputStr, "rejected") {
-			return "", fmt.Errorf("push rejected. The remote contains work you don't have locally.\n" +
+			return "", errors.New("push rejected. The remote contains work you don't have locally.\n" +
 				"Please pull the latest changes first:\n" +
 				"  git pull origin " + currentBranch + "\n" +
 				"Then try pushing again")

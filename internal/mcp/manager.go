@@ -73,8 +73,15 @@ func (m *Manager) executeClaudeMcpCommand(args []string) (string, error) {
 	cmdArgs := append([]string{"mcp"}, args...)
 	cmd := exec.Command(claudePath, cmdArgs...)
 
-	// Set environment to avoid interactive prompts
-	cmd.Env = append(os.Environ(), "CLAUDE_NO_COLOR=1")
+	// Bind Claude CLI to this manager's config directory so list/read operations
+	// use the same settings.json that save/load methods target.
+	configDir := filepath.Dir(m.settingsPath)
+
+	// Set environment to avoid interactive prompts and isolate config lookups
+	cmd.Env = append(os.Environ(),
+		"CLAUDE_NO_COLOR=1",
+		"CLAUDE_CONFIG_DIR="+configDir,
+	)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

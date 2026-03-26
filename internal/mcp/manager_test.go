@@ -10,6 +10,7 @@ import (
 func TestNewManager(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	if manager == nil {
 		t.Fatal("NewManager returned nil")
@@ -24,6 +25,7 @@ func TestNewManager(t *testing.T) {
 func TestListMcpServers_Empty(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	servers, err := manager.ListMcpServers()
 	if err != nil {
@@ -38,6 +40,7 @@ func TestListMcpServers_Empty(t *testing.T) {
 func TestSaveAndGetMcpServer(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	// Save a server
 	config := &MCPServerConfig{
@@ -83,6 +86,7 @@ func TestSaveAndGetMcpServer(t *testing.T) {
 func TestListMcpServers(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	// Save multiple servers
 	servers := map[string]*MCPServerConfig{
@@ -128,6 +132,7 @@ func TestListMcpServers(t *testing.T) {
 func TestDeleteMcpServer(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	// Save a server
 	config := &MCPServerConfig{
@@ -162,6 +167,7 @@ func TestDeleteMcpServer(t *testing.T) {
 func TestDeleteNonExistentServer(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	err := manager.DeleteMcpServer("non-existent")
 	if err == nil {
@@ -172,6 +178,7 @@ func TestDeleteNonExistentServer(t *testing.T) {
 func TestGetNonExistentServer(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	_, err := manager.GetMcpServer("non-existent")
 	if err == nil {
@@ -182,6 +189,7 @@ func TestGetNonExistentServer(t *testing.T) {
 func TestSaveServerWithURL(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	// Save a server with URL (SSE transport)
 	config := &MCPServerConfig{
@@ -214,6 +222,7 @@ func TestSaveServerWithURL(t *testing.T) {
 func TestGetMcpServerStatus(t *testing.T) {
 	tmpDir := t.TempDir()
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 
 	// Save a server
 	config := &MCPServerConfig{
@@ -264,6 +273,7 @@ func TestExistingSettingsFile(t *testing.T) {
 
 	// Create manager and list servers
 	manager := NewManager(tmpDir)
+	manager.SetClaudeBinary("/definitely/missing/claude")
 	servers, err := manager.ListMcpServers()
 	if err != nil {
 		t.Fatalf("ListMcpServers failed: %v", err)

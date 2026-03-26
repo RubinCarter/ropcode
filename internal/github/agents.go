@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // GitHubAgentsList represents the default GitHub agents repository
@@ -42,11 +44,11 @@ type AgentMetadata struct {
 
 // AgentContent represents the full content of an agent from GitHub
 type AgentContent struct {
-	Name         string `json:"name"`
-	Icon         string `json:"icon"`
-	Model        string `json:"model"`
-	SystemPrompt string `json:"system_prompt"`
-	DefaultTask  string `json:"default_task,omitempty"`
+	Name         string `json:"name" yaml:"name"`
+	Icon         string `json:"icon" yaml:"icon"`
+	Model        string `json:"model" yaml:"model"`
+	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"`
+	DefaultTask  string `json:"default_task,omitempty" yaml:"default_task,omitempty"`
 }
 
 // FetchAgents fetches the list of available agents from GitHub API
@@ -210,18 +212,18 @@ func normalizeModelName(model string) string {
 	}
 }
 
-// ParseAgentFromJSON parses agent content from JSON string (exported .ropcode.json format)
-func ParseAgentFromJSON(jsonContent string) (*AgentContent, error) {
-	var exportFile AgentExportFile
-	if err := json.Unmarshal([]byte(jsonContent), &exportFile); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %w", err)
+// ParseAgentFromYAML parses agent content from YAML string
+func ParseAgentFromYAML(yamlContent string) (*AgentContent, error) {
+	var agent AgentContent
+	if err := yaml.Unmarshal([]byte(yamlContent), &agent); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	if err := validateAgentContent(&exportFile.Agent); err != nil {
+	if err := validateAgentContent(&agent); err != nil {
 		return nil, err
 	}
 
-	return &exportFile.Agent, nil
+	return &agent, nil
 }
 
 // ParseAgentFromURL fetches and parses an agent from a raw GitHub URL
