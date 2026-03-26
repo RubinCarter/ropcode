@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -14,7 +15,14 @@ import (
 	ws "ropcode/internal/websocket"
 )
 
-var ErrClientClosed = errors.New("rpc client closed")
+var (
+	ErrClientClosed = errors.New("rpc client closed")
+	ErrCallTimeout  = errors.New("rpc call timed out")
+	ErrCloseTimeout = errors.New("rpc client close timed out")
+
+	callTimeout  = 30 * time.Second
+	closeTimeout = 5 * time.Second
+)
 
 type responseEnvelope struct {
 	result json.RawMessage
@@ -100,20 +108,30 @@ func (c *Client) Call(method string, params []any, out any) error {
 		return err
 	}
 
-	response, ok := <-responseCh
-	if !ok {
-		return ErrClientClosed
-	}
-	if response.err != "" {
-		return errors.New(response.err)
-	}
-	if out == nil || len(response.result) == 0 || string(response.result) == "null" {
+	timer := time.NewTimer(callTimeout)
+	defer timer.Stop()
+
+	select {
+	case response, ok := <-responseCh:
+		if !ok {
+			return ErrClientClosed
+		}
+		if response.err != "" {
+			return errors.New(response.err)
+		}
+		if out == nil || len(response.result) == 0 || string(response.result) == "null" {
+			return nil
+		}
+		if err := json.Unmarshal(response.result, out); err != nil {
+			return fmt.Errorf("decode rpc response: %w", err)
+		}
 		return nil
+	case <-timer.C:
+		c.mu.Lock()
+		delete(c.pending, requestID)
+		c.mu.Unlock()
+		return ErrCallTimeout
 	}
-	if err := json.Unmarshal(response.result, out); err != nil {
-		return fmt.Errorf("decode rpc response: %w", err)
-	}
-	return nil
 }
 
 func (c *Client) OnEvent(eventType string, handler func(payload json.RawMessage)) {
@@ -142,8 +160,15 @@ func (c *Client) Close() error {
 	}
 
 	err := c.conn.Close()
-	<-c.doneCh
-	return err
+	timer := time.NewTimer(closeTimeout)
+	defer timer.Stop()
+
+	select {
+	case <-c.doneCh:
+		return err
+	case <-timer.C:
+		return errors.Join(err, ErrCloseTimeout)
+	}
 }
 
 func (c *Client) readLoop() {
@@ -212,8 +237,15 @@ func (c *Client) handleEvent(event *ws.WSEvent) {
 	}
 
 	for _, handler := range handlers {
-		handler(append(json.RawMessage(nil), payload...))
+		go c.runEventHandler(handler, payload)
 	}
+}
+
+func (c *Client) runEventHandler(handler EventHandler, payload []byte) {
+	defer func() {
+		_ = recover()
+	}()
+	handler(append(json.RawMessage(nil), payload...))
 }
 
 func (c *Client) failPending() {
