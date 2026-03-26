@@ -32,7 +32,7 @@ func TestRegistry(t *testing.T) {
 		t.Fatalf("Heartbeat failed: %v", err)
 	}
 
-	alive, err := registry.ListAliveInstances()
+	alive, err := registry.ListAliveInstances(250)
 	if err != nil {
 		t.Fatalf("ListAliveInstances failed: %v", err)
 	}
@@ -46,20 +46,20 @@ func TestRegistry(t *testing.T) {
 		t.Fatalf("unexpected capabilities: %#v", alive[0].Capabilities)
 	}
 
-	staleCount, err := registry.MarkStaleInstances(251)
+	alive, err = registry.ListAliveInstances(251)
 	if err != nil {
-		t.Fatalf("MarkStaleInstances failed: %v", err)
-	}
-	if staleCount != 1 {
-		t.Fatalf("expected 1 stale instance, got %d", staleCount)
-	}
-
-	alive, err = registry.ListAliveInstances()
-	if err != nil {
-		t.Fatalf("ListAliveInstances after stale failed: %v", err)
+		t.Fatalf("ListAliveInstances after cutoff failed: %v", err)
 	}
 	if len(alive) != 0 {
-		t.Fatalf("expected 0 alive instances after stale mark, got %d", len(alive))
+		t.Fatalf("expected 0 alive instances after cutoff sweep, got %d", len(alive))
+	}
+
+	stale, err := db.GetInstanceRecord("inst-a")
+	if err != nil {
+		t.Fatalf("GetInstanceRecord after cutoff sweep failed: %v", err)
+	}
+	if stale.Status != "stale" {
+		t.Fatalf("expected status stale after cutoff sweep, got %q", stale.Status)
 	}
 }
 

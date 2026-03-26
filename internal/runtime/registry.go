@@ -29,8 +29,12 @@ func (r *Registry) Heartbeat(id string, heartbeatAt int64) error {
 	return r.db.SaveInstanceRecord(record)
 }
 
-// ListAliveInstances returns only instances currently marked alive.
-func (r *Registry) ListAliveInstances() ([]*database.InstanceRecord, error) {
+// ListAliveInstances sweeps stale records before returning alive instances.
+func (r *Registry) ListAliveInstances(cutoff int64) ([]*database.InstanceRecord, error) {
+	if _, err := r.MarkStaleInstances(cutoff); err != nil {
+		return nil, err
+	}
+
 	records, err := r.db.ListInstanceRecords()
 	if err != nil {
 		return nil, err
