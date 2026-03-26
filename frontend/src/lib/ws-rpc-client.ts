@@ -44,6 +44,21 @@ function generateId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+function getRpcTimeout(method: string): number {
+  const longTimeoutMethods = [
+    'LoadProviderSessionHistory',
+    'LoadSessionHistory',
+    'LoadAgentSessionHistory',
+  ];
+  if (longTimeoutMethods.includes(method)) {
+    return 120000; // 2 minutes for history loading
+  }
+  if (method === 'StartInteractiveClaudeSession') {
+    return 45000;
+  }
+  return 30000;
+}
+
 class WSRpcClient {
   private ws: WebSocket | null = null;
   private pending: Map<string, { resolve: (value: any) => void; reject: (reason: any) => void }> = new Map();
@@ -397,7 +412,7 @@ class WSRpcClient {
       this.pending.set(id, { resolve, reject });
 
       // 设置超时（默认 30 秒）
-      const timeout = this.getTimeout(method);
+      const timeout = getRpcTimeout(method);
       setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
@@ -407,21 +422,6 @@ class WSRpcClient {
 
       this.ws!.send(JSON.stringify(request));
     });
-  }
-
-  /**
-   * 根据方法名返回超时时间（毫秒）
-   */
-  private getTimeout(method: string): number {
-    const longTimeoutMethods = [
-      'LoadProviderSessionHistory',
-      'LoadSessionHistory',
-      'LoadAgentSessionHistory',
-    ];
-    if (longTimeoutMethods.includes(method)) {
-      return 120000; // 2 minutes for history loading
-    }
-    return 30000;
   }
 
   /**
@@ -474,6 +474,8 @@ class WSRpcClient {
     return () => { this.onConnectCallbacks.delete(cb); };
   }
 }
+
+export { getRpcTimeout };
 
 // 单例导出
 export const wsClient = new WSRpcClient();

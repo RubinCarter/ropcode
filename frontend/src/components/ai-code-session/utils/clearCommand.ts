@@ -6,6 +6,10 @@ export function shouldCreateFreshClaudeSession(prompt: string, provider?: string
   return isExactClearCommand(prompt) && provider === 'claude';
 }
 
+export function shouldStopClaudeSessionImmediately(_prompt: string, _provider?: string): boolean {
+  return false;
+}
+
 export function shouldForwardClearToProvider(_prompt: string, _provider?: string): boolean {
   return false;
 }

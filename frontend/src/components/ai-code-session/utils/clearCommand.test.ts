@@ -41,3 +41,11 @@ test('creates a fresh Claude session for /clear', async () => {
   assert.equal(shouldCreateFreshClaudeSession('/clear', 'codex'), false);
   assert.equal(shouldCreateFreshClaudeSession('/clear now', 'claude'), false);
 });
+
+test('does not require immediately stopping the active Claude session on /clear', async () => {
+  const { shouldStopClaudeSessionImmediately } = await loadModule();
+
+  assert.equal(shouldStopClaudeSessionImmediately('/clear', 'claude'), false);
+  assert.equal(shouldStopClaudeSessionImmediately('/clear', 'codex'), false);
+  assert.equal(shouldStopClaudeSessionImmediately('/clear now', 'claude'), false);
+});

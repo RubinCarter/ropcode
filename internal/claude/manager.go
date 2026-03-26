@@ -110,7 +110,7 @@ func (m *SessionManager) StartSession(config SessionConfig) (string, error) {
 
 	// For interactive mode, auto-populate ResumeClaudeSessionID from the last completed session
 	// so conversation history is restored when the user restarts after stopping.
-	if config.InteractiveMode && config.ResumeClaudeSessionID == "" && config.ProjectPath != "" {
+	if config.InteractiveMode && !config.DisableAutoResume && config.ResumeClaudeSessionID == "" && config.ProjectPath != "" {
 		for _, session := range m.sessions {
 			if session.Config.ProjectPath == config.ProjectPath && !session.IsRunning() && session.IsInteractive() {
 				if claudeID := session.GetClaudeSessionID(); claudeID != "" {

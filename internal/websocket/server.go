@@ -187,7 +187,7 @@ func (s *Server) handleMessage(client *Client, message []byte) {
 	}
 
 	if msg.Kind == "rpc_request" && msg.Request != nil {
-		s.handleRPCRequest(client, msg.Request)
+		go s.handleRPCRequest(client, msg.Request)
 	}
 }
 

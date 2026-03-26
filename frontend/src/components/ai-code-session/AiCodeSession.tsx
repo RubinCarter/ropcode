@@ -40,6 +40,7 @@ import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
+import { STOP_STATUS_BUBBLE_DURATION_MS, getStopStatusBubbleState, shouldCompleteStopStatusBubble } from "./utils/stopStatusBubble";
 
 // Import refactored hooks and types
 import type { AiCodeSessionProps, ClaudeStreamMessage } from "./types";
@@ -76,6 +77,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const isIMEComposingRef = useRef(false);
   const loadedSessionIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
+  const skipRecoveryUntilRef = useRef(0);
   const pendingFreshClaudeSessionRef = useRef(false);
   const sessionRef = useRef(session);
   sessionRef.current = session;
@@ -152,10 +154,15 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const [showSlashCommandsSettings, setShowSlashCommandsSettings] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
+  const [stopStatusTick, setStopStatusTick] = useState(0);
+  const [isStopFeedbackVisible, setIsStopFeedbackVisible] = useState(false);
+  const stopCompletedAtRef = useRef<number | null>(null);
+  const stopStatusHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showPreviewPrompt, setShowPreviewPrompt] = useState(false);
   const [splitPosition, setSplitPosition] = useState(33);
   const [isPreviewMaximized, setIsPreviewMaximized] = useState(false);
   const [isScrollPaused, setIsScrollPaused] = useState(false);
+  const stopRequestedRef = useRef(false);
 
   // ==================================================================
   // VIRTUOSO for message list
@@ -542,10 +549,20 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
       }
     };
 
+    const shouldSkipRecovery = () => Date.now() < skipRecoveryUntilRef.current;
+
     const scheduleRecover = (trigger: string) => {
+      if (shouldSkipRecovery()) {
+        console.log(`[AiCodeSession] Skipping recovery (${trigger}) during clear cooldown`);
+        return;
+      }
       if (recoverTimer) clearTimeout(recoverTimer);
       recoverTimer = setTimeout(() => {
         recoverTimer = null;
+        if (shouldSkipRecovery()) {
+          console.log(`[AiCodeSession] Skipping recovery (${trigger}) during clear cooldown`);
+          return;
+        }
         recoverMessages(trigger);
       }, 500);
     };
@@ -768,7 +785,65 @@ ${message ? `**说明**:\n${message}` : ''}`;
     }
   };
 
-  const handleSendPrompt = async (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string, options?: { forceFreshClaudeSession?: boolean }) => {
+  const showStopStatusBubble = useCallback(() => {
+    if (stopStatusHideTimerRef.current) {
+      clearTimeout(stopStatusHideTimerRef.current);
+      stopStatusHideTimerRef.current = null;
+    }
+    stopCompletedAtRef.current = null;
+    setIsStopFeedbackVisible(true);
+    setStopStatusTick(Date.now());
+  }, []);
+
+  const completeStopStatusBubble = useCallback(() => {
+    stopCompletedAtRef.current = Date.now();
+    setIsStopFeedbackVisible(false);
+    setStopStatusTick(Date.now());
+
+    if (stopStatusHideTimerRef.current) {
+      clearTimeout(stopStatusHideTimerRef.current);
+    }
+
+    stopStatusHideTimerRef.current = setTimeout(() => {
+      stopStatusHideTimerRef.current = null;
+      setStopStatusTick(Date.now());
+    }, STOP_STATUS_BUBBLE_DURATION_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (stopStatusHideTimerRef.current) {
+        clearTimeout(stopStatusHideTimerRef.current);
+      }
+    };
+  }, []);
+
+  const stopStatusBubble = getStopStatusBubbleState({
+    isStopping: isStopFeedbackVisible,
+    lastCompletedAt: stopCompletedAtRef.current,
+    now: stopStatusTick || Date.now(),
+  });
+
+  useEffect(() => {
+    if (!shouldCompleteStopStatusBubble({
+      stopRequested: stopRequestedRef.current,
+      isLoading: processState.isLoading,
+      interactiveSessionId: processState.interactiveSessionId,
+    })) {
+      return;
+    }
+
+    stopRequestedRef.current = false;
+    completeStopStatusBubble();
+  }, [processState.isLoading, processState.interactiveSessionId, completeStopStatusBubble]);
+
+  const handleSendPrompt = async (
+    prompt: string,
+    model: string,
+    providerApiId?: string | null,
+    thinkingMode?: string,
+    options?: { forceFreshClaudeSession?: boolean }
+  ) => {
     console.log('[AiCodeSession] Sending prompt with thinkingMode:', thinkingMode);
 
     if (!sessionState.projectPath) {
@@ -890,7 +965,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
           const interactiveSessionId = await api.StartInteractiveClaudeSession(
             sessionState.projectPath, model, providerApiId || undefined, resumeId
           );
-  // Save interactive session ID immediately so subsequent messages bypass the queue
+          // Save interactive session ID immediately so subsequent messages bypass the queue
           processState.setInteractiveSessionId(interactiveSessionId);
           // Send the first message
           await api.SendClaudeMessage(sessionState.projectPath, interactiveSessionId, wrappedPrompt);
@@ -914,8 +989,19 @@ ${message ? `**说明**:\n${message}` : ''}`;
     }
   };
 
-  const handleLocalClearFallback = () => {
+  const handleLocalClearFallback = async () => {
     console.log('[AiCodeSession] Clearing local conversation fallback');
+
+    stopRequestedRef.current = true;
+    showStopStatusBubble();
+    skipRecoveryUntilRef.current = Date.now() + 5000;
+    if (defaultProvider === 'claude' && processState.interactiveSessionId) {
+      try {
+        await api.cancelClaudeExecutionByProject(sessionState.projectPath);
+      } catch (err) {
+        console.error('[AiCodeSession] Failed to stop Claude session during clear:', err);
+      }
+    }
 
     pendingFreshClaudeSessionRef.current = defaultProvider === 'claude';
     messagesState.clearMessages();
@@ -924,18 +1010,23 @@ ${message ? `**说明**:\n${message}` : ''}`;
     sessionState.setIsFirstPrompt(true);
     metricsState.resetMetrics();
     setError(null);
+    processState.setInteractiveSessionId(null);
+    processState.hasActiveSessionRef.current = false;
+    queueState.clearQueue();
 
     const clearMessage: ClaudeStreamMessage = {
       type: "system",
       subtype: "info",
       message: {
-        content: [{ type: "text", text: defaultProvider === 'claude' ? "Conversation cleared. The next Claude message will start a fresh session." : "Local conversation view cleared. Provider session was not reset." }]
+        content: [{ type: "text", text: defaultProvider === 'claude' ? "Conversation cleared. Claude session stopped; the next message will start fresh." : "Local conversation view cleared. Provider session was not reset." }]
       }
     };
     messagesState.addMessage(clearMessage);
   };
 
   const handleCancelExecution = async () => {
+    stopRequestedRef.current = true;
+    showStopStatusBubble();
     // Allow cancellation if either loading or interactive session is active
     if (!sessionState.projectPath || (!processState.isLoading && !processState.interactiveSessionId)) return;
 
@@ -1014,6 +1105,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
       processState.hasActiveSessionRef.current = false;
       processState.setInteractiveSessionId(null);  // Clear interactive session
       setError(null);
+      stopRequestedRef.current = false;
+      completeStopStatusBubble();
     }
   };
 
@@ -1425,6 +1518,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
               onSend={handleSendPrompt}
               onClear={handleLocalClearFallback}
               onCancel={handleCancelExecution}
+              stopStatusLabel={stopStatusBubble.label}
               isLoading={processState.isLoading}
               interactiveSessionId={processState.interactiveSessionId}
               disabled={!sessionState.projectPath}

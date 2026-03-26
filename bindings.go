@@ -1553,6 +1553,13 @@ func (a *App) CancelClaudeExecution(sessionID string) error {
 	return a.claudeManager.TerminateSession(sessionID)
 }
 
+func shouldIgnoreMissingRunningSessionOnClear(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "no running sessions found for project:")
+}
+
 // CancelClaudeExecutionByProject cancels any provider session by project path
 // This method tries to stop any running provider (claude, codex, gemini) for the given project
 func (a *App) CancelClaudeExecutionByProject(projectPath string) error {
@@ -1576,6 +1583,10 @@ func (a *App) CancelClaudeExecutionByProject(projectPath string) error {
 		if p.manager.IsRunningForProject(projectPath) {
 			log.Printf("[CancelClaudeExecutionByProject] Found running %s session for project: %s", p.name, projectPath)
 			if err := p.manager.TerminateByProject(projectPath); err != nil {
+				if shouldIgnoreMissingRunningSessionOnClear(err) {
+					log.Printf("[CancelClaudeExecutionByProject] %s session already stopped for project: %s", p.name, projectPath)
+					return nil
+				}
 				log.Printf("[CancelClaudeExecutionByProject] Failed to terminate %s session: %v", p.name, err)
 				return err
 			}
@@ -1590,21 +1601,21 @@ func (a *App) CancelClaudeExecutionByProject(projectPath string) error {
 
 const freshClaudeSessionSentinel = "__ROP_FRESH_SESSION__"
 
-func resolveInteractiveClaudeSessionStart(resumeSessionID string, hasExistingSession bool) (resolvedResumeSessionID string, reuseExisting bool, terminateExisting bool) {
+func resolveInteractiveClaudeSessionStart(resumeSessionID string, hasExistingSession bool) (resolvedResumeSessionID string, reuseExisting bool, terminateExisting bool, allowAutoResume bool) {
 	forceFreshSession := resumeSessionID == freshClaudeSessionSentinel
 	if forceFreshSession {
 		resumeSessionID = ""
 	}
 
 	if !hasExistingSession {
-		return resumeSessionID, false, false
+		return resumeSessionID, false, false, !forceFreshSession
 	}
 
 	if forceFreshSession {
-		return resumeSessionID, false, true
+		return resumeSessionID, false, true, false
 	}
 
-	return resumeSessionID, true, false
+	return resumeSessionID, true, false, true
 }
 
 // StartInteractiveClaudeSession starts or returns an existing interactive Claude session for a project.
@@ -1615,7 +1626,7 @@ func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID, r
 	}
 
 	existingSession := a.claudeManager.GetInteractiveSessionForProject(projectPath)
-	resolvedResumeSessionID, reuseExisting, terminateExisting := resolveInteractiveClaudeSessionStart(resumeSessionID, existingSession != nil)
+	resolvedResumeSessionID, reuseExisting, terminateExisting, allowAutoResume := resolveInteractiveClaudeSessionStart(resumeSessionID, existingSession != nil)
 	resumeSessionID = resolvedResumeSessionID
 
 	if reuseExisting && existingSession != nil {
@@ -1633,6 +1644,7 @@ func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID, r
 		ProviderApiID:         providerApiID,
 		InteractiveMode:       true,
 		ResumeClaudeSessionID: resumeSessionID,
+		DisableAutoResume:     !allowAutoResume,
 	}
 
 	// Fetch API configuration if providerApiID is specified

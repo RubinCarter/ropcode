@@ -34,6 +34,8 @@ type SessionConfig struct {
 	// ResumeClaudeSessionID is the Claude-side session ID to resume in interactive mode.
 	// When set, --resume <id> is passed to Claude CLI so the conversation history is restored.
 	ResumeClaudeSessionID string `json:"resume_claude_session_id,omitempty"`
+	// DisableAutoResume prevents manager-level fallback to the last completed Claude conversation.
+	DisableAutoResume bool `json:"disable_auto_resume,omitempty"`
 	// API configuration from ProviderApiConfig
 	BaseURL   string `json:"base_url,omitempty"`
 	AuthToken string `json:"auth_token,omitempty"`

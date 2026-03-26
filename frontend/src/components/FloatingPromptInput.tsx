@@ -80,7 +80,11 @@ interface FloatingPromptInputProps {
   /**
    * Callback when local /clear fallback is issued
    */
-  onClear?: () => void;
+  onClear?: () => void | Promise<void>;
+  /**
+   * Stop status bubble label shown near the stop button
+   */
+  stopStatusLabel?: string | null;
   /**
    * Extra menu items to display in the prompt bar
    */
@@ -499,6 +503,7 @@ const FloatingPromptInputInner = (
     className,
     onCancel,
     onClear,
+    stopStatusLabel,
     extraMenuItems,
     interactiveSessionId,
   }: FloatingPromptInputProps,
@@ -1384,7 +1389,7 @@ const FloatingPromptInputInner = (
     return false;
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (isIMEInteraction()) {
       return;
     }
@@ -2150,29 +2155,36 @@ const FloatingPromptInputInner = (
                     </motion.div>
                   </TooltipSimple>
 
-                  {(isLoading || interactiveSessionId) && (
-                    <TooltipSimple
-                      content={
-                        interactiveSessionId
-                          ? (isLoading ? "Stop current task" : "Terminate interactive session")
-                          : "Stop generation"
-                      }
-                      side="top"
-                    >
-                      <motion.div
-                        whileTap={{ scale: 0.97 }}
-                        transition={{ duration: 0.15 }}
+                  {(isLoading || interactiveSessionId || stopStatusLabel) && (
+                    <div className="flex items-center gap-2">
+                      {stopStatusLabel && (
+                        <div className="rounded-full border border-border/60 bg-background/95 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">
+                          {stopStatusLabel}
+                        </div>
+                      )}
+                      <TooltipSimple
+                        content={
+                          interactiveSessionId
+                            ? (isLoading ? "Stop current task" : "Terminate interactive session")
+                            : "Stop generation"
+                        }
+                        side="top"
                       >
-                        <Button
-                          onClick={onCancel}
-                          variant="destructive"
-                          size="icon"
-                          className="h-8 w-8 transition-all"
+                        <motion.div
+                          whileTap={{ scale: 0.97 }}
+                          transition={{ duration: 0.15 }}
                         >
-                          <Square className="h-4 w-4" />
-                        </Button>
-                      </motion.div>
-                    </TooltipSimple>
+                          <Button
+                            onClick={onCancel}
+                            variant="destructive"
+                            size="icon"
+                            className="h-8 w-8 transition-all"
+                          >
+                            <Square className="h-4 w-4" />
+                          </Button>
+                        </motion.div>
+                      </TooltipSimple>
+                    </div>
                   )}
                 </div>
 
