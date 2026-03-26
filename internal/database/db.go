@@ -61,8 +61,23 @@ func (d *Database) init() error {
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 
+	CREATE TABLE IF NOT EXISTS instance_registry (
+		id TEXT PRIMARY KEY,
+		label TEXT,
+		host TEXT NOT NULL,
+		port INTEGER NOT NULL,
+		auth_key TEXT NOT NULL,
+		pid INTEGER NOT NULL,
+		started_at INTEGER NOT NULL,
+		heartbeat_at INTEGER NOT NULL,
+		status TEXT NOT NULL,
+		capabilities TEXT NOT NULL
+	);
+
 	CREATE INDEX IF NOT EXISTS idx_provider_api_configs_provider ON provider_api_configs(provider_id);
 	CREATE INDEX IF NOT EXISTS idx_provider_api_configs_default ON provider_api_configs(is_default);
+	CREATE INDEX IF NOT EXISTS idx_instance_registry_status ON instance_registry(status);
+	CREATE INDEX IF NOT EXISTS idx_instance_registry_heartbeat ON instance_registry(heartbeat_at);
 
 	CREATE TABLE IF NOT EXISTS agents (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -286,6 +301,105 @@ func (d *Database) GetAllProjectIndexes() ([]*ProjectIndex, error) {
 func (d *Database) DeleteProjectIndex(name string) error {
 	_, err := d.db.Exec("DELETE FROM project_indexes WHERE name = ?", name)
 	return err
+}
+
+// SaveInstanceRecord saves or updates an instance registry record.
+func (d *Database) SaveInstanceRecord(record *InstanceRecord) error {
+	capabilities, err := json.Marshal(record.Capabilities)
+	if err != nil {
+		return err
+	}
+
+	_, err = d.db.Exec(`
+		INSERT OR REPLACE INTO instance_registry
+		(id, label, host, port, auth_key, pid, started_at, heartbeat_at, status, capabilities)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		record.ID, record.Label, record.Host, record.Port, record.AuthKey, record.PID,
+		record.StartedAt, record.HeartbeatAt, record.Status, string(capabilities))
+	return err
+}
+
+// GetInstanceRecord retrieves an instance registry record by ID.
+func (d *Database) GetInstanceRecord(id string) (*InstanceRecord, error) {
+	row := d.db.QueryRow(`
+		SELECT id, label, host, port, auth_key, pid, started_at, heartbeat_at, status, capabilities
+		FROM instance_registry WHERE id = ?`, id)
+
+	return scanInstanceRecord(row)
+}
+
+// ListInstanceRecords retrieves all instance registry records.
+func (d *Database) ListInstanceRecords() ([]*InstanceRecord, error) {
+	rows, err := d.db.Query(`
+		SELECT id, label, host, port, auth_key, pid, started_at, heartbeat_at, status, capabilities
+		FROM instance_registry ORDER BY heartbeat_at DESC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]*InstanceRecord, 0)
+	for rows.Next() {
+		record, err := scanInstanceRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
+}
+
+// DeleteInstanceRecord deletes an instance registry record by ID.
+func (d *Database) DeleteInstanceRecord(id string) error {
+	_, err := d.db.Exec(`DELETE FROM instance_registry WHERE id = ?`, id)
+	return err
+}
+
+// MarkInstanceStaleBefore marks alive instances stale when their heartbeat is older than cutoff.
+func (d *Database) MarkInstanceStaleBefore(cutoff int64) (int64, error) {
+	result, err := d.db.Exec(`
+		UPDATE instance_registry
+		SET status = 'stale'
+		WHERE status = 'alive' AND heartbeat_at < ?`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func scanInstanceRecord(scanner interface{ Scan(...any) error }) (*InstanceRecord, error) {
+	record := &InstanceRecord{}
+	var capabilities string
+	if err := scanner.Scan(
+		&record.ID,
+		&record.Label,
+		&record.Host,
+		&record.Port,
+		&record.AuthKey,
+		&record.PID,
+		&record.StartedAt,
+		&record.HeartbeatAt,
+		&record.Status,
+		&capabilities,
+	); err != nil {
+		return nil, err
+	}
+
+	if capabilities != "" {
+		if err := json.Unmarshal([]byte(capabilities), &record.Capabilities); err != nil {
+			return nil, err
+		}
+	}
+	if record.Capabilities == nil {
+		record.Capabilities = []string{}
+	}
+
+	return record, nil
 }
 
 // ListAgents retrieves all agents from the database

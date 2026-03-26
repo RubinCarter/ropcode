@@ -4,8 +4,29 @@ package database
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
+
+func openTestDB(t *testing.T) *Database {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "test.db")
+
+	db, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("Close failed: %v", err)
+		}
+	})
+
+	return db
+}
 
 func TestDatabase_Open(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -20,6 +41,83 @@ func TestDatabase_Open(t *testing.T) {
 	// Verify file exists
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		t.Error("Database file was not created")
+	}
+}
+
+func TestDatabase_InstanceRegistryCRUD(t *testing.T) {
+	db := openTestDB(t)
+
+	inst := &InstanceRecord{
+		ID:           "inst-a",
+		Label:        "Primary",
+		Host:         "127.0.0.1",
+		Port:         5173,
+		AuthKey:      "secret",
+		PID:          4242,
+		StartedAt:    100,
+		HeartbeatAt:  200,
+		Status:       "alive",
+		Capabilities: []string{"rpc", "events"},
+	}
+	if err := db.SaveInstanceRecord(inst); err != nil {
+		t.Fatalf("SaveInstanceRecord failed: %v", err)
+	}
+
+	gotOne, err := db.GetInstanceRecord("inst-a")
+	if err != nil {
+		t.Fatalf("GetInstanceRecord failed: %v", err)
+	}
+	if gotOne.Port != 5173 || gotOne.Status != "alive" {
+		t.Fatalf("unexpected record: %+v", gotOne)
+	}
+	if !reflect.DeepEqual(gotOne.Capabilities, []string{"rpc", "events"}) {
+		t.Fatalf("unexpected capabilities: %#v", gotOne.Capabilities)
+	}
+
+	got, err := db.ListInstanceRecords()
+	if err != nil {
+		t.Fatalf("ListInstanceRecords failed: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 instance, got %d", len(got))
+	}
+
+	inst.HeartbeatAt = 300
+	inst.Status = "alive"
+	inst.Capabilities = []string{"rpc", "events", "cli"}
+	if err := db.SaveInstanceRecord(inst); err != nil {
+		t.Fatalf("SaveInstanceRecord update failed: %v", err)
+	}
+
+	staleCount, err := db.MarkInstanceStaleBefore(301)
+	if err != nil {
+		t.Fatalf("MarkInstanceStaleBefore failed: %v", err)
+	}
+	if staleCount != 1 {
+		t.Fatalf("expected 1 stale record, got %d", staleCount)
+	}
+
+	stale, err := db.GetInstanceRecord("inst-a")
+	if err != nil {
+		t.Fatalf("GetInstanceRecord after stale failed: %v", err)
+	}
+	if stale.Status != "stale" {
+		t.Fatalf("expected status stale, got %q", stale.Status)
+	}
+	if !reflect.DeepEqual(stale.Capabilities, []string{"rpc", "events", "cli"}) {
+		t.Fatalf("unexpected updated capabilities: %#v", stale.Capabilities)
+	}
+
+	if err := db.DeleteInstanceRecord("inst-a"); err != nil {
+		t.Fatalf("DeleteInstanceRecord failed: %v", err)
+	}
+
+	got, err = db.ListInstanceRecords()
+	if err != nil {
+		t.Fatalf("ListInstanceRecords after delete failed: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected 0 instances after delete, got %d", len(got))
 	}
 }
 

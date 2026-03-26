@@ -55,6 +55,21 @@ type WorkspaceIndex struct {
 	Branch       string         `json:"branch,omitempty"`
 }
 
+// InstanceRecord stores a live or stale runtime instance entry
+// Capabilities are persisted as JSON in SQLite.
+type InstanceRecord struct {
+	ID           string   `json:"id"`
+	Label        string   `json:"label,omitempty"`
+	Host         string   `json:"host"`
+	Port         int      `json:"port"`
+	AuthKey      string   `json:"auth_key"`
+	PID          int      `json:"pid"`
+	StartedAt    int64    `json:"started_at"`
+	HeartbeatAt  int64    `json:"heartbeat_at"`
+	Status       string   `json:"status"`
+	Capabilities []string `json:"capabilities"`
+}
+
 // Setting stores application settings
 type Setting struct {
 	Key       string    `json:"key"`
