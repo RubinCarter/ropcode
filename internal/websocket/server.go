@@ -21,6 +21,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+
+	"ropcode/internal/database"
+	appRuntime "ropcode/internal/runtime"
 )
 
 var upgrader = websocket.Upgrader{
@@ -33,12 +36,21 @@ var upgrader = websocket.Upgrader{
 
 // Server WebSocket 服务器
 type Server struct {
-	port       int
-	authKey    string
-	router     *Router
-	clients    map[string]*Client
-	clientsMu  sync.RWMutex
-	httpServer *http.Server
+	port         int
+	authKey      string
+	instanceID   string
+	startedAt    int64
+	router       *Router
+	clients      map[string]*Client
+	clientsMu    sync.RWMutex
+	httpServer   *http.Server
+	registry     instanceRegistry
+	db           *database.Database
+	stopOnce     sync.Once
+	stopCh       chan struct{}
+	stopErr      error
+	capabilities []string
+	host         string
 }
 
 const (
@@ -46,15 +58,45 @@ const (
 	defaultFilename   = "unnamed_file"
 )
 
+var heartbeatInterval = 30 * time.Second
+
+// instanceRegistry captures the registry capabilities the server needs.
+type instanceRegistry interface {
+	RegisterInstance(record *database.InstanceRecord) error
+	Heartbeat(id string, heartbeatAt int64) error
+	MarkStaleInstances(cutoff int64) (int64, error)
+}
+
+type databaseProvider interface {
+	Database() *database.Database
+}
+
 // NewServer 创建新的 WebSocket 服务器
 func NewServer(app interface{}) *Server {
 	authKey := os.Getenv("ROPCODE_AUTH_KEY")
-
-	return &Server{
-		authKey: authKey,
-		router:  NewRouter(app),
-		clients: make(map[string]*Client),
+	instanceID := os.Getenv("ROPCODE_INSTANCE_ID")
+	if instanceID == "" {
+		instanceID = uuid.NewString()
 	}
+
+	server := &Server{
+		authKey:      authKey,
+		instanceID:   instanceID,
+		router:       NewRouter(app),
+		clients:      make(map[string]*Client),
+		stopCh:       make(chan struct{}),
+		capabilities: []string{"rpc", "events"},
+		host:         "127.0.0.1",
+	}
+
+	if provider, ok := app.(databaseProvider); ok {
+		if db := provider.Database(); db != nil {
+			server.db = db
+			server.registry = appRuntime.NewRegistry(db)
+		}
+	}
+
+	return server
 }
 
 // defaultPort is the preferred port for the server.
@@ -74,6 +116,11 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 
 	s.port = listener.Addr().(*net.TCPAddr).Port
 
+	if err := s.registerInstance(); err != nil {
+		_ = listener.Close()
+		return 0, err
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
@@ -89,6 +136,8 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 		}
 	}()
 
+	go s.heartbeatLoop()
+
 	// 输出端口号供 Electron 读取
 	fmt.Printf("WS_PORT:%d\n", s.port)
 
@@ -97,20 +146,29 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 
 // Stop 停止服务器
 func (s *Server) Stop(ctx context.Context) error {
-	// 关闭所有客户端
-	s.clientsMu.Lock()
-	for _, client := range s.clients {
-		client.Close()
-	}
-	s.clientsMu.Unlock()
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+		s.markInstanceStopped()
 
-	return s.httpServer.Shutdown(ctx)
+		// 关闭所有客户端
+		s.clientsMu.Lock()
+		for _, client := range s.clients {
+			client.Close()
+		}
+		s.clientsMu.Unlock()
+
+		if s.httpServer != nil {
+			s.stopErr = s.httpServer.Shutdown(ctx)
+		}
+	})
+
+	return s.stopErr
 }
 
 // handleHealth 健康检查端点
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("ok"))
+	_, _ = w.Write([]byte("ok"))
 }
 
 // handleWebSocket 处理 WebSocket 连接
@@ -216,9 +274,89 @@ func (s *Server) BroadcastEvent(eventType string, payload interface{}) {
 	}
 }
 
+func (s *Server) registerInstance() error {
+	if s.registry == nil {
+		return nil
+	}
+
+	now := time.Now().UnixMilli()
+	s.startedAt = now
+	record := &database.InstanceRecord{
+		ID:           s.instanceID,
+		Host:         s.host,
+		Port:         s.port,
+		AuthKey:      s.authKey,
+		PID:          os.Getpid(),
+		StartedAt:    s.startedAt,
+		HeartbeatAt:  now,
+		Status:       "alive",
+		Capabilities: append([]string(nil), s.capabilities...),
+	}
+
+	if err := s.registry.RegisterInstance(record); err != nil {
+		return fmt.Errorf("register instance: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) heartbeatLoop() {
+	if s.registry == nil {
+		return
+	}
+
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := s.registry.Heartbeat(s.instanceID, time.Now().UnixMilli()); err != nil {
+				log.Printf("Failed to refresh instance heartbeat: %v", err)
+			}
+		case <-s.stopCh:
+			return
+		}
+	}
+}
+
+func (s *Server) markInstanceStopped() {
+	if s.db != nil {
+		record, err := s.db.GetInstanceRecord(s.instanceID)
+		if err != nil {
+			log.Printf("Failed to load instance record for stop: %v", err)
+			return
+		}
+		record.Status = "stale"
+		record.HeartbeatAt = time.Now().UnixMilli()
+		if err := s.db.SaveInstanceRecord(record); err != nil {
+			log.Printf("Failed to persist stopped instance state: %v", err)
+		}
+		return
+	}
+
+	if s.registry == nil {
+		return
+	}
+
+	if _, err := s.registry.MarkStaleInstances(time.Now().UnixMilli() + 1); err != nil {
+		log.Printf("Failed to mark instance stale: %v", err)
+	}
+}
+
 // GetPort 返回服务器端口
 func (s *Server) GetPort() int {
 	return s.port
+}
+
+// GetAuthKey returns the auth key configured for this server instance.
+func (s *Server) GetAuthKey() string {
+	return s.authKey
+}
+
+// GetInstanceID returns the registry instance ID for this server instance.
+func (s *Server) GetInstanceID() string {
+	return s.instanceID
 }
 
 // frontendHandler returns an http.Handler that serves the frontend.
