@@ -131,11 +131,9 @@ func stripGlobalFlags(args []string) ([]string, globalFlags, error) {
 				return nil, globalFlags{}, errors.New("--cwd requires a value")
 			}
 			flags.cwd = args[i+1]
-			cleaned = append(cleaned, arg, args[i+1])
 			i++
 		case strings.HasPrefix(arg, "--cwd="):
 			flags.cwd = strings.TrimPrefix(arg, "--cwd=")
-			cleaned = append(cleaned, arg)
 		default:
 			cleaned = append(cleaned, arg)
 		}

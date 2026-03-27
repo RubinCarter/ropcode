@@ -34,6 +34,27 @@ func TestWorkspaceListCommand_UsesProjectFlag(t *testing.T) {
 	}
 }
 
+func TestWorkspaceListCommand_UsesGlobalCWDFlag(t *testing.T) {
+	_, db := setupCLITestDB(t)
+	seedProjectIndex(t, db, &database.ProjectIndex{
+		Name:      "alpha",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/alpha"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "ws-a",
+			Providers: []database.ProviderInfo{{Path: "/tmp/alpha/ws-a"}},
+		}},
+	})
+
+	stdout, stderr, err := runCLI(t, "workspace", "list", "--cwd", "/tmp/alpha/ws-a/subdir")
+	if err != nil {
+		t.Fatalf("workspace list failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "ws-a\t/tmp/alpha/ws-a") {
+		t.Fatalf("expected ws-a in output, got %q", stdout)
+	}
+}
+
 func TestWorkspaceListCommand_UsesSavedProjectContext(t *testing.T) {
 	cfg, db := setupCLITestDB(t)
 	seedProjectIndex(t, db, &database.ProjectIndex{
