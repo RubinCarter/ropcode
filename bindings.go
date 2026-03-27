@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	goruntime "runtime"
 	"sort"
 	"strings"
@@ -31,6 +32,56 @@ import (
 	"ropcode/internal/ssh"
 	"ropcode/internal/usage"
 )
+
+type liveSessionConfig struct {
+	model         string
+	providerApiID string
+}
+
+func providerSessionConfigFromManager(manager any, sessionID string) liveSessionConfig {
+	value := reflect.ValueOf(manager)
+	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
+		return liveSessionConfig{}
+	}
+
+	managerValue := value.Elem()
+	sessions := managerValue.FieldByName("sessions")
+	if !sessions.IsValid() || sessions.Kind() != reflect.Map {
+		return liveSessionConfig{}
+	}
+
+	sessionValue := sessions.MapIndex(reflect.ValueOf(sessionID))
+	if !sessionValue.IsValid() || sessionValue.IsNil() {
+		return liveSessionConfig{}
+	}
+
+	config := sessionValue.Elem().FieldByName("Config")
+	if !config.IsValid() {
+		return liveSessionConfig{}
+	}
+
+	modelField := config.FieldByName("Model")
+	providerAPIField := config.FieldByName("ProviderApiID")
+	cfg := liveSessionConfig{}
+	if modelField.IsValid() && modelField.Kind() == reflect.String {
+		cfg.model = modelField.String()
+	}
+	if providerAPIField.IsValid() && providerAPIField.Kind() == reflect.String {
+		cfg.providerApiID = providerAPIField.String()
+	}
+	return cfg
+}
+
+func (a *App) providerSessionConfig(provider, projectPath, sessionID string) liveSessionConfig {
+	switch provider {
+	case "gemini":
+		return providerSessionConfigFromManager(a.geminiManager, sessionID)
+	case "codex":
+		return providerSessionConfigFromManager(a.codexManager, sessionID)
+	default:
+		return liveSessionConfig{}
+	}
+}
 
 // ===== PTY Bindings =====
 
@@ -1427,7 +1478,11 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 				config.BaseURL = apiConfig.BaseURL
 			}
 		}
-		return a.geminiManager.StartSession(config)
+		sessionID, err := a.geminiManager.StartSession(config)
+		if err != nil {
+			return "", err
+		}
+		return sessionID, nil
 
 	case "codex":
 		if a.codexManager == nil {
@@ -1441,7 +1496,11 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 			Model:         model,
 			ProviderApiID: providerApiID,
 		}
-		return a.codexManager.StartSession(config)
+		sessionID, err := a.codexManager.StartSession(config)
+		if err != nil {
+			return "", err
+		}
+		return sessionID, nil
 
 	default:
 		// Fallback to Claude for unknown providers
@@ -1560,18 +1619,20 @@ func (a *App) SendProviderSessionMessage(provider, projectPath, sessionID, promp
 		if a.geminiManager == nil {
 			return "", fmt.Errorf("gemini manager not initialized")
 		}
+		cfg := a.providerSessionConfig(provider, projectPath, sessionID)
 		if err := a.geminiManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
 			return "", err
 		}
-		return a.StartProviderSession(provider, projectPath, prompt, "", "")
+		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID)
 	case "codex":
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
 		}
+		cfg := a.providerSessionConfig(provider, projectPath, sessionID)
 		if err := a.codexManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
 			return "", err
 		}
-		return a.StartProviderSession(provider, projectPath, prompt, "", "")
+		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID)
 	default:
 		if err := a.SendClaudeMessage(projectPath, sessionID, prompt); err != nil {
 			return "", err

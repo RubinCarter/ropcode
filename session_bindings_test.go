@@ -4,9 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
+	"ropcode/internal/codex"
 	"ropcode/internal/gemini"
 )
 
@@ -38,6 +40,36 @@ func newGeminiTestApp(t *testing.T) *App {
 	mgr := gemini.NewSessionManager(context.Background(), nil)
 	mgr.SetBinaryPath(writeFakeProviderBinary(t))
 	return &App{geminiManager: mgr}
+}
+
+func newCodexTestApp(t *testing.T) *App {
+	t.Helper()
+	mgr := codex.NewSessionManager(context.Background(), nil)
+	mgr.SetBinaryPath(writeFakeProviderBinary(t))
+	return &App{codexManager: mgr}
+}
+
+func runningSessionConfig(t *testing.T, manager any, sessionID string) (string, string) {
+	t.Helper()
+
+	managerValue := reflect.ValueOf(manager)
+	if managerValue.Kind() != reflect.Ptr || managerValue.IsNil() {
+		t.Fatalf("expected manager pointer, got %T", manager)
+	}
+	managerValue = managerValue.Elem()
+
+	sessions := managerValue.FieldByName("sessions")
+	if !sessions.IsValid() {
+		t.Fatal("manager does not expose sessions field")
+	}
+
+	session := sessions.MapIndex(reflect.ValueOf(sessionID))
+	if !session.IsValid() {
+		t.Fatalf("session %q not found", sessionID)
+	}
+
+	config := session.Elem().FieldByName("Config")
+	return config.FieldByName("Model").String(), config.FieldByName("ProviderApiID").String()
 }
 
 func TestListRunningProviderSessions_IncludesProviderMetadata(t *testing.T) {
@@ -133,4 +165,84 @@ func TestSendProviderSessionMessage_RestartsGeminiSession(t *testing.T) {
 	})
 
 	_ = app.StopProviderSession(nextID)
+}
+
+func TestSendProviderSessionMessage_PreservesGeminiConfigOnRestart(t *testing.T) {
+	app := newGeminiTestApp(t)
+	projectPath := t.TempDir()
+
+	firstID, err := app.StartProviderSession("gemini", projectPath, "hello", "gemini-2.5-pro", "gemini-api")
+	if err != nil {
+		t.Fatalf("StartProviderSession failed: %v", err)
+	}
+
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(app.ListRunningProviderSessions()) == 1
+	})
+
+	if err := app.StopProviderSession(firstID); err != nil {
+		t.Fatalf("StopProviderSession failed: %v", err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(app.ListRunningProviderSessions()) == 0
+	})
+
+	nextID, err := app.SendProviderSessionMessage("gemini", projectPath, firstID, "follow up")
+	if err != nil {
+		t.Fatalf("SendProviderSessionMessage failed: %v", err)
+	}
+	defer func() { _ = app.StopProviderSession(nextID) }()
+
+	waitUntil(t, 2*time.Second, func() bool {
+		sessions := app.ListRunningProviderSessions()
+		return len(sessions) == 1 && sessions[0].SessionID == nextID
+	})
+
+	model, providerAPIID := runningSessionConfig(t, app.geminiManager, nextID)
+	if model != "gemini-2.5-pro" {
+		t.Fatalf("expected restarted model to be preserved, got %q", model)
+	}
+	if providerAPIID != "gemini-api" {
+		t.Fatalf("expected restarted provider api id to be preserved, got %q", providerAPIID)
+	}
+}
+
+func TestSendProviderSessionMessage_PreservesCodexConfigOnRestart(t *testing.T) {
+	app := newCodexTestApp(t)
+	projectPath := t.TempDir()
+
+	firstID, err := app.StartProviderSession("codex", projectPath, "hello", "gpt-5-codex", "codex-api")
+	if err != nil {
+		t.Fatalf("StartProviderSession failed: %v", err)
+	}
+
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(app.ListRunningProviderSessions()) == 1
+	})
+
+	if err := app.StopProviderSession(firstID); err != nil {
+		t.Fatalf("StopProviderSession failed: %v", err)
+	}
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(app.ListRunningProviderSessions()) == 0
+	})
+
+	nextID, err := app.SendProviderSessionMessage("codex", projectPath, firstID, "follow up")
+	if err != nil {
+		t.Fatalf("SendProviderSessionMessage failed: %v", err)
+	}
+	defer func() { _ = app.StopProviderSession(nextID) }()
+
+	waitUntil(t, 2*time.Second, func() bool {
+		sessions := app.ListRunningProviderSessions()
+		return len(sessions) == 1 && sessions[0].SessionID == nextID
+	})
+
+	model, providerAPIID := runningSessionConfig(t, app.codexManager, nextID)
+	if model != "gpt-5-codex" {
+		t.Fatalf("expected restarted model to be preserved, got %q", model)
+	}
+	if providerAPIID != "codex-api" {
+		t.Fatalf("expected restarted provider api id to be preserved, got %q", providerAPIID)
+	}
 }

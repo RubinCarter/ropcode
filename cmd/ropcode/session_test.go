@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -291,6 +292,90 @@ func TestSessionLogsAndFollow(t *testing.T) {
 	}
 	if !strings.Contains(followStdout, "follow line") {
 		t.Fatalf("expected followed output, got %q", followStdout)
+	}
+}
+
+type logsFollowRaceRPCSession struct {
+	mu          sync.Mutex
+	sessionID   string
+	first       string
+	current     string
+	outputCalls int
+	running     bool
+}
+
+func newLogsFollowRaceRPCSession(sessionID, firstOutput, finalOutput string) *logsFollowRaceRPCSession {
+	return &logsFollowRaceRPCSession{
+		sessionID: sessionID,
+		first:     firstOutput,
+		current:   finalOutput,
+		running:   true,
+	}
+}
+
+func (s *logsFollowRaceRPCSession) Call(method string, params []any, out any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch method {
+	case "GetProviderSessionOutput":
+		output := s.current
+		if s.outputCalls == 0 {
+			output = s.first
+			s.running = false
+		}
+		s.outputCalls++
+		result, ok := out.(*string)
+		if !ok {
+			return fmt.Errorf("unexpected output type %T", out)
+		}
+		*result = output
+		return nil
+	case "ListRunningProviderSessions":
+		result, ok := out.(*[]liveProviderSession)
+		if !ok {
+			return fmt.Errorf("unexpected output type %T", out)
+		}
+		if s.running {
+			*result = []liveProviderSession{{SessionID: s.sessionID, Status: "running"}}
+		} else {
+			*result = nil
+		}
+		return nil
+	default:
+		return fmt.Errorf("unexpected method %q", method)
+	}
+}
+
+func (s *logsFollowRaceRPCSession) OnEvent(eventType string, handler func(payload json.RawMessage)) {}
+
+func (s *logsFollowRaceRPCSession) Close() error { return nil }
+
+func TestRunSessionLogsFollow_ReplaysMissedOutputAndExitsWhenSessionAlreadyCompleted(t *testing.T) {
+	client := newLogsFollowRaceRPCSession("session-1", "initial\n", "initial\nfinal\n")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runSessionLogs(cliState{stdout: &stdout, stderr: &stderr}, client, sessionCommandOptions{sessionID: "session-1", follow: true})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runSessionLogs failed: %v\n%s", err, stderr.String())
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Fatal("runSessionLogs --follow did not return after session completed")
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "initial") {
+		t.Fatalf("expected initial snapshot output, got %q", output)
+	}
+	if !strings.Contains(output, "final") {
+		t.Fatalf("expected output produced before subscription to be replayed, got %q", output)
 	}
 }
 

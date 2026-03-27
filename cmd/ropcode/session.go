@@ -224,6 +224,8 @@ func runSessionList(state cliState, client rpcSession, opts sessionCommandOption
 }
 
 func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOptions) error {
+	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID)
+
 	var output string
 	if err := client.Call("GetProviderSessionOutput", []any{opts.sessionID}, &output); err != nil {
 		return err
@@ -232,8 +234,25 @@ func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOption
 	if !opts.follow {
 		return nil
 	}
-	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID)
-	return stream.wait()
+
+	var sessions []liveProviderSession
+	if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
+		return err
+	}
+	for _, session := range sessions {
+		if session.SessionID == opts.sessionID {
+			return stream.wait()
+		}
+	}
+
+	var latest string
+	if err := client.Call("GetProviderSessionOutput", []any{opts.sessionID}, &latest); err != nil {
+		return err
+	}
+	if latest != output {
+		renderOutputBuffer(state.stdout, strings.TrimPrefix(latest, output))
+	}
+	return nil
 }
 
 func runSessionStop(state cliState, client rpcSession, opts sessionCommandOptions) error {
