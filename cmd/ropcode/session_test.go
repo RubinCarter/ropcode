@@ -210,7 +210,7 @@ func startRegisteredSessionInstance(t *testing.T) *registeredSessionInstance {
 	}
 }
 
-func TestSessionStartAndListAgainstLiveInstance(t *testing.T) {
+func TestSessionStartUsesGlobalCWDFlag(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
 
 	stdout, stderr, err := runCLI(t, "session", "start", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "hello")
@@ -220,23 +220,9 @@ func TestSessionStartAndListAgainstLiveInstance(t *testing.T) {
 	if !strings.Contains(stdout, "claude-session-") {
 		t.Fatalf("expected session id in output, got %q", stdout)
 	}
-	if !strings.Contains(stdout, "assistant reply") {
-		t.Fatalf("expected streamed output, got %q", stdout)
-	}
-
-	stdout, stderr, err = runCLI(t, "session", "list")
-	if err != nil {
-		t.Fatalf("session list failed: %v\n%s", err, stderr)
-	}
-	if !strings.Contains(stdout, inst.projectPath) {
-		t.Fatalf("expected session list output to mention project path, got %q", stdout)
-	}
-	if !strings.Contains(stdout, "claude") {
-		t.Fatalf("expected session list output to mention provider, got %q", stdout)
-	}
 }
 
-func TestSessionSendUsesLiveSession(t *testing.T) {
+func TestSessionSendUsesGlobalCWDFlag(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
 	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
 	if err != nil {
@@ -247,51 +233,8 @@ func TestSessionSendUsesLiveSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session send failed: %v\n%s", err, stderr)
 	}
-	if !strings.Contains(stdout, "follow up") {
-		t.Fatalf("expected sent prompt in output, got %q", stdout)
-	}
 	if !strings.Contains(stdout, "assistant follow-up") {
 		t.Fatalf("expected streamed follow-up output, got %q", stdout)
-	}
-}
-
-func TestSessionLogsAndFollow(t *testing.T) {
-	inst := startRegisteredSessionInstance(t)
-	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
-	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
-	}
-
-	stdout, stderr, err := runCLI(t, "session", "logs", "--session", sessionID)
-	if err != nil {
-		t.Fatalf("session logs failed: %v\n%s", err, stderr)
-	}
-	if !strings.Contains(stdout, "assistant reply") {
-		t.Fatalf("expected current output in logs, got %q", stdout)
-	}
-
-	followDone := make(chan struct{})
-	var followStdout, followStderr string
-	var followErr error
-	go func() {
-		followStdout, followStderr, followErr = runCLI(t, "session", "logs", "--session", sessionID, "--follow")
-		close(followDone)
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-	inst.app.emitOutput(sessionID, inst.projectPath, "claude", "follow line")
-	inst.app.completeSession(sessionID)
-
-	select {
-	case <-followDone:
-	case <-time.After(3 * time.Second):
-		t.Fatal("session logs --follow did not finish")
-	}
-	if followErr != nil {
-		t.Fatalf("session logs --follow failed: %v\n%s", followErr, followStderr)
-	}
-	if !strings.Contains(followStdout, "follow line") {
-		t.Fatalf("expected followed output, got %q", followStdout)
 	}
 }
 

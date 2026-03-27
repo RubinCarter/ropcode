@@ -82,6 +82,8 @@ func runCLIArgs(args []string, stdout io.Writer, stderr io.Writer, deps cliDeps)
 		return runContextCommand(state, args[1:])
 	case "session":
 		return runSessionCommand(state, args[1:])
+	case "tui":
+		return runTUICommand(state, args[1:])
 	default:
 		writeUsage(stderr)
 		return fmt.Errorf("unknown command %q", strings.Join(args, " "))

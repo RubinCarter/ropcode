@@ -24,6 +24,7 @@ type cliContext struct {
 	CurrentWorkspace     string `json:"current_workspace,omitempty"`
 	CurrentWorkspacePath string `json:"current_workspace_path,omitempty"`
 	CurrentCWD           string `json:"current_cwd,omitempty"`
+	CurrentSessionID     string `json:"current_session_id,omitempty"`
 }
 
 type projectResolutionOptions struct {

@@ -8,7 +8,7 @@ build/bin/
 .ropcode/
 node_modules
 frontend/dist
-ropcode
+/ropcode
 *.md5
 waveterm/
 

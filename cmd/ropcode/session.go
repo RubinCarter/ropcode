@@ -134,19 +134,19 @@ func runSessionCommand(state cliState, args []string) error {
 
 	switch args[0] {
 	case "start":
-		opts, err := parseSessionStartArgs(args[1:])
+		opts, err := parseSessionStartArgs(args[1:], state.cwdFlag)
 		if err != nil {
 			return err
 		}
 		return runSessionStart(state, client, opts)
 	case "send":
-		opts, err := parseSessionSendArgs(args[1:])
+		opts, err := parseSessionSendArgs(args[1:], state.cwdFlag)
 		if err != nil {
 			return err
 		}
 		return runSessionSend(state, client, opts)
 	case "list":
-		opts, err := parseSessionListArgs(args[1:])
+		opts, err := parseSessionListArgs(args[1:], state.cwdFlag)
 		if err != nil {
 			return err
 		}
@@ -175,6 +175,9 @@ func runSessionStart(state cliState, client rpcSession, opts sessionCommandOptio
 		return err
 	}
 	stream.setSessionID(sessionID)
+	if err := saveCurrentSession(state, sessionID); err != nil {
+		return err
+	}
 	fmt.Fprintf(state.stdout, "session\t%s\n", sessionID)
 	return stream.wait()
 }
@@ -186,6 +189,9 @@ func runSessionSend(state cliState, client rpcSession, opts sessionCommandOption
 		return err
 	}
 	stream.setSessionID(sessionID)
+	if err := saveCurrentSession(state, sessionID); err != nil {
+		return err
+	}
 	fmt.Fprintf(state.stdout, "session\t%s\n", sessionID)
 	return stream.wait()
 }
@@ -225,6 +231,9 @@ func runSessionList(state cliState, client rpcSession, opts sessionCommandOption
 
 func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOptions) error {
 	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID)
+	if err := saveCurrentSession(state, opts.sessionID); err != nil {
+		return err
+	}
 
 	var output string
 	if err := client.Call("GetProviderSessionOutput", []any{opts.sessionID}, &output); err != nil {
@@ -255,6 +264,25 @@ func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOption
 	return nil
 }
 
+func saveCurrentSession(state cliState, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	cfg, err := state.deps.loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	ctx, err := loadCLIContext(cfg)
+	if err != nil {
+		return fmt.Errorf("load cli context: %w", err)
+	}
+	ctx.CurrentSessionID = sessionID
+	if err := saveCLIContext(cfg, ctx); err != nil {
+		return fmt.Errorf("save cli context: %w", err)
+	}
+	return nil
+}
+
 func runSessionStop(state cliState, client rpcSession, opts sessionCommandOptions) error {
 	if err := client.Call("StopProviderSession", []any{opts.sessionID}, nil); err != nil {
 		return err
@@ -271,10 +299,13 @@ func subscribeSessionEvents(client rpcSession, stdout io.Writer, stderr io.Write
 	return stream
 }
 
-func parseSessionStartArgs(args []string) (sessionCommandOptions, error) {
+func parseSessionStartArgs(args []string, fallbackCWD string) (sessionCommandOptions, error) {
 	opts, err := parseSessionFlagPairs(args)
 	if err != nil {
 		return sessionCommandOptions{}, err
+	}
+	if opts.cwd == "" {
+		opts.cwd = fallbackCWD
 	}
 	if opts.cwd == "" || opts.provider == "" || opts.prompt == "" {
 		return sessionCommandOptions{}, errors.New("usage: ropcode session start --cwd <path> --provider <provider> --prompt <text> [--model <model>] [--provider-api-id <id>]")
@@ -282,10 +313,13 @@ func parseSessionStartArgs(args []string) (sessionCommandOptions, error) {
 	return opts, nil
 }
 
-func parseSessionSendArgs(args []string) (sessionCommandOptions, error) {
+func parseSessionSendArgs(args []string, fallbackCWD string) (sessionCommandOptions, error) {
 	opts, err := parseSessionFlagPairs(args)
 	if err != nil {
 		return sessionCommandOptions{}, err
+	}
+	if opts.cwd == "" {
+		opts.cwd = fallbackCWD
 	}
 	if opts.sessionID == "" || opts.cwd == "" || opts.provider == "" || opts.prompt == "" {
 		return sessionCommandOptions{}, errors.New("usage: ropcode session send --session <id> --cwd <path> --provider <provider> --prompt <text>")
@@ -293,8 +327,15 @@ func parseSessionSendArgs(args []string) (sessionCommandOptions, error) {
 	return opts, nil
 }
 
-func parseSessionListArgs(args []string) (sessionCommandOptions, error) {
-	return parseSessionFlagPairs(args)
+func parseSessionListArgs(args []string, fallbackCWD string) (sessionCommandOptions, error) {
+	opts, err := parseSessionFlagPairs(args)
+	if err != nil {
+		return sessionCommandOptions{}, err
+	}
+	if opts.cwd == "" {
+		opts.cwd = fallbackCWD
+	}
+	return opts, nil
 }
 
 func parseSessionLogsArgs(args []string) (sessionCommandOptions, error) {
