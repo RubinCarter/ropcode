@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"ropcode/internal/config"
+	"ropcode/internal/database"
 )
 
 func runWorkspaceCommand(state cliState, args []string) error {
@@ -29,12 +30,7 @@ func runWorkspaceCommand(state cliState, args []string) error {
 }
 
 func runWorkspaceList(state cliState, cfg *config.Config, args []string) error {
-	projectName, err := resolveWorkspaceProjectArg(state, args)
-	if err != nil {
-		return err
-	}
-
-	project, _, err := resolveProject(state.deps, cfg, projectResolutionOptions{explicitProject: projectName})
+	project, err := resolveWorkspaceProject(state, cfg, args)
 	if err != nil {
 		return err
 	}
@@ -52,15 +48,11 @@ func runWorkspaceList(state cliState, cfg *config.Config, args []string) error {
 }
 
 func runWorkspaceUse(state cliState, cfg *config.Config, args []string) error {
-	projectName, workspaceName, err := parseWorkspaceUseArgs(state, args)
+	project, workspaceName, err := resolveWorkspaceUseSelection(state, cfg, args)
 	if err != nil {
 		return err
 	}
 
-	project, _, err := resolveProject(state.deps, cfg, projectResolutionOptions{explicitProject: projectName})
-	if err != nil {
-		return err
-	}
 	workspace, _, err := resolveWorkspace(state.deps, cfg, project, workspaceResolutionOptions{explicitWorkspace: workspaceName})
 	if err != nil {
 		return err
@@ -83,28 +75,38 @@ func runWorkspaceUse(state cliState, cfg *config.Config, args []string) error {
 	return nil
 }
 
-func resolveWorkspaceProjectArg(state cliState, args []string) (string, error) {
-	if state.projectFlag != "" {
-		if len(args) != 0 {
-			return "", errors.New("usage: ropcode workspace list --project <name-or-path>")
-		}
-		return state.projectFlag, nil
+func resolveWorkspaceProject(state cliState, cfg *config.Config, args []string) (*database.ProjectIndex, error) {
+	if len(args) != 0 {
+		return nil, workspaceUsageError("list")
 	}
-	if len(args) == 2 && args[0] == "--project" && args[1] != "" {
-		return args[1], nil
+	project, _, err := resolveProject(state.deps, cfg, projectResolutionOptions{
+		explicitProject: state.projectFlag,
+		explicitCWD:     state.cwdFlag,
+	})
+	if err != nil {
+		return nil, err
 	}
-	return "", errors.New("usage: ropcode workspace list --project <name-or-path>")
+	return project, nil
 }
 
-func parseWorkspaceUseArgs(state cliState, args []string) (string, string, error) {
-	if state.projectFlag != "" {
-		if len(args) != 1 || args[0] == "" {
-			return "", "", errors.New("usage: ropcode workspace use --project <name-or-path> <workspace-name>")
-		}
-		return state.projectFlag, args[0], nil
+func resolveWorkspaceUseSelection(state cliState, cfg *config.Config, args []string) (*database.ProjectIndex, string, error) {
+	if len(args) != 1 || args[0] == "" {
+		return nil, "", workspaceUsageError("use")
 	}
-	if len(args) == 3 && args[0] == "--project" && args[1] != "" && args[2] != "" {
-		return args[1], args[2], nil
+	project, err := resolveWorkspaceProject(state, cfg, nil)
+	if err != nil {
+		return nil, "", err
 	}
-	return "", "", errors.New("usage: ropcode workspace use --project <name-or-path> <workspace-name>")
+	return project, args[0], nil
+}
+
+func workspaceUsageError(subcommand string) error {
+	switch subcommand {
+	case "list":
+		return errors.New("usage: ropcode workspace list [--project <name-or-path>]")
+	case "use":
+		return errors.New("usage: ropcode workspace use [--project <name-or-path>] <workspace-name>")
+	default:
+		return errors.New("usage: ropcode workspace")
+	}
 }

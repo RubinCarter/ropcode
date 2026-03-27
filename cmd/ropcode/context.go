@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -331,6 +332,22 @@ func findInstanceByID(instances []*database.InstanceRecord, id string) *database
 	return nil
 }
 
+func pathMatchesOrContains(basePath, candidate string) bool {
+	if basePath == "" || candidate == "" {
+		return false
+	}
+	cleanBase := filepath.Clean(basePath)
+	cleanCandidate := filepath.Clean(candidate)
+	if cleanBase == cleanCandidate {
+		return true
+	}
+	rel, err := filepath.Rel(cleanBase, cleanCandidate)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 func findProject(projects []*database.ProjectIndex, nameOrPath string) *database.ProjectIndex {
 	for _, project := range projects {
 		if project.Name == nameOrPath || projectPrimaryPath(project) == nameOrPath {
@@ -342,7 +359,7 @@ func findProject(projects []*database.ProjectIndex, nameOrPath string) *database
 
 func findProjectByPath(projects []*database.ProjectIndex, path string) *database.ProjectIndex {
 	for _, project := range projects {
-		if projectPrimaryPath(project) == path {
+		if pathMatchesOrContains(projectPrimaryPath(project), path) {
 			return project
 		}
 	}
@@ -352,7 +369,7 @@ func findProjectByPath(projects []*database.ProjectIndex, path string) *database
 func findProjectByWorkspacePath(projects []*database.ProjectIndex, path string) *database.ProjectIndex {
 	for _, project := range projects {
 		for i := range project.Workspaces {
-			if workspacePrimaryPath(&project.Workspaces[i]) == path {
+			if pathMatchesOrContains(workspacePrimaryPath(&project.Workspaces[i]), path) {
 				return project
 			}
 		}
@@ -371,7 +388,7 @@ func findWorkspaceByName(workspaces []database.WorkspaceIndex, name string) *dat
 
 func findWorkspaceByPath(workspaces []database.WorkspaceIndex, path string) *database.WorkspaceIndex {
 	for i := range workspaces {
-		if workspacePrimaryPath(&workspaces[i]) == path {
+		if pathMatchesOrContains(workspacePrimaryPath(&workspaces[i]), path) {
 			return &workspaces[i]
 		}
 	}

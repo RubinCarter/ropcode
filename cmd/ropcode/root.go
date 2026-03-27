@@ -151,8 +151,8 @@ func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  ropcode instance use <id>")
 	fmt.Fprintln(w, "  ropcode project list")
 	fmt.Fprintln(w, "  ropcode project show <name-or-path>")
-	fmt.Fprintln(w, "  ropcode workspace list --project <name-or-path>")
-	fmt.Fprintln(w, "  ropcode workspace use <workspace-name>")
+	fmt.Fprintln(w, "  ropcode workspace list [--project <name-or-path>]")
+	fmt.Fprintln(w, "  ropcode workspace use [--project <name-or-path>] <workspace-name>")
 	fmt.Fprintln(w, "  ropcode context show [--instance <id>] [--project <name-or-path>] [--workspace <name>]")
 	fmt.Fprintln(w, "  ropcode context clear")
 }
