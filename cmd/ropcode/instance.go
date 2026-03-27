@@ -68,7 +68,11 @@ func runInstanceUse(state cliState, cfg *config.Config, id string) error {
 	if err != nil {
 		return err
 	}
-	ctx := cliContext{CurrentInstanceID: resolved.ID}
+	ctx, err := loadCLIContext(cfg)
+	if err != nil {
+		return fmt.Errorf("load cli context: %w", err)
+	}
+	ctx.CurrentInstanceID = resolved.ID
 	if err := saveCLIContext(cfg, ctx); err != nil {
 		return fmt.Errorf("save cli context: %w", err)
 	}

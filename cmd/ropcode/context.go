@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,12 +17,27 @@ import (
 var staleGracePeriod = 90 * time.Second
 
 type cliContext struct {
-	CurrentInstanceID string `json:"current_instance_id,omitempty"`
+	CurrentInstanceID    string `json:"current_instance_id,omitempty"`
+	CurrentProject       string `json:"current_project,omitempty"`
+	CurrentProjectPath   string `json:"current_project_path,omitempty"`
+	CurrentWorkspace     string `json:"current_workspace,omitempty"`
+	CurrentWorkspacePath string `json:"current_workspace_path,omitempty"`
+	CurrentCWD           string `json:"current_cwd,omitempty"`
+}
+
+type projectResolutionOptions struct {
+	explicitProject string
+	explicitCWD     string
+}
+
+type workspaceResolutionOptions struct {
+	explicitWorkspace string
+	explicitCWD       string
 }
 
 func runContextCommand(state cliState, args []string) error {
-	if len(args) != 1 || args[0] != "show" {
-		return errors.New("usage: ropcode context show [--instance <id>]")
+	if len(args) != 1 {
+		return errors.New("usage: ropcode context show|clear")
 	}
 
 	cfg, err := state.deps.loadConfig()
@@ -29,6 +45,17 @@ func runContextCommand(state cliState, args []string) error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
+	switch args[0] {
+	case "show":
+		return runContextShow(state, cfg)
+	case "clear":
+		return runContextClear(state, cfg)
+	default:
+		return errors.New("usage: ropcode context show|clear")
+	}
+}
+
+func runContextShow(state cliState, cfg *config.Config) error {
 	record, source, err := resolveInstance(state.deps, cfg, state.instanceFlag)
 	if err != nil {
 		return err
@@ -40,10 +67,45 @@ func runContextCommand(state cliState, args []string) error {
 	}
 	defer client.Close()
 
+	project, projectSource, projectErr := resolveProject(state.deps, cfg, projectResolutionOptions{
+		explicitProject: state.projectFlag,
+		explicitCWD:     state.cwdFlag,
+	})
+	workspace, workspaceSource, workspaceErr := resolveWorkspace(state.deps, cfg, project, workspaceResolutionOptions{
+		explicitWorkspace: state.workspaceFlag,
+		explicitCWD:       state.cwdFlag,
+	})
+
 	fmt.Fprintf(state.stdout, "instance\t%s\n", record.ID)
-	fmt.Fprintf(state.stdout, "source\t%s\n", source)
+	fmt.Fprintf(state.stdout, "instance_source\t%s\n", source)
 	fmt.Fprintf(state.stdout, "url\t%s\n", instanceWSURL(record))
 	fmt.Fprintf(state.stdout, "status\tattached\n")
+	if projectErr == nil {
+		fmt.Fprintf(state.stdout, "project\t%s\n", project.Name)
+		fmt.Fprintf(state.stdout, "project_source\t%s\n", projectSource)
+		if path := projectPrimaryPath(project); path != "" {
+			fmt.Fprintf(state.stdout, "project_path\t%s\n", path)
+		}
+	}
+	if workspaceErr == nil {
+		fmt.Fprintf(state.stdout, "workspace\t%s\n", workspace.Name)
+		fmt.Fprintf(state.stdout, "workspace_source\t%s\n", workspaceSource)
+		if path := workspacePrimaryPath(workspace); path != "" {
+			fmt.Fprintf(state.stdout, "cwd\t%s\n", path)
+		}
+	} else if projectErr == nil {
+		if cwd := projectPrimaryPath(project); cwd != "" {
+			fmt.Fprintf(state.stdout, "cwd\t%s\n", cwd)
+		}
+	}
+	return nil
+}
+
+func runContextClear(state cliState, cfg *config.Config) error {
+	if err := saveCLIContext(cfg, cliContext{}); err != nil {
+		return fmt.Errorf("save cli context: %w", err)
+	}
+	fmt.Fprintln(state.stdout, "context cleared")
 	return nil
 }
 
@@ -114,6 +176,107 @@ func resolveInstance(deps cliDeps, cfg *config.Config, explicitID string) (*data
 	return nil, "", errors.New(msg.String())
 }
 
+func resolveProject(deps cliDeps, cfg *config.Config, opts projectResolutionOptions) (*database.ProjectIndex, string, error) {
+	projects, err := listProjects(deps, cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(projects) == 0 {
+		return nil, "", errors.New("no projects found; run `ropcode project list`")
+	}
+
+	if opts.explicitCWD != "" {
+		if project := findProjectByWorkspacePath(projects, opts.explicitCWD); project != nil {
+			return project, "explicit", nil
+		}
+		if project := findProjectByPath(projects, opts.explicitCWD); project != nil {
+			return project, "explicit", nil
+		}
+		return nil, "", fmt.Errorf("project for cwd %q not found; run `ropcode project list`", opts.explicitCWD)
+	}
+	if opts.explicitProject != "" {
+		if project := findProject(projects, opts.explicitProject); project != nil {
+			return project, "explicit", nil
+		}
+		return nil, "", fmt.Errorf("project %q not found; run `ropcode project list`", opts.explicitProject)
+	}
+
+	ctx, err := loadCLIContext(cfg)
+	if err != nil {
+		return nil, "", fmt.Errorf("load cli context: %w", err)
+	}
+	if ctx.CurrentCWD != "" {
+		if project := findProjectByWorkspacePath(projects, ctx.CurrentCWD); project != nil {
+			return project, "saved", nil
+		}
+		if project := findProjectByPath(projects, ctx.CurrentCWD); project != nil {
+			return project, "saved", nil
+		}
+	}
+	if ctx.CurrentProjectPath != "" {
+		if project := findProjectByPath(projects, ctx.CurrentProjectPath); project != nil {
+			return project, "saved", nil
+		}
+	}
+	if ctx.CurrentProject != "" {
+		if project := findProject(projects, ctx.CurrentProject); project != nil {
+			return project, "saved", nil
+		}
+	}
+
+	if len(projects) == 1 {
+		return projects[0], "auto", nil
+	}
+	return nil, "", errors.New("multiple projects found; use `--project <name-or-path>` or run `ropcode project list`")
+}
+
+func resolveWorkspace(deps cliDeps, cfg *config.Config, project *database.ProjectIndex, opts workspaceResolutionOptions) (*database.WorkspaceIndex, string, error) {
+	if project == nil {
+		return nil, "", errors.New("project context required before resolving workspace")
+	}
+	workspaces := append([]database.WorkspaceIndex(nil), project.Workspaces...)
+	if len(workspaces) == 0 {
+		return nil, "", fmt.Errorf("project %q has no indexed workspaces; run `ropcode workspace list --project %s`", project.Name, project.Name)
+	}
+
+	if opts.explicitCWD != "" {
+		if workspace := findWorkspaceByPath(workspaces, opts.explicitCWD); workspace != nil {
+			return workspace, "explicit", nil
+		}
+	}
+	if opts.explicitWorkspace != "" {
+		if workspace := findWorkspaceByName(workspaces, opts.explicitWorkspace); workspace != nil {
+			return workspace, "explicit", nil
+		}
+		return nil, "", fmt.Errorf("workspace %q not found in project %q; run `ropcode workspace list --project %s`", opts.explicitWorkspace, project.Name, project.Name)
+	}
+
+	ctx, err := loadCLIContext(cfg)
+	if err != nil {
+		return nil, "", fmt.Errorf("load cli context: %w", err)
+	}
+	if ctx.CurrentCWD != "" {
+		if workspace := findWorkspaceByPath(workspaces, ctx.CurrentCWD); workspace != nil {
+			return workspace, "saved", nil
+		}
+	}
+	if ctx.CurrentWorkspacePath != "" {
+		if workspace := findWorkspaceByPath(workspaces, ctx.CurrentWorkspacePath); workspace != nil {
+			return workspace, "saved", nil
+		}
+	}
+	if ctx.CurrentWorkspace != "" {
+		if workspace := findWorkspaceByName(workspaces, ctx.CurrentWorkspace); workspace != nil {
+			return workspace, "saved", nil
+		}
+	}
+
+	if len(workspaces) == 1 {
+		return &workspaces[0], "auto", nil
+	}
+	return nil, "", fmt.Errorf("multiple workspaces found for project %q; use `--workspace <name>` or run `ropcode workspace list --project %s`", project.Name, project.Name)
+}
+
 func listAliveInstancesForOutput(state cliState, cfg *config.Config) ([]*database.InstanceRecord, string, error) {
 	alive, err := listAliveInstances(state.deps, cfg)
 	if err != nil {
@@ -142,6 +305,23 @@ func listAliveInstances(deps cliDeps, cfg *config.Config) ([]*database.InstanceR
 	return instances, nil
 }
 
+func listProjects(deps cliDeps, cfg *config.Config) ([]*database.ProjectIndex, error) {
+	db, err := deps.openDB(cfg.DatabasePath)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+	defer db.Close()
+
+	projects, err := db.GetAllProjectIndexes()
+	if err != nil {
+		return nil, fmt.Errorf("list projects: %w", err)
+	}
+	sort.Slice(projects, func(i, j int) bool {
+		return projects[i].Name < projects[j].Name
+	})
+	return projects, nil
+}
+
 func findInstanceByID(instances []*database.InstanceRecord, id string) *database.InstanceRecord {
 	for _, inst := range instances {
 		if inst.ID == id {
@@ -149,6 +329,67 @@ func findInstanceByID(instances []*database.InstanceRecord, id string) *database
 		}
 	}
 	return nil
+}
+
+func findProject(projects []*database.ProjectIndex, nameOrPath string) *database.ProjectIndex {
+	for _, project := range projects {
+		if project.Name == nameOrPath || projectPrimaryPath(project) == nameOrPath {
+			return project
+		}
+	}
+	return nil
+}
+
+func findProjectByPath(projects []*database.ProjectIndex, path string) *database.ProjectIndex {
+	for _, project := range projects {
+		if projectPrimaryPath(project) == path {
+			return project
+		}
+	}
+	return nil
+}
+
+func findProjectByWorkspacePath(projects []*database.ProjectIndex, path string) *database.ProjectIndex {
+	for _, project := range projects {
+		for i := range project.Workspaces {
+			if workspacePrimaryPath(&project.Workspaces[i]) == path {
+				return project
+			}
+		}
+	}
+	return nil
+}
+
+func findWorkspaceByName(workspaces []database.WorkspaceIndex, name string) *database.WorkspaceIndex {
+	for i := range workspaces {
+		if workspaces[i].Name == name {
+			return &workspaces[i]
+		}
+	}
+	return nil
+}
+
+func findWorkspaceByPath(workspaces []database.WorkspaceIndex, path string) *database.WorkspaceIndex {
+	for i := range workspaces {
+		if workspacePrimaryPath(&workspaces[i]) == path {
+			return &workspaces[i]
+		}
+	}
+	return nil
+}
+
+func projectPrimaryPath(project *database.ProjectIndex) string {
+	if project == nil || len(project.Providers) == 0 {
+		return ""
+	}
+	return project.Providers[0].Path
+}
+
+func workspacePrimaryPath(workspace *database.WorkspaceIndex) string {
+	if workspace == nil || len(workspace.Providers) == 0 {
+		return ""
+	}
+	return workspace.Providers[0].Path
 }
 
 func instanceWSURL(record *database.InstanceRecord) string {
