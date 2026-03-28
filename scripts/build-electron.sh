@@ -24,16 +24,20 @@ fi
 echo "Detected OS: $CURRENT_OS ($OSTYPE)"
 
 # 1. 构建 Go 服务器
-echo "Building Go server..."
+ echo "Building Go server..."
 mkdir -p bin/darwin/arm64 bin/darwin/x64 bin/linux/x64 bin/win32/x64
 
 if [[ "$CURRENT_OS" == "darwin" ]]; then
   GOOS=darwin GOARCH=arm64 go build -tags server -o bin/darwin/arm64/ropcode-server .
   GOOS=darwin GOARCH=amd64 go build -tags server -o bin/darwin/x64/ropcode-server .
+  GOOS=darwin GOARCH=arm64 go build -o bin/darwin/arm64/ropcode ./cmd/ropcode
+  GOOS=darwin GOARCH=amd64 go build -o bin/darwin/x64/ropcode ./cmd/ropcode
 elif [[ "$CURRENT_OS" == "linux" ]]; then
   GOOS=linux GOARCH=amd64 go build -tags server -o bin/linux/x64/ropcode-server .
+  GOOS=linux GOARCH=amd64 go build -o bin/linux/x64/ropcode ./cmd/ropcode
 elif [[ "$CURRENT_OS" == "win32" ]]; then
   GOOS=windows GOARCH=amd64 go build -tags server -o bin/win32/x64/ropcode-server.exe .
+  GOOS=windows GOARCH=amd64 go build -o bin/win32/x64/ropcode.exe ./cmd/ropcode
 fi
 
 echo "Go server built."
@@ -64,13 +68,16 @@ echo "Frontend copied."
 echo "Preparing electron-builder config for $CURRENT_OS..."
 if [[ "$CURRENT_OS" == "darwin" ]]; then
   SERVER_BIN="bin/darwin/\${arch}/ropcode-server"
+  CLI_BIN="bin/darwin/\${arch}/ropcode"
 elif [[ "$CURRENT_OS" == "linux" ]]; then
   SERVER_BIN="bin/linux/x64/ropcode-server"
+  CLI_BIN="bin/linux/x64/ropcode"
 elif [[ "$CURRENT_OS" == "win32" ]]; then
   SERVER_BIN="bin/win32/x64/ropcode-server.exe"
+  CLI_BIN="bin/win32/x64/ropcode.exe"
 fi
 
-sed "s|from: bin/darwin/\${arch}/ropcode-server|from: $SERVER_BIN|" electron-builder.yml > electron-builder-tmp.yml
+sed -e "s|from: bin/darwin/\${arch}/ropcode-server|from: $SERVER_BIN|" -e "s|from: bin/darwin/\${arch}/ropcode$|from: $CLI_BIN|" electron-builder.yml > electron-builder-tmp.yml
 
 # 6. 打包
 echo "Packaging with electron-builder ($BUILDER_TARGET)..."

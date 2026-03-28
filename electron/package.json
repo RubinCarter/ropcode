@@ -5,6 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
+    "test": "node -e \"require('node:fs').rmSync('.tmp-test',{recursive:true,force:true})\" && tsc --outDir .tmp-test && node --test .tmp-test/app-menu.test.js .tmp-test/cli-installer.test.js .tmp-test/main-paths.test.js && node -e \"require('node:fs').rmSync('.tmp-test',{recursive:true,force:true})\"",
     "start": "electron .",
     "dev": "tsc && electron ."
   },

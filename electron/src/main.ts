@@ -3,10 +3,12 @@ import { app, BrowserWindow, ipcMain, dialog, webContents, protocol, net, Menu, 
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { startGoServer, stopGoServer, GoServerInfo } from './go-server';
+import { buildAppMenuTemplate } from './app-menu';
+import { createInstallEnvironment, installCliToPath, resolvePackagedCliBinaryPath } from './cli-installer';
+import { resolveDevCliBinaryPath } from './main-paths';
 
 let mainWindow: BrowserWindow | null = null;
 let goServerInfo: GoServerInfo | null = null;
-let focusedWebviewId: number | null = null;
 
 const isDev = !app.isPackaged;
 
@@ -16,7 +18,6 @@ const getIconPath = () => {
     ? path.join(__dirname, '..', '..', 'assets')
     : path.join(process.resourcesPath, 'assets');
 
-  // 根据平台使用正确的图标格式
   if (process.platform === 'darwin') {
     return path.join(iconDir, 'icon.icns');
   } else if (process.platform === 'win32') {
@@ -26,8 +27,47 @@ const getIconPath = () => {
   }
 };
 
+function getCliBinaryPath(): string {
+  if (isDev) {
+    return resolveDevCliBinaryPath(__dirname, process.platform, process.arch);
+  }
+
+  return resolvePackagedCliBinaryPath(process.resourcesPath, process.platform);
+}
+
+async function installCliFromMenu(): Promise<void> {
+  if (!mainWindow) {
+    return;
+  }
+
+  try {
+    const result = await installCliToPath(createInstallEnvironment(getCliBinaryPath()));
+    const detail = result.pathUpdated
+      ? `CLI installed at ${result.linkPath}. PATH update saved${result.shellProfilePath ? ` in ${result.shellProfilePath}` : ''}.`
+      : `CLI installed at ${result.linkPath}.`;
+
+    await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      message: 'Ropcode CLI installed to PATH',
+      detail,
+      buttons: ['OK'],
+    });
+  } catch (error) {
+    await dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      message: 'Failed to install Ropcode CLI to PATH',
+      detail: error instanceof Error ? error.message : String(error),
+      buttons: ['OK'],
+    });
+  }
+}
+
+function installAppMenu(): void {
+  const menu = Menu.buildFromTemplate(buildAppMenuTemplate(process.platform, installCliFromMenu));
+  Menu.setApplicationMenu(menu);
+}
+
 async function createWindow() {
-  // 设置环境变量供 preload 脚本使用
   process.env.ROPCODE_WS_PORT = String(goServerInfo!.port);
   process.env.ROPCODE_AUTH_KEY = goServerInfo!.authKey;
 
@@ -36,8 +76,8 @@ async function createWindow() {
     height: 700,
     minWidth: 1100,
     minHeight: 700,
-    icon: getIconPath(), // 设置应用图标
-    frame: false, // 无边框窗口
+    icon: getIconPath(),
+    frame: false,
     transparent: true,
     backgroundColor: '#00000000',
     webPreferences: {
@@ -50,7 +90,6 @@ async function createWindow() {
     trafficLightPosition: { x: 10, y: 10 },
   });
 
-  // Dev and Prod both load from Go server (unified single port)
   const loadUrl = `http://localhost:${goServerInfo!.port}`;
 
   console.log('[Electron] Loading URL:', loadUrl);
@@ -74,11 +113,9 @@ async function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
-  // Native context menu (copy/paste/select all/copy link)
   mainWindow.webContents.on('context-menu', (_event, params) => {
     const menu = new Menu();
 
-    // Link actions
     if (params.linkURL) {
       menu.append(new MenuItem({
         label: 'Copy Link',
@@ -112,7 +149,6 @@ async function createWindow() {
     }
   });
 
-  // Notify renderer of fullscreen state changes
   mainWindow.on('enter-full-screen', () => {
     mainWindow?.webContents.send('window:fullscreen-changed', true);
   });
@@ -125,9 +161,7 @@ async function createWindow() {
   });
 }
 
-// 注册 IPC 处理器
 function registerIpcHandlers() {
-  // 窗口控制
   ipcMain.handle('window:minimize', () => mainWindow?.minimize());
   ipcMain.handle('window:maximize', () => mainWindow?.maximize());
   ipcMain.handle('window:unmaximize', () => mainWindow?.unmaximize());
@@ -153,10 +187,8 @@ function registerIpcHandlers() {
   ipcMain.handle('window:getPosition', () => mainWindow?.getPosition());
   ipcMain.handle('window:setAlwaysOnTop', (_, flag: boolean) => mainWindow?.setAlwaysOnTop(flag));
 
-  // 应用控制
   ipcMain.handle('app:quit', () => app.quit());
 
-  // 文件对话框
   ipcMain.handle('dialog:openDirectory', async () => {
     if (!mainWindow) return { canceled: true };
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -179,13 +211,8 @@ function registerIpcHandlers() {
     };
   });
 
-  // Webview 相关
   ipcMain.handle('webview:getPreloadPath', () => {
     return `file://${path.join(__dirname, 'preload-webview.js')}`;
-  });
-
-  ipcMain.on('webview:setFocus', (_, webContentsId: number | null) => {
-    focusedWebviewId = webContentsId;
   });
 
   ipcMain.handle('webview:clearStorage', async (_, webContentsId: number) => {
@@ -200,10 +227,9 @@ function registerIpcHandlers() {
   });
 
   ipcMain.on('webview:imageContextMenu', (_: Electron.IpcMainEvent, _data: { src: string }) => {
-    // Image context menu placeholder - implement save/copy if needed
   });
 
-  ipcMain.on('webview:sendToWebview', (_, webContentsId: number, channel: string, ...args: any[]) => {
+  ipcMain.on('webview:sendToWebview', (_, webContentsId: number, channel: string, ...args: unknown[]) => {
     try {
       const wc = webContents.fromId(webContentsId);
       if (wc) {
@@ -214,15 +240,12 @@ function registerIpcHandlers() {
     }
   });
 
-  ipcMain.on('webview:elementSelected', (event, elementInfo) => {
+  ipcMain.on('webview:elementSelected', (_event, elementInfo) => {
     mainWindow?.webContents.send('webview:elementSelected', elementInfo);
   });
-
 }
 
 app.whenReady().then(async () => {
-  // 注册 local-file 协议，用于在开发模式下加载本地文件
-  // 这解决了从 http://localhost 加载 file:// 资源的安全限制
   protocol.handle('local-file', (request) => {
     const filePath = decodeURIComponent(request.url.replace('local-file://', ''));
     return net.fetch(pathToFileURL(filePath).toString());
@@ -233,6 +256,7 @@ app.whenReady().then(async () => {
     goServerInfo = await startGoServer();
     console.log('[Electron] Go server started:', goServerInfo);
 
+    installAppMenu();
     registerIpcHandlers();
     await createWindow();
   } catch (error) {
@@ -248,7 +272,6 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  // 在所有平台上（包括 macOS）关闭窗口时退出应用
   app.quit();
 });
 
