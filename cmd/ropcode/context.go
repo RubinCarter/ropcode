@@ -1,10 +1,9 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,16 +15,6 @@ import (
 )
 
 var staleGracePeriod = 90 * time.Second
-
-type cliContext struct {
-	CurrentInstanceID    string `json:"current_instance_id,omitempty"`
-	CurrentProject       string `json:"current_project,omitempty"`
-	CurrentProjectPath   string `json:"current_project_path,omitempty"`
-	CurrentWorkspace     string `json:"current_workspace,omitempty"`
-	CurrentWorkspacePath string `json:"current_workspace_path,omitempty"`
-	CurrentCWD           string `json:"current_cwd,omitempty"`
-	CurrentSessionID     string `json:"current_session_id,omitempty"`
-}
 
 type projectResolutionOptions struct {
 	explicitProject string
@@ -39,7 +28,12 @@ type workspaceResolutionOptions struct {
 
 func runContextCommand(state cliState, args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: ropcode context show|clear")
+		writeContextUsage(state.stderr)
+		return errors.New("usage: ropcode runtime context show")
+	}
+	if isHelpArg(args[0]) {
+		writeContextUsage(state.stdout)
+		return nil
 	}
 
 	cfg, err := state.deps.loadConfig()
@@ -50,11 +44,15 @@ func runContextCommand(state cliState, args []string) error {
 	switch args[0] {
 	case "show":
 		return runContextShow(state, cfg)
-	case "clear":
-		return runContextClear(state, cfg)
 	default:
-		return errors.New("usage: ropcode context show|clear")
+		writeContextUsage(state.stderr)
+		return errors.New("usage: ropcode runtime context show")
 	}
+}
+
+func writeContextUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode runtime context show --instance <id> [--project <name-or-path>] [--workspace <name>] [--cwd <path>]")
 }
 
 func runContextShow(state cliState, cfg *config.Config) error {
@@ -103,41 +101,6 @@ func runContextShow(state cliState, cfg *config.Config) error {
 	return nil
 }
 
-func runContextClear(state cliState, cfg *config.Config) error {
-	if err := saveCLIContext(cfg, cliContext{}); err != nil {
-		return fmt.Errorf("save cli context: %w", err)
-	}
-	fmt.Fprintln(state.stdout, "context cleared")
-	return nil
-}
-
-func loadCLIContext(cfg *config.Config) (cliContext, error) {
-	data, err := os.ReadFile(cfg.CLIContextPath())
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return cliContext{}, nil
-		}
-		return cliContext{}, err
-	}
-	if len(data) == 0 {
-		return cliContext{}, nil
-	}
-
-	var ctx cliContext
-	if err := json.Unmarshal(data, &ctx); err != nil {
-		return cliContext{}, err
-	}
-	return ctx, nil
-}
-
-func saveCLIContext(cfg *config.Config, ctx cliContext) error {
-	data, err := json.MarshalIndent(ctx, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(cfg.CLIContextPath(), data, 0644)
-}
-
 func resolveInstance(deps cliDeps, cfg *config.Config, explicitID string) (*database.InstanceRecord, string, error) {
 	alive, err := listAliveInstances(deps, cfg)
 	if err != nil {
@@ -147,35 +110,18 @@ func resolveInstance(deps cliDeps, cfg *config.Config, explicitID string) (*data
 	if explicitID != "" {
 		record := findInstanceByID(alive, explicitID)
 		if record == nil {
-			return nil, "", fmt.Errorf("instance %q is not alive; run `ropcode instance list`", explicitID)
+			return nil, "", fmt.Errorf("instance %q is not alive; run `ropcode catalog`", explicitID)
 		}
 		return record, "explicit", nil
-	}
-
-	ctx, err := loadCLIContext(cfg)
-	if err != nil {
-		return nil, "", fmt.Errorf("load cli context: %w", err)
-	}
-	if ctx.CurrentInstanceID != "" {
-		record := findInstanceByID(alive, ctx.CurrentInstanceID)
-		if record != nil {
-			return record, "saved", nil
-		}
 	}
 
 	if len(alive) == 1 {
 		return alive[0], "auto", nil
 	}
 	if len(alive) == 0 {
-		return nil, "", errors.New("no alive instances found; start ropcode and run `ropcode instance list`")
+		return nil, "", errors.New("no alive instances found; start ropcode and run `ropcode catalog`")
 	}
-
-	var msg strings.Builder
-	msg.WriteString("multiple alive instances found; use `ropcode instance use <id>` or pass `--instance <id>`")
-	if ctx.CurrentInstanceID != "" {
-		fmt.Fprintf(&msg, " (saved instance %q is unavailable)", ctx.CurrentInstanceID)
-	}
-	return nil, "", errors.New(msg.String())
+	return nil, "", errors.New("multiple alive instances found; pass `--instance <id>` or run `ropcode catalog`")
 }
 
 func resolveProject(deps cliDeps, cfg *config.Config, opts projectResolutionOptions) (*database.ProjectIndex, string, error) {
@@ -184,7 +130,7 @@ func resolveProject(deps cliDeps, cfg *config.Config, opts projectResolutionOpti
 		return nil, "", err
 	}
 	if len(projects) == 0 {
-		return nil, "", errors.New("no projects found; run `ropcode project list`")
+		return nil, "", errors.New("no projects found; run `ropcode catalog`")
 	}
 
 	if opts.explicitCWD != "" {
@@ -194,42 +140,19 @@ func resolveProject(deps cliDeps, cfg *config.Config, opts projectResolutionOpti
 		if project := findProjectByPath(projects, opts.explicitCWD); project != nil {
 			return project, "explicit", nil
 		}
-		return nil, "", fmt.Errorf("project for cwd %q not found; run `ropcode project list`", opts.explicitCWD)
+		return nil, "", fmt.Errorf("project for cwd %q not found; run `ropcode catalog`", opts.explicitCWD)
 	}
 	if opts.explicitProject != "" {
 		if project := findProject(projects, opts.explicitProject); project != nil {
 			return project, "explicit", nil
 		}
-		return nil, "", fmt.Errorf("project %q not found; run `ropcode project list`", opts.explicitProject)
-	}
-
-	ctx, err := loadCLIContext(cfg)
-	if err != nil {
-		return nil, "", fmt.Errorf("load cli context: %w", err)
-	}
-	if ctx.CurrentCWD != "" {
-		if project := findProjectByWorkspacePath(projects, ctx.CurrentCWD); project != nil {
-			return project, "saved", nil
-		}
-		if project := findProjectByPath(projects, ctx.CurrentCWD); project != nil {
-			return project, "saved", nil
-		}
-	}
-	if ctx.CurrentProjectPath != "" {
-		if project := findProjectByPath(projects, ctx.CurrentProjectPath); project != nil {
-			return project, "saved", nil
-		}
-	}
-	if ctx.CurrentProject != "" {
-		if project := findProject(projects, ctx.CurrentProject); project != nil {
-			return project, "saved", nil
-		}
+		return nil, "", fmt.Errorf("project %q not found; run `ropcode catalog`", opts.explicitProject)
 	}
 
 	if len(projects) == 1 {
 		return projects[0], "auto", nil
 	}
-	return nil, "", errors.New("multiple projects found; use `--project <name-or-path>` or run `ropcode project list`")
+	return nil, "", errors.New("multiple projects found; use `--project <name-or-path>` or `--cwd <path>` or run `ropcode catalog`")
 }
 
 func resolveWorkspace(deps cliDeps, cfg *config.Config, project *database.ProjectIndex, opts workspaceResolutionOptions) (*database.WorkspaceIndex, string, error) {
@@ -238,7 +161,7 @@ func resolveWorkspace(deps cliDeps, cfg *config.Config, project *database.Projec
 	}
 	workspaces := append([]database.WorkspaceIndex(nil), project.Workspaces...)
 	if len(workspaces) == 0 {
-		return nil, "", fmt.Errorf("project %q has no indexed workspaces; run `ropcode workspace list --project %s`", project.Name, project.Name)
+		return nil, "", fmt.Errorf("project %q has no indexed workspaces; run `ropcode catalog --project %s`", project.Name, project.Name)
 	}
 
 	if opts.explicitCWD != "" {
@@ -250,33 +173,13 @@ func resolveWorkspace(deps cliDeps, cfg *config.Config, project *database.Projec
 		if workspace := findWorkspaceByName(workspaces, opts.explicitWorkspace); workspace != nil {
 			return workspace, "explicit", nil
 		}
-		return nil, "", fmt.Errorf("workspace %q not found in project %q; run `ropcode workspace list --project %s`", opts.explicitWorkspace, project.Name, project.Name)
-	}
-
-	ctx, err := loadCLIContext(cfg)
-	if err != nil {
-		return nil, "", fmt.Errorf("load cli context: %w", err)
-	}
-	if ctx.CurrentCWD != "" {
-		if workspace := findWorkspaceByPath(workspaces, ctx.CurrentCWD); workspace != nil {
-			return workspace, "saved", nil
-		}
-	}
-	if ctx.CurrentWorkspacePath != "" {
-		if workspace := findWorkspaceByPath(workspaces, ctx.CurrentWorkspacePath); workspace != nil {
-			return workspace, "saved", nil
-		}
-	}
-	if ctx.CurrentWorkspace != "" {
-		if workspace := findWorkspaceByName(workspaces, ctx.CurrentWorkspace); workspace != nil {
-			return workspace, "saved", nil
-		}
+		return nil, "", fmt.Errorf("workspace %q not found in project %q; run `ropcode catalog --project %s`", opts.explicitWorkspace, project.Name, project.Name)
 	}
 
 	if len(workspaces) == 1 {
 		return &workspaces[0], "auto", nil
 	}
-	return nil, "", fmt.Errorf("multiple workspaces found for project %q; use `--workspace <name>` or run `ropcode workspace list --project %s`", project.Name, project.Name)
+	return nil, "", fmt.Errorf("multiple workspaces found for project %q; use `--workspace <name>` or `--cwd <path>` or run `ropcode catalog --project %s`", project.Name, project.Name)
 }
 
 func listAliveInstancesForOutput(state cliState, cfg *config.Config) ([]*database.InstanceRecord, string, error) {
@@ -284,11 +187,11 @@ func listAliveInstancesForOutput(state cliState, cfg *config.Config) ([]*databas
 	if err != nil {
 		return nil, "", err
 	}
-	ctx, err := loadCLIContext(cfg)
-	if err != nil {
-		return nil, "", fmt.Errorf("load cli context: %w", err)
+	currentID := ""
+	if state.instanceFlag != "" {
+		currentID = state.instanceFlag
 	}
-	return alive, ctx.CurrentInstanceID, nil
+	return alive, currentID, nil
 }
 
 func listAliveInstances(deps cliDeps, cfg *config.Config) ([]*database.InstanceRecord, error) {
@@ -408,6 +311,122 @@ func workspacePrimaryPath(workspace *database.WorkspaceIndex) string {
 		return ""
 	}
 	return workspace.Providers[0].Path
+}
+
+func runCatalogCommand(state cliState, args []string) error {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		writeCatalogUsage(state.stdout)
+		return nil
+	}
+	if len(args) != 0 {
+		writeCatalogUsage(state.stderr)
+		return errors.New("usage: ropcode catalog [--instance <id>] [--project <name-or-path>] [--workspace <name>] [--cwd <path>]")
+	}
+	return runCatalog(state)
+}
+
+func writeCatalogUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode catalog [--instance <id>] [--project <name-or-path>] [--workspace <name>] [--cwd <path>]")
+}
+
+func runCatalog(state cliState) error {
+	cfg, err := state.deps.loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	if state.workspaceFlag != "" {
+		project, _, err := resolveProject(state.deps, cfg, projectResolutionOptions{explicitProject: state.projectFlag, explicitCWD: state.cwdFlag})
+		if err != nil {
+			return err
+		}
+		workspace, _, err := resolveWorkspace(state.deps, cfg, project, workspaceResolutionOptions{explicitWorkspace: state.workspaceFlag, explicitCWD: state.cwdFlag})
+		if err != nil {
+			return err
+		}
+		if state.instanceFlag != "" {
+			record, source, err := resolveInstance(state.deps, cfg, state.instanceFlag)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(state.stdout, "instance\t%s\n", record.ID)
+			fmt.Fprintf(state.stdout, "instance_source\t%s\n", source)
+			fmt.Fprintf(state.stdout, "url\t%s\n", instanceWSURL(record))
+		}
+		fmt.Fprintf(state.stdout, "project\t%s\n", project.Name)
+		fmt.Fprintf(state.stdout, "path\t%s\n", projectPrimaryPath(project))
+		fmt.Fprintf(state.stdout, "workspace\t%s\n", workspace.Name)
+		fmt.Fprintf(state.stdout, "cwd\t%s\n", workspacePrimaryPath(workspace))
+		return nil
+	}
+
+	if state.projectFlag != "" || state.cwdFlag != "" {
+		project, _, err := resolveProject(state.deps, cfg, projectResolutionOptions{explicitProject: state.projectFlag, explicitCWD: state.cwdFlag})
+		if err != nil {
+			return err
+		}
+		if state.instanceFlag != "" {
+			record, source, err := resolveInstance(state.deps, cfg, state.instanceFlag)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(state.stdout, "instance\t%s\n", record.ID)
+			fmt.Fprintf(state.stdout, "instance_source\t%s\n", source)
+			fmt.Fprintf(state.stdout, "url\t%s\n", instanceWSURL(record))
+		}
+		fmt.Fprintf(state.stdout, "project\t%s\n", project.Name)
+		fmt.Fprintf(state.stdout, "path\t%s\n", projectPrimaryPath(project))
+		if len(project.Workspaces) == 0 {
+			fmt.Fprintln(state.stdout, "workspaces\t(none)")
+		} else {
+			for i := range project.Workspaces {
+				ws := &project.Workspaces[i]
+				fmt.Fprintf(state.stdout, "workspace\t%s\t%s\n", ws.Name, workspacePrimaryPath(ws))
+			}
+		}
+		return nil
+	}
+
+	if state.instanceFlag != "" {
+		record, source, err := resolveInstance(state.deps, cfg, state.instanceFlag)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(state.stdout, "instance\t%s\n", record.ID)
+		fmt.Fprintf(state.stdout, "instance_source\t%s\n", source)
+		fmt.Fprintf(state.stdout, "url\t%s\n", instanceWSURL(record))
+		return nil
+	}
+
+	instances, _, err := listAliveInstancesForOutput(state, cfg)
+	if err != nil {
+		return err
+	}
+	projects, err := listProjects(state.deps, cfg)
+	if err != nil {
+		return err
+	}
+	if len(instances) == 0 && len(projects) == 0 {
+		fmt.Fprintln(state.stdout, "no instances or projects found")
+		return nil
+	}
+	if len(instances) > 0 {
+		fmt.Fprintln(state.stdout, "INSTANCES")
+		for _, inst := range instances {
+			fmt.Fprintf(state.stdout, "%s\t%s\n", inst.ID, instanceWSURL(inst))
+		}
+	}
+	if len(projects) > 0 {
+		if len(instances) > 0 {
+			fmt.Fprintln(state.stdout)
+		}
+		fmt.Fprintln(state.stdout, "PROJECTS")
+		for _, project := range projects {
+			fmt.Fprintf(state.stdout, "%s\t%s\n", project.Name, projectPrimaryPath(project))
+		}
+	}
+	return nil
 }
 
 func instanceWSURL(record *database.InstanceRecord) string {

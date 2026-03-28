@@ -76,59 +76,43 @@ func runCLI(t *testing.T, args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-func TestInstanceListCommand(t *testing.T) {
+func TestRootHelpCommand(t *testing.T) {
+	stdout, stderr, err := runCLI(t, "--help")
+	if err != nil {
+		t.Fatalf("root help failed: %v\n%s", err, stderr)
+	}
+	for _, want := range []string{"ropcode catalog [--instance <id>] [--project <name-or-path>] [--workspace <name>] [--cwd <path>]", "ropcode workspace send", "ropcode workspace status"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in root help, got %q", want, stdout)
+		}
+	}
+}
+
+func TestCatalogHelpCommand(t *testing.T) {
+	stdout, stderr, err := runCLI(t, "catalog", "--help")
+	if err != nil {
+		t.Fatalf("catalog help failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "ropcode catalog [--instance <id>] [--project <name-or-path>] [--workspace <name>] [--cwd <path>]") {
+		t.Fatalf("expected layered catalog help, got %q", stdout)
+	}
+}
+
+func TestCatalogShowsInstancesAtTopLevel(t *testing.T) {
 	_, db := setupCLITestDB(t)
 	seedInstance(t, db, "inst-a", "alive")
 
-	stdout, stderr, err := runCLI(t, "instance", "list")
+	stdout, stderr, err := runCLI(t, "catalog")
 	if err != nil {
-		t.Fatalf("instance list failed: %v\n%s", err, stderr)
+		t.Fatalf("catalog failed: %v\n%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "inst-a") {
-		t.Fatalf("expected registered instance in output, got %q", stdout)
+		t.Fatalf("expected instance in output, got %q", stdout)
 	}
 }
 
-func TestInstanceCurrentCommand_UsesSavedSelection(t *testing.T) {
-	cfg, db := setupCLITestDB(t)
-	seedInstance(t, db, "inst-a", "alive")
-
-	if err := saveCLIContext(cfg, cliContext{CurrentInstanceID: "inst-a"}); err != nil {
-		t.Fatalf("saveCLIContext failed: %v", err)
-	}
-
-	stdout, stderr, err := runCLI(t, "instance", "current")
-	if err != nil {
-		t.Fatalf("instance current failed: %v\n%s", err, stderr)
-	}
-	if !strings.Contains(stdout, "inst-a") {
-		t.Fatalf("expected saved instance in output, got %q", stdout)
-	}
-}
-
-func TestInstanceUseCommand(t *testing.T) {
-	cfg, db := setupCLITestDB(t)
-	seedInstance(t, db, "inst-a", "alive")
-
-	stdout, stderr, err := runCLI(t, "instance", "use", "inst-a")
-	if err != nil {
-		t.Fatalf("instance use failed: %v\n%s", err, stderr)
-	}
-	if !strings.Contains(stdout, "inst-a") {
-		t.Fatalf("expected selected instance in output, got %q", stdout)
-	}
-
-	ctx, err := loadCLIContext(cfg)
-	if err != nil {
-		t.Fatalf("loadCLIContext failed: %v", err)
-	}
-	if ctx.CurrentInstanceID != "inst-a" {
-		t.Fatalf("expected current instance inst-a, got %q", ctx.CurrentInstanceID)
-	}
-}
-
-func TestContextShowCommand_AttachesToResolvedInstance(t *testing.T) {
-	cfg, db := setupCLITestDB(t)
+func TestContextShowCommand_AttachesToExplicitInstance(t *testing.T) {
+	_, db := setupCLITestDB(t)
 	server := websocket.NewServer(&cliTestApp{db: db})
 	port, err := server.Start(context.Background())
 	if err != nil {
@@ -138,11 +122,7 @@ func TestContextShowCommand_AttachesToResolvedInstance(t *testing.T) {
 		_ = server.Stop(context.Background())
 	}()
 
-	if err := saveCLIContext(cfg, cliContext{CurrentInstanceID: server.GetInstanceID()}); err != nil {
-		t.Fatalf("saveCLIContext failed: %v", err)
-	}
-
-	stdout, stderr, err := runCLI(t, "context", "show")
+	stdout, stderr, err := runCLI(t, "runtime", "context", "show", "--instance", server.GetInstanceID())
 	if err != nil {
 		t.Fatalf("context show failed: %v\n%s", err, stderr)
 	}
@@ -155,13 +135,10 @@ func TestContextShowCommand_AttachesToResolvedInstance(t *testing.T) {
 }
 
 func TestResolveInstance(t *testing.T) {
-	t.Run("explicit wins over saved", func(t *testing.T) {
+	t.Run("explicit instance resolves directly", func(t *testing.T) {
 		cfg, db := setupCLITestDB(t)
 		seedInstance(t, db, "inst-a", "alive")
 		seedInstance(t, db, "inst-b", "alive")
-		if err := saveCLIContext(cfg, cliContext{CurrentInstanceID: "inst-a"}); err != nil {
-			t.Fatalf("saveCLIContext failed: %v", err)
-		}
 
 		record, source, err := resolveInstance(defaultCLIDeps(), cfg, "inst-b")
 		if err != nil {
@@ -169,23 +146,6 @@ func TestResolveInstance(t *testing.T) {
 		}
 		if record.ID != "inst-b" || source != "explicit" {
 			t.Fatalf("expected explicit inst-b, got id=%q source=%q", record.ID, source)
-		}
-	})
-
-	t.Run("saved instance used when available", func(t *testing.T) {
-		cfg, db := setupCLITestDB(t)
-		seedInstance(t, db, "inst-a", "alive")
-		seedInstance(t, db, "inst-b", "alive")
-		if err := saveCLIContext(cfg, cliContext{CurrentInstanceID: "inst-a"}); err != nil {
-			t.Fatalf("saveCLIContext failed: %v", err)
-		}
-
-		record, source, err := resolveInstance(defaultCLIDeps(), cfg, "")
-		if err != nil {
-			t.Fatalf("resolveInstance failed: %v", err)
-		}
-		if record.ID != "inst-a" || source != "saved" {
-			t.Fatalf("expected saved inst-a, got id=%q source=%q", record.ID, source)
 		}
 	})
 
@@ -206,19 +166,19 @@ func TestResolveInstance(t *testing.T) {
 		cfg, _ := setupCLITestDB(t)
 
 		_, _, err := resolveInstance(defaultCLIDeps(), cfg, "")
-		if err == nil || !strings.Contains(err.Error(), "ropcode instance list") {
+		if err == nil || !strings.Contains(err.Error(), "ropcode catalog") {
 			t.Fatalf("expected actionable error, got %v", err)
 		}
 	})
 
-	t.Run("multiple alive instances returns actionable error", func(t *testing.T) {
+	t.Run("multiple alive instances returns explicit flag error", func(t *testing.T) {
 		cfg, db := setupCLITestDB(t)
 		seedInstance(t, db, "inst-a", "alive")
 		seedInstance(t, db, "inst-b", "alive")
 
 		_, _, err := resolveInstance(defaultCLIDeps(), cfg, "")
-		if err == nil || !strings.Contains(err.Error(), "ropcode instance use <id>") {
-			t.Fatalf("expected actionable error, got %v", err)
+		if err == nil || !strings.Contains(err.Error(), "--instance <id>") {
+			t.Fatalf("expected explicit instance error, got %v", err)
 		}
 	})
 }

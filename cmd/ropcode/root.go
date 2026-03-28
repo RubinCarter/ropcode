@@ -72,18 +72,12 @@ func runCLIArgs(args []string, stdout io.Writer, stderr io.Writer, deps cliDeps)
 	case "help", "-h", "--help":
 		writeUsage(stdout)
 		return nil
-	case "instance":
-		return runInstanceCommand(state, args[1:])
-	case "project":
-		return runProjectCommand(state, args[1:])
+	case "catalog":
+		return runCatalogCommand(state, args[1:])
 	case "workspace":
-		return runWorkspaceCommand(state, args[1:])
-	case "context":
-		return runContextCommand(state, args[1:])
-	case "session":
-		return runSessionCommand(state, args[1:])
-	case "tui":
-		return runTUICommand(state, args[1:])
+		return runRuntimeWorkspaceCommand(state, args[1:])
+	case "runtime":
+		return runRuntimeCommand(state, args[1:])
 	default:
 		writeUsage(stderr)
 		return fmt.Errorf("unknown command %q", strings.Join(args, " "))
@@ -144,15 +138,54 @@ func stripGlobalFlags(args []string) ([]string, globalFlags, error) {
 	return cleaned, flags, nil
 }
 
+func isHelpArg(arg string) bool {
+	return arg == "help" || arg == "-h" || arg == "--help"
+}
+
 func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  ropcode instance list")
-	fmt.Fprintln(w, "  ropcode instance current")
-	fmt.Fprintln(w, "  ropcode instance use <id>")
-	fmt.Fprintln(w, "  ropcode project list")
-	fmt.Fprintln(w, "  ropcode project show <name-or-path>")
-	fmt.Fprintln(w, "  ropcode workspace list [--project <name-or-path>]")
-	fmt.Fprintln(w, "  ropcode workspace use [--project <name-or-path>] <workspace-name>")
-	fmt.Fprintln(w, "  ropcode context show [--instance <id>] [--project <name-or-path>] [--workspace <name>]")
-	fmt.Fprintln(w, "  ropcode context clear")
+	fmt.Fprintln(w, "  ropcode workspace send --cwd <path> --prompt <text> [--provider <name>] [--model <model>] [--fresh]")
+	fmt.Fprintln(w, "  ropcode workspace status [--cwd <path>] [--provider <name>]")
+	fmt.Fprintln(w, "  ropcode workspace list [--cwd <path>] [--provider <name>]")
+	fmt.Fprintln(w, "  ropcode workspace logs --cwd <path> [--follow]")
+	fmt.Fprintln(w, "  ropcode workspace stop --cwd <path>")
+	fmt.Fprintln(w, "  ropcode catalog [--instance <id>] [--project <name-or-path>] [--workspace <name>] [--cwd <path>]")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Global flags (optional):")
+	fmt.Fprintln(w, "  --instance <id>    Target a specific ropcode instance (auto-detected if omitted)")
+	fmt.Fprintln(w, "  --cwd <path>       Workspace directory (can also be passed as subcommand flag)")
+}
+
+func runRuntimeCommand(state cliState, args []string) error {
+	if len(args) == 0 {
+		writeRuntimeUsage(state.stderr)
+		return errors.New("runtime subcommand required")
+	}
+	if isHelpArg(args[0]) {
+		writeRuntimeUsage(state.stdout)
+		return nil
+	}
+
+	switch args[0] {
+	case "context":
+		return runContextCommand(state, args[1:])
+	case "workspace":
+		return runRuntimeWorkspaceCommand(state, args[1:])
+	case "tui":
+		return runTUICommand(state, args[1:])
+	default:
+		writeRuntimeUsage(state.stderr)
+		return fmt.Errorf("unknown runtime subcommand %q", strings.Join(args, " "))
+	}
+}
+
+func writeRuntimeUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode runtime context show --instance <id> [--project <name-or-path>] [--workspace <name>] [--cwd <path>]")
+	fmt.Fprintln(w, "  ropcode runtime workspace start --instance <id> --cwd <path> [--provider <provider>] --prompt <text>")
+	fmt.Fprintln(w, "  ropcode runtime workspace send --instance <id> --session <id> --cwd <path> [--provider <provider>] --prompt <text>")
+	fmt.Fprintln(w, "  ropcode runtime workspace list --instance <id> [--cwd <path>] [--provider <provider>]")
+	fmt.Fprintln(w, "  ropcode runtime workspace logs --instance <id> [--session <id>] [--cwd <path>] [--follow]")
+	fmt.Fprintln(w, "  ropcode runtime workspace stop --instance <id> --session <id>")
+	fmt.Fprintln(w, "  ropcode runtime tui --instance <id>")
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"ropcode/internal/config"
@@ -10,7 +11,12 @@ import (
 
 func runInstanceCommand(state cliState, args []string) error {
 	if len(args) == 0 {
+		writeInstanceUsage(state.stderr)
 		return errors.New("instance subcommand required")
+	}
+	if isHelpArg(args[0]) {
+		writeInstanceUsage(state.stdout)
+		return nil
 	}
 
 	cfg, err := state.deps.loadConfig()
@@ -22,15 +28,20 @@ func runInstanceCommand(state cliState, args []string) error {
 	case "list":
 		return runInstanceList(state, cfg)
 	case "current":
-		return runInstanceCurrent(state, cfg)
-	case "use":
-		if len(args) != 2 {
-			return errors.New("usage: ropcode instance use <id>")
+		if len(args) != 1 {
+			writeInstanceUsage(state.stderr)
+			return errors.New("usage: ropcode catalog instance current [--instance <id>]")
 		}
-		return runInstanceUse(state, cfg, args[1])
+		return runInstanceCurrent(state, cfg)
 	default:
 		return fmt.Errorf("unknown instance subcommand %q", strings.Join(args, " "))
 	}
+}
+
+func writeInstanceUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode catalog instance list")
+	fmt.Fprintln(w, "  ropcode catalog instance current [--instance <id>]")
 }
 
 func runInstanceList(state cliState, cfg *config.Config) error {
@@ -60,22 +71,5 @@ func runInstanceCurrent(state cliState, cfg *config.Config) error {
 		return err
 	}
 	fmt.Fprintf(state.stdout, "%s\t%s\n", resolved.ID, source)
-	return nil
-}
-
-func runInstanceUse(state cliState, cfg *config.Config, id string) error {
-	resolved, _, err := resolveInstance(state.deps, cfg, id)
-	if err != nil {
-		return err
-	}
-	ctx, err := loadCLIContext(cfg)
-	if err != nil {
-		return fmt.Errorf("load cli context: %w", err)
-	}
-	ctx.CurrentInstanceID = resolved.ID
-	if err := saveCLIContext(cfg, ctx); err != nil {
-		return fmt.Errorf("save cli context: %w", err)
-	}
-	fmt.Fprintf(state.stdout, "current instance set to %s\n", resolved.ID)
 	return nil
 }

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"ropcode/internal/config"
 	"ropcode/internal/database"
 )
 
@@ -94,12 +93,8 @@ type tuiTestError struct{ text string }
 func (e *tuiTestError) Error() string { return e.text }
 
 func TestTUICommand_AttachesAndRendersLiveInstance(t *testing.T) {
+	_, db := setupCLITestDB(t)
 	inst := startRegisteredSessionInstance(t)
-	cfg, err := config.Load()
-	if err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
 	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
 		Name:      "alpha",
 		Available: true,
@@ -109,16 +104,7 @@ func TestTUICommand_AttachesAndRendersLiveInstance(t *testing.T) {
 			Providers: []database.ProviderInfo{{Path: inst.projectPath}},
 		}},
 	})
-	if err := saveCLIContext(cfg, cliContext{
-		CurrentInstanceID:    inst.server.GetInstanceID(),
-		CurrentProject:       "alpha",
-		CurrentProjectPath:   inst.projectPath,
-		CurrentWorkspace:     "ws-a",
-		CurrentWorkspacePath: inst.projectPath,
-		CurrentCWD:           inst.projectPath,
-	}); err != nil {
-		t.Fatalf("saveCLIContext failed: %v", err)
-	}
+	_ = db
 
 	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "hello", "sonnet", "")
 	if err != nil {
@@ -126,12 +112,12 @@ func TestTUICommand_AttachesAndRendersLiveInstance(t *testing.T) {
 	}
 	time.Sleep(40 * time.Millisecond)
 
-	stdout, stderr, err := runCLI(t, "tui")
+	stdout, stderr, err := runCLI(t, "runtime", "tui", "--instance", inst.server.GetInstanceID(), "--project", "alpha", "--workspace", "ws-a", "--cwd", inst.projectPath)
 	if err != nil {
 		t.Fatalf("tui failed: %v\n%s", err, stderr)
 	}
 	for _, want := range []string{
-		"ropcode tui",
+		"ropcode runtime tui",
 		inst.server.GetInstanceID(),
 		"alpha",
 		"ws-a",
@@ -146,7 +132,7 @@ func TestTUICommand_AttachesAndRendersLiveInstance(t *testing.T) {
 	}
 }
 
-func TestTUIRefreshSelectsSessionFromCLIContext(t *testing.T) {
+func TestTUIRefreshSelectsSessionFromViewOptions(t *testing.T) {
 	sessionA := liveProviderSession{
 		SessionID:   "session-a",
 		ProjectPath: "/tmp/project",
@@ -173,7 +159,7 @@ func TestTUIRefreshSelectsSessionFromCLIContext(t *testing.T) {
 		writer:            &stdout,
 		client:            client,
 		instanceID:        "inst-1",
-		instanceSource:    "saved",
+		instanceSource:    "explicit",
 		wsURL:             "ws://127.0.0.1:9999/ws",
 		contextSummary:    tuiContextSummary{ProjectName: "alpha", WorkspaceName: "ws-a", CWD: "/tmp/project"},
 		selectedSessionID: "session-b",

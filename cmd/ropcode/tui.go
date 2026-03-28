@@ -51,7 +51,8 @@ type tuiView struct {
 
 func runTUICommand(state cliState, args []string) error {
 	if len(args) != 0 {
-		return errors.New("usage: ropcode tui")
+		writeTUIUsage(state.stderr)
+		return errors.New("usage: ropcode runtime tui")
 	}
 
 	cfg, err := state.deps.loadConfig()
@@ -91,6 +92,11 @@ func runTUICommand(state cliState, args []string) error {
 	return view.waitForInterrupt()
 }
 
+func writeTUIUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode runtime tui")
+}
+
 func resolveTUIContextSummary(state cliState, cfg *config.Config) tuiContextSummary {
 	summary := tuiContextSummary{}
 
@@ -114,11 +120,6 @@ func resolveTUIContextSummary(state cliState, cfg *config.Config) tuiContextSumm
 		summary.CWD = workspacePrimaryPath(workspace)
 	} else if summary.ProjectPath != "" {
 		summary.CWD = summary.ProjectPath
-	}
-
-	ctx, err := loadCLIContext(cfg)
-	if err == nil {
-		summary.SelectedSessionID = ctx.CurrentSessionID
 	}
 
 	return summary
@@ -204,7 +205,7 @@ func (v *tuiView) render(sessions []liveProviderSession, output string) error {
 		screen.WriteString("\x1b[H\x1b[2J")
 	}
 
-	screen.WriteString("ropcode tui\n\n")
+	screen.WriteString("ropcode runtime tui\n\n")
 	screen.WriteString("Instance\n")
 	fmt.Fprintf(&screen, "  id: %s\n", v.instanceID)
 	fmt.Fprintf(&screen, "  source: %s\n", v.instanceSource)

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"ropcode/internal/config"
@@ -10,7 +11,12 @@ import (
 
 func runProjectCommand(state cliState, args []string) error {
 	if len(args) == 0 {
+		writeProjectUsage(state.stderr)
 		return errors.New("project subcommand required")
+	}
+	if isHelpArg(args[0]) {
+		writeProjectUsage(state.stdout)
+		return nil
 	}
 
 	cfg, err := state.deps.loadConfig()
@@ -21,17 +27,25 @@ func runProjectCommand(state cliState, args []string) error {
 	switch args[0] {
 	case "list":
 		if len(args) != 1 {
+			writeProjectUsage(state.stderr)
 			return errors.New("usage: ropcode project list")
 		}
 		return runProjectList(state, cfg)
 	case "show":
-		if len(args) != 2 {
+		if len(args) != 2 || isHelpArg(args[1]) {
+			writeProjectUsage(state.stderr)
 			return errors.New("usage: ropcode project show <name-or-path>")
 		}
 		return runProjectShow(state, cfg, args[1])
 	default:
 		return fmt.Errorf("unknown project subcommand %q", strings.Join(args, " "))
 	}
+}
+
+func writeProjectUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode project list")
+	fmt.Fprintln(w, "  ropcode project show <name-or-path>")
 }
 
 func runProjectList(state cliState, cfg *config.Config) error {
@@ -57,22 +71,11 @@ func runProjectShow(state cliState, cfg *config.Config, nameOrPath string) error
 		return err
 	}
 
-	ctx, err := loadCLIContext(cfg)
-	if err != nil {
-		return fmt.Errorf("load cli context: %w", err)
-	}
-
 	fmt.Fprintf(state.stdout, "project\t%s\n", project.Name)
 	fmt.Fprintf(state.stdout, "project_source\t%s\n", source)
 	if path := projectPrimaryPath(project); path != "" {
 		fmt.Fprintf(state.stdout, "path\t%s\n", path)
 	}
 	fmt.Fprintf(state.stdout, "workspaces\t%d\n", len(project.Workspaces))
-	if ctx.CurrentProject != "" {
-		fmt.Fprintf(state.stdout, "saved_project\t%s\n", ctx.CurrentProject)
-	}
-	if ctx.CurrentProjectPath != "" {
-		fmt.Fprintf(state.stdout, "saved_project_path\t%s\n", ctx.CurrentProjectPath)
-	}
 	return nil
 }
