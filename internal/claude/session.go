@@ -716,6 +716,7 @@ func (s *Session) updateRuntimeStateFromMessage(msg map[string]interface{}) {
 		s.runtime.ActiveTool = ""
 		s.runtime.ActiveToolProgress = nil
 		s.runtime.LastThinkingPhase = ""
+		s.runtime.LastApiRetry = nil
 	}
 }
 
