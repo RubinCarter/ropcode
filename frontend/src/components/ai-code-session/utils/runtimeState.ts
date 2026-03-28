@@ -235,6 +235,7 @@ function normalizeSnapshot(snapshot: ClaudeRuntimeStateSnapshot | null): ClaudeR
 }
 
 function getRetryState(snapshot: ClaudeRuntimeStateSnapshot | null): SessionRuntimeViewState['retry'] {
+  if (!snapshot?.retrying) return null;
   const retry = snapshot?.last_api_retry;
   if (!retry) return null;
   return {
