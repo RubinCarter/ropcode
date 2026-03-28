@@ -123,6 +123,35 @@ func (a *sessionRPCTestApp) GetProviderSessionOutput(sessionID string) (string, 
 	return session.Output, nil
 }
 
+func (a *sessionRPCTestApp) StartInteractiveClaudeSession(projectPath, model, providerApiID, resumeSessionID string) (string, error) {
+	a.mu.Lock()
+	// Find existing running session for this project
+	var existingID string
+	for id, s := range a.sessions {
+		if s.ProjectPath == projectPath && s.Status == "running" {
+			existingID = id
+			break
+		}
+	}
+	a.mu.Unlock()
+
+	if resumeSessionID == "__ROP_FRESH_SESSION__" && existingID != "" {
+		_ = a.StopProviderSession(existingID)
+		existingID = ""
+	}
+
+	if existingID != "" {
+		return existingID, nil
+	}
+
+	return a.StartProviderSession("claude", projectPath, "", model, providerApiID)
+}
+
+func (a *sessionRPCTestApp) SendClaudeMessage(projectPath, sessionID, prompt string) error {
+	_, err := a.SendProviderSessionMessage("claude", projectPath, sessionID, prompt)
+	return err
+}
+
 func (a *sessionRPCTestApp) StopProviderSession(sessionID string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -213,12 +242,10 @@ func startRegisteredSessionInstance(t *testing.T) *registeredSessionInstance {
 func TestSessionStartUsesGlobalCWDFlag(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
 
-	stdout, stderr, err := runCLI(t, "session", "start", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "hello")
+	// 'start' removed; 'send' auto-starts when no running session exists
+	_, stderr, err := runCLI(t, "workspace", "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "hello")
 	if err != nil {
-		t.Fatalf("session start failed: %v\n%s", err, stderr)
-	}
-	if !strings.Contains(stdout, "claude-session-") {
-		t.Fatalf("expected session id in output, got %q", stdout)
+		t.Fatalf("workspace send (auto-start) failed: %v\n%s", err, stderr)
 	}
 }
 
@@ -229,12 +256,17 @@ func TestSessionSendUsesGlobalCWDFlag(t *testing.T) {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
 
-	stdout, stderr, err := runCLI(t, "session", "send", "--session", sessionID, "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "follow up")
+	_, stderr, err := runCLI(t, "runtime", "workspace", "send", "--session", sessionID, "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "follow up", "--wait")
 	if err != nil {
 		t.Fatalf("session send failed: %v\n%s", err, stderr)
 	}
+	var stdout string
+	stdout, stderr, err = runCLI(t, "workspace", "logs", "--cwd", inst.projectPath)
+	if err != nil {
+		t.Fatalf("workspace logs failed: %v\n%s", err, stderr)
+	}
 	if !strings.Contains(stdout, "assistant follow-up") {
-		t.Fatalf("expected streamed follow-up output, got %q", stdout)
+		t.Fatalf("expected follow-up output in logs, got %q", stdout)
 	}
 }
 
@@ -322,6 +354,30 @@ func TestRunSessionLogsFollow_ReplaysMissedOutputAndExitsWhenSessionAlreadyCompl
 	}
 }
 
+func TestSessionLogsWithCWDAttachesLatestSession(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "hello", "", "")
+	if err != nil {
+		t.Fatalf("StartProviderSession failed: %v", err)
+	}
+
+	// logs with --cwd (no --session) should attach to the running session
+	stdout, stderr, err := runCLI(t, "runtime", "workspace", "logs", "--cwd", inst.projectPath)
+	if err != nil {
+		t.Fatalf("session logs with --cwd failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, sessionID) && !strings.Contains(stdout, "hello") {
+		t.Fatalf("expected session output, got %q", stdout)
+	}
+}
+
+func TestSessionLogsRequiresSessionOrCWD(t *testing.T) {
+	_, _, err := runCLI(t, "runtime", "workspace", "logs")
+	if err == nil || (!strings.Contains(err.Error(), "--session") && !strings.Contains(err.Error(), "--cwd")) {
+		t.Fatalf("expected error requiring --session or --cwd, got %v", err)
+	}
+}
+
 func TestSessionStopAgainstLiveInstance(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
 	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
@@ -329,7 +385,7 @@ func TestSessionStopAgainstLiveInstance(t *testing.T) {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
 
-	stdout, stderr, err := runCLI(t, "session", "stop", "--session", sessionID)
+	stdout, stderr, err := runCLI(t, "runtime", "workspace", "stop", "--session", sessionID)
 	if err != nil {
 		t.Fatalf("session stop failed: %v\n%s", err, stderr)
 	}
@@ -337,11 +393,102 @@ func TestSessionStopAgainstLiveInstance(t *testing.T) {
 		t.Fatalf("expected stopped session id in output, got %q", stdout)
 	}
 
-	stdout, stderr, err = runCLI(t, "session", "list")
+	stdout, stderr, err = runCLI(t, "runtime", "workspace", "list")
 	if err != nil {
 		t.Fatalf("session list after stop failed: %v\n%s", err, stderr)
 	}
 	if strings.Contains(stdout, sessionID) {
 		t.Fatalf("expected stopped session to be absent from list, got %q", stdout)
+	}
+}
+
+func TestSessionSendWithCWDAutoResolvesSession(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	_, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	if err != nil {
+		t.Fatalf("StartProviderSession failed: %v", err)
+	}
+
+	// send without --session, only --cwd
+	_, stderr, err := runCLI(t, "runtime", "workspace", "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "follow up", "--wait")
+	if err != nil {
+		t.Fatalf("session send with --cwd failed: %v\n%s", err, stderr)
+	}
+	var stdout string
+	stdout, stderr, err = runCLI(t, "workspace", "logs", "--cwd", inst.projectPath)
+	if err != nil {
+		t.Fatalf("workspace logs failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "assistant follow-up") {
+		t.Fatalf("expected follow-up output in logs, got %q", stdout)
+	}
+}
+
+func TestSessionStopWithCWDAutoResolvesSession(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	if err != nil {
+		t.Fatalf("StartProviderSession failed: %v", err)
+	}
+
+	// stop without --session, only --cwd
+	stdout, stderr, err := runCLI(t, "runtime", "workspace", "stop", "--cwd", inst.projectPath)
+	if err != nil {
+		t.Fatalf("session stop with --cwd failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, sessionID) {
+		t.Fatalf("expected stopped session id in output, got %q", stdout)
+	}
+}
+
+func TestWorkspaceSendFreshStopsAndRestarts(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	oldSessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	if err != nil {
+		t.Fatalf("StartProviderSession failed: %v", err)
+	}
+
+	// --fresh should stop old session and start a new one
+	stdout, stderr, err := runCLI(t, "workspace", "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "fresh start", "--fresh")
+	if err != nil {
+		t.Fatalf("workspace send --fresh failed: %v\n%s", err, stderr)
+	}
+	// old session should no longer be running
+	if strings.Contains(stdout, oldSessionID) {
+		t.Fatalf("expected old session to be gone, but found %q in output %q", oldSessionID, stdout)
+	}
+	// verify a new session is now running
+	statusOut, statusErr, err2 := runCLI(t, "workspace", "status", "--cwd", inst.projectPath)
+	if err2 != nil {
+		t.Fatalf("workspace status failed: %v\n%s", err2, statusErr)
+	}
+	if !strings.Contains(statusOut, "running") {
+		t.Fatalf("expected new session running after --fresh, got %q", statusOut)
+	}
+}
+
+func TestWorkspaceStatus(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+
+	// idle when no sessions
+	stdout, stderr, err := runCLI(t, "workspace", "status", "--cwd", inst.projectPath)
+	if err != nil {
+		t.Fatalf("workspace status failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "idle") {
+		t.Fatalf("expected 'idle' when no sessions, got %q", stdout)
+	}
+
+	// running when a session exists
+	_, err = inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	if err != nil {
+		t.Fatalf("StartProviderSession failed: %v", err)
+	}
+	stdout, stderr, err = runCLI(t, "workspace", "status", "--cwd", inst.projectPath)
+	if err != nil {
+		t.Fatalf("workspace status with session failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "running") {
+		t.Fatalf("expected 'running' session in status, got %q", stdout)
 	}
 }

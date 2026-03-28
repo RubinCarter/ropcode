@@ -29,6 +29,8 @@ type sessionCommandOptions struct {
 	providerAPIID string
 	sessionID     string
 	follow        bool
+	fresh         bool
+	wait          bool
 }
 
 type sessionEventStream struct {
@@ -36,15 +38,17 @@ type sessionEventStream struct {
 	stderr    io.Writer
 	mu        sync.Mutex
 	sessionID string
+	cwd       string
 	doneCh    chan error
 	doneOnce  sync.Once
 }
 
-func newSessionEventStream(stdout io.Writer, stderr io.Writer, sessionID string) *sessionEventStream {
+func newSessionEventStream(stdout io.Writer, stderr io.Writer, sessionID string, cwd string) *sessionEventStream {
 	return &sessionEventStream{
 		stdout:    stdout,
 		stderr:    stderr,
 		sessionID: sessionID,
+		cwd:       cwd,
 		doneCh:    make(chan error, 1),
 	}
 }
@@ -55,12 +59,6 @@ func (s *sessionEventStream) setSessionID(sessionID string) {
 	s.mu.Unlock()
 }
 
-func (s *sessionEventStream) currentSessionID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.sessionID
-}
-
 func (s *sessionEventStream) complete(err error) {
 	s.doneOnce.Do(func() {
 		s.doneCh <- err
@@ -68,7 +66,35 @@ func (s *sessionEventStream) complete(err error) {
 }
 
 func (s *sessionEventStream) handleOutput(payload json.RawMessage) {
-	if !sessionEventMatches(payload, s.currentSessionID()) {
+	if !s.eventMatches(payload) {
+		return
+	}
+	decoded, ok := decodePayloadValue(payload)
+	if !ok {
+		return
+	}
+	m, isMap := decoded.(map[string]interface{})
+	if !isMap {
+		return
+	}
+	msgType, _ := m["type"].(string)
+	// In interactive mode, claude-complete is never fired per-turn.
+	// The "result" message in claude-output signals turn completion.
+	if msgType == "result" {
+		subtype, _ := m["subtype"].(string)
+		if subtype == "error" {
+			errText, _ := m["error"].(string)
+			if errText == "" {
+				errText = "session error"
+			}
+			s.complete(fmt.Errorf("%s", errText))
+		} else {
+			s.complete(nil)
+		}
+		return
+	}
+	// Only print assistant messages; ignore system, user, result, etc.
+	if msgType != "assistant" {
 		return
 	}
 	lines := extractPayloadLines(payload)
@@ -83,7 +109,7 @@ func (s *sessionEventStream) handleOutput(payload json.RawMessage) {
 }
 
 func (s *sessionEventStream) handleError(payload json.RawMessage) {
-	if !sessionEventMatches(payload, s.currentSessionID()) {
+	if !s.eventMatches(payload) {
 		return
 	}
 	lines := extractPayloadLines(payload)
@@ -95,12 +121,22 @@ func (s *sessionEventStream) handleError(payload json.RawMessage) {
 		fmt.Fprintln(s.stderr, line)
 	}
 	s.mu.Unlock()
-	s.complete(errors.New(strings.Join(lines, "\n")))
+	// Don't complete here: the session may retry and succeed.
+	// handleComplete will signal done with the final status.
 }
 
 func (s *sessionEventStream) handleComplete(payload json.RawMessage) {
-	if !sessionEventMatches(payload, s.currentSessionID()) {
+	if !s.eventMatches(payload) {
 		return
+	}
+	decoded, _ := decodePayloadValue(payload)
+	if m, ok := decoded.(map[string]interface{}); ok {
+		if success, _ := m["success"].(bool); !success {
+			if status, _ := m["status"].(string); status != "" && status != "completed" {
+				s.complete(fmt.Errorf("session %s", status))
+				return
+			}
+		}
 	}
 	s.complete(nil)
 }
@@ -111,9 +147,14 @@ func (s *sessionEventStream) wait() error {
 	return err
 }
 
-func runSessionCommand(state cliState, args []string) error {
+func runRuntimeWorkspaceCommand(state cliState, args []string) error {
 	if len(args) == 0 {
+		writeSessionUsage(state.stderr)
 		return errors.New("session subcommand required")
+	}
+	if isHelpArg(args[0]) {
+		writeSessionUsage(state.stdout)
+		return nil
 	}
 
 	cfg, err := state.deps.loadConfig()
@@ -133,18 +174,18 @@ func runSessionCommand(state cliState, args []string) error {
 	defer client.Close()
 
 	switch args[0] {
-	case "start":
-		opts, err := parseSessionStartArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
-		return runSessionStart(state, client, opts)
 	case "send":
 		opts, err := parseSessionSendArgs(args[1:], state.cwdFlag)
 		if err != nil {
 			return err
 		}
 		return runSessionSend(state, client, opts)
+	case "status":
+		opts, err := parseSessionListArgs(args[1:], state.cwdFlag)
+		if err != nil {
+			return err
+		}
+		return runWorkspaceStatus(state, client, opts)
 	case "list":
 		opts, err := parseSessionListArgs(args[1:], state.cwdFlag)
 		if err != nil {
@@ -152,48 +193,78 @@ func runSessionCommand(state cliState, args []string) error {
 		}
 		return runSessionList(state, client, opts)
 	case "logs":
-		opts, err := parseSessionLogsArgs(args[1:])
+		opts, err := parseSessionLogsArgs(args[1:], state.cwdFlag)
 		if err != nil {
 			return err
 		}
 		return runSessionLogs(state, client, opts)
 	case "stop":
-		opts, err := parseSessionStopArgs(args[1:])
+		opts, err := parseSessionStopArgs(args[1:], state.cwdFlag)
 		if err != nil {
 			return err
 		}
 		return runSessionStop(state, client, opts)
 	default:
-		return fmt.Errorf("unknown session subcommand %q", strings.Join(args, " "))
+		return fmt.Errorf("unknown workspace subcommand %q", strings.Join(args, " "))
 	}
 }
 
-func runSessionStart(state cliState, client rpcSession, opts sessionCommandOptions) error {
-	stream := subscribeSessionEvents(client, state.stdout, state.stderr, "")
-	var sessionID string
-	if err := client.Call("StartProviderSession", []any{opts.provider, opts.cwd, opts.prompt, opts.model, opts.providerAPIID}, &sessionID); err != nil {
-		return err
-	}
-	stream.setSessionID(sessionID)
-	if err := saveCurrentSession(state, sessionID); err != nil {
-		return err
-	}
-	fmt.Fprintf(state.stdout, "session\t%s\n", sessionID)
-	return stream.wait()
+func writeSessionUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode workspace send --cwd <path> --prompt <text> [--provider <name>] [--model <model>] [--fresh] [--wait]")
+	fmt.Fprintln(w, "  ropcode workspace status [--cwd <path>] [--provider <name>]")
+	fmt.Fprintln(w, "  ropcode workspace list [--cwd <path>] [--provider <name>]")
+	fmt.Fprintln(w, "  ropcode workspace logs --cwd <path> [--follow]")
+	fmt.Fprintln(w, "  ropcode workspace stop --cwd <path>")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Flags:")
+	fmt.Fprintln(w, "  --cwd <path>       Workspace directory path (identifies which workspace to act on)")
+	fmt.Fprintln(w, "  --prompt <text>    Message to send to the AI")
+	fmt.Fprintln(w, "  --provider <name>  AI provider: claude (default), gemini, codex")
+	fmt.Fprintln(w, "  --model <model>    Model name override (optional, uses provider default)")
+	fmt.Fprintln(w, "  --fresh            Stop any running session in this workspace and start a new one")
+	fmt.Fprintln(w, "  --wait             Block until the AI finishes and print the full response")
+	fmt.Fprintln(w, "  --follow           Stream logs in real time (for logs subcommand)")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Notes:")
+	fmt.Fprintln(w, "  'send' automatically continues an existing running session in the workspace,")
+	fmt.Fprintln(w, "  or starts a new session if none is running. Use --fresh to force a new session.")
+	fmt.Fprintln(w, "  'status' shows running sessions; prints 'idle' if none are active.")
 }
 
 func runSessionSend(state cliState, client rpcSession, opts sessionCommandOptions) error {
-	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID)
+	// Use the interactive session API: reuses existing session for the workspace,
+	// or starts a new one if none exists. --fresh terminates any existing session first.
+	resumeSessionID := ""
+	if opts.fresh {
+		resumeSessionID = "__ROP_FRESH_SESSION__"
+	}
+
+	var stream *sessionEventStream
+	if opts.wait {
+		stream = subscribeSessionEvents(client, state.stdout, state.stderr, "", opts.cwd)
+	}
+
+	// Start or reuse interactive session
 	var sessionID string
-	if err := client.Call("SendProviderSessionMessage", []any{opts.provider, opts.cwd, opts.sessionID, opts.prompt}, &sessionID); err != nil {
-		return err
+	if err := client.Call("StartInteractiveClaudeSession", []any{opts.cwd, opts.model, opts.providerAPIID, resumeSessionID}, &sessionID); err != nil {
+		return fmt.Errorf("start interactive session: %w", err)
+	}
+
+	// Send the message to the interactive session
+	if err := client.Call("SendClaudeMessage", []any{opts.cwd, sessionID, opts.prompt}, nil); err != nil {
+		return fmt.Errorf("send message: %w", err)
+	}
+
+	if !opts.wait {
+		fmt.Fprintln(state.stdout, "ok")
+		return nil
 	}
 	stream.setSessionID(sessionID)
-	if err := saveCurrentSession(state, sessionID); err != nil {
+	if err := stream.wait(); err != nil {
 		return err
 	}
-	fmt.Fprintf(state.stdout, "session\t%s\n", sessionID)
-	return stream.wait()
+	return nil
 }
 
 func runSessionList(state cliState, client rpcSession, opts sessionCommandOptions) error {
@@ -230,10 +301,25 @@ func runSessionList(state cliState, client rpcSession, opts sessionCommandOption
 }
 
 func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOptions) error {
-	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID)
-	if err := saveCurrentSession(state, opts.sessionID); err != nil {
-		return err
+	if opts.sessionID == "" && opts.cwd != "" {
+		var sessions []liveProviderSession
+		if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
+			return err
+		}
+		sort.Slice(sessions, func(i, j int) bool {
+			return sessions[i].StartedAt.After(sessions[j].StartedAt)
+		})
+		for _, s := range sessions {
+			if s.ProjectPath == opts.cwd {
+				opts.sessionID = s.SessionID
+				break
+			}
+		}
+		if opts.sessionID == "" {
+			return fmt.Errorf("no running session found for --cwd %s", opts.cwd)
+		}
 	}
+	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID, opts.cwd)
 
 	var output string
 	if err := client.Call("GetProviderSessionOutput", []any{opts.sessionID}, &output); err != nil {
@@ -264,53 +350,67 @@ func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOption
 	return nil
 }
 
-func saveCurrentSession(state cliState, sessionID string) error {
-	if sessionID == "" {
-		return nil
-	}
-	cfg, err := state.deps.loadConfig()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
-	}
-	ctx, err := loadCLIContext(cfg)
-	if err != nil {
-		return fmt.Errorf("load cli context: %w", err)
-	}
-	ctx.CurrentSessionID = sessionID
-	if err := saveCLIContext(cfg, ctx); err != nil {
-		return fmt.Errorf("save cli context: %w", err)
-	}
-	return nil
-}
-
-func runSessionStop(state cliState, client rpcSession, opts sessionCommandOptions) error {
-	if err := client.Call("StopProviderSession", []any{opts.sessionID}, nil); err != nil {
-		return err
-	}
-	fmt.Fprintf(state.stdout, "stopped\t%s\n", opts.sessionID)
-	return nil
-}
-
-func subscribeSessionEvents(client rpcSession, stdout io.Writer, stderr io.Writer, sessionID string) *sessionEventStream {
-	stream := newSessionEventStream(stdout, stderr, sessionID)
+func subscribeSessionEvents(client rpcSession, stdout io.Writer, stderr io.Writer, sessionID string, cwd string) *sessionEventStream {
+	stream := newSessionEventStream(stdout, stderr, sessionID, cwd)
 	client.OnEvent("claude-output", stream.handleOutput)
 	client.OnEvent("claude-error", stream.handleError)
 	client.OnEvent("claude-complete", stream.handleComplete)
 	return stream
 }
 
-func parseSessionStartArgs(args []string, fallbackCWD string) (sessionCommandOptions, error) {
-	opts, err := parseSessionFlagPairs(args)
-	if err != nil {
-		return sessionCommandOptions{}, err
+func runWorkspaceStatus(state cliState, client rpcSession, opts sessionCommandOptions) error {
+	var sessions []liveProviderSession
+	if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
+		return err
 	}
-	if opts.cwd == "" {
-		opts.cwd = fallbackCWD
+	var filtered []liveProviderSession
+	for _, s := range sessions {
+		if opts.cwd != "" && s.ProjectPath != opts.cwd {
+			continue
+		}
+		if opts.provider != "" && s.Provider != opts.provider {
+			continue
+		}
+		filtered = append(filtered, s)
 	}
-	if opts.cwd == "" || opts.provider == "" || opts.prompt == "" {
-		return sessionCommandOptions{}, errors.New("usage: ropcode session start --cwd <path> --provider <provider> --prompt <text> [--model <model>] [--provider-api-id <id>]")
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].StartedAt.After(filtered[j].StartedAt)
+	})
+	if len(filtered) == 0 {
+		fmt.Fprintln(state.stdout, "idle")
+		return nil
 	}
-	return opts, nil
+	fmt.Fprintln(state.stdout, "SESSION\tPROVIDER\tSTATUS\tCWD\tMODEL")
+	for _, s := range filtered {
+		fmt.Fprintf(state.stdout, "%s\t%s\t%s\t%s\t%s\n", s.SessionID, s.Provider, s.Status, s.ProjectPath, s.Model)
+	}
+	return nil
+}
+
+func runSessionStop(state cliState, client rpcSession, opts sessionCommandOptions) error {
+	if opts.sessionID == "" && opts.cwd != "" {
+		var sessions []liveProviderSession
+		if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
+			return err
+		}
+		sort.Slice(sessions, func(i, j int) bool {
+			return sessions[i].StartedAt.After(sessions[j].StartedAt)
+		})
+		for _, s := range sessions {
+			if s.ProjectPath == opts.cwd {
+				opts.sessionID = s.SessionID
+				break
+			}
+		}
+		if opts.sessionID == "" {
+			return fmt.Errorf("no running session found for --cwd %s", opts.cwd)
+		}
+	}
+	if err := client.Call("StopProviderSession", []any{opts.sessionID}, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(state.stdout, "stopped\t%s\n", opts.sessionID)
+	return nil
 }
 
 func parseSessionSendArgs(args []string, fallbackCWD string) (sessionCommandOptions, error) {
@@ -321,8 +421,11 @@ func parseSessionSendArgs(args []string, fallbackCWD string) (sessionCommandOpti
 	if opts.cwd == "" {
 		opts.cwd = fallbackCWD
 	}
-	if opts.sessionID == "" || opts.cwd == "" || opts.provider == "" || opts.prompt == "" {
-		return sessionCommandOptions{}, errors.New("usage: ropcode session send --session <id> --cwd <path> --provider <provider> --prompt <text>")
+	if opts.provider == "" {
+		opts.provider = "claude"
+	}
+	if opts.cwd == "" || opts.prompt == "" {
+		return sessionCommandOptions{}, errors.New("usage: ropcode workspace send --cwd <path> --prompt <text> [--provider <provider>] [--fresh]")
 	}
 	return opts, nil
 }
@@ -338,24 +441,30 @@ func parseSessionListArgs(args []string, fallbackCWD string) (sessionCommandOpti
 	return opts, nil
 }
 
-func parseSessionLogsArgs(args []string) (sessionCommandOptions, error) {
+func parseSessionLogsArgs(args []string, fallbackCWD string) (sessionCommandOptions, error) {
 	opts, err := parseSessionFlagPairs(args)
 	if err != nil {
 		return sessionCommandOptions{}, err
 	}
-	if opts.sessionID == "" {
-		return sessionCommandOptions{}, errors.New("usage: ropcode session logs --session <id> [--follow]")
+	if opts.cwd == "" {
+		opts.cwd = fallbackCWD
+	}
+	if opts.sessionID == "" && opts.cwd == "" {
+		return sessionCommandOptions{}, errors.New("usage: ropcode runtime session logs --session <id> [--follow] | --cwd <path> [--follow]")
 	}
 	return opts, nil
 }
 
-func parseSessionStopArgs(args []string) (sessionCommandOptions, error) {
+func parseSessionStopArgs(args []string, fallbackCWD string) (sessionCommandOptions, error) {
 	opts, err := parseSessionFlagPairs(args)
 	if err != nil {
 		return sessionCommandOptions{}, err
 	}
-	if opts.sessionID == "" {
-		return sessionCommandOptions{}, errors.New("usage: ropcode session stop --session <id>")
+	if opts.cwd == "" {
+		opts.cwd = fallbackCWD
+	}
+	if opts.sessionID == "" && opts.cwd == "" {
+		return sessionCommandOptions{}, errors.New("usage: ropcode runtime session stop --session <id> | --cwd <path>")
 	}
 	return opts, nil
 }
@@ -408,6 +517,10 @@ func parseSessionFlagPairs(args []string) (sessionCommandOptions, error) {
 			i = next
 		case "--follow":
 			opts.follow = true
+		case "--fresh":
+			opts.fresh = true
+		case "--wait":
+			opts.wait = true
 		default:
 			return sessionCommandOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -428,21 +541,37 @@ func renderOutputBuffer(w io.Writer, output string) {
 		if trimmed == "" {
 			continue
 		}
+		// Only render assistant messages from JSONL output
+		var msg map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(trimmed), &msg); err == nil {
+			var msgType string
+			_ = json.Unmarshal(msg["type"], &msgType)
+			if msgType != "assistant" {
+				continue
+			}
+		}
 		for _, rendered := range extractStringLines(trimmed) {
 			fmt.Fprintln(w, rendered)
 		}
 	}
 }
 
-func sessionEventMatches(payload json.RawMessage, sessionID string) bool {
-	if sessionID == "" {
-		return false
-	}
+func (s *sessionEventStream) eventMatches(payload json.RawMessage) bool {
+	s.mu.Lock()
+	sessionID := s.sessionID
+	cwd := s.cwd
+	s.mu.Unlock()
 	decoded, ok := decodePayloadValue(payload)
 	if !ok {
 		return false
 	}
-	return payloadSessionID(decoded) == sessionID
+	if sessionID != "" && payloadSessionID(decoded) == sessionID {
+		return true
+	}
+	if cwd != "" && payloadCWD(decoded) == cwd {
+		return true
+	}
+	return false
 }
 
 func extractPayloadLines(payload json.RawMessage) []string {
@@ -473,6 +602,15 @@ func normalizePayloadValue(value interface{}) (interface{}, bool) {
 		return str, true
 	}
 	return value, true
+}
+
+func payloadCWD(value interface{}) string {
+	if m, ok := value.(map[string]interface{}); ok {
+		if cwd, ok := m["cwd"].(string); ok {
+			return cwd
+		}
+	}
+	return ""
 }
 
 func payloadSessionID(value interface{}) string {
