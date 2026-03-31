@@ -175,6 +175,25 @@ func TestParseDiscoveryMessages(t *testing.T) {
 	}
 }
 
+
+func TestParseDiscoveryMessagesIgnoresNonJSONLines(t *testing.T) {
+	lines := [][]byte{
+		[]byte("plain text from stdout"),
+		[]byte(`{"type":"system","subtype":"init","skills":["loop"]}`),
+	}
+
+	commands, skills, err := CollectDiscoveryData(lines)
+	if err != nil {
+		t.Fatalf("expected non-JSON lines to be ignored, got %v", err)
+	}
+	if len(commands) != 0 {
+		t.Fatalf("expected no commands, got %#v", commands)
+	}
+	if !reflect.DeepEqual(skills, []string{"loop"}) {
+		t.Fatalf("expected skills %#v, got %#v", []string{"loop"}, skills)
+	}
+}
+
 func assertHasCapability(t *testing.T, caps []ClaudeCapability, kind, name string) {
 	t.Helper()
 

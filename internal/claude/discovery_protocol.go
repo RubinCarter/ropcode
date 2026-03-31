@@ -40,7 +40,7 @@ func ParseCommandSummariesFromLine(line []byte) ([]CommandSummary, bool, error) 
 
 	var envelope discoveryTypeEnvelope
 	if err := json.Unmarshal(line, &envelope); err != nil {
-		return nil, false, err
+		return nil, false, nil
 	}
 	if envelope.Type != "control_response" {
 		return nil, false, nil
@@ -71,7 +71,7 @@ func ParseSkillsFromLine(line []byte) ([]string, bool, error) {
 
 	var envelope discoveryTypeEnvelope
 	if err := json.Unmarshal(line, &envelope); err != nil {
-		return nil, false, err
+		return nil, false, nil
 	}
 	if envelope.Type != "system" {
 		return nil, false, nil
