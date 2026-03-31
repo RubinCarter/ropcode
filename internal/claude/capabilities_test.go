@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -175,6 +176,80 @@ func TestParseDiscoveryMessages(t *testing.T) {
 	}
 }
 
+func TestDiscoverCapabilityLayers(t *testing.T) {
+	projectPath := "/tmp/example-project"
+	transport := &stubDiscoveryTransport{
+		snapshots: map[DiscoveryStage]CapabilitySnapshot{
+			DiscoveryStageSystem: {
+				Stage:    "system",
+				Commands: []CommandSummary{{Name: "review"}},
+				Skills:   []string{"help"},
+			},
+			DiscoveryStageUser: {
+				Stage:    "user",
+				Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}},
+				Skills:   []string{"help", "loop"},
+			},
+			DiscoveryStageProject: {
+				Stage:    "project",
+				Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}, {Name: "bar"}},
+				Skills:   []string{"help", "loop", "proj"},
+			},
+		},
+	}
+
+	service := NewCapabilityDiscoveryService(transport)
+	layers, err := service.Discover(projectPath)
+	if err != nil {
+		t.Fatalf("expected no discovery error, got %v", err)
+	}
+
+	if !reflect.DeepEqual(transport.calls, []discoveryCall{
+		{stage: DiscoveryStageSystem, projectPath: projectPath},
+		{stage: DiscoveryStageUser, projectPath: projectPath},
+		{stage: DiscoveryStageProject, projectPath: projectPath},
+	}) {
+		t.Fatalf("expected staged discovery order, got %#v", transport.calls)
+	}
+
+	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "review")
+	assertHasCapability(t, layers.UserOnly, string(CapabilityKindCommand), "foo")
+	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindSkill), "proj")
+
+	assertCapabilityOrder(t, layers.AllVisible, []string{
+		"system:command:review",
+		"system:skill:help",
+		"user:command:foo",
+		"user:skill:loop",
+		"project:command:bar",
+		"project:skill:proj",
+	})
+}
+
+func TestDiscoverCapabilityLayersReturnsTransportError(t *testing.T) {
+	expectedErr := errors.New("user stage failed")
+	transport := &stubDiscoveryTransport{
+		snapshots: map[DiscoveryStage]CapabilitySnapshot{
+			DiscoveryStageSystem: {
+				Stage:    "system",
+				Commands: []CommandSummary{{Name: "review"}},
+				Skills:   []string{"help"},
+			},
+		},
+		errByStage: map[DiscoveryStage]error{
+			DiscoveryStageUser: expectedErr,
+		},
+	}
+
+	service := NewCapabilityDiscoveryService(transport)
+	_, err := service.Discover("/tmp/example-project")
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected error %v, got %v", expectedErr, err)
+	}
+	if len(transport.calls) != 2 {
+		t.Fatalf("expected discovery to stop after failing user stage, got %d calls", len(transport.calls))
+	}
+}
 
 func TestParseDiscoveryMessagesIgnoresNonJSONLines(t *testing.T) {
 	lines := [][]byte{
@@ -192,6 +267,29 @@ func TestParseDiscoveryMessagesIgnoresNonJSONLines(t *testing.T) {
 	if !reflect.DeepEqual(skills, []string{"loop"}) {
 		t.Fatalf("expected skills %#v, got %#v", []string{"loop"}, skills)
 	}
+}
+
+type discoveryCall struct {
+	stage       DiscoveryStage
+	projectPath string
+}
+
+type stubDiscoveryTransport struct {
+	snapshots  map[DiscoveryStage]CapabilitySnapshot
+	errByStage map[DiscoveryStage]error
+	calls      []discoveryCall
+}
+
+func (s *stubDiscoveryTransport) Run(stage DiscoveryStage, projectPath string) (CapabilitySnapshot, error) {
+	s.calls = append(s.calls, discoveryCall{stage: stage, projectPath: projectPath})
+	if err := s.errByStage[stage]; err != nil {
+		return CapabilitySnapshot{}, err
+	}
+	snapshot, ok := s.snapshots[stage]
+	if !ok {
+		return CapabilitySnapshot{}, nil
+	}
+	return snapshot, nil
 }
 
 func assertHasCapability(t *testing.T, caps []ClaudeCapability, kind, name string) {
