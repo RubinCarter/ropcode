@@ -106,3 +106,68 @@ func TestDedupeCapabilitiesFiltersDuplicatesAndEmptyNames(t *testing.T) {
 		t.Fatalf("expected generated key skill:loop, got %q", caps[1].Key)
 	}
 }
+
+func TestBuildCapabilityLayers(t *testing.T) {
+	systemSnap := CapabilitySnapshot{
+		Stage: "system",
+		Commands: []CommandSummary{{Name: "review"}},
+		Skills:   []string{"help"},
+	}
+	userSnap := CapabilitySnapshot{
+		Stage: "user",
+		Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}},
+		Skills:   []string{"help", "loop"},
+	}
+	projectSnap := CapabilitySnapshot{
+		Stage: "project",
+		Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}, {Name: "bar"}},
+		Skills:   []string{"help", "loop", "proj"},
+	}
+
+	layers := BuildCapabilityLayers(systemSnap, userSnap, projectSnap)
+
+	assertHasCapability(t, layers.UserOnly, string(CapabilityKindCommand), "foo")
+	assertHasCapability(t, layers.UserOnly, string(CapabilityKindSkill), "loop")
+	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindCommand), "bar")
+	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindSkill), "proj")
+
+	if len(layers.AllVisible) != 6 {
+		t.Fatalf("expected 6 all-visible capabilities, got %d", len(layers.AllVisible))
+	}
+
+	assertCapabilityOrder(t, layers.AllVisible, []string{
+		"system:command:review",
+		"system:skill:help",
+		"user:command:foo",
+		"user:skill:loop",
+		"project:command:bar",
+		"project:skill:proj",
+	})
+}
+
+func assertHasCapability(t *testing.T, caps []ClaudeCapability, kind, name string) {
+	t.Helper()
+
+	for _, cap := range caps {
+		if cap.Kind == kind && cap.Name == name {
+			return
+		}
+	}
+
+	t.Fatalf("expected capability %s:%s in %+v", kind, name, caps)
+}
+
+func assertCapabilityOrder(t *testing.T, caps []ClaudeCapability, want []string) {
+	t.Helper()
+
+	if len(caps) != len(want) {
+		t.Fatalf("expected %d capabilities, got %d", len(want), len(caps))
+	}
+
+	for i, cap := range caps {
+		got := cap.Scope + ":" + cap.Kind + ":" + cap.Name
+		if got != want[i] {
+			t.Fatalf("expected capability at index %d to be %q, got %q", i, want[i], got)
+		}
+	}
+}

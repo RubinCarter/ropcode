@@ -1,6 +1,9 @@
 package claude
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 type CapabilityKind string
 
@@ -82,6 +85,28 @@ func normalizeCapabilities(commands []CommandSummary, skills []string, scope Cap
 	return dedupeCapabilities(capabilities)
 }
 
+func BuildCapabilityLayers(system, user, project CapabilitySnapshot) CapabilityLayers {
+	systemCaps := normalizeCapabilities(system.Commands, system.Skills, CapabilityScopeSystem)
+	userCaps := normalizeCapabilities(user.Commands, user.Skills, CapabilityScopeUser)
+	projectCaps := normalizeCapabilities(project.Commands, project.Skills, CapabilityScopeProject)
+
+	userOnly := capabilityDiff(userCaps, systemCaps)
+	projectOnly := capabilityDiff(projectCaps, userCaps)
+	allVisible := dedupeCapabilities(append(append([]ClaudeCapability{}, systemCaps...), append(userOnly, projectOnly...)...))
+
+	sortCapabilities(systemCaps)
+	sortCapabilities(userOnly)
+	sortCapabilities(projectOnly)
+	sortCapabilities(allVisible)
+
+	return CapabilityLayers{
+		System:      systemCaps,
+		UserOnly:    userOnly,
+		ProjectOnly: projectOnly,
+		AllVisible:  allVisible,
+	}
+}
+
 func capabilityKey(kind, name string) string {
 	cleanKind := strings.TrimSpace(kind)
 	cleanName := strings.TrimPrefix(strings.TrimSpace(name), "/")
@@ -115,4 +140,60 @@ func dedupeCapabilities(capabilities []ClaudeCapability) []ClaudeCapability {
 	}
 
 	return result
+}
+
+func capabilityDiff(current, base []ClaudeCapability) []ClaudeCapability {
+	baseKeys := make(map[string]struct{}, len(base))
+	for _, capability := range base {
+		baseKeys[capability.Key] = struct{}{}
+	}
+
+	result := make([]ClaudeCapability, 0, len(current))
+	for _, capability := range current {
+		if _, ok := baseKeys[capability.Key]; ok {
+			continue
+		}
+		result = append(result, capability)
+	}
+
+	return dedupeCapabilities(result)
+}
+
+func sortCapabilities(capabilities []ClaudeCapability) {
+	sort.Slice(capabilities, func(i, j int) bool {
+		left := capabilities[i]
+		right := capabilities[j]
+
+		if scopeOrder(left.Scope) != scopeOrder(right.Scope) {
+			return scopeOrder(left.Scope) < scopeOrder(right.Scope)
+		}
+		if kindOrder(left.Kind) != kindOrder(right.Kind) {
+			return kindOrder(left.Kind) < kindOrder(right.Kind)
+		}
+		return left.Name < right.Name
+	})
+}
+
+func scopeOrder(scope string) int {
+	switch scope {
+	case string(CapabilityScopeSystem):
+		return 0
+	case string(CapabilityScopeUser):
+		return 1
+	case string(CapabilityScopeProject):
+		return 2
+	default:
+		return 3
+	}
+}
+
+func kindOrder(kind string) int {
+	switch kind {
+	case string(CapabilityKindCommand):
+		return 0
+	case string(CapabilityKindSkill):
+		return 1
+	default:
+		return 2
+	}
 }
