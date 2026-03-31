@@ -61,10 +61,10 @@ func TestCapabilityModelShapes(t *testing.T) {
 	}
 
 	layers := CapabilityLayers{
-		System: []ClaudeCapability{{Kind: string(CapabilityKindCommand), Name: "review", SlashName: "/review"}},
-		UserOnly: []ClaudeCapability{{Kind: string(CapabilityKindSkill), Name: "loop", SlashName: "/loop"}},
+		System:      []ClaudeCapability{{Kind: string(CapabilityKindCommand), Name: "review", SlashName: "/review"}},
+		UserOnly:    []ClaudeCapability{{Kind: string(CapabilityKindSkill), Name: "loop", SlashName: "/loop"}},
 		ProjectOnly: []ClaudeCapability{{Kind: string(CapabilityKindCommand), Name: "deploy", SlashName: "/deploy"}},
-		AllVisible: []ClaudeCapability{{Kind: string(CapabilityKindCommand), Name: "review", SlashName: "/review"}},
+		AllVisible:  []ClaudeCapability{{Kind: string(CapabilityKindCommand), Name: "review", SlashName: "/review"}},
 	}
 
 	if len(layers.System) != 1 {
@@ -78,5 +78,31 @@ func TestCapabilityModelShapes(t *testing.T) {
 	}
 	if len(layers.AllVisible) != 1 {
 		t.Fatalf("expected 1 all-visible capability, got %d", len(layers.AllVisible))
+	}
+}
+
+func TestCapabilityKeyNormalizesNames(t *testing.T) {
+	key := capabilityKey(string(CapabilityKindCommand), "/review")
+	if key != "command:review" {
+		t.Fatalf("expected normalized capability key, got %q", key)
+	}
+}
+
+func TestDedupeCapabilitiesFiltersDuplicatesAndEmptyNames(t *testing.T) {
+	caps := dedupeCapabilities([]ClaudeCapability{
+		{Kind: string(CapabilityKindCommand), Name: "review", SlashName: "/review", Key: capabilityKey(string(CapabilityKindCommand), "review")},
+		{Kind: string(CapabilityKindCommand), Name: "review", SlashName: "/review", Key: capabilityKey(string(CapabilityKindCommand), "/review")},
+		{Kind: string(CapabilityKindSkill), SlashName: "/loop"},
+		{Kind: string(CapabilityKindSkill), Name: "   ", SlashName: ""},
+	})
+
+	if len(caps) != 2 {
+		t.Fatalf("expected 2 capabilities after dedupe/filter, got %d", len(caps))
+	}
+	if caps[1].Name != "loop" {
+		t.Fatalf("expected slash name backfill to produce loop, got %q", caps[1].Name)
+	}
+	if caps[1].Key != "skill:loop" {
+		t.Fatalf("expected generated key skill:loop, got %q", caps[1].Key)
 	}
 }

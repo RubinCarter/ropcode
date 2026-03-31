@@ -24,10 +24,9 @@ type CommandSummary struct {
 }
 
 type CapabilitySnapshot struct {
-	Stage        string            `json:"stage"`
-	Commands     []CommandSummary  `json:"commands"`
-	Skills       []string          `json:"skills"`
-	Capabilities []ClaudeCapability `json:"capabilities,omitempty"`
+	Stage    string           `json:"stage"`
+	Commands []CommandSummary `json:"commands"`
+	Skills   []string         `json:"skills"`
 }
 
 type ClaudeCapability struct {
@@ -94,14 +93,16 @@ func dedupeCapabilities(capabilities []ClaudeCapability) []ClaudeCapability {
 	result := make([]ClaudeCapability, 0, len(capabilities))
 
 	for _, capability := range capabilities {
-		if capability.Key == "" {
-			capability.Key = capabilityKey(capability.Kind, capability.Name)
-		}
+		capability.Name = strings.TrimPrefix(strings.TrimSpace(capability.Name), "/")
+		capability.SlashName = strings.TrimSpace(capability.SlashName)
 		if capability.Name == "" {
 			capability.Name = strings.TrimPrefix(strings.TrimSpace(capability.SlashName), "/")
 		}
 		if capability.SlashName == "" && capability.Name != "" {
-			capability.SlashName = "/" + strings.TrimPrefix(strings.TrimSpace(capability.Name), "/")
+			capability.SlashName = "/" + capability.Name
+		}
+		if capability.Key == "" {
+			capability.Key = capabilityKey(capability.Kind, capability.Name)
 		}
 		if capability.Key == ":" || capability.Name == "" {
 			continue
