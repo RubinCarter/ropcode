@@ -1,8 +1,11 @@
 package claude
 
 import (
+	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -269,6 +272,120 @@ func TestParseDiscoveryMessagesIgnoresNonJSONLines(t *testing.T) {
 	}
 }
 
+func TestBuildDiscoveryCommand(t *testing.T) {
+	realHome := t.TempDir()
+	projectPath := t.TempDir()
+	systemCwd := t.TempDir()
+	userCwd := t.TempDir()
+
+	transport := &ClaudeCapabilityDiscoveryTransport{
+		binaryPath:    "/usr/local/bin/claude",
+		realHomeDir:   realHome,
+		discoveryArgs: []string{"--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"},
+		makeTempDir: func(dir, pattern string) (string, error) {
+			return t.TempDir(), nil
+		},
+	}
+
+	tests := []struct {
+		name          string
+		stage         DiscoveryStage
+		wantHome      string
+		wantDir       string
+		wantIsolated  bool
+		wantAddDir    bool
+		forbidAddDirs []string
+	}{
+		{
+			name:         "system stage isolates home and cwd",
+			stage:        DiscoveryStageSystem,
+			wantDir:      systemCwd,
+			wantIsolated: true,
+			wantAddDir:   false,
+		},
+		{
+			name:         "user stage uses real home and isolated cwd",
+			stage:        DiscoveryStageUser,
+			wantHome:     realHome,
+			wantDir:      userCwd,
+			wantIsolated: false,
+			wantAddDir:   true,
+		},
+		{
+			name:          "project stage uses real home and project cwd",
+			stage:         DiscoveryStageProject,
+			wantHome:      realHome,
+			wantDir:       projectPath,
+			wantIsolated:  false,
+			wantAddDir:    true,
+			forbidAddDirs: []string{projectPath},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			transport.makeTempDir = func(dir, pattern string) (string, error) {
+				calls++
+				switch tt.stage {
+				case DiscoveryStageSystem:
+					if calls == 1 {
+						return t.TempDir(), nil
+					}
+					return tt.wantDir, nil
+				case DiscoveryStageUser:
+					return tt.wantDir, nil
+				default:
+					return t.TempDir(), nil
+				}
+			}
+
+			cmd, cleanup, err := transport.buildCommand(context.Background(), tt.stage, projectPath)
+			if err != nil {
+				t.Fatalf("expected command build to succeed, got %v", err)
+			}
+			defer cleanup()
+
+			if cmd.Path != transport.binaryPath {
+				t.Fatalf("expected binary path %q, got %q", transport.binaryPath, cmd.Path)
+			}
+			if cmd.Dir != tt.wantDir {
+				t.Fatalf("expected working directory %q, got %q", tt.wantDir, cmd.Dir)
+			}
+			if !reflect.DeepEqual(cmd.Args[1:], transport.discoveryArgs) && !reflect.DeepEqual(cmd.Args[1:len(transport.discoveryArgs)+1], transport.discoveryArgs) {
+				t.Fatalf("expected discovery args prefix %#v, got %#v", transport.discoveryArgs, cmd.Args[1:])
+			}
+
+			env := envMap(cmd.Env)
+			if env["HOME"] == "" {
+				t.Fatal("expected HOME to be set")
+			}
+			if tt.wantHome != "" && env["HOME"] != tt.wantHome {
+				t.Fatalf("expected HOME %q, got %q", tt.wantHome, env["HOME"])
+			}
+			if tt.wantIsolated && env["HOME"] == realHome {
+				t.Fatalf("expected isolated HOME, got real HOME %q", env["HOME"])
+			}
+			if env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] != "true" {
+				t.Fatalf("expected nonessential traffic to be disabled, got %q", env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"])
+			}
+
+			addDirs := addDirArgs(cmd.Args[1:])
+			if tt.wantAddDir && !contains(addDirs, filepath.Join(realHome, ".claude")) {
+				t.Fatalf("expected --add-dir for %q, got %#v", filepath.Join(realHome, ".claude"), addDirs)
+			}
+			if !tt.wantAddDir && len(addDirs) != 0 {
+				t.Fatalf("expected no --add-dir args, got %#v", addDirs)
+			}
+			for _, forbidden := range tt.forbidAddDirs {
+				if contains(addDirs, forbidden) {
+					t.Fatalf("expected %q not to appear in --add-dir args: %#v", forbidden, addDirs)
+				}
+			}
+		})
+	}
+}
+
 type discoveryCall struct {
 	stage       DiscoveryStage
 	projectPath string
@@ -290,6 +407,38 @@ func (s *stubDiscoveryTransport) Run(stage DiscoveryStage, projectPath string) (
 		return CapabilitySnapshot{}, nil
 	}
 	return snapshot, nil
+}
+
+func envMap(env []string) map[string]string {
+	result := make(map[string]string, len(env))
+	for _, entry := range env {
+		parts := strings.SplitN(entry, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		result[parts[0]] = parts[1]
+	}
+	return result
+}
+
+func addDirArgs(args []string) []string {
+	result := make([]string, 0)
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "--add-dir" {
+			result = append(result, args[i+1])
+			i++
+		}
+	}
+	return result
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func assertHasCapability(t *testing.T, caps []ClaudeCapability, kind, name string) {

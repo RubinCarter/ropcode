@@ -12,13 +12,38 @@ import (
 	"time"
 )
 
+func discoverClaudeBinaryPath() (string, error) {
+	// First, try to find it in PATH
+	if path, err := exec.LookPath("claude"); err == nil {
+		return path, nil
+	}
+
+	// Common installation locations
+	commonPaths := []string{
+		"/usr/local/bin/claude",
+		"/opt/homebrew/bin/claude",
+		filepath.Join(os.Getenv("HOME"), ".npm-global/bin/claude"),
+		filepath.Join(os.Getenv("HOME"), ".local/bin/claude"),
+	}
+
+	for _, path := range commonPaths {
+		if _, err := os.Stat(path); err == nil {
+			if err := exec.Command(path, "--version").Run(); err == nil {
+				return path, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("claude binary not found in PATH or common locations")
+}
+
 type SessionManager struct {
-	ctx             context.Context
-	emitter         EventEmitter
-	processEmitter  ProcessChangedEmitter
-	sessions        map[string]*Session
-	binaryPath      string
-	mu              sync.RWMutex
+	ctx            context.Context
+	emitter        EventEmitter
+	processEmitter ProcessChangedEmitter
+	sessions       map[string]*Session
+	binaryPath     string
+	mu             sync.RWMutex
 }
 
 // NewSessionManager creates a new session manager
@@ -60,29 +85,7 @@ func (m *SessionManager) SetProcessEmitter(emitter ProcessChangedEmitter) {
 
 // discoverBinary attempts to find the Claude binary in common locations
 func (m *SessionManager) discoverBinary() (string, error) {
-	// First, try to find it in PATH
-	if path, err := exec.LookPath("claude"); err == nil {
-		return path, nil
-	}
-
-	// Common installation locations
-	commonPaths := []string{
-		"/usr/local/bin/claude",
-		"/opt/homebrew/bin/claude",
-		filepath.Join(os.Getenv("HOME"), ".npm-global/bin/claude"),
-		filepath.Join(os.Getenv("HOME"), ".local/bin/claude"),
-	}
-
-	for _, path := range commonPaths {
-		if _, err := os.Stat(path); err == nil {
-			// Verify it's executable
-			if err := exec.Command(path, "--version").Run(); err == nil {
-				return path, nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("claude binary not found in PATH or common locations")
+	return discoverClaudeBinaryPath()
 }
 
 // StartSession starts a new Claude session
