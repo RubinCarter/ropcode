@@ -1,6 +1,9 @@
 package claude
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestNormalizeCapabilityNames(t *testing.T) {
 	caps := normalizeCapabilities(
@@ -109,17 +112,17 @@ func TestDedupeCapabilitiesFiltersDuplicatesAndEmptyNames(t *testing.T) {
 
 func TestBuildCapabilityLayers(t *testing.T) {
 	systemSnap := CapabilitySnapshot{
-		Stage: "system",
+		Stage:    "system",
 		Commands: []CommandSummary{{Name: "review"}},
 		Skills:   []string{"help"},
 	}
 	userSnap := CapabilitySnapshot{
-		Stage: "user",
+		Stage:    "user",
 		Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}},
 		Skills:   []string{"help", "loop"},
 	}
 	projectSnap := CapabilitySnapshot{
-		Stage: "project",
+		Stage:    "project",
 		Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}, {Name: "bar"}},
 		Skills:   []string{"help", "loop", "proj"},
 	}
@@ -143,6 +146,33 @@ func TestBuildCapabilityLayers(t *testing.T) {
 		"project:command:bar",
 		"project:skill:proj",
 	})
+}
+
+func TestParseDiscoveryMessages(t *testing.T) {
+	lines := [][]byte{
+		[]byte(`{"type":"log","message":"ignore me"}`),
+		[]byte(`{"type":"control_response","response":{"subtype":"success","response":{"commands":[{"name":"review","description":"Request code review","argumentHint":"[files]"},{"name":"review","description":"duplicate should be ignored","argumentHint":""}]}}}`),
+		[]byte(`{"type":"system","subtype":"init","skills":["loop","brainstorm","loop"]}`),
+	}
+
+	commands, skills, err := CollectDiscoveryData(lines)
+	if err != nil {
+		t.Fatalf("expected no error collecting discovery data, got %v", err)
+	}
+
+	wantCommands := []CommandSummary{{
+		Name:         "review",
+		Description:  "Request code review",
+		ArgumentHint: "[files]",
+	}}
+	if !reflect.DeepEqual(commands, wantCommands) {
+		t.Fatalf("expected commands %#v, got %#v", wantCommands, commands)
+	}
+
+	wantSkills := []string{"loop", "brainstorm"}
+	if !reflect.DeepEqual(skills, wantSkills) {
+		t.Fatalf("expected skills %#v, got %#v", wantSkills, skills)
+	}
 }
 
 func assertHasCapability(t *testing.T, caps []ClaudeCapability, kind, name string) {
