@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,30 @@ type DiscoveryTransport interface {
 }
 
 type CapabilityDiscoveryService struct {
-	transport DiscoveryTransport
+	transport           DiscoveryTransport
+	claudeVersion       func() (string, error)
+	userCacheGeneration func() (string, error)
+	mu                  sync.Mutex
+	systemCache         systemCache
+	userCache           userCache
+	projectCache        map[string]projectCacheEntry
+}
+
+type systemCache struct {
+	key      string
+	snapshot CapabilitySnapshot
+	valid    bool
+}
+
+type userCache struct {
+	key      string
+	snapshot CapabilitySnapshot
+	valid    bool
+}
+
+type projectCacheEntry struct {
+	key    string
+	layers CapabilityLayers
 }
 
 type ClaudeCapabilityDiscoveryTransport struct {
@@ -40,7 +64,13 @@ type ClaudeCapabilityDiscoveryTransport struct {
 }
 
 func NewCapabilityDiscoveryService(transport DiscoveryTransport) *CapabilityDiscoveryService {
-	return &CapabilityDiscoveryService{transport: transport}
+	service := &CapabilityDiscoveryService{
+		transport:    transport,
+		projectCache: make(map[string]projectCacheEntry),
+	}
+	service.claudeVersion = service.defaultClaudeVersion
+	service.userCacheGeneration = service.defaultUserCacheGeneration
+	return service
 }
 
 func NewClaudeCapabilityDiscoveryTransport() (*ClaudeCapabilityDiscoveryTransport, error) {
@@ -69,12 +99,43 @@ func NewClaudeCapabilityDiscoveryTransport() (*ClaudeCapabilityDiscoveryTranspor
 }
 
 func (s *CapabilityDiscoveryService) Discover(projectPath string) (CapabilityLayers, error) {
-	systemSnapshot, err := s.transport.Run(DiscoveryStageSystem, projectPath)
+	return s.discover(projectPath, false)
+}
+
+func (s *CapabilityDiscoveryService) Refresh(projectPath string) (CapabilityLayers, error) {
+	return s.discover(projectPath, true)
+}
+
+func (s *CapabilityDiscoveryService) discover(projectPath string, force bool) (CapabilityLayers, error) {
+	version, err := s.claudeVersion()
+	if err != nil {
+		return CapabilityLayers{}, err
+	}
+	userGeneration, err := s.userCacheGeneration()
 	if err != nil {
 		return CapabilityLayers{}, err
 	}
 
-	userSnapshot, err := s.transport.Run(DiscoveryStageUser, projectPath)
+	systemKey := version
+	userKey := cacheKey(version, userGeneration)
+	projectKey := cacheKey(version, projectPath, userGeneration)
+
+	if !force {
+		s.mu.Lock()
+		if cached, ok := s.projectCache[projectKey]; ok {
+			layers := cached.layers
+			s.mu.Unlock()
+			return layers, nil
+		}
+		s.mu.Unlock()
+	}
+
+	systemSnapshot, err := s.loadSystemSnapshot(projectPath, systemKey, force)
+	if err != nil {
+		return CapabilityLayers{}, err
+	}
+
+	userSnapshot, err := s.loadUserSnapshot(projectPath, userKey, force)
 	if err != nil {
 		return CapabilityLayers{}, err
 	}
@@ -84,7 +145,115 @@ func (s *CapabilityDiscoveryService) Discover(projectPath string) (CapabilityLay
 		return CapabilityLayers{}, err
 	}
 
-	return BuildCapabilityLayers(systemSnapshot, userSnapshot, projectSnapshot), nil
+	layers := BuildCapabilityLayers(systemSnapshot, userSnapshot, projectSnapshot)
+
+	s.mu.Lock()
+	s.projectCache[projectKey] = projectCacheEntry{key: projectKey, layers: layers}
+	s.mu.Unlock()
+
+	return layers, nil
+}
+
+func (s *CapabilityDiscoveryService) loadSystemSnapshot(projectPath, key string, force bool) (CapabilitySnapshot, error) {
+	if !force {
+		s.mu.Lock()
+		if s.systemCache.valid && s.systemCache.key == key {
+			snapshot := s.systemCache.snapshot
+			s.mu.Unlock()
+			return snapshot, nil
+		}
+		s.mu.Unlock()
+	}
+
+	snapshot, err := s.transport.Run(DiscoveryStageSystem, projectPath)
+	if err != nil {
+		return CapabilitySnapshot{}, err
+	}
+
+	s.mu.Lock()
+	s.systemCache = systemCache{key: key, snapshot: snapshot, valid: true}
+	s.mu.Unlock()
+
+	return snapshot, nil
+}
+
+func (s *CapabilityDiscoveryService) loadUserSnapshot(projectPath, key string, force bool) (CapabilitySnapshot, error) {
+	if !force {
+		s.mu.Lock()
+		if s.userCache.valid && s.userCache.key == key {
+			snapshot := s.userCache.snapshot
+			s.mu.Unlock()
+			return snapshot, nil
+		}
+		s.mu.Unlock()
+	}
+
+	snapshot, err := s.transport.Run(DiscoveryStageUser, projectPath)
+	if err != nil {
+		return CapabilitySnapshot{}, err
+	}
+
+	s.mu.Lock()
+	s.userCache = userCache{key: key, snapshot: snapshot, valid: true}
+	s.mu.Unlock()
+
+	return snapshot, nil
+}
+
+func (s *CapabilityDiscoveryService) defaultClaudeVersion() (string, error) {
+	transport, ok := s.transport.(*ClaudeCapabilityDiscoveryTransport)
+	if !ok || transport == nil || strings.TrimSpace(transport.binaryPath) == "" {
+		return "unknown", nil
+	}
+
+	output, err := exec.Command(transport.binaryPath, "--version").Output()
+	if err != nil {
+		return "", fmt.Errorf("discover claude version: %w", err)
+	}
+
+	version := strings.TrimSpace(string(output))
+	if version == "" {
+		return "unknown", nil
+	}
+	return version, nil
+}
+
+func (s *CapabilityDiscoveryService) defaultUserCacheGeneration() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home for discovery cache: %w", err)
+	}
+
+	paths := []string{
+		filepath.Join(homeDir, ".claude"),
+		filepath.Join(homeDir, ".claude.json"),
+		filepath.Join(homeDir, ".claude.json.bak"),
+	}
+
+	latest := time.Time{}
+	seen := false
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("stat discovery cache source %q: %w", path, err)
+		}
+		if !seen || info.ModTime().After(latest) {
+			latest = info.ModTime()
+			seen = true
+		}
+	}
+
+	if !seen {
+		return "none", nil
+	}
+	return latest.UTC().Format(time.RFC3339Nano), nil
+}
+
+func cacheKey(parts ...string) string {
+	return strings.Join(parts, "\x00")
 }
 
 func (t *ClaudeCapabilityDiscoveryTransport) Run(stage DiscoveryStage, projectPath string) (CapabilitySnapshot, error) {

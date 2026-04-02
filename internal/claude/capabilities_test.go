@@ -272,6 +272,86 @@ func TestParseDiscoveryMessagesIgnoresNonJSONLines(t *testing.T) {
 	}
 }
 
+func TestCapabilityDiscoveryCache(t *testing.T) {
+	projectA := "/tmp/project-a"
+	projectB := "/tmp/project-b"
+	transport := &stubDiscoveryTransport{
+		snapshots: map[DiscoveryStage]CapabilitySnapshot{
+			DiscoveryStageSystem: {
+				Stage:    "system",
+				Commands: []CommandSummary{{Name: "review"}},
+				Skills:   []string{"help"},
+			},
+			DiscoveryStageUser: {
+				Stage:    "user",
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}},
+				Skills:   []string{"help", "user-skill"},
+			},
+		},
+		projectSnapshots: map[string]CapabilitySnapshot{
+			projectA: {
+				Stage:    "project",
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}, {Name: "project-a-cmd"}},
+				Skills:   []string{"help", "user-skill", "project-a-skill"},
+			},
+			projectB: {
+				Stage:    "project",
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}, {Name: "project-b-cmd"}},
+				Skills:   []string{"help", "user-skill", "project-b-skill"},
+			},
+		},
+	}
+
+	service := NewCapabilityDiscoveryService(transport)
+	version := "1.0.0"
+	generation := "gen-1"
+	service.claudeVersion = func() (string, error) { return version, nil }
+	service.userCacheGeneration = func() (string, error) { return generation, nil }
+
+	firstLayers, err := service.Discover(projectA)
+	if err != nil {
+		t.Fatalf("expected first discover to succeed, got %v", err)
+	}
+	secondLayers, err := service.Discover(projectA)
+	if err != nil {
+		t.Fatalf("expected second discover to succeed, got %v", err)
+	}
+	if !reflect.DeepEqual(firstLayers, secondLayers) {
+		t.Fatalf("expected cached project layers to match, got %#v and %#v", firstLayers, secondLayers)
+	}
+	assertStageCalls(t, transport.calls, projectA, 1, 1, 1)
+
+	layersForOtherProject, err := service.Discover(projectB)
+	if err != nil {
+		t.Fatalf("expected discover for second project to succeed, got %v", err)
+	}
+	assertHasCapability(t, layersForOtherProject.ProjectOnly, string(CapabilityKindCommand), "project-b-cmd")
+	assertStageCalls(t, transport.calls, projectA, 1, 1, 1)
+	assertStageCalls(t, transport.calls, projectB, 0, 0, 1)
+
+	generation = "gen-2"
+	thirdLayers, err := service.Discover(projectA)
+	if err != nil {
+		t.Fatalf("expected discover after generation change to succeed, got %v", err)
+	}
+	assertHasCapability(t, thirdLayers.ProjectOnly, string(CapabilityKindCommand), "project-a-cmd")
+	assertStageCalls(t, transport.calls, projectA, 1, 2, 2)
+
+	version = "2.0.0"
+	fourthLayers, err := service.Discover(projectA)
+	if err != nil {
+		t.Fatalf("expected discover after version change to succeed, got %v", err)
+	}
+	assertHasCapability(t, fourthLayers.ProjectOnly, string(CapabilityKindSkill), "project-a-skill")
+	assertStageCalls(t, transport.calls, projectA, 2, 3, 3)
+
+	_, err = service.Refresh(projectA)
+	if err != nil {
+		t.Fatalf("expected refresh to succeed, got %v", err)
+	}
+	assertStageCalls(t, transport.calls, projectA, 3, 4, 4)
+}
+
 func TestBuildDiscoveryCommand(t *testing.T) {
 	realHome := t.TempDir()
 	projectPath := t.TempDir()
@@ -393,15 +473,21 @@ type discoveryCall struct {
 }
 
 type stubDiscoveryTransport struct {
-	snapshots  map[DiscoveryStage]CapabilitySnapshot
-	errByStage map[DiscoveryStage]error
-	calls      []discoveryCall
+	snapshots        map[DiscoveryStage]CapabilitySnapshot
+	projectSnapshots map[string]CapabilitySnapshot
+	errByStage       map[DiscoveryStage]error
+	calls            []discoveryCall
 }
 
 func (s *stubDiscoveryTransport) Run(stage DiscoveryStage, projectPath string) (CapabilitySnapshot, error) {
 	s.calls = append(s.calls, discoveryCall{stage: stage, projectPath: projectPath})
 	if err := s.errByStage[stage]; err != nil {
 		return CapabilitySnapshot{}, err
+	}
+	if stage == DiscoveryStageProject {
+		if snapshot, ok := s.projectSnapshots[projectPath]; ok {
+			return snapshot, nil
+		}
 	}
 	snapshot, ok := s.snapshots[stage]
 	if !ok {
@@ -431,6 +517,31 @@ func addDirArgs(args []string) []string {
 		}
 	}
 	return result
+}
+
+func assertStageCalls(t *testing.T, calls []discoveryCall, projectPath string, wantSystem, wantUser, wantProject int) {
+	t.Helper()
+
+	gotSystem := 0
+	gotUser := 0
+	gotProject := 0
+	for _, call := range calls {
+		if call.projectPath != projectPath {
+			continue
+		}
+		switch call.stage {
+		case DiscoveryStageSystem:
+			gotSystem++
+		case DiscoveryStageUser:
+			gotUser++
+		case DiscoveryStageProject:
+			gotProject++
+		}
+	}
+
+	if gotSystem != wantSystem || gotUser != wantUser || gotProject != wantProject {
+		t.Fatalf("expected calls for %q to be system=%d user=%d project=%d, got system=%d user=%d project=%d", projectPath, wantSystem, wantUser, wantProject, gotSystem, gotUser, gotProject)
+	}
 }
 
 func assertHasCapability(t *testing.T, caps []ClaudeCapability, kind, name string) {
