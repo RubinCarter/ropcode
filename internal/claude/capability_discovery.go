@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -236,6 +235,7 @@ func (t *ClaudeCapabilityDiscoveryTransport) buildCommand(ctx context.Context, s
 	workingDir := projectPath
 	homeDir := t.realHomeDir
 	cleanup := func() {}
+	env := discoveryBaseEnv()
 
 	switch stage {
 	case DiscoveryStageSystem:
@@ -263,25 +263,19 @@ func (t *ClaudeCapabilityDiscoveryTransport) buildCommand(ctx context.Context, s
 		cleanup = func() {
 			_ = os.RemoveAll(emptyCwd)
 		}
+		env = ensureFullShellPath(os.Environ())
 	case DiscoveryStageProject:
 		if strings.TrimSpace(projectPath) == "" {
 			return nil, nil, errors.New("project discovery stage requires a project path")
 		}
+		env = ensureFullShellPath(os.Environ())
 	default:
 		return nil, nil, fmt.Errorf("unsupported discovery stage %q", stage)
 	}
 
-	args := append([]string{}, t.discoveryArgs...)
-	if stage != DiscoveryStageSystem {
-		claudeDir := filepath.Join(t.realHomeDir, ".claude")
-		args = append(args, "--add-dir", claudeDir)
-	}
-
-	cmd := exec.CommandContext(ctx, t.binaryPath, args...)
+	cmd := exec.CommandContext(ctx, t.binaryPath, t.discoveryArgs...)
 	cmd.Dir = workingDir
-	cmd.Env = os.Environ()
-	cmd.Env = ensureFullShellPath(cmd.Env)
-	cmd.Env = setEnv(cmd.Env, "HOME", homeDir)
+	cmd.Env = setEnv(env, "HOME", homeDir)
 	cmd.Env = setEnv(cmd.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "true")
 
 	return cmd, cleanup, nil
@@ -311,4 +305,14 @@ func setEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
+}
+
+func discoveryBaseEnv() []string {
+	env := make([]string, 0, 3)
+	for _, key := range []string{"PATH", "TMPDIR", "TMP"} {
+		if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" {
+			env = append(env, key+"="+value)
+		}
+	}
+	return ensureFullShellPath(env)
 }

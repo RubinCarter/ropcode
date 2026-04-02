@@ -3,7 +3,7 @@ package claude
 import (
 	"context"
 	"errors"
-	"path/filepath"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -288,20 +288,19 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		stage         DiscoveryStage
-		wantHome      string
-		wantDir       string
-		wantIsolated  bool
-		wantAddDir    bool
-		forbidAddDirs []string
+		name         string
+		stage        DiscoveryStage
+		wantHome     string
+		wantDir      string
+		wantIsolated bool
+		wantBaseEnv  bool
 	}{
 		{
 			name:         "system stage isolates home and cwd",
 			stage:        DiscoveryStageSystem,
 			wantDir:      systemCwd,
 			wantIsolated: true,
-			wantAddDir:   false,
+			wantBaseEnv:  true,
 		},
 		{
 			name:         "user stage uses real home and isolated cwd",
@@ -309,16 +308,15 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 			wantHome:     realHome,
 			wantDir:      userCwd,
 			wantIsolated: false,
-			wantAddDir:   true,
+			wantBaseEnv:  false,
 		},
 		{
-			name:          "project stage uses real home and project cwd",
-			stage:         DiscoveryStageProject,
-			wantHome:      realHome,
-			wantDir:       projectPath,
-			wantIsolated:  false,
-			wantAddDir:    true,
-			forbidAddDirs: []string{projectPath},
+			name:         "project stage uses real home and project cwd",
+			stage:        DiscoveryStageProject,
+			wantHome:     realHome,
+			wantDir:      projectPath,
+			wantIsolated: false,
+			wantBaseEnv:  false,
 		},
 	}
 
@@ -332,9 +330,9 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 					if calls == 1 {
 						return t.TempDir(), nil
 					}
-					return tt.wantDir, nil
+					return systemCwd, nil
 				case DiscoveryStageUser:
-					return tt.wantDir, nil
+					return userCwd, nil
 				default:
 					return t.TempDir(), nil
 				}
@@ -352,8 +350,8 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 			if cmd.Dir != tt.wantDir {
 				t.Fatalf("expected working directory %q, got %q", tt.wantDir, cmd.Dir)
 			}
-			if !reflect.DeepEqual(cmd.Args[1:], transport.discoveryArgs) && !reflect.DeepEqual(cmd.Args[1:len(transport.discoveryArgs)+1], transport.discoveryArgs) {
-				t.Fatalf("expected discovery args prefix %#v, got %#v", transport.discoveryArgs, cmd.Args[1:])
+			if !reflect.DeepEqual(cmd.Args[1:], transport.discoveryArgs) {
+				t.Fatalf("expected discovery args %#v, got %#v", transport.discoveryArgs, cmd.Args[1:])
 			}
 
 			env := envMap(cmd.Env)
@@ -371,15 +369,18 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 			}
 
 			addDirs := addDirArgs(cmd.Args[1:])
-			if tt.wantAddDir && !contains(addDirs, filepath.Join(realHome, ".claude")) {
-				t.Fatalf("expected --add-dir for %q, got %#v", filepath.Join(realHome, ".claude"), addDirs)
-			}
-			if !tt.wantAddDir && len(addDirs) != 0 {
+			if len(addDirs) != 0 {
 				t.Fatalf("expected no --add-dir args, got %#v", addDirs)
 			}
-			for _, forbidden := range tt.forbidAddDirs {
-				if contains(addDirs, forbidden) {
-					t.Fatalf("expected %q not to appear in --add-dir args: %#v", forbidden, addDirs)
+
+			if tt.wantBaseEnv {
+				for _, key := range []string{"TMPDIR", "TMP"} {
+					if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" && env[key] != value {
+						t.Fatalf("expected %s to be preserved in base env, got %q want %q", key, env[key], value)
+					}
+				}
+				if strings.TrimSpace(env["PATH"]) == "" {
+					t.Fatal("expected PATH to be set in base env")
 				}
 			}
 		})
@@ -430,15 +431,6 @@ func addDirArgs(args []string) []string {
 		}
 	}
 	return result
-}
-
-func contains(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
 }
 
 func assertHasCapability(t *testing.T, caps []ClaudeCapability, kind, name string) {
