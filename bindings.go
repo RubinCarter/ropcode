@@ -18,6 +18,7 @@ import (
 	goruntime "runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,70 @@ import (
 type liveSessionConfig struct {
 	model         string
 	providerApiID string
+}
+
+type claudeCapabilityLayersResult struct {
+	System      []claude.ClaudeCapability `json:"system"`
+	UserOnly    []claude.ClaudeCapability `json:"user_only"`
+	ProjectOnly []claude.ClaudeCapability `json:"project_only"`
+	AllVisible  []claude.ClaudeCapability `json:"all_visible"`
+	FetchedAt   time.Time                 `json:"fetched_at"`
+}
+
+type claudeCapabilityDiscovery interface {
+	Discover(projectPath string) (claude.CapabilityLayers, error)
+	Refresh(projectPath string) (claude.CapabilityLayers, error)
+}
+
+var defaultClaudeCapabilityDiscovery = struct {
+	mu      sync.Mutex
+	service claudeCapabilityDiscovery
+	err     error
+}{}
+
+func (a *App) getClaudeCapabilityDiscovery() (claudeCapabilityDiscovery, error) {
+	a.mu.RLock()
+	if a.capabilityDiscovery != nil {
+		service := a.capabilityDiscovery
+		a.mu.RUnlock()
+		return service, nil
+	}
+	a.mu.RUnlock()
+
+	defaultClaudeCapabilityDiscovery.mu.Lock()
+	defer defaultClaudeCapabilityDiscovery.mu.Unlock()
+	if defaultClaudeCapabilityDiscovery.service != nil || defaultClaudeCapabilityDiscovery.err != nil {
+		if defaultClaudeCapabilityDiscovery.service != nil {
+			a.mu.Lock()
+			a.capabilityDiscovery = defaultClaudeCapabilityDiscovery.service
+			a.mu.Unlock()
+		}
+		return defaultClaudeCapabilityDiscovery.service, defaultClaudeCapabilityDiscovery.err
+	}
+
+	transport, err := claude.NewClaudeCapabilityDiscoveryTransport()
+	if err != nil {
+		defaultClaudeCapabilityDiscovery.err = err
+		return nil, err
+	}
+
+	service := claude.NewCapabilityDiscoveryService(transport)
+	defaultClaudeCapabilityDiscovery.service = service
+	defaultClaudeCapabilityDiscovery.err = nil
+	a.mu.Lock()
+	a.capabilityDiscovery = service
+	a.mu.Unlock()
+	return service, nil
+}
+
+func newClaudeCapabilityLayersResult(layers claude.CapabilityLayers) claudeCapabilityLayersResult {
+	return claudeCapabilityLayersResult{
+		System:      layers.System,
+		UserOnly:    layers.UserOnly,
+		ProjectOnly: layers.ProjectOnly,
+		AllVisible:  layers.AllVisible,
+		FetchedAt:   time.Now().UTC(),
+	}
 }
 
 func providerSessionConfigFromManager(manager any, sessionID string) liveSessionConfig {
@@ -2111,6 +2176,38 @@ func (a *App) ImportAgentFromFile(path string) (*database.Agent, error) {
 		return nil, nil
 	}
 	return a.dbManager.ImportAgentFromFile(path)
+}
+
+// GetClaudeCapabilityLayers returns cached or discovered Claude capability layers for a project.
+func (a *App) GetClaudeCapabilityLayers(projectPath string) (*claudeCapabilityLayersResult, error) {
+	service, err := a.getClaudeCapabilityDiscovery()
+	if err != nil {
+		return nil, err
+	}
+
+	layers, err := service.Discover(projectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	result := newClaudeCapabilityLayersResult(layers)
+	return &result, nil
+}
+
+// RefreshClaudeCapabilityLayers bypasses cache and refreshes Claude capability layers for a project.
+func (a *App) RefreshClaudeCapabilityLayers(projectPath string) (*claudeCapabilityLayersResult, error) {
+	service, err := a.getClaudeCapabilityDiscovery()
+	if err != nil {
+		return nil, err
+	}
+
+	layers, err := service.Refresh(projectPath)
+	if err != nil {
+		return nil, err
+	}
+
+	result := newClaudeCapabilityLayersResult(layers)
+	return &result, nil
 }
 
 // ===== Slash Commands Bindings =====

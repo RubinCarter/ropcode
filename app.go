@@ -30,19 +30,20 @@ type App struct {
 	config *config.Config
 
 	// Core managers
-	ptyManager     *pty.Manager
-	processManager *process.Manager
-	dbManager      *database.Database
-	claudeManager  *claude.SessionManager
-	geminiManager  *gemini.SessionManager
-	codexManager   *codex.SessionManager
-	mcpManager     *mcp.Manager
-	sshManager     *ssh.Manager
-	pluginManager  *plugin.Manager
-	sessionManager *session.HistoryManager
-	eventHub       *eventhub.EventHub
-	gitWatcher     *git.GitWatcher
-	modelRegistry  *models.Registry
+	ptyManager          *pty.Manager
+	processManager      *process.Manager
+	dbManager           *database.Database
+	claudeManager       *claude.SessionManager
+	geminiManager       *gemini.SessionManager
+	codexManager        *codex.SessionManager
+	mcpManager          *mcp.Manager
+	sshManager          *ssh.Manager
+	pluginManager       *plugin.Manager
+	sessionManager      *session.HistoryManager
+	eventHub            *eventhub.EventHub
+	gitWatcher          *git.GitWatcher
+	modelRegistry       *models.Registry
+	capabilityDiscovery claudeCapabilityDiscovery
 }
 
 // NewApp creates a new App application struct

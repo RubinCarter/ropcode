@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"ropcode/internal/config"
 	"ropcode/internal/database"
+	"ropcode/internal/rpc"
 	"ropcode/internal/websocket"
 )
 
@@ -23,6 +25,23 @@ type rpcLiveSession struct {
 	PID         int       `json:"pid,omitempty"`
 	Provider    string    `json:"provider"`
 	Output      string    `json:"-"`
+}
+
+type rpcClaudeCapability struct {
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	SlashName   string `json:"slash_name"`
+	Kind        string `json:"kind"`
+	Description string `json:"description,omitempty"`
+	Scope       string `json:"scope"`
+}
+
+type rpcClaudeCapabilityLayers struct {
+	System      []rpcClaudeCapability `json:"system"`
+	UserOnly    []rpcClaudeCapability `json:"user_only"`
+	ProjectOnly []rpcClaudeCapability `json:"project_only"`
+	AllVisible  []rpcClaudeCapability `json:"all_visible"`
+	FetchedAt   string                `json:"fetched_at"`
 }
 
 type sessionSendCall struct {
@@ -150,6 +169,56 @@ func (a *sessionRPCTestApp) StartInteractiveClaudeSession(projectPath, model, pr
 func (a *sessionRPCTestApp) SendClaudeMessage(projectPath, sessionID, prompt string) error {
 	_, err := a.SendProviderSessionMessage("claude", projectPath, sessionID, prompt)
 	return err
+}
+
+func (a *sessionRPCTestApp) GetClaudeCapabilityLayers(projectPath string) (rpcClaudeCapabilityLayers, error) {
+	return rpcClaudeCapabilityLayers{
+		System: []rpcClaudeCapability{{
+			Key:       "command:review",
+			Name:      "review",
+			SlashName: "/review",
+			Kind:      "command",
+			Scope:     "system",
+		}},
+		UserOnly: []rpcClaudeCapability{{
+			Key:       "skill:loop",
+			Name:      "loop",
+			SlashName: "/loop",
+			Kind:      "skill",
+			Scope:     "user",
+		}},
+		ProjectOnly: []rpcClaudeCapability{{
+			Key:       "command:project",
+			Name:      "project",
+			SlashName: "/project",
+			Kind:      "command",
+			Scope:     "project",
+		}},
+		AllVisible: []rpcClaudeCapability{{
+			Key:       "command:review",
+			Name:      "review",
+			SlashName: "/review",
+			Kind:      "command",
+			Scope:     "system",
+		}, {
+			Key:       "skill:loop",
+			Name:      "loop",
+			SlashName: "/loop",
+			Kind:      "skill",
+			Scope:     "user",
+		}, {
+			Key:       "command:project",
+			Name:      "project",
+			SlashName: "/project",
+			Kind:      "command",
+			Scope:     "project",
+		}},
+		FetchedAt: time.Now().UTC().Format(time.RFC3339Nano),
+	}, nil
+}
+
+func (a *sessionRPCTestApp) RefreshClaudeCapabilityLayers(projectPath string) (rpcClaudeCapabilityLayers, error) {
+	return a.GetClaudeCapabilityLayers(projectPath)
 }
 
 func (a *sessionRPCTestApp) StopProviderSession(sessionID string) error {
@@ -375,6 +444,54 @@ func TestSessionLogsRequiresSessionOrCWD(t *testing.T) {
 	_, _, err := runCLI(t, "runtime", "workspace", "logs")
 	if err == nil || (!strings.Contains(err.Error(), "--session") && !strings.Contains(err.Error(), "--cwd")) {
 		t.Fatalf("expected error requiring --session or --cwd, got %v", err)
+	}
+}
+
+func TestClaudeCapabilityLayersRPC(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load failed: %v", err)
+	}
+	instance, _, err := resolveInstance(defaultCLIDeps(), cfg, inst.server.GetInstanceID())
+	if err != nil {
+		t.Fatalf("resolveInstance failed: %v", err)
+	}
+	client, err := rpc.Dial(fmt.Sprintf("ws://%s:%d/ws", instance.Host, instance.Port), instance.AuthKey)
+	if err != nil {
+		t.Fatalf("rpc.Dial failed: %v", err)
+	}
+	defer client.Close()
+
+	var getResult rpcClaudeCapabilityLayers
+	if err := client.Call("GetClaudeCapabilityLayers", []any{inst.projectPath}, &getResult); err != nil {
+		t.Fatalf("GetClaudeCapabilityLayers failed: %v", err)
+	}
+	assertCapabilityLayerShape(t, getResult)
+
+	var refreshResult rpcClaudeCapabilityLayers
+	if err := client.Call("RefreshClaudeCapabilityLayers", []any{inst.projectPath}, &refreshResult); err != nil {
+		t.Fatalf("RefreshClaudeCapabilityLayers failed: %v", err)
+	}
+	assertCapabilityLayerShape(t, refreshResult)
+}
+
+func assertCapabilityLayerShape(t *testing.T, layers rpcClaudeCapabilityLayers) {
+	t.Helper()
+	if len(layers.System) == 0 {
+		t.Fatal("expected system capabilities")
+	}
+	if len(layers.UserOnly) == 0 {
+		t.Fatal("expected user_only capabilities")
+	}
+	if len(layers.ProjectOnly) == 0 {
+		t.Fatal("expected project_only capabilities")
+	}
+	if len(layers.AllVisible) == 0 {
+		t.Fatal("expected all_visible capabilities")
+	}
+	if strings.TrimSpace(layers.FetchedAt) == "" {
+		t.Fatal("expected fetched_at timestamp")
 	}
 }
 

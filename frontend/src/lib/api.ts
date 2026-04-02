@@ -8,7 +8,7 @@
 export * from './rpc-client';
 
 // 类型别名：用于向后兼容
-import type { database, claude, main } from './rpc-client';
+import type { ClaudeCapability, ClaudeCapabilityLayers, database, claude, main } from './rpc-client';
 export type Agent = database.Agent;
 export type AgentRun = database.AgentRun;
 export type Project = database.ProjectIndex;
@@ -21,6 +21,8 @@ export type ProviderSession = main.ProviderSession;
 export type ProviderApiConfig = database.ProviderApiConfig;
 export type Action = main.Action;
 export type ActionsResult = main.ActionsResult;
+export type ClaudeCapabilityItem = ClaudeCapability;
+export type ClaudeCapabilityLayersResult = ClaudeCapabilityLayers;
 
 // 导出事件函数
 export { EventsOn, EventsOff, EventsEmit, EventsOnce } from './rpc-events';
@@ -108,6 +110,8 @@ const api = new Proxy({ ...rpcMethods }, {
       sendClaudeMessage: 'SendClaudeMessage',
       isClaudeSessionRunningForProject: 'IsClaudeSessionRunningForProject',
       getSetting: 'GetSetting',
+      getClaudeCapabilityLayers: 'GetClaudeCapabilityLayers',
+      refreshClaudeCapabilityLayers: 'RefreshClaudeCapabilityLayers',
       // Plugin
       listInstalledPlugins: 'ListInstalledPlugins',
       getPluginContents: 'GetPluginContents',

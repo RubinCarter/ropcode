@@ -10,6 +10,24 @@ import { wsClient } from './ws-rpc-client';
 // 通用类型定义
 export type CommandType = 'claude' | 'codex';
 
+export interface ClaudeCapability {
+  key: string;
+  name: string;
+  slash_name: string;
+  kind: 'command' | 'skill';
+  description?: string;
+  argument_hint?: string;
+  scope: 'system' | 'user' | 'project';
+}
+
+export interface ClaudeCapabilityLayers {
+  system: ClaudeCapability[];
+  user_only: ClaudeCapability[];
+  project_only: ClaudeCapability[];
+  all_visible: ClaudeCapability[];
+  fetched_at: string;
+}
+
 // 类型定义 - 与 Go 后端保持一致
 export namespace ssh {
   export interface SshConnection {
@@ -1056,6 +1074,14 @@ export function ValidateHookCommand(command: string): Promise<main.HookValidatio
 }
 
 // ==================== Slash Commands ====================
+
+export function GetClaudeCapabilityLayers(projectPath: string): Promise<ClaudeCapabilityLayers> {
+  return wsClient.call('GetClaudeCapabilityLayers', projectPath);
+}
+
+export function RefreshClaudeCapabilityLayers(projectPath: string): Promise<ClaudeCapabilityLayers> {
+  return wsClient.call('RefreshClaudeCapabilityLayers', projectPath);
+}
 
 export function ListSlashCommands(projectPath: string): Promise<claude.SlashCommand[]> {
   return wsClient.call('ListSlashCommands', projectPath);
