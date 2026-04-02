@@ -27,7 +27,7 @@ import { SkillPicker } from "./SkillPicker";
 import { ClaudeCapabilityPicker } from "./ClaudeCapabilityPicker";
 import { ImagePreview } from "./ImagePreview";
 import { ProviderApiQuickSelector } from "./ProviderApiQuickSelector";
-import { api, type FileEntry, type SlashCommand, type Skill, type ModelConfig, type ThinkingLevel } from "@/lib/api";
+import { api, type main, type claude, type database } from "@/lib/api";
 import type { ClaudeCapability } from "@/lib/rpc-client";
 import { useProviderApiStore } from "@/stores/providerApiStore";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
@@ -44,6 +44,35 @@ import {
 import {
   getStopStatusControlLayoutClassName,
 } from './ai-code-session/utils/stopStatusBubble';
+
+type FileEntry = main.FileEntry & {
+  entry_type?: "file" | "directory" | "agent";
+  is_directory?: boolean;
+};
+
+type SlashCommand = claude.SlashCommand & {
+  full_command?: string;
+};
+
+type Skill = main.Skill & {
+  full_name?: string;
+};
+
+type ThinkingLevel = {
+  id: string;
+  name: string;
+  budget?: string;
+  is_default?: boolean;
+};
+
+type ModelConfig = database.ModelConfig & {
+  provider_id?: string;
+  is_enabled?: boolean;
+  display_name?: string;
+  description?: string;
+  is_default?: boolean;
+  thinking_levels?: ThinkingLevel[];
+};
 
 interface FloatingPromptInputProps {
   /**
@@ -735,13 +764,13 @@ const FloatingPromptInputInner = (
   // Helper: Get enabled models for a provider from API configs, with fallback to hardcoded
   const getProviderModels = useCallback((providerId: string): Model[] => {
     if (modelConfigsLoaded && modelConfigs.length > 0) {
-      const providerConfigs = modelConfigs.filter(c => c.provider_id === providerId && c.is_enabled);
+      const providerConfigs = modelConfigs.filter((c: ModelConfig) => c.provider_id === providerId && c.is_enabled);
       if (providerConfigs.length > 0) {
         // Convert ModelConfig to Model format for UI compatibility
         return providerConfigs.map(c => ({
           id: c.model_id,
-          name: c.display_name,
-          description: c.description,
+          name: c.display_name ?? c.model_id,
+          description: c.description ?? c.model_id,
           icon: getModelIcon(c.model_id, providerId),
           shortName: getModelShortName(c.model_id),
           color: "text-primary",
@@ -756,10 +785,10 @@ const FloatingPromptInputInner = (
   // Helper: Get thinking modes for a model from API configs, with fallback to hardcoded
   const getModelThinkingModes = useCallback((modelId: string, providerId: string): ThinkingModeConfig[] => {
     if (modelConfigsLoaded && modelConfigs.length > 0) {
-      const modelConfig = modelConfigs.find(c => c.model_id === modelId && c.provider_id === providerId);
+      const modelConfig = modelConfigs.find((c: ModelConfig) => c.model_id === modelId && c.provider_id === providerId);
       if (modelConfig && modelConfig.thinking_levels && modelConfig.thinking_levels.length > 0) {
         // Convert ThinkingLevel to ThinkingModeConfig format
-        return modelConfig.thinking_levels.map((t, index) => ({
+        return modelConfig.thinking_levels.map((t: ThinkingLevel, index) => ({
           id: t.id as ThinkingMode,
           name: t.name,
           description: t.name,
@@ -806,7 +835,7 @@ const FloatingPromptInputInner = (
       // Try to find default thinking mode from API configs
       if (modelConfigsLoaded) {
         const modelConfig = modelConfigs.find(c => c.model_id === selectedModel && c.provider_id === selectedProvider);
-        const defaultThinking = modelConfig?.thinking_levels?.find(t => t.is_default);
+        const defaultThinking = modelConfig?.thinking_levels?.find((t: ThinkingLevel) => t.is_default);
         if (defaultThinking) {
           setSelectedThinkingMode(defaultThinking.id as ThinkingMode);
           return;
@@ -1178,7 +1207,7 @@ const FloatingPromptInputInner = (
     });
   };
 
-  const handleFileSelect = (entry: FileEntry) => {
+  const handleFileSelect = (entry: main.FileEntry) => {
     if (textareaRef.current) {
       // Find the @ position before cursor
       let atPosition = -1;
@@ -1207,7 +1236,8 @@ const FloatingPromptInputInner = (
       let reference: string;
       let cursorOffset: number;
       
-      if (entry.entry_type === "agent") {
+      const fileEntry = entry as FileEntry & { entry_type?: string };
+      if (fileEntry.entry_type === "agent") {
         // For agents, use @name format (Claude CLI native)
         reference = entry.name;
         cursorOffset = reference.length + 1; // +1 for @ symbol
@@ -1269,9 +1299,11 @@ const FloatingPromptInputInner = (
     const beforeSlash = prompt.substring(0, slashPosition);
     const afterCursor = prompt.substring(cursorPosition);
     
+    const fullCommand = command.full_command ?? `/${command.name}`;
+
     if (command.accepts_arguments) {
       // Insert command with placeholder for arguments
-      const newPrompt = `${beforeSlash}${command.full_command} `;
+      const newPrompt = `${beforeSlash}${fullCommand} `;
       setPrompt(newPrompt);
       setShowSlashCommandPicker(false);
       setSlashCommandQuery("");
@@ -1279,12 +1311,12 @@ const FloatingPromptInputInner = (
       // Focus and position cursor after the command
       setTimeout(() => {
         textarea.focus();
-        const newCursorPos = beforeSlash.length + command.full_command.length + 1;
+        const newCursorPos = beforeSlash.length + fullCommand.length + 1;
         textarea.setSelectionRange(newCursorPos, newCursorPos);
       }, 0);
     } else {
       // Insert command and close picker
-      const newPrompt = `${beforeSlash}${command.full_command} ${afterCursor}`;
+      const newPrompt = `${beforeSlash}${fullCommand} ${afterCursor}`;
       setPrompt(newPrompt);
       setShowSlashCommandPicker(false);
       setSlashCommandQuery("");
@@ -1292,7 +1324,7 @@ const FloatingPromptInputInner = (
       // Focus and position cursor after the command
       setTimeout(() => {
         textarea.focus();
-        const newCursorPos = beforeSlash.length + command.full_command.length + 1;
+        const newCursorPos = beforeSlash.length + fullCommand.length + 1;
         textarea.setSelectionRange(newCursorPos, newCursorPos);
       }, 0);
     }
@@ -1344,7 +1376,7 @@ const FloatingPromptInputInner = (
     }, 0);
   };
 
-  const handleSkillSelect = (skill: Skill) => {
+  const handleSkillSelect = (skill: main.Skill) => {
     const textarea = isExpanded ? expandedTextareaRef.current : textareaRef.current;
     if (!textarea) return;
 
@@ -1369,7 +1401,9 @@ const FloatingPromptInputInner = (
     // Insert the skill full_name (e.g., :superpowers:brainstorming)
     const beforeColon = prompt.substring(0, colonPosition);
     const afterCursor = prompt.substring(cursorPosition);
-    const newPrompt = `${beforeColon}${skill.full_name} ${afterCursor}`;
+    const skillWithFullName = skill as Skill & { full_name?: string };
+    const fullName = skillWithFullName.full_name ?? `:${skill.name}`;
+    const newPrompt = `${beforeColon}${fullName} ${afterCursor}`;
     setPrompt(newPrompt);
     setShowSkillPicker(false);
     setSkillQuery("");
@@ -1377,7 +1411,7 @@ const FloatingPromptInputInner = (
     // Focus and position cursor after the skill name
     setTimeout(() => {
       textarea.focus();
-      const newCursorPos = beforeColon.length + skill.full_name.length + 1;
+      const newCursorPos = beforeColon.length + fullName.length + 1;
       textarea.setSelectionRange(newCursorPos, newCursorPos);
     }, 0);
   };
@@ -2259,7 +2293,7 @@ const FloatingPromptInputInner = (
                         onSelect={handleSlashCommandSelect}
                         onClose={handleSlashCommandPickerClose}
                         initialQuery={slashCommandQuery}
-                        provider={selectedProvider as 'claude' | 'codex' | 'gemini'}
+                        provider={selectedProvider as 'codex' | 'gemini'}
                         anchorRef={inputContainerRef}
                       />
                     )

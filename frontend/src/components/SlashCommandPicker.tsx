@@ -15,9 +15,11 @@ import {
   User,
   Building2
 } from "lucide-react";
-import type { SlashCommand } from "@/lib/api";
+import type { claude } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useTrackEvent, useFeatureAdoptionTracking } from "@/hooks";
+
+type SlashCommand = claude.SlashCommand & { full_command?: string };
 
 interface SlashCommandPickerProps {
   /**
@@ -41,10 +43,10 @@ interface SlashCommandPickerProps {
    */
   className?: string;
   /**
-   * Optional provider filter (claude, codex, or gemini)
-   * If specified, only show commands for that provider
+   * Optional provider filter for non-Claude picker paths (codex or gemini)
+   * Claude uses ClaudeCapabilityPicker instead of filesystem slash command discovery.
    */
-  provider?: 'claude' | 'codex' | 'gemini';
+  provider?: 'codex' | 'gemini';
   /**
    * Optional anchor element ref for positioning the picker
    * If provided, the picker will be rendered via portal and positioned relative to the anchor
@@ -149,7 +151,7 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
   // Load commands on mount or when project path changes
   useEffect(() => {
     loadCommands();
-  }, [projectPath]);
+  }, [projectPath, provider]);
   
   // Filter commands based on search query and provider
   useEffect(() => {
@@ -159,14 +161,8 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
     }
 
     const query = searchQuery.toLowerCase();
-    let filtered: SlashCommand[];
-
-    // First filter by provider if specified
-    if (provider) {
-      filtered = commands.filter(cmd => cmd.command_type === provider);
-    } else {
-      filtered = commands;
-    }
+    // Commands are already scoped to the active non-Claude provider when loaded.
+    let filtered = commands;
 
     // Then filter by search query
     if (query) {
@@ -302,10 +298,15 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
     try {
       setIsLoading(true);
       setError(null);
-      
-      // Always load fresh commands from filesystem
+
+      if (!provider) {
+        setCommands([]);
+        return;
+      }
+
+      // Non-Claude providers still use filesystem-backed slash command discovery.
       const loadedCommands = await api.slashCommandsList(projectPath);
-      setCommands(loadedCommands);
+      setCommands(loadedCommands.filter((cmd: SlashCommand) => cmd.command_type === provider));
     } catch (err) {
       console.error("Failed to load slash commands:", err);
       setError(err instanceof Error ? err.message : 'Failed to load commands');
@@ -398,11 +399,9 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
                   <p className="text-xs text-muted-foreground mt-2 text-center px-4">
                     {provider === 'codex' ? (
                       <>Create commands in <code className="px-1">.codex/prompts/</code> or <code className="px-1">~/.codex/prompts/</code></>
-                    ) : provider === 'claude' ? (
-                      <>Create commands in <code className="px-1">.claude/commands/</code> or <code className="px-1">~/.claude/commands/</code></>
-                    ) : (
-                      <>Create commands in <code className="px-1">.claude/commands/</code>, <code className="px-1">~/.claude/commands/</code>, <code className="px-1">.codex/prompts/</code>, or <code className="px-1">~/.codex/prompts/</code></>
-                    )}
+                    ) : provider === 'gemini' ? (
+                      <>Gemini does not currently expose filesystem slash commands here.</>
+                    ) : null}
                   </p>
                 )}
               </div>
