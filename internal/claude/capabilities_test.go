@@ -352,6 +352,84 @@ func TestCapabilityDiscoveryCache(t *testing.T) {
 	assertStageCalls(t, transport.calls, projectA, 3, 4, 4)
 }
 
+func TestRefreshCapabilityLayers(t *testing.T) {
+	projectPath := "/tmp/project-refresh"
+	transport := &stubDiscoveryTransport{
+		snapshots: map[DiscoveryStage]CapabilitySnapshot{
+			DiscoveryStageSystem: {
+				Stage:    "system",
+				Commands: []CommandSummary{{Name: "review"}},
+				Skills:   []string{"help"},
+			},
+			DiscoveryStageUser: {
+				Stage:    "user",
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-old"}},
+				Skills:   []string{"help", "user-old-skill"},
+			},
+		},
+		projectSnapshots: map[string]CapabilitySnapshot{
+			projectPath: {
+				Stage:    "project",
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-old"}, {Name: "project-old"}},
+				Skills:   []string{"help", "user-old-skill", "project-old-skill"},
+			},
+		},
+	}
+
+	service := NewCapabilityDiscoveryService(transport)
+	service.claudeVersion = func() (string, error) { return "1.0.0", nil }
+	service.userCacheGeneration = func() (string, error) { return "gen-1", nil }
+
+	initialLayers, err := service.Discover(projectPath)
+	if err != nil {
+		t.Fatalf("expected initial discover to succeed, got %v", err)
+	}
+	assertHasCapability(t, initialLayers.UserOnly, string(CapabilityKindCommand), "user-old")
+	assertHasCapability(t, initialLayers.ProjectOnly, string(CapabilityKindCommand), "project-old")
+	assertStageCalls(t, transport.calls, projectPath, 1, 1, 1)
+
+	transport.snapshots[DiscoveryStageUser] = CapabilitySnapshot{
+		Stage:    "user",
+		Commands: []CommandSummary{{Name: "review"}, {Name: "user-new"}},
+		Skills:   []string{"help", "user-new-skill"},
+	}
+	transport.projectSnapshots[projectPath] = CapabilitySnapshot{
+		Stage:    "project",
+		Commands: []CommandSummary{{Name: "review"}, {Name: "user-new"}, {Name: "project-new"}},
+		Skills:   []string{"help", "user-new-skill", "project-new-skill"},
+	}
+
+	cachedLayers, err := service.Discover(projectPath)
+	if err != nil {
+		t.Fatalf("expected cached discover to succeed, got %v", err)
+	}
+	assertHasCapability(t, cachedLayers.UserOnly, string(CapabilityKindCommand), "user-old")
+	assertHasCapability(t, cachedLayers.ProjectOnly, string(CapabilityKindCommand), "project-old")
+	assertStageCalls(t, transport.calls, projectPath, 1, 1, 1)
+
+	refreshedLayers, err := service.Refresh(projectPath)
+	if err != nil {
+		t.Fatalf("expected refresh to succeed, got %v", err)
+	}
+	assertHasCapability(t, refreshedLayers.UserOnly, string(CapabilityKindCommand), "user-new")
+	assertHasCapability(t, refreshedLayers.UserOnly, string(CapabilityKindSkill), "user-new-skill")
+	assertHasCapability(t, refreshedLayers.ProjectOnly, string(CapabilityKindCommand), "project-new")
+	assertHasCapability(t, refreshedLayers.ProjectOnly, string(CapabilityKindSkill), "project-new-skill")
+	assertMissingCapability(t, refreshedLayers.UserOnly, string(CapabilityKindCommand), "user-old")
+	assertMissingCapability(t, refreshedLayers.ProjectOnly, string(CapabilityKindCommand), "project-old")
+	assertStageCalls(t, transport.calls, projectPath, 2, 2, 2)
+
+	updatedCachedLayers, err := service.Discover(projectPath)
+	if err != nil {
+		t.Fatalf("expected discover after refresh to succeed, got %v", err)
+	}
+	assertHasCapability(t, updatedCachedLayers.UserOnly, string(CapabilityKindCommand), "user-new")
+	assertHasCapability(t, updatedCachedLayers.ProjectOnly, string(CapabilityKindCommand), "project-new")
+	assertMissingCapability(t, updatedCachedLayers.UserOnly, string(CapabilityKindCommand), "user-old")
+	assertMissingCapability(t, updatedCachedLayers.ProjectOnly, string(CapabilityKindCommand), "project-old")
+	assertStageCalls(t, transport.calls, projectPath, 2, 2, 2)
+}
+
 func TestBuildDiscoveryCommand(t *testing.T) {
 	realHome := t.TempDir()
 	projectPath := t.TempDir()
@@ -541,6 +619,16 @@ func assertStageCalls(t *testing.T, calls []discoveryCall, projectPath string, w
 
 	if gotSystem != wantSystem || gotUser != wantUser || gotProject != wantProject {
 		t.Fatalf("expected calls for %q to be system=%d user=%d project=%d, got system=%d user=%d project=%d", projectPath, wantSystem, wantUser, wantProject, gotSystem, gotUser, gotProject)
+	}
+}
+
+func assertMissingCapability(t *testing.T, caps []ClaudeCapability, kind, name string) {
+	t.Helper()
+
+	for _, cap := range caps {
+		if cap.Kind == kind && cap.Name == name {
+			t.Fatalf("did not expect capability %s:%s in %+v", kind, name, caps)
+		}
 	}
 }
 

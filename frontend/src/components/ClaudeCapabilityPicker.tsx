@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import {
   Building2,
   Command,
   Layers3,
+  RefreshCw,
   Sparkles,
   User,
   X,
@@ -92,6 +93,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
 }) => {
   const [capabilities, setCapabilities] = useState<ClaudeCapability[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searchQuery, setSearchQuery] = useState(initialQuery);
@@ -142,25 +144,32 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
     setSearchQuery(initialQuery);
   }, [initialQuery]);
 
-  useEffect(() => {
-    const loadCapabilities = async () => {
-      try {
+  const loadCapabilities = useCallback(async (refresh = false) => {
+    try {
+      if (refresh) {
+        setIsRefreshing(true);
+      } else {
         setIsLoading(true);
-        setError(null);
-
-        const layers: ClaudeCapabilityLayers = await api.getClaudeCapabilityLayers(projectPath);
-        setCapabilities(layers.all_visible ?? []);
-      } catch (err) {
-        console.error("Failed to load Claude capabilities:", err);
-        setError(err instanceof Error ? err.message : "Failed to load capabilities");
-        setCapabilities([]);
-      } finally {
-        setIsLoading(false);
       }
-    };
+      setError(null);
 
-    void loadCapabilities();
+      const layers: ClaudeCapabilityLayers = refresh
+        ? await api.refreshClaudeCapabilityLayers(projectPath)
+        : await api.getClaudeCapabilityLayers(projectPath);
+      setCapabilities(layers.all_visible ?? []);
+    } catch (err) {
+      console.error(`Failed to ${refresh ? "refresh" : "load"} Claude capabilities:`, err);
+      setError(err instanceof Error ? err.message : "Failed to load capabilities");
+      setCapabilities([]);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
   }, [projectPath]);
+
+  useEffect(() => {
+    void loadCapabilities();
+  }, [loadCapabilities]);
 
   const filteredCapabilities = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -318,9 +327,24 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
               </span>
             )}
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
-            <X className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {!error && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void loadCapabilities(true)}
+                className="h-8 w-8"
+                disabled={isLoading || isRefreshing}
+                aria-label="Refresh capabilities"
+                title="Refresh capabilities"
+              >
+                <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -331,10 +355,20 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
           </div>
         )}
 
-        {error && (
+        {error && !isLoading && (
           <div className="flex h-full flex-col items-center justify-center p-4">
             <AlertCircle className="mb-2 h-8 w-8 text-destructive" />
             <span className="text-center text-sm text-destructive">{error}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void loadCapabilities(true)}
+              className="mt-4 gap-2"
+              disabled={isRefreshing}
+            >
+              <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
+              {isRefreshing ? "Retrying..." : "Retry refresh"}
+            </Button>
           </div>
         )}
 
