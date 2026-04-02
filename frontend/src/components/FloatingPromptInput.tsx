@@ -24,9 +24,11 @@ import { TooltipProvider, TooltipSimple, Tooltip, TooltipTrigger, TooltipContent
 import { FilePicker } from "./FilePicker";
 import { SlashCommandPicker } from "./SlashCommandPicker";
 import { SkillPicker } from "./SkillPicker";
+import { ClaudeCapabilityPicker } from "./ClaudeCapabilityPicker";
 import { ImagePreview } from "./ImagePreview";
 import { ProviderApiQuickSelector } from "./ProviderApiQuickSelector";
 import { api, type FileEntry, type SlashCommand, type Skill, type ModelConfig, type ThinkingLevel } from "@/lib/api";
+import type { ClaudeCapability } from "@/lib/rpc-client";
 import { useProviderApiStore } from "@/stores/providerApiStore";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
@@ -560,6 +562,7 @@ const FloatingPromptInputInner = (
 
   const [textareaHeight, setTextareaHeight] = useState<number>(getDefaultHeight);
   const isIMEComposingRef = useRef(false);
+  const usesClaudeCapabilityPicker = selectedProvider === 'claude';
 
   // Helper: Get icon for a model based on its ID and provider
   const getModelIcon = (modelId: string, providerId: string): React.ReactNode => {
@@ -1091,7 +1094,7 @@ const FloatingPromptInputInner = (
         const isStartOfSkill = newCursorPosition === 1 ||
           (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
 
-        if (isStartOfSkill) {
+        if (isStartOfSkill && !usesClaudeCapabilityPicker) {
           console.log('[FloatingPromptInput] : detected for skill picker');
           setShowSkillPicker(true);
           setSkillQuery("");
@@ -1293,6 +1296,42 @@ const FloatingPromptInputInner = (
         textarea.setSelectionRange(newCursorPos, newCursorPos);
       }, 0);
     }
+  };
+
+  const handleClaudeCapabilitySelect = (capability: ClaudeCapability) => {
+    const textarea = isExpanded ? expandedTextareaRef.current : textareaRef.current;
+    if (!textarea) return;
+
+    let triggerPosition = -1;
+    for (let i = cursorPosition - 1; i >= 0; i--) {
+      if (prompt[i] === '/') {
+        triggerPosition = i;
+        break;
+      }
+      if (prompt[i] === ' ' || prompt[i] === '\n') {
+        break;
+      }
+    }
+
+    if (triggerPosition === -1) {
+      console.error('[FloatingPromptInput] Claude capability trigger position not found');
+      return;
+    }
+
+    const beforeTrigger = prompt.substring(0, triggerPosition);
+    const afterCursor = prompt.substring(cursorPosition);
+    const insertedCapability = `${capability.slash_name} `;
+    const newPrompt = `${beforeTrigger}${insertedCapability}${afterCursor}`;
+
+    setPrompt(newPrompt);
+    setShowSlashCommandPicker(false);
+    setSlashCommandQuery("");
+
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = beforeTrigger.length + insertedCapability.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
   };
 
   const handleSlashCommandPickerClose = () => {
@@ -2096,7 +2135,9 @@ const FloatingPromptInputInner = (
                   placeholder={
                     dragActive
                       ? "Drop images here..."
-                      : "@ for files/agents, / for commands, : for skills..."
+                      : usesClaudeCapabilityPicker
+                        ? "@ for files/agents, / for Claude capabilities..."
+                        : "@ for files/agents, / for commands, : for skills..."
                   }
                   disabled={disabled}
                   className={cn(
@@ -2204,14 +2245,24 @@ const FloatingPromptInputInner = (
                 {/* Slash Command Picker - use mode="wait" and initial={false} to prevent animation conflicts */}
                 <AnimatePresence mode="wait" initial={false}>
                   {showSlashCommandPicker && (
-                    <SlashCommandPicker
-                      projectPath={projectPath}
-                      onSelect={handleSlashCommandSelect}
-                      onClose={handleSlashCommandPickerClose}
-                      initialQuery={slashCommandQuery}
-                      provider={selectedProvider as 'claude' | 'codex' | 'gemini'}
-                      anchorRef={inputContainerRef}
-                    />
+                    usesClaudeCapabilityPicker ? (
+                      <ClaudeCapabilityPicker
+                        projectPath={projectPath}
+                        onSelect={handleClaudeCapabilitySelect}
+                        onClose={handleSlashCommandPickerClose}
+                        initialQuery={slashCommandQuery}
+                        anchorRef={inputContainerRef}
+                      />
+                    ) : (
+                      <SlashCommandPicker
+                        projectPath={projectPath}
+                        onSelect={handleSlashCommandSelect}
+                        onClose={handleSlashCommandPickerClose}
+                        initialQuery={slashCommandQuery}
+                        provider={selectedProvider as 'claude' | 'codex' | 'gemini'}
+                        anchorRef={inputContainerRef}
+                      />
+                    )
                   )}
                 </AnimatePresence>
 
