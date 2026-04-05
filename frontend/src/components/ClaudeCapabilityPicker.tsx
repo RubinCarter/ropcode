@@ -26,7 +26,43 @@ interface ClaudeCapabilityPickerProps {
 
 type ScopeGroupKey = "project" | "user" | "system";
 
+type CapabilityLayersState = Pick<ClaudeCapabilityLayers, "system" | "user_only" | "project_only" | "all_visible">;
+
+const EMPTY_LAYERS: CapabilityLayersState = {
+  system: [],
+  user_only: [],
+  project_only: [],
+  all_visible: [],
+};
+
 const SCOPE_ORDER: ScopeGroupKey[] = ["project", "user", "system"];
+
+const normalizeLayers = (layers?: Partial<CapabilityLayersState> | ClaudeCapabilityLayers | null): CapabilityLayersState => {
+  const system = layers?.system ?? [];
+  const userOnly = layers?.user_only ?? [];
+  const projectOnly = layers?.project_only ?? [];
+
+  return {
+    system,
+    user_only: userOnly,
+    project_only: projectOnly,
+    all_visible: layers?.all_visible ?? [...projectOnly, ...userOnly, ...system],
+  };
+};
+
+const getCachedVisibleLayers = (layers?: Partial<CapabilityLayersState> | ClaudeCapabilityLayers | null): CapabilityLayersState => {
+  const normalized = normalizeLayers(layers);
+  return {
+    system: normalized.system,
+    user_only: normalized.user_only,
+    project_only: [],
+    all_visible: [...normalized.user_only, ...normalized.system],
+  };
+};
+
+const getErrorMessage = (err: unknown, fallback: string): string => {
+  return err instanceof Error ? err.message : fallback;
+};
 
 const getScopeLabel = (scope: ScopeGroupKey): string => {
   switch (scope) {
@@ -91,8 +127,9 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
   onClose,
   anchorRef,
 }) => {
-  const [capabilities, setCapabilities] = useState<ClaudeCapability[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [capabilityLayers, setCapabilityLayers] = useState<CapabilityLayersState>(EMPTY_LAYERS);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isProjectLoading, setIsProjectLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -100,6 +137,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
 
   const capabilityListRef = useRef<HTMLDivElement>(null);
+  const selectedCapabilityKeyRef = useRef<string | null>(null);
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const pickerHeight = isMobile ? Math.min(300, window.innerHeight * 0.5) : 400;
@@ -145,57 +183,73 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
   }, [initialQuery]);
 
   const loadCapabilities = useCallback(async () => {
-    setIsLoading(true);
+    let startedBackgroundRefresh = false;
+
+    setIsInitialLoading(true);
     setError(null);
 
     try {
       const cached = projectPath ? await api.getCachedClaudeCapabilityLayers(projectPath) : null;
-      if (cached?.all_visible?.length) {
-        setCapabilities(cached.all_visible);
-        setIsLoading(false);
-        setIsRefreshing(true);
+      const cachedVisibleLayers = getCachedVisibleLayers(cached);
+      const hasCachedVisibleLayers = cachedVisibleLayers.all_visible.length > 0;
+
+      if (hasCachedVisibleLayers) {
+        startedBackgroundRefresh = true;
+        setCapabilityLayers(cachedVisibleLayers);
+        setIsInitialLoading(false);
+        setIsProjectLoading(Boolean(projectPath));
+
         void api.refreshClaudeCapabilityLayers(projectPath)
           .then((layers: ClaudeCapabilityLayers) => {
-            setCapabilities(layers.all_visible ?? []);
+            setCapabilityLayers(normalizeLayers(layers));
             setError(null);
           })
           .catch((err: unknown) => {
             console.error("Failed to refresh Claude capabilities:", err);
+            setError(getErrorMessage(err, "Failed to refresh project capabilities"));
           })
           .finally(() => {
+            setIsProjectLoading(false);
             setIsRefreshing(false);
           });
         return;
       }
 
       if (projectPath) {
+        setIsProjectLoading(true);
         void api.prewarmClaudeCapabilityLayers(projectPath).catch(() => undefined);
       }
 
       const layers: ClaudeCapabilityLayers = await api.getClaudeCapabilityLayers(projectPath);
-      setCapabilities(layers.all_visible ?? []);
+      setCapabilityLayers(normalizeLayers(layers));
+      setError(null);
     } catch (err) {
       console.error("Failed to load Claude capabilities:", err);
-      setError(err instanceof Error ? err.message : "Failed to load capabilities");
-      setCapabilities([]);
+      setError(getErrorMessage(err, "Failed to load capabilities"));
+      setCapabilityLayers(EMPTY_LAYERS);
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      setIsInitialLoading(false);
+      if (!startedBackgroundRefresh) {
+        setIsProjectLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, [projectPath]);
 
   const refreshCapabilities = useCallback(async () => {
     try {
       setIsRefreshing(true);
+      setIsProjectLoading(Boolean(projectPath));
       setError(null);
       const layers: ClaudeCapabilityLayers = await api.refreshClaudeCapabilityLayers(projectPath);
-      setCapabilities(layers.all_visible ?? []);
+      setCapabilityLayers(normalizeLayers(layers));
     } catch (err) {
       console.error("Failed to refresh Claude capabilities:", err);
-      setError(err instanceof Error ? err.message : "Failed to refresh capabilities");
+      setError(getErrorMessage(err, "Failed to refresh capabilities"));
     } finally {
       setIsRefreshing(false);
-      setIsLoading(false);
+      setIsProjectLoading(false);
+      setIsInitialLoading(false);
     }
   }, [projectPath]);
 
@@ -205,10 +259,10 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
 
   const filteredCapabilities = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    let filtered = capabilities;
+    let filtered = capabilityLayers.all_visible;
 
     if (query) {
-      filtered = capabilities.filter((capability: ClaudeCapability) => {
+      filtered = capabilityLayers.all_visible.filter((capability: ClaudeCapability) => {
         if (capability.name.toLowerCase().includes(query)) return true;
         if (capability.slash_name.toLowerCase().includes(query)) return true;
         if (capability.description?.toLowerCase().includes(query)) return true;
@@ -217,7 +271,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
     }
 
     return [...filtered].sort((a, b) => compareCapabilities(a, b, query || undefined));
-  }, [capabilities, searchQuery]);
+  }, [capabilityLayers, searchQuery]);
 
   const { groupedCapabilities, orderedCapabilities, visibleGroups } = useMemo(() => {
     const grouped: Record<ScopeGroupKey, ClaudeCapability[]> = {
@@ -243,9 +297,42 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
     };
   }, [filteredCapabilities]);
 
+  const hasAnyCapabilities = capabilityLayers.all_visible.length > 0;
+  const projectCapabilityCount = capabilityLayers.project_only.length;
+  const showFullScreenLoading = isInitialLoading && !hasAnyCapabilities;
+  const showInlineProjectLoading = isProjectLoading && hasAnyCapabilities;
+  const showEmptyState = !showFullScreenLoading && orderedCapabilities.length === 0;
+  const showBlockingError = Boolean(error) && !hasAnyCapabilities;
+
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [filteredCapabilities]);
+    const nextSelectedCapability = orderedCapabilities[selectedIndex];
+    selectedCapabilityKeyRef.current = nextSelectedCapability?.key ?? null;
+  }, [orderedCapabilities, selectedIndex]);
+
+  useEffect(() => {
+    if (orderedCapabilities.length === 0) {
+      if (selectedIndex !== 0) {
+        setSelectedIndex(0);
+      }
+      selectedCapabilityKeyRef.current = null;
+      return;
+    }
+
+    const selectedKey = selectedCapabilityKeyRef.current;
+    if (selectedKey) {
+      const preservedIndex = orderedCapabilities.findIndex((capability) => capability.key === selectedKey);
+      if (preservedIndex >= 0) {
+        if (preservedIndex !== selectedIndex) {
+          setSelectedIndex(preservedIndex);
+        }
+        return;
+      }
+    }
+
+    if (selectedIndex >= orderedCapabilities.length) {
+      setSelectedIndex(orderedCapabilities.length - 1);
+    }
+  }, [orderedCapabilities, selectedIndex]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -359,20 +446,28 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1">
-            {!error && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => void refreshCapabilities()}
-                className="h-8 w-8"
-                disabled={isLoading || isRefreshing}
-                aria-label="Refresh capabilities"
-                title="Refresh capabilities"
-              >
-                <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-              </Button>
+          <div className="flex items-center gap-2">
+            {showInlineProjectLoading && (
+              <span className="text-xs text-muted-foreground">
+                Loading project capabilities{projectCapabilityCount > 0 ? ` (${projectCapabilityCount})` : ""}...
+              </span>
             )}
+            {error && hasAnyCapabilities && (
+              <span className="max-w-[220px] truncate text-xs text-destructive" title={error}>
+                {error}
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => void refreshCapabilities()}
+              className="h-8 w-8"
+              disabled={isRefreshing}
+              aria-label="Refresh capabilities"
+              title="Refresh capabilities"
+            >
+              <RefreshCw className={cn("h-4 w-4", (isRefreshing || showInlineProjectLoading) && "animate-spin")} />
+            </Button>
             <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
               <X className="h-4 w-4" />
             </Button>
@@ -381,20 +476,20 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
       </div>
 
       <div className="relative flex-1 overflow-y-auto">
-        {isLoading && (
+        {showFullScreenLoading && (
           <div className="flex h-full items-center justify-center">
             <span className="text-sm text-muted-foreground">Loading capabilities...</span>
           </div>
         )}
 
-        {error && !isLoading && (
+        {showBlockingError && (
           <div className="flex h-full flex-col items-center justify-center p-4">
             <AlertCircle className="mb-2 h-8 w-8 text-destructive" />
             <span className="text-center text-sm text-destructive">{error}</span>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => void loadCapabilities(true)}
+              onClick={() => void loadCapabilities()}
               className="mt-4 gap-2"
               disabled={isRefreshing}
             >
@@ -404,9 +499,9 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
           </div>
         )}
 
-        {!isLoading && !error && (
+        {!showFullScreenLoading && !showBlockingError && (
           <>
-            {orderedCapabilities.length === 0 && (
+            {showEmptyState && (
               <div className="flex h-full flex-col items-center justify-center px-4 text-center">
                 <Sparkles className="mb-2 h-8 w-8 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">
@@ -424,6 +519,9 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
                       <h3 className="mb-1 flex items-center gap-2 px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         <ScopeIcon className="h-3 w-3" />
                         {getScopeLabel(scope)}
+                        {scope === "project" && showInlineProjectLoading && groupedCapabilities.project.length === 0 && (
+                          <span className="text-[10px] normal-case tracking-normal text-muted-foreground/80">Loading…</span>
+                        )}
                       </h3>
 
                       <div className="space-y-0.5">
