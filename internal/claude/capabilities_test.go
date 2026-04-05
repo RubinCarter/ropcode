@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeCapabilityNames(t *testing.T) {
@@ -542,6 +544,175 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCachedCapabilityLayers(t *testing.T) {
+	projectPath := "/tmp/project-cache-read"
+	transport := &stubDiscoveryTransport{
+		snapshots: map[DiscoveryStage]CapabilitySnapshot{
+			DiscoveryStageSystem: {Stage: "system", Commands: []CommandSummary{{Name: "review"}}, Skills: []string{"help"}},
+			DiscoveryStageUser:   {Stage: "user", Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}}, Skills: []string{"help", "loop"}},
+		},
+		projectSnapshots: map[string]CapabilitySnapshot{
+			projectPath: {Stage: "project", Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}, {Name: "project-cmd"}}, Skills: []string{"help", "loop", "project-skill"}},
+		},
+	}
+
+	service := NewCapabilityDiscoveryService(transport)
+	service.claudeVersion = func() (string, error) { return "1.0.0", nil }
+	service.userCacheGeneration = func() (string, error) { return "gen-1", nil }
+
+	if _, ok := service.Cached(projectPath); ok {
+		t.Fatal("expected cache miss before discover")
+	}
+	layers, err := service.Discover(projectPath)
+	if err != nil {
+		t.Fatalf("expected discover to succeed, got %v", err)
+	}
+	cached, ok := service.Cached(projectPath)
+	if !ok {
+		t.Fatal("expected cached layers after discover")
+	}
+	if !reflect.DeepEqual(layers, cached) {
+		t.Fatalf("expected cached layers to match discover result, got %#v and %#v", layers, cached)
+	}
+}
+
+func TestCachedCapabilityLayersIncludesSystemAndUserWithoutProject(t *testing.T) {
+	projectPath := "/tmp/project-cache-partial"
+	transport := &stubDiscoveryTransport{
+		snapshots: map[DiscoveryStage]CapabilitySnapshot{
+			DiscoveryStageSystem: {
+				Stage: string(DiscoveryStageSystem),
+				Commands: []CommandSummary{{Name: "review", Description: "Request review"}},
+			},
+			DiscoveryStageUser: {
+				Stage:  string(DiscoveryStageUser),
+				Skills: []string{"loop"},
+			},
+		},
+		projectSnapshots: map[string]CapabilitySnapshot{},
+	}
+
+	service := NewCapabilityDiscoveryService(transport)
+	service.claudeVersion = func() (string, error) { return "1.0.0", nil }
+	service.userCacheGeneration = func() (string, error) { return "gen-1", nil }
+
+	if ok := service.PrewarmSystem(); !ok {
+		t.Fatal("expected system prewarm to succeed")
+	}
+	if ok := service.PrewarmUser(); !ok {
+		t.Fatal("expected user prewarm to succeed")
+	}
+
+	cached, ok := service.Cached(projectPath)
+	if !ok {
+		t.Fatal("expected cached layers from system+user caches")
+	}
+	assertHasCapability(t, cached.AllVisible, string(CapabilityKindCommand), "review")
+	assertHasCapability(t, cached.AllVisible, string(CapabilityKindSkill), "loop")
+	if len(cached.ProjectOnly) != 0 {
+		t.Fatalf("expected no project capabilities, got %#v", cached.ProjectOnly)
+	}
+	assertStageCalls(t, transport.calls, "", 1, 1, 0)
+}
+
+func TestDiscoveryTransportAllowsCommandsWithoutSkills(t *testing.T) {
+	binPath := filepath.Join(t.TempDir(), "fake-claude-discovery-commands-only.py")
+	script := strings.Join([]string{
+		"#!/usr/bin/env python3",
+		"import sys",
+		"sys.stdin.readline()",
+		"print('{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"response\":{\"commands\":[{\"name\":\"review\",\"description\":\"Request code review\",\"argumentHint\":\"[files]\"}]}}}', flush=True)",
+	}, "\n") + "\n"
+	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	transport := &ClaudeCapabilityDiscoveryTransport{
+		binaryPath:    binPath,
+		realHomeDir:   t.TempDir(),
+		discoveryArgs: []string{},
+		timeout:       2 * time.Second,
+		makeTempDir:   os.MkdirTemp,
+	}
+
+	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
+	if err != nil {
+		t.Fatalf("expected commands-only discovery to succeed, got %v", err)
+	}
+	if len(snapshot.Commands) != 1 || snapshot.Commands[0].Name != "review" {
+		t.Fatalf("expected review command, got %#v", snapshot.Commands)
+	}
+	if len(snapshot.Skills) != 0 {
+		t.Fatalf("expected no skills, got %#v", snapshot.Skills)
+	}
+}
+func TestDiscoveryTransportReturnsPartialCapabilitiesBeforeLateSkills(t *testing.T) {
+	binPath := filepath.Join(t.TempDir(), "fake-claude-discovery.py")
+	script := strings.Join([]string{
+		"#!/usr/bin/env python3",
+		"import sys",
+		"import time",
+		"sys.stdin.readline()",
+		"print('{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"response\":{\"commands\":[{\"name\":\"review\",\"description\":\"Request code review\",\"argumentHint\":\"[files]\"}]}}}', flush=True)",
+		"time.sleep(0.2)",
+		"print('{\"type\":\"system\",\"subtype\":\"init\",\"skills\":[\"loop\"]}', flush=True)",
+	}, "\n") + "\n"
+	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	transport := &ClaudeCapabilityDiscoveryTransport{
+		binaryPath:    binPath,
+		realHomeDir:   t.TempDir(),
+		discoveryArgs: []string{},
+		timeout:       2 * time.Second,
+		makeTempDir:   os.MkdirTemp,
+	}
+
+	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
+	if err != nil {
+		t.Fatalf("expected partial discovery to succeed, got %v", err)
+	}
+	if len(snapshot.Commands) != 1 || snapshot.Commands[0].Name != "review" {
+		t.Fatalf("expected review command, got %#v", snapshot.Commands)
+	}
+}
+
+func TestDiscoveryTransportReturnsAfterCommandsAndSkillsWithoutWaitingForProcessExit(t *testing.T) {
+	binPath := filepath.Join(t.TempDir(), "fake-claude-discovery-hangs.py")
+	script := strings.Join([]string{
+		"#!/usr/bin/env python3",
+		"import sys",
+		"import time",
+		"sys.stdin.readline()",
+		"print('{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"response\":{\"commands\":[{\"name\":\"review\",\"description\":\"Request code review\",\"argumentHint\":\"[files]\"}]}}}', flush=True)",
+		"print('{\"type\":\"system\",\"subtype\":\"init\",\"skills\":[\"loop\"]}', flush=True)",
+		"time.sleep(10)",
+	}, "\n") + "\n"
+	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	transport := &ClaudeCapabilityDiscoveryTransport{
+		binaryPath:    binPath,
+		realHomeDir:   t.TempDir(),
+		discoveryArgs: []string{},
+		timeout:       1500 * time.Millisecond,
+		makeTempDir:   os.MkdirTemp,
+	}
+
+	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
+	if err != nil {
+		t.Fatalf("expected discovery to finish without waiting for process exit, got %v", err)
+	}
+	if len(snapshot.Commands) != 1 || snapshot.Commands[0].Name != "review" {
+		t.Fatalf("expected review command, got %#v", snapshot.Commands)
+	}
+	if !reflect.DeepEqual(snapshot.Skills, []string{"loop"}) {
+		t.Fatalf("expected skills %#v, got %#v", []string{"loop"}, snapshot.Skills)
 	}
 }
 

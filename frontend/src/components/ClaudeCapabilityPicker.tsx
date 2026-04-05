@@ -144,26 +144,58 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
     setSearchQuery(initialQuery);
   }, [initialQuery]);
 
-  const loadCapabilities = useCallback(async (refresh = false) => {
-    try {
-      if (refresh) {
-        setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
-      }
-      setError(null);
+  const loadCapabilities = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
 
-      const layers: ClaudeCapabilityLayers = refresh
-        ? await api.refreshClaudeCapabilityLayers(projectPath)
-        : await api.getClaudeCapabilityLayers(projectPath);
+    try {
+      const cached = projectPath ? await api.getCachedClaudeCapabilityLayers(projectPath) : null;
+      if (cached?.all_visible?.length) {
+        setCapabilities(cached.all_visible);
+        setIsLoading(false);
+        setIsRefreshing(true);
+        void api.refreshClaudeCapabilityLayers(projectPath)
+          .then((layers: ClaudeCapabilityLayers) => {
+            setCapabilities(layers.all_visible ?? []);
+            setError(null);
+          })
+          .catch((err: unknown) => {
+            console.error("Failed to refresh Claude capabilities:", err);
+          })
+          .finally(() => {
+            setIsRefreshing(false);
+          });
+        return;
+      }
+
+      if (projectPath) {
+        void api.prewarmClaudeCapabilityLayers(projectPath).catch(() => undefined);
+      }
+
+      const layers: ClaudeCapabilityLayers = await api.getClaudeCapabilityLayers(projectPath);
       setCapabilities(layers.all_visible ?? []);
     } catch (err) {
-      console.error(`Failed to ${refresh ? "refresh" : "load"} Claude capabilities:`, err);
+      console.error("Failed to load Claude capabilities:", err);
       setError(err instanceof Error ? err.message : "Failed to load capabilities");
       setCapabilities([]);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
+    }
+  }, [projectPath]);
+
+  const refreshCapabilities = useCallback(async () => {
+    try {
+      setIsRefreshing(true);
+      setError(null);
+      const layers: ClaudeCapabilityLayers = await api.refreshClaudeCapabilityLayers(projectPath);
+      setCapabilities(layers.all_visible ?? []);
+    } catch (err) {
+      console.error("Failed to refresh Claude capabilities:", err);
+      setError(err instanceof Error ? err.message : "Failed to refresh capabilities");
+    } finally {
+      setIsRefreshing(false);
+      setIsLoading(false);
     }
   }, [projectPath]);
 
@@ -332,7 +364,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => void loadCapabilities(true)}
+                onClick={() => void refreshCapabilities()}
                 className="h-8 w-8"
                 disabled={isLoading || isRefreshing}
                 aria-label="Refresh capabilities"

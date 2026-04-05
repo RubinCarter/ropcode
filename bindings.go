@@ -50,6 +50,10 @@ type claudeCapabilityLayersResult struct {
 type claudeCapabilityDiscovery interface {
 	Discover(projectPath string) (claude.CapabilityLayers, error)
 	Refresh(projectPath string) (claude.CapabilityLayers, error)
+	Cached(projectPath string) (claude.CapabilityLayers, bool)
+	PrewarmSystem() bool
+	PrewarmUser() bool
+	PrewarmProject(projectPath string) bool
 }
 
 var defaultClaudeCapabilityDiscovery = struct {
@@ -2178,6 +2182,50 @@ func (a *App) ImportAgentFromFile(path string) (*database.Agent, error) {
 	return a.dbManager.ImportAgentFromFile(path)
 }
 
+// GetCachedClaudeCapabilityLayers returns cached Claude capability layers when available.
+func (a *App) GetCachedClaudeCapabilityLayers(projectPath string) (*claudeCapabilityLayersResult, error) {
+	service, err := a.getClaudeCapabilityDiscovery()
+	if err != nil {
+		return nil, err
+	}
+
+	layers, ok := service.Cached(projectPath)
+	if !ok {
+		return nil, nil
+	}
+
+	result := newClaudeCapabilityLayersResult(layers)
+	return &result, nil
+}
+
+// PrewarmClaudeCapabilityLayers warms system and project capability caches in the background.
+func (a *App) PrewarmClaudeCapabilityLayers(projectPath string) {
+	service, err := a.getClaudeCapabilityDiscovery()
+	if err != nil {
+		log.Printf("[capability-discovery] prewarm init failed: %v", err)
+		return
+	}
+
+	go func() {
+		ok := service.PrewarmSystem()
+		log.Printf("[capability-discovery] system prewarm ok=%t", ok)
+	}()
+
+	go func() {
+		ok := service.PrewarmUser()
+		log.Printf("[capability-discovery] user prewarm ok=%t", ok)
+	}()
+
+	if strings.TrimSpace(projectPath) == "" {
+		return
+	}
+
+	go func() {
+		ok := service.PrewarmProject(projectPath)
+		log.Printf("[capability-discovery] project prewarm path=%q ok=%t", projectPath, ok)
+	}()
+}
+
 // GetClaudeCapabilityLayers returns cached or discovered Claude capability layers for a project.
 func (a *App) GetClaudeCapabilityLayers(projectPath string) (*claudeCapabilityLayersResult, error) {
 	service, err := a.getClaudeCapabilityDiscovery()
@@ -2809,6 +2857,7 @@ func (a *App) AddProjectToIndex(path string) error {
 		existingProject.LastAccessed = now
 		// Update git support status
 		existingProject.HasGitSupport = &hasGitSupport
+		go a.PrewarmClaudeCapabilityLayers(path)
 		return a.dbManager.SaveProjectIndex(existingProject)
 	}
 
@@ -2835,6 +2884,7 @@ func (a *App) AddProjectToIndex(path string) error {
 		HasGitSupport: &hasGitSupport,
 	}
 
+	go a.PrewarmClaudeCapabilityLayers(path)
 	return a.dbManager.SaveProjectIndex(project)
 }
 

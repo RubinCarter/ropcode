@@ -119,6 +119,26 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize GitWatcher (EventHub already initialized above)
 	a.gitWatcher = git.NewGitWatcher(a.eventHub)
 
+	go func() {
+		service, err := a.getClaudeCapabilityDiscovery()
+		if err != nil {
+			log.Printf("[capability-discovery] startup prewarm init failed: %v", err)
+			return
+		}
+		ok := service.PrewarmSystem()
+		log.Printf("[capability-discovery] startup system prewarm ok=%t", ok)
+	}()
+
+	go func() {
+		service, err := a.getClaudeCapabilityDiscovery()
+		if err != nil {
+			log.Printf("[capability-discovery] startup user prewarm init failed: %v", err)
+			return
+		}
+		ok := service.PrewarmUser()
+		log.Printf("[capability-discovery] startup user prewarm ok=%t", ok)
+	}()
+
 	log.Println("ropcode started successfully")
 }
 

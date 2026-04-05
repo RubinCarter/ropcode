@@ -22,10 +22,22 @@ const (
 	DiscoveryStageProject DiscoveryStage = "project"
 )
 
-const discoveryTimeout = 5 * time.Second
+const (
+	discoveryTimeout      = 12 * time.Second
+	discoverySettleWindow = 100 * time.Millisecond
+)
 
 type DiscoveryTransport interface {
 	Run(stage DiscoveryStage, projectPath string) (CapabilitySnapshot, error)
+}
+
+type CapabilityDiscovery interface {
+	Discover(projectPath string) (CapabilityLayers, error)
+	Refresh(projectPath string) (CapabilityLayers, error)
+	Cached(projectPath string) (CapabilityLayers, bool)
+	PrewarmSystem() bool
+	PrewarmUser() bool
+	PrewarmProject(projectPath string) bool
 }
 
 type CapabilityDiscoveryService struct {
@@ -106,6 +118,86 @@ func (s *CapabilityDiscoveryService) Refresh(projectPath string) (CapabilityLaye
 	return s.discover(projectPath, true)
 }
 
+func (s *CapabilityDiscoveryService) Cached(projectPath string) (CapabilityLayers, bool) {
+	systemKey := s.currentSystemKey()
+	userKey := s.currentUserKey()
+	projectKey := s.currentProjectKey(projectPath)
+	if systemKey == "" || userKey == "" {
+		return CapabilityLayers{}, false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.systemCache.valid || s.systemCache.key != systemKey {
+		return CapabilityLayers{}, false
+	}
+	if !s.userCache.valid || s.userCache.key != userKey {
+		return CapabilityLayers{}, false
+	}
+
+	projectSnapshot := CapabilitySnapshot{Stage: string(DiscoveryStageProject)}
+	if strings.TrimSpace(projectPath) != "" {
+		cached, ok := s.projectCache[projectKey]
+		if !ok {
+			return BuildCapabilityLayers(s.systemCache.snapshot, s.userCache.snapshot, projectSnapshot), true
+		}
+		return cached.layers, true
+	}
+
+	return BuildCapabilityLayers(s.systemCache.snapshot, s.userCache.snapshot, projectSnapshot), true
+}
+
+func (s *CapabilityDiscoveryService) PrewarmSystem() bool {
+	_, err := s.loadSystemSnapshot("", s.currentSystemKey(), false)
+	return err == nil
+}
+
+func (s *CapabilityDiscoveryService) PrewarmUser() bool {
+	_, err := s.loadUserSnapshot("", s.currentUserKey(), false)
+	return err == nil
+}
+
+func (s *CapabilityDiscoveryService) PrewarmProject(projectPath string) bool {
+	if strings.TrimSpace(projectPath) == "" {
+		return false
+	}
+	_, err := s.discover(projectPath, false)
+	return err == nil
+}
+
+func (s *CapabilityDiscoveryService) currentSystemKey() string {
+	version, err := s.claudeVersion()
+	if err != nil {
+		return ""
+	}
+	return version
+}
+
+func (s *CapabilityDiscoveryService) currentUserKey() string {
+	version, err := s.claudeVersion()
+	if err != nil {
+		return ""
+	}
+	userGeneration, err := s.userCacheGeneration()
+	if err != nil {
+		return ""
+	}
+	return cacheKey(version, userGeneration)
+}
+
+func (s *CapabilityDiscoveryService) currentProjectKey(projectPath string) string {
+	version, err := s.claudeVersion()
+	if err != nil {
+		return ""
+	}
+	userGeneration, err := s.userCacheGeneration()
+	if err != nil {
+		return ""
+	}
+	return cacheKey(version, projectPath, userGeneration)
+}
+
 func (s *CapabilityDiscoveryService) discover(projectPath string, force bool) (CapabilityLayers, error) {
 	version, err := s.claudeVersion()
 	if err != nil {
@@ -153,6 +245,7 @@ func (s *CapabilityDiscoveryService) discover(projectPath string, force bool) (C
 
 	return layers, nil
 }
+
 
 func (s *CapabilityDiscoveryService) loadSystemSnapshot(projectPath, key string, force bool) (CapabilitySnapshot, error) {
 	if !force {
@@ -305,86 +398,106 @@ func (t *ClaudeCapabilityDiscoveryTransport) Run(stage DiscoveryStage, projectPa
 	}()
 
 	if _, err := io.WriteString(stdin, "{\"type\":\"control_request\",\"request_id\":\"init_1\",\"request\":{\"subtype\":\"initialize\"}}\n"); err != nil {
+		_ = stdin.Close()
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return CapabilitySnapshot{}, fmt.Errorf("write discovery initialize request: %w", err)
 	}
-	_ = stdin.Close()
 
 	var lines [][]byte
-	commandSeen := false
-	skillSeen := false
 	var stderrLines []string
+	settleTimer := time.NewTimer(timeout)
+	if !settleTimer.Stop() {
+		<-settleTimer.C
+	}
+	settleActive := false
+	finalize := func() (CapabilitySnapshot, error) {
+		commands, skills, err := CollectDiscoveryData(lines)
+		if err != nil {
+			return CapabilitySnapshot{}, err
+		}
+		if len(commands) == 0 && len(skills) == 0 && len(stderrLines) > 0 {
+			return CapabilitySnapshot{}, fmt.Errorf("discovery %s stage produced no capabilities: %s", stage, strings.Join(stderrLines, " | "))
+		}
+		if len(commands) == 0 && len(skills) == 0 {
+			return CapabilitySnapshot{}, fmt.Errorf("discovery %s stage initialized but produced no capabilities", stage)
+		}
+		return CapabilitySnapshot{Stage: string(stage), Commands: commands, Skills: skills}, nil
+	}
+	stopProcess := func() {
+		_ = stdin.Close()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	}
+	defer func() {
+		if settleActive && !settleTimer.Stop() {
+			select {
+			case <-settleTimer.C:
+			default:
+			}
+		}
+	}()
 
-	collectDone := false
-	for !collectDone {
+	for {
+		var settleCh <-chan time.Time
+		if settleActive {
+			settleCh = settleTimer.C
+		}
+
 		select {
 		case <-ctx.Done():
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
+			stopProcess()
 			return CapabilitySnapshot{}, fmt.Errorf("discovery %s stage timed out after %s", stage, timeout)
+		case <-settleCh:
+			stopProcess()
+			return finalize()
 		case err, ok := <-readErrCh:
-			if ok && err != nil {
-				_ = cmd.Process.Kill()
-				_ = cmd.Wait()
+			if !ok {
+				readErrCh = nil
+				continue
+			}
+			if err != nil {
+				stopProcess()
 				return CapabilitySnapshot{}, fmt.Errorf("read discovery output: %w", err)
 			}
 		case line, ok := <-linesCh:
 			if !ok {
-				collectDone = true
-				break
+				stopProcess()
+				return finalize()
 			}
 			trimmed := strings.TrimSpace(string(line))
 			if trimmed == "" {
 				continue
 			}
 			lines = append(lines, append([]byte(nil), line...))
-			if strings.HasPrefix(trimmed, "{") {
-				if commands, ok, err := ParseCommandSummariesFromLine(line); err != nil {
-					_ = cmd.Process.Kill()
-					_ = cmd.Wait()
-					return CapabilitySnapshot{}, fmt.Errorf("parse discovery commands: %w", err)
-				} else if ok && len(commands) > 0 {
-					commandSeen = true
-				}
-				if skills, ok, err := ParseSkillsFromLine(line); err != nil {
-					_ = cmd.Process.Kill()
-					_ = cmd.Wait()
-					return CapabilitySnapshot{}, fmt.Errorf("parse discovery skills: %w", err)
-				} else if ok && len(skills) > 0 {
-					skillSeen = true
-				}
-			}
 			if !strings.HasPrefix(trimmed, "{") {
 				stderrLines = append(stderrLines, trimmed)
+				continue
 			}
-			if commandSeen && skillSeen {
-				collectDone = true
+
+			messageHadCapability := false
+			if commands, ok, err := ParseCommandSummariesFromLine(line); err != nil {
+				stopProcess()
+				return CapabilitySnapshot{}, fmt.Errorf("parse discovery commands: %w", err)
+			} else if ok && len(commands) > 0 {
+				messageHadCapability = true
+			}
+			if skills, ok, err := ParseSkillsFromLine(line); err != nil {
+				stopProcess()
+				return CapabilitySnapshot{}, fmt.Errorf("parse discovery skills: %w", err)
+			} else if ok && len(skills) > 0 {
+				messageHadCapability = true
+			}
+			if messageHadCapability {
+				if !settleActive {
+					settleActive = true
+				}
+				settleTimer.Reset(discoverySettleWindow)
 			}
 		}
 	}
-
-	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
-	_ = cmd.Wait()
-
-	commands, skills, err := CollectDiscoveryData(lines)
-	if err != nil {
-		return CapabilitySnapshot{}, err
-	}
-	if len(commands) > 0 && len(skills) == 0 {
-		return CapabilitySnapshot{}, fmt.Errorf("discovery %s stage incomplete: commands observed but skills missing", stage)
-	}
-	if len(commands) == 0 && len(skills) == 0 && len(stderrLines) > 0 {
-		return CapabilitySnapshot{}, fmt.Errorf("discovery %s stage produced no capabilities: %s", stage, strings.Join(stderrLines, " | "))
-	}
-
-	return CapabilitySnapshot{
-		Stage:    string(stage),
-		Commands: commands,
-		Skills:   skills,
-	}, nil
 }
 
 func (t *ClaudeCapabilityDiscoveryTransport) buildCommand(ctx context.Context, stage DiscoveryStage, projectPath string) (*exec.Cmd, func(), error) {

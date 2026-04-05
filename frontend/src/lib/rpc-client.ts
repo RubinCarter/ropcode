@@ -1075,6 +1075,14 @@ export function ValidateHookCommand(command: string): Promise<main.HookValidatio
 
 // ==================== Slash Commands ====================
 
+export function GetCachedClaudeCapabilityLayers(projectPath: string): Promise<ClaudeCapabilityLayers | null> {
+  return wsClient.call('GetCachedClaudeCapabilityLayers', projectPath);
+}
+
+export function PrewarmClaudeCapabilityLayers(projectPath: string): Promise<void> {
+  return wsClient.call('PrewarmClaudeCapabilityLayers', projectPath);
+}
+
 export function GetClaudeCapabilityLayers(projectPath: string): Promise<ClaudeCapabilityLayers> {
   return wsClient.call('GetClaudeCapabilityLayers', projectPath);
 }
