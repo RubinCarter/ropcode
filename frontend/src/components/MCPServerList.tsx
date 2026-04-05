@@ -219,7 +219,7 @@ export const MCPServerList: React.FC<MCPServerListProps> = ({
                   {getTransportIcon(server.transport)}
                 </div>
                 <h4 className="font-medium truncate">{server.name}</h4>
-                {server.status?.running && (
+                {(server.status === 'running' || server.status === 'connected') && (
                   <Badge variant="outline" className="gap-1 flex-shrink-0 border-green-500/50 text-green-600 bg-green-500/10">
                     <CheckCircle className="h-3 w-3" />
                     Running
@@ -356,7 +356,7 @@ export const MCPServerList: React.FC<MCPServerListProps> = ({
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">Environment Variables</p>
                   <div className="text-xs font-mono bg-muted/50 p-2 rounded space-y-1">
-                    {Object.entries(server.env).map(([key, value]) => (
+                    {Object.entries(server.env as Record<string, string>).map(([key, value]) => (
                       <div key={key} className="break-all">
                         <span className="text-primary">{key}</span>
                         <span className="text-muted-foreground mx-1">=</span>
@@ -415,7 +415,7 @@ export const MCPServerList: React.FC<MCPServerListProps> = ({
         </div>
       ) : (
         <div className="space-y-6">
-          {Object.entries(serversByScope).map(([scope, scopeServers]) => (
+          {Object.entries(serversByScope as Record<string, typeof servers>).map(([scope, scopeServers]) => (
             <div key={scope} className="space-y-3">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 {getScopeIcon(scope)}

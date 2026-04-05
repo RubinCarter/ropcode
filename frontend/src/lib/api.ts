@@ -8,21 +8,116 @@
 export * from './rpc-client';
 
 // 类型别名：用于向后兼容
-import type { ClaudeCapability, ClaudeCapabilityLayers, database, claude, main } from './rpc-client';
+import type { ClaudeCapability, ClaudeCapabilityLayers, database, claude, main, mcp } from './rpc-client';
 export type Agent = database.Agent;
+export type AgentRunMetrics = database.AgentRunMetrics;
 export type AgentRun = database.AgentRun;
 export type Project = database.ProjectIndex;
 export type AgentRunWithMetrics = database.AgentRun;
 export type Session = claude.SessionStatus;
 export type ClaudeAgent = claude.ClaudeAgent;
-export type ClaudeMdFile = string;
-export type ClaudeInstallation = { path: string; version?: string };
+export type ClaudeMdFile = claude.ClaudeMdFile;
+export type ClaudeInstallation = main.ClaudeInstallation;
 export type ProviderSession = main.ProviderSession;
 export type ProviderApiConfig = database.ProviderApiConfig;
 export type Action = main.Action;
 export type ActionsResult = main.ActionsResult;
 export type ClaudeCapabilityItem = ClaudeCapability;
 export type ClaudeCapabilityLayersResult = ClaudeCapabilityLayers;
+export interface FileEntry extends main.FileEntry {
+  entry_type?: string;
+  color?: string;
+  icon?: string;
+  [key: string]: any;
+}
+export interface ClaudeSettings {
+  permissions?: {
+    allow?: string[];
+    deny?: string[];
+  };
+  env?: Record<string, string>;
+  [key: string]: any;
+}
+export interface ClaudeVersionStatus {
+  is_installed: boolean;
+  version?: string;
+  output: string;
+  [key: string]: any;
+}
+export interface UsageStats {
+  totalRequests?: number;
+  total_cost?: number;
+  total_sessions?: number;
+  total_tokens?: number;
+  by_model?: Array<{
+    model: string;
+    session_count: number;
+    total_cost?: number;
+    [key: string]: any;
+  }>;
+  by_project?: Array<{
+    project_path?: string;
+    session_count: number;
+    total_cost?: number;
+    [key: string]: any;
+  }>;
+  by_date?: Array<{
+    date: string;
+    total_cost?: number;
+    total_tokens?: number;
+    models_used?: string[];
+    [key: string]: any;
+  }>;
+  [key: string]: any;
+}
+export interface ProjectUsage {
+  [key: string]: any;
+}
+export type SSHAuthMethod =
+  | { type: 'password'; password: string }
+  | { type: 'privateKey'; keyPath: string; passphrase?: string };
+export interface SSHConfig {
+  host: string;
+  port: number;
+  username: string;
+  authMethod: SSHAuthMethod;
+  remotePath: string;
+  localPath: string;
+  skipPatterns?: string[];
+  connectionName?: string;
+  syncDirection?: 'pull' | 'push';
+  autoSyncDirection?: 'local-priority' | 'bidirectional';
+  [key: string]: any;
+}
+export interface SSHSyncProgress {
+  syncId?: string;
+  stage: 'connecting' | 'authenticating' | 'downloading' | 'completed' | 'error';
+  filesProcessed: number;
+  totalFiles: number;
+  percentage: number;
+  currentFile?: string;
+  direction?: 'upload' | 'download';
+  bytesDownloaded: number;
+  totalBytes: number;
+  isPaused?: boolean;
+  error?: string;
+  [key: string]: any;
+}
+export interface MessageIndex {
+  line_number: number;
+  byte_offset: number;
+  byte_length: number;
+  timestamp?: string;
+  message_type?: string;
+  [key: string]: any;
+}
+export type ModelConfig = database.ModelConfig;
+export type ThinkingLevel = database.ThinkingLevel;
+export type ProcessInfo = main.ProcessInfo;
+export type MCPServer = mcp.MCPServer;
+export interface GitCloneProgress { [key: string]: any; }
+export interface GitHubAgentFile { [key: string]: any; }
+export interface AgentExport { [key: string]: any; }
 
 // 导出事件函数
 export { EventsOn, EventsOff, EventsEmit, EventsOnce } from './rpc-events';
@@ -39,7 +134,7 @@ export {
 
 // 创建便捷的 api 对象（用于兼容现有代码）
 import * as rpcMethods from './rpc-client';
-import { EventsOn, EventsOff } from './rpc-events';
+import { EventsOn } from './rpc-events';
 
 // 将所有方法作为属性导出，并自动添加小写别名
 const api = new Proxy({ ...rpcMethods }, {
@@ -110,8 +205,6 @@ const api = new Proxy({ ...rpcMethods }, {
       sendClaudeMessage: 'SendClaudeMessage',
       isClaudeSessionRunningForProject: 'IsClaudeSessionRunningForProject',
       getSetting: 'GetSetting',
-      getClaudeCapabilityLayers: 'GetClaudeCapabilityLayers',
-      refreshClaudeCapabilityLayers: 'RefreshClaudeCapabilityLayers',
       // Plugin
       listInstalledPlugins: 'ListInstalledPlugins',
       getPluginContents: 'GetPluginContents',

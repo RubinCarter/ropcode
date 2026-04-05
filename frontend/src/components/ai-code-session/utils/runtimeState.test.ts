@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 async function loadModule() {
   try {
-    return await import('./runtimeState.ts');
+    return await import('./runtimeState');
   } catch (error) {
     assert.fail(`runtimeState module not implemented: ${error}`);
   }

@@ -15,7 +15,7 @@ const MEMORY_WARNING_THRESHOLD = 100;
 /**
  * Wraps an API method with error and performance tracking
  */
-function wrapApiMethod<T extends (...args: any[]) => Promise<any>>(
+function wrapApiMethod<T extends (...args: any[]) => any>(
   methodName: string,
   method: T
 ): T {
@@ -95,16 +95,17 @@ function wrapApiMethod<T extends (...args: any[]) => Promise<any>>(
  */
 function createTrackedApi() {
   const trackedApi: any = {};
-  
+
   // Wrap each method in the original API
   for (const [key, value] of Object.entries(originalApi)) {
     if (typeof value === 'function') {
-      trackedApi[key] = wrapApiMethod(key, value);
+      const callable = value as unknown as (...args: any[]) => any;
+      trackedApi[key] = wrapApiMethod(key, callable);
     } else {
       trackedApi[key] = value;
     }
   }
-  
+
   return trackedApi as typeof originalApi;
 }
 

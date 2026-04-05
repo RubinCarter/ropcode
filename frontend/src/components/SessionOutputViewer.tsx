@@ -158,7 +158,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
           const history = await api.loadAgentSessionHistory(session.session_id);
           
           // Convert history to messages format using AgentExecution style
-          const loadedMessages: ClaudeStreamMessage[] = history.map(entry => ({
+          const loadedMessages: ClaudeStreamMessage[] = history.map((entry: ClaudeStreamMessage) => ({
             ...entry,
             type: entry.type || "assistant"
           }));
@@ -193,7 +193,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
       const rawOutput = await api.getSessionOutput(session.id);
 
       // Parse JSONL output into messages using AgentExecution style
-      const jsonlLines = rawOutput.split('\n').filter(line => line.trim());
+      const jsonlLines = rawOutput.split('\n').filter((line: string) => line.trim());
 
       const parsedMessages: ClaudeStreamMessage[] = [];
       for (const line of jsonlLines) {
@@ -240,7 +240,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
       unlistenRefs.current = [];
 
       // Set up live event listeners with run ID isolation
-      const outputUnlisten = listen<string>(`agent-output:${session.id}`, (payload) => {
+      const outputUnlisten = listen(`agent-output:${session.id}`, (payload: string) => {
         try {
           // Parse and display
           const message = JSON.parse(payload) as ClaudeStreamMessage;
@@ -250,17 +250,17 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
         }
       });
 
-      const errorUnlisten = listen<string>(`agent-error:${session.id}`, (payload) => {
+      const errorUnlisten = listen(`agent-error:${session.id}`, (payload: string) => {
         console.error("Agent error:", payload);
         setToast({ message: payload, type: 'error' });
       });
 
-      const completeUnlisten = listen<boolean>(`agent-complete:${session.id}`, () => {
+      const completeUnlisten = listen(`agent-complete:${session.id}`, () => {
         setToast({ message: 'Agent execution completed', type: 'success' });
         // Don't set status here as the parent component should handle it
       });
 
-      const cancelUnlisten = listen<boolean>(`agent-cancelled:${session.id}`, () => {
+      const cancelUnlisten = listen(`agent-cancelled:${session.id}`, () => {
         setToast({ message: 'Agent execution was cancelled', type: 'error' });
       });
 

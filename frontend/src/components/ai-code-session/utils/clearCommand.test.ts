@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 async function loadModule() {
   try {
-    return await import('./clearCommand.ts');
+    return await import('./clearCommand');
   } catch (error) {
     assert.fail(`clearCommand module not implemented: ${error}`);
   }

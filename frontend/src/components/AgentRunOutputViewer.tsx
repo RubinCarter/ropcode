@@ -242,7 +242,7 @@ export function AgentRunOutputViewer({
       }, 100);
 
       // Set up live event listeners with run ID isolation
-      const outputUnlisten = listen<string>(`agent-output:${run!.id}`, (payload) => {
+      const outputUnlisten = listen(`agent-output:${run!.id}`, (payload: string) => {
         try {
           // Skip messages during initial load phase
           if (isInitialLoadRef.current) {
@@ -258,17 +258,17 @@ export function AgentRunOutputViewer({
         }
       });
 
-      const errorUnlisten = listen<string>(`agent-error:${run!.id}`, (payload) => {
+      const errorUnlisten = listen(`agent-error:${run!.id}`, (payload: string) => {
         console.error("[AgentRunOutputViewer] Agent error:", payload);
         setToast({ message: payload, type: 'error' });
       });
 
-      const completeUnlisten = listen<boolean>(`agent-complete:${run!.id}`, () => {
+      const completeUnlisten = listen(`agent-complete:${run!.id}`, () => {
         setToast({ message: 'Agent execution completed', type: 'success' });
         // Don't set status here as the parent component should handle it
       });
 
-      const cancelUnlisten = listen<boolean>(`agent-cancelled:${run!.id}`, () => {
+      const cancelUnlisten = listen(`agent-cancelled:${run!.id}`, () => {
         setToast({ message: 'Agent execution was cancelled', type: 'error' });
       });
 

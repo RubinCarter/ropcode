@@ -617,12 +617,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   // 监听终端输出事件
   useEffect(() => {
-    const unlisten = listen<{
+    const unlisten = listen('terminal-output', (payload: {
       command_id: string;
       output_type: string;
       content: string;
       exit_code?: number;
-    }>('terminal-output', (payload) => {
+    }) => {
       const { command_id, output_type, content, exit_code } = payload;
       const currentState = getCurrentState();
 

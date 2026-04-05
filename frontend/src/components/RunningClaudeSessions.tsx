@@ -85,9 +85,8 @@ export const RunningClaudeSessions: React.FC<RunningClaudeSessionsProps> = ({
 
       <div className="space-y-2">
         {runningSessions.map((session) => {
-          const sessionId = 'ClaudeSession' in session.process_type 
-            ? session.process_type.ClaudeSession.session_id 
-            : null;
+          const processType = session.process_type as { ClaudeSession?: { session_id?: string } } | undefined;
+          const sessionId = processType?.ClaudeSession?.session_id ?? null;
           
           if (!sessionId) return null;
 

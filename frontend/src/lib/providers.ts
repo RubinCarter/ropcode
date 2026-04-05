@@ -5,7 +5,20 @@
  */
 
 import { ListProviderSessions, LoadProviderSessionHistory } from './rpc-client';
-import type { Message } from './rpc-client';
+
+export type ProviderHistoryMessageType = 'system' | 'assistant' | 'user' | 'result' | 'info' | 'error';
+
+export interface ProviderHistoryMessage {
+  role?: string;
+  content?: string;
+  timestamp?: string;
+  type?: ProviderHistoryMessageType;
+  subtype?: string;
+  session_id?: string;
+  user_message?: unknown;
+  message?: any;
+  [key: string]: any;
+}
 
 export interface ProviderInfo {
   id: string;
@@ -46,8 +59,8 @@ export const providers = {
   /**
    * 加载 provider 会话历史
    */
-  loadHistory: async (projectPath: string, sessionId: string, providerName: string): Promise<Message[]> => {
-    return LoadProviderSessionHistory(projectPath, sessionId, providerName);
+  loadHistory: async (projectPath: string, sessionId: string, providerName: string): Promise<ProviderHistoryMessage[]> => {
+    return LoadProviderSessionHistory(projectPath, sessionId, providerName) as Promise<ProviderHistoryMessage[]>;
   },
 };
 

@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 async function loadModule() {
   try {
-    return await import('./ws-rpc-client.ts');
+    return await import('./ws-rpc-client');
   } catch (error) {
     assert.fail(`ws-rpc-client module not implemented: ${error}`);
   }
@@ -32,7 +32,7 @@ test('uses longer timeout for interactive Claude session startup', async () => {
 
 async function loadWsConfigModule() {
   try {
-    return await import('./ws-config.ts');
+    return await import('./ws-config');
   } catch (error) {
     assert.fail(`ws-config module not implemented: ${error}`);
   }

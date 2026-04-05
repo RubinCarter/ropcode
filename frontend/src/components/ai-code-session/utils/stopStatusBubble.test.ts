@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 async function loadModule() {
   try {
-    return await import('./stopStatusBubble.ts');
+    return await import('./stopStatusBubble');
   } catch (error) {
     assert.fail(`stopStatusBubble module not implemented: ${error}`);
   }

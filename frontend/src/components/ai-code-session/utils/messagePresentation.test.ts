@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 async function loadModule() {
   try {
-    return await import('./messagePresentation.ts');
+    return await import('./messagePresentation');
   } catch (error) {
     assert.fail(`messagePresentation module not implemented: ${error}`);
   }

@@ -182,6 +182,12 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 		})
 	}
 
+	// Seed buffered output with the user prompt so session logs/output APIs have
+	// immediate content even before the provider emits stdout.
+	if s.Config.Prompt != "" {
+		s.outputBuf = append(s.outputBuf, []byte(s.Config.Prompt+"\n")...)
+	}
+
 	// Broadcast user message to all clients for multi-client sync
 	// This ensures all connected clients (iOS, Mac, Web) see the user's prompt
 	if emitter != nil && s.Config.Prompt != "" {

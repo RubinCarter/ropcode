@@ -57,16 +57,36 @@ export function WindowSetSize(width: number, height: number): void {
   window.electronAPI?.setSize?.(width, height);
 }
 
-export function WindowGetSize(): Promise<{ width: number; height: number }> {
-  return window.electronAPI?.getSize?.() ?? Promise.resolve({ width: window.innerWidth, height: window.innerHeight });
+export async function WindowGetSize(): Promise<{ width: number; height: number }> {
+  const getSize = window.electronAPI?.getSize;
+  if (!getSize) {
+    return { width: window.innerWidth, height: window.innerHeight };
+  }
+
+  const result = await getSize();
+  if (Array.isArray(result)) {
+    const [width, height] = result;
+    return { width, height };
+  }
+  return result;
 }
 
 export function WindowSetPosition(x: number, y: number): void {
   window.electronAPI?.setPosition?.(x, y);
 }
 
-export function WindowGetPosition(): Promise<{ x: number; y: number }> {
-  return window.electronAPI?.getPosition?.() ?? Promise.resolve({ x: 0, y: 0 });
+export async function WindowGetPosition(): Promise<{ x: number; y: number }> {
+  const getPosition = window.electronAPI?.getPosition;
+  if (!getPosition) {
+    return { x: 0, y: 0 };
+  }
+
+  const result = await getPosition();
+  if (Array.isArray(result)) {
+    const [x, y] = result;
+    return { x, y };
+  }
+  return result;
 }
 
 export function WindowSetMinSize(width: number, height: number): void {

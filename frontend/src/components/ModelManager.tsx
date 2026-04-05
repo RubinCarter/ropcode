@@ -27,19 +27,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { api, type ModelConfig, type ThinkingLevel } from "@/lib/api";
+import { api, type ModelConfig } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 interface ModelManagerProps {
   setToast?: (toast: { message: string; type: "success" | "error" } | null) => void;
 }
 
+type UIThinkingLevel = {
+  level?: string;
+  description?: string;
+  max_tokens?: number;
+  id?: string;
+  name?: string;
+  budget?: number | string;
+  is_default?: boolean;
+};
+
 interface EditingModel {
   model_id: string;
   provider_id: string;
   display_name: string;
   description: string;
-  thinking_levels: ThinkingLevel[];
+  thinking_levels: UIThinkingLevel[];
 }
 
 const PROVIDERS = [
@@ -156,15 +166,15 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
       ...prev,
       thinking_levels: [
         ...prev.thinking_levels,
-        { id: "", name: "", budget: 10000, is_default: prev.thinking_levels.length === 0 },
+        { id: "", name: "", budget: 10000, is_default: prev.thinking_levels.length === 0 } as UIThinkingLevel,
       ],
     }));
   };
 
-  const updateThinkingLevel = (index: number, field: keyof ThinkingLevel, value: any) => {
+  const updateThinkingLevel = (index: number, field: keyof UIThinkingLevel, value: any) => {
     setNewModel((prev) => ({
       ...prev,
-      thinking_levels: prev.thinking_levels.map((level, i) => {
+      thinking_levels: prev.thinking_levels.map((level: UIThinkingLevel, i) => {
         if (i === index) {
           return { ...level, [field]: value };
         }
@@ -413,7 +423,7 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
                                 <div className="flex items-center gap-2">
                                   <span className="font-medium">{model.display_name}</span>
                                   {model.is_builtin && (
-                                    <Lock className="h-3 w-3 text-muted-foreground" title="Built-in" />
+                                    <Lock className="h-3 w-3 text-muted-foreground" aria-label="Built-in" />
                                   )}
                                   {model.is_default && (
                                     <span className="text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">

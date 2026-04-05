@@ -129,7 +129,7 @@ export const ClaudeMemoriesDropdown: React.FC<ClaudeMemoriesDropdownProps> = ({
                               {formatFileSize(file.size)}
                             </span>
                             <span className="text-xs text-muted-foreground">
-                              Modified {formatUnixTimestamp(file.modified)}
+                              Modified {formatUnixTimestamp(Number(file.modified))}
                             </span>
                           </div>
                         </div>

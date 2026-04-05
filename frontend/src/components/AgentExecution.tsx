@@ -371,7 +371,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       agentFeatureTracking.trackUsage();
       
       // Set up event listeners with run ID isolation
-      const outputUnlisten = listen<string>(`agent-output:${executionRunId}`, (payload) => {
+      const outputUnlisten = listen(`agent-output:${executionRunId}`, (payload: string) => {
         try {
           // Parse and display
           const message = JSON.parse(payload) as ClaudeStreamMessage;
@@ -381,7 +381,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
         }
       });
 
-      const errorUnlisten = listen<string>(`agent-error:${executionRunId}`, (payload) => {
+      const errorUnlisten = listen(`agent-error:${executionRunId}`, (payload: string) => {
         console.error("Agent error:", payload);
         setError(payload);
 
@@ -394,7 +394,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
         });
       });
 
-      const completeUnlisten = listen<boolean>(`agent-complete:${executionRunId}`, (payload) => {
+      const completeUnlisten = listen(`agent-complete:${executionRunId}`, (payload: boolean) => {
         setIsRunning(false);
         const duration = executionStartTime ? Date.now() - executionStartTime : undefined;
         setExecutionStartTime(null);
@@ -421,7 +421,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
         }
       });
 
-      const cancelUnlisten = listen<boolean>(`agent-cancelled:${executionRunId}`, () => {
+      const cancelUnlisten = listen(`agent-cancelled:${executionRunId}`, () => {
         setIsRunning(false);
         setExecutionStartTime(null);
         setError("Agent execution was cancelled");
