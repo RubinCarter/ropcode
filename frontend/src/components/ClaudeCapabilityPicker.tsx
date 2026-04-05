@@ -64,6 +64,8 @@ const getErrorMessage = (err: unknown, fallback: string): string => {
   return err instanceof Error ? err.message : fallback;
 };
 
+const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
 const getScopeLabel = (scope: ScopeGroupKey): string => {
   switch (scope) {
     case "project":
@@ -138,6 +140,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
 
   const capabilityListRef = useRef<HTMLDivElement>(null);
   const selectedCapabilityKeyRef = useRef<string | null>(null);
+  const loadRequestIdRef = useRef(0);
 
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const pickerHeight = isMobile ? Math.min(300, window.innerHeight * 0.5) : 400;
@@ -183,10 +186,54 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
   }, [initialQuery]);
 
   const loadCapabilities = useCallback(async () => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+
+    const isCurrentRequest = () => loadRequestIdRef.current === requestId;
+    const applyLayers = (layers: CapabilityLayersState) => {
+      if (!isCurrentRequest()) return;
+      setCapabilityLayers(layers);
+    };
+    const applyError = (nextError: string | null) => {
+      if (!isCurrentRequest()) return;
+      setError(nextError);
+    };
+    const applyInitialLoading = (nextValue: boolean) => {
+      if (!isCurrentRequest()) return;
+      setIsInitialLoading(nextValue);
+    };
+    const applyProjectLoading = (nextValue: boolean) => {
+      if (!isCurrentRequest()) return;
+      setIsProjectLoading(nextValue);
+    };
+    const applyRefreshing = (nextValue: boolean) => {
+      if (!isCurrentRequest()) return;
+      setIsRefreshing(nextValue);
+    };
+
     let startedBackgroundRefresh = false;
 
-    setIsInitialLoading(true);
-    setError(null);
+    applyInitialLoading(true);
+    applyError(null);
+
+    const startBackgroundRefresh = () => {
+      startedBackgroundRefresh = true;
+      applyProjectLoading(Boolean(projectPath));
+
+      void api.refreshClaudeCapabilityLayers(projectPath)
+        .then((layers: ClaudeCapabilityLayers) => {
+          applyLayers(normalizeLayers(layers));
+          applyError(null);
+        })
+        .catch((err: unknown) => {
+          console.error("Failed to refresh Claude capabilities:", err);
+          applyError(getErrorMessage(err, "Failed to refresh project capabilities"));
+        })
+        .finally(() => {
+          applyProjectLoading(false);
+          applyRefreshing(false);
+        });
+    };
 
     try {
       const cached = projectPath ? await api.getCachedClaudeCapabilityLayers(projectPath) : null;
@@ -194,44 +241,43 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
       const hasCachedVisibleLayers = cachedVisibleLayers.all_visible.length > 0;
 
       if (hasCachedVisibleLayers) {
-        startedBackgroundRefresh = true;
-        setCapabilityLayers(cachedVisibleLayers);
-        setIsInitialLoading(false);
-        setIsProjectLoading(Boolean(projectPath));
-
-        void api.refreshClaudeCapabilityLayers(projectPath)
-          .then((layers: ClaudeCapabilityLayers) => {
-            setCapabilityLayers(normalizeLayers(layers));
-            setError(null);
-          })
-          .catch((err: unknown) => {
-            console.error("Failed to refresh Claude capabilities:", err);
-            setError(getErrorMessage(err, "Failed to refresh project capabilities"));
-          })
-          .finally(() => {
-            setIsProjectLoading(false);
-            setIsRefreshing(false);
-          });
+        applyLayers(cachedVisibleLayers);
+        applyInitialLoading(false);
+        startBackgroundRefresh();
         return;
       }
 
       if (projectPath) {
-        setIsProjectLoading(true);
+        applyProjectLoading(true);
         void api.prewarmClaudeCapabilityLayers(projectPath).catch(() => undefined);
+
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          await sleep(150);
+          if (!isCurrentRequest()) return;
+
+          const warmed = await api.getCachedClaudeCapabilityLayers(projectPath);
+          const warmedVisibleLayers = getCachedVisibleLayers(warmed);
+          if (warmedVisibleLayers.all_visible.length > 0) {
+            applyLayers(warmedVisibleLayers);
+            applyInitialLoading(false);
+            startBackgroundRefresh();
+            return;
+          }
+        }
       }
 
       const layers: ClaudeCapabilityLayers = await api.getClaudeCapabilityLayers(projectPath);
-      setCapabilityLayers(normalizeLayers(layers));
-      setError(null);
+      applyLayers(normalizeLayers(layers));
+      applyError(null);
     } catch (err) {
       console.error("Failed to load Claude capabilities:", err);
-      setError(getErrorMessage(err, "Failed to load capabilities"));
-      setCapabilityLayers(EMPTY_LAYERS);
+      applyError(getErrorMessage(err, "Failed to load capabilities"));
+      applyLayers(EMPTY_LAYERS);
     } finally {
-      setIsInitialLoading(false);
+      applyInitialLoading(false);
       if (!startedBackgroundRefresh) {
-        setIsProjectLoading(false);
-        setIsRefreshing(false);
+        applyProjectLoading(false);
+        applyRefreshing(false);
       }
     }
   }, [projectPath]);

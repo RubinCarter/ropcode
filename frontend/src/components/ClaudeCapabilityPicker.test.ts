@@ -19,6 +19,24 @@ test('shows staged project loading instead of blocking the whole picker when cac
   assert.match(source, /Loading project capabilities/);
 });
 
+test('polls warmed cache before falling back to full discovery on cache miss', async () => {
+  const source = await readSource();
+
+  assert.match(source, /for \(let attempt = 0; attempt < 8; attempt \+= 1\)/);
+  assert.match(source, /await sleep\(150\);/);
+  assert.match(source, /const warmed = await api\.getCachedClaudeCapabilityLayers\(projectPath\);/);
+  assert.match(source, /const warmedVisibleLayers = getCachedVisibleLayers\(warmed\);/);
+  assert.match(source, /if \(warmedVisibleLayers\.all_visible\.length > 0\) \{/);
+});
+
+test('guards async loading updates with a request id so stale responses do not overwrite newer state', async () => {
+  const source = await readSource();
+
+  assert.match(source, /const loadRequestIdRef = useRef\(0\);/);
+  assert.match(source, /const requestId = loadRequestIdRef\.current \+ 1;/);
+  assert.match(source, /const isCurrentRequest = \(\) => loadRequestIdRef\.current === requestId;/);
+});
+
 test('preserves selected capability by key during hydration updates', async () => {
   const source = await readSource();
 
