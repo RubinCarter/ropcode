@@ -48,6 +48,10 @@ type CapabilityDiscoveryService struct {
 	systemCache         systemCache
 	userCache           userCache
 	projectCache        map[string]projectCacheEntry
+	cachedVersion       string
+	cachedVersionErr    error
+	cachedUserGen       string
+	cachedUserGenErr    error
 }
 
 type systemCache struct {
@@ -167,7 +171,18 @@ func (s *CapabilityDiscoveryService) PrewarmProject(projectPath string) bool {
 }
 
 func (s *CapabilityDiscoveryService) currentSystemKey() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cachedVersion != "" || s.cachedVersionErr != nil {
+		if s.cachedVersionErr != nil {
+			return ""
+		}
+		return s.cachedVersion
+	}
+
 	version, err := s.claudeVersion()
+	s.cachedVersion = version
+	s.cachedVersionErr = err
 	if err != nil {
 		return ""
 	}
@@ -175,26 +190,60 @@ func (s *CapabilityDiscoveryService) currentSystemKey() string {
 }
 
 func (s *CapabilityDiscoveryService) currentUserKey() string {
-	version, err := s.claudeVersion()
-	if err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	version := s.cachedVersion
+	versionErr := s.cachedVersionErr
+	if version == "" && versionErr == nil {
+		version, versionErr = s.claudeVersion()
+		s.cachedVersion = version
+		s.cachedVersionErr = versionErr
+	}
+	if versionErr != nil {
 		return ""
 	}
-	userGeneration, err := s.userCacheGeneration()
-	if err != nil {
+
+	userGeneration := s.cachedUserGen
+	userGenerationErr := s.cachedUserGenErr
+	if userGeneration == "" && userGenerationErr == nil {
+		userGeneration, userGenerationErr = s.userCacheGeneration()
+		s.cachedUserGen = userGeneration
+		s.cachedUserGenErr = userGenerationErr
+	}
+	if userGenerationErr != nil {
 		return ""
 	}
+
 	return cacheKey(version, userGeneration)
 }
 
 func (s *CapabilityDiscoveryService) currentProjectKey(projectPath string) string {
-	version, err := s.claudeVersion()
-	if err != nil {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	version := s.cachedVersion
+	versionErr := s.cachedVersionErr
+	if version == "" && versionErr == nil {
+		version, versionErr = s.claudeVersion()
+		s.cachedVersion = version
+		s.cachedVersionErr = versionErr
+	}
+	if versionErr != nil {
 		return ""
 	}
-	userGeneration, err := s.userCacheGeneration()
-	if err != nil {
+
+	userGeneration := s.cachedUserGen
+	userGenerationErr := s.cachedUserGenErr
+	if userGeneration == "" && userGenerationErr == nil {
+		userGeneration, userGenerationErr = s.userCacheGeneration()
+		s.cachedUserGen = userGeneration
+		s.cachedUserGenErr = userGenerationErr
+	}
+	if userGenerationErr != nil {
 		return ""
 	}
+
 	return cacheKey(version, projectPath, userGeneration)
 }
 
