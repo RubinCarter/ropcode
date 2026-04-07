@@ -57,6 +57,23 @@ import {
   useSessionEvents,
 } from "./hooks";
 
+const activeRecoveryKeys = new Set<string>();
+
+function formatRecoveryError(err: unknown) {
+  if (err instanceof Error) {
+    return {
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+    };
+  }
+  try {
+    return JSON.parse(JSON.stringify(err));
+  } catch {
+    return String(err);
+  }
+}
+
 /**
  * AI Code Session component for interactive AI coding sessions
  *
@@ -447,6 +464,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     let recoverTimer: ReturnType<typeof setTimeout> | null = null;
     let isMounted = true;
     let lastRecoveryTime = 0;
+    let isRecovering = false;
     const MIN_RECOVERY_INTERVAL = 5000; // 5秒最小间隔
 
     const recoverMessages = async (trigger: string) => {
@@ -465,13 +483,17 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         return;
       }
 
+      if (isRecovering) {
+        console.log(`[AiCodeSession] Recovery (${trigger}): skipped — component recovery already running`);
+        return;
+      }
+
       // Debounce: skip if recovered recently
       const now = Date.now();
       if (now - lastRecoveryTime < MIN_RECOVERY_INTERVAL) {
         console.log(`[AiCodeSession] Recovery (${trigger}): skipped — too soon (${Math.round((now - lastRecoveryTime) / 1000)}s since last)`);
         return;
       }
-      lastRecoveryTime = now;
 
       // Gather session identifiers from refs
       let sessionId = sessionState.claudeSessionIdRef?.current;
@@ -498,6 +520,16 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         });
         return;
       }
+
+      const recoveryKey = `${defaultProvider}::${projectPath}::${projectId}::${sessionId}`;
+      if (activeRecoveryKeys.has(recoveryKey)) {
+        console.log(`[AiCodeSession] Recovery (${trigger}): skipped — recovery already active for ${recoveryKey}`);
+        return;
+      }
+
+      isRecovering = true;
+      activeRecoveryKeys.add(recoveryKey);
+      lastRecoveryTime = now;
 
       try {
         setIsRecoveringHistory(true);
@@ -554,8 +586,17 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
           console.log(`[AiCodeSession] Recovery (${trigger}): local is up to date, skipping`);
         }
       } catch (err) {
-        console.error(`[AiCodeSession] Recovery (${trigger}) failed:`, err);
+        console.error(`[AiCodeSession] Recovery (${trigger}) failed`, {
+          recoveryKey,
+          sessionId,
+          projectId,
+          projectPath,
+          provider: defaultProvider,
+          error: formatRecoveryError(err),
+        });
       } finally {
+        activeRecoveryKeys.delete(recoveryKey);
+        isRecovering = false;
         if (isMounted) {
           setIsRecoveringHistory(false);
         }
