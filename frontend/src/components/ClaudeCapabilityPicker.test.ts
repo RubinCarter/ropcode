@@ -44,9 +44,14 @@ test('preserves selected capability by key during hydration updates', async () =
   assert.match(source, /const preservedIndex = orderedCapabilities\.findIndex\(\(capability\) => capability\.key === selectedKey\);/);
 });
 
-test('retries by reloading without passing an invalid load argument', async () => {
+test('skips automatic refresh when cached capabilities are still fresh and uses full layers', async () => {
   const source = await readSource();
 
-  assert.match(source, /onClick=\{\(\) => void loadCapabilities\(\)\}/);
-  assert.doesNotMatch(source, /loadCapabilities\(true\)/);
+  assert.match(source, /const AUTO_REFRESH_TTL_MS = 5 \* 60 \* 1000;/);
+  assert.match(source, /const shouldAutoRefresh = Boolean\(projectPath\) && !isCacheFresh\(cached\);/);
+  assert.match(source, /if \(shouldAutoRefresh\) \{/);
+  assert.match(source, /if \(!isCacheFresh\(warmed\)\) \{/);
+  // When cache is fresh, use normalizeLayers to include project capabilities
+  assert.match(source, /applyLayers\(normalizeLayers\(cached\)\);/);
+  assert.match(source, /applyLayers\(normalizeLayers\(warmed\)\);/);
 });

@@ -36,6 +36,7 @@ const EMPTY_LAYERS: CapabilityLayersState = {
 };
 
 const SCOPE_ORDER: ScopeGroupKey[] = ["project", "user", "system"];
+const AUTO_REFRESH_TTL_MS = 5 * 60 * 1000;
 
 const normalizeLayers = (layers?: Partial<CapabilityLayersState> | ClaudeCapabilityLayers | null): CapabilityLayersState => {
   const system = layers?.system ?? [];
@@ -65,6 +66,12 @@ const getErrorMessage = (err: unknown, fallback: string): string => {
 };
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+const isCacheFresh = (layers?: ClaudeCapabilityLayers | null): boolean => {
+  const fetchedAt = layers?.fetched_at ? Date.parse(layers.fetched_at) : Number.NaN;
+  if (Number.isNaN(fetchedAt)) return false;
+  return Date.now() - fetchedAt < AUTO_REFRESH_TTL_MS;
+};
 
 const getScopeLabel = (scope: ScopeGroupKey): string => {
   switch (scope) {
@@ -217,8 +224,9 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
     applyError(null);
 
     const startBackgroundRefresh = () => {
+      if (!projectPath) return;
       startedBackgroundRefresh = true;
-      applyProjectLoading(Boolean(projectPath));
+      applyProjectLoading(true);
 
       void api.refreshClaudeCapabilityLayers(projectPath)
         .then((layers: ClaudeCapabilityLayers) => {
@@ -239,11 +247,16 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
       const cached = projectPath ? await api.getCachedClaudeCapabilityLayers(projectPath) : null;
       const cachedVisibleLayers = getCachedVisibleLayers(cached);
       const hasCachedVisibleLayers = cachedVisibleLayers.all_visible.length > 0;
+      const shouldAutoRefresh = Boolean(projectPath) && !isCacheFresh(cached);
 
       if (hasCachedVisibleLayers) {
-        applyLayers(cachedVisibleLayers);
         applyInitialLoading(false);
-        startBackgroundRefresh();
+        if (shouldAutoRefresh) {
+          applyLayers(cachedVisibleLayers);
+          startBackgroundRefresh();
+        } else {
+          applyLayers(normalizeLayers(cached));
+        }
         return;
       }
 
@@ -258,9 +271,14 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
           const warmed = await api.getCachedClaudeCapabilityLayers(projectPath);
           const warmedVisibleLayers = getCachedVisibleLayers(warmed);
           if (warmedVisibleLayers.all_visible.length > 0) {
-            applyLayers(warmedVisibleLayers);
             applyInitialLoading(false);
-            startBackgroundRefresh();
+            if (!isCacheFresh(warmed)) {
+              applyLayers(warmedVisibleLayers);
+              startBackgroundRefresh();
+            } else {
+              applyLayers(normalizeLayers(warmed));
+              applyProjectLoading(false);
+            }
             return;
           }
         }
