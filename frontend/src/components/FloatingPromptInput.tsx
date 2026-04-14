@@ -591,9 +591,13 @@ const FloatingPromptInputInner = (
 
   const [textareaHeight, setTextareaHeight] = useState<number>(getDefaultHeight);
   const isIMEComposingRef = useRef(false);
-  const usesClaudeCapabilityPicker = selectedProvider === 'claude';
+  const effectiveProvider = projectPath?.trim() ? selectedProvider : defaultProvider;
+  const usesClaudeCapabilityPicker = defaultProvider === 'claude';
 
-  // Helper: Get icon for a model based on its ID and provider
+  useEffect(() => {
+    setSelectedProvider(defaultProvider);
+  }, [defaultProvider]);
+
   const getModelIcon = (modelId: string, providerId: string): React.ReactNode => {
     // Use hardcoded model icons if available
     const hardcodedModel = PROVIDER_MODELS[providerId]?.find(m => m.id === modelId);
@@ -2293,7 +2297,7 @@ const FloatingPromptInputInner = (
                         onSelect={handleSlashCommandSelect}
                         onClose={handleSlashCommandPickerClose}
                         initialQuery={slashCommandQuery}
-                        provider={selectedProvider as 'codex' | 'gemini'}
+                        provider={effectiveProvider as 'codex' | 'gemini'}
                         anchorRef={inputContainerRef}
                       />
                     )

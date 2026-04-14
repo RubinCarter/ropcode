@@ -85,7 +85,25 @@ func normalizeCapabilities(commands []CommandSummary, skills []string, scope Cap
 	return dedupeCapabilities(capabilities)
 }
 
+func builtInClaudeCommandSummaries() []CommandSummary {
+	commands := createDefaultCommands()
+	result := make([]CommandSummary, 0, len(commands))
+	for _, command := range commands {
+		if command.CommandType != CommandTypeClaude || command.Scope != "default" {
+			continue
+		}
+		result = append(result, CommandSummary{
+			Name:         command.Name,
+			Description:  stringValue(command.Description),
+			ArgumentHint: stringValue(command.ArgumentHint),
+		})
+	}
+	return dedupeCommandSummaries(result)
+}
+
 func BuildCapabilityLayers(system, user, project CapabilitySnapshot) CapabilityLayers {
+	system.Commands = dedupeCommandSummaries(append(builtInClaudeCommandSummaries(), system.Commands...))
+
 	systemCaps := normalizeCapabilities(system.Commands, system.Skills, CapabilityScopeSystem)
 	userCaps := normalizeCapabilities(user.Commands, user.Skills, CapabilityScopeUser)
 	projectCaps := normalizeCapabilities(project.Commands, project.Skills, CapabilityScopeProject)
@@ -196,4 +214,11 @@ func kindOrder(kind string) int {
 	default:
 		return 2
 	}
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

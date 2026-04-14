@@ -116,43 +116,19 @@ func TestDedupeCapabilitiesFiltersDuplicatesAndEmptyNames(t *testing.T) {
 	}
 }
 
-func TestBuildCapabilityLayers(t *testing.T) {
-	systemSnap := CapabilitySnapshot{
-		Stage:    "system",
-		Commands: []CommandSummary{{Name: "review"}},
-		Skills:   []string{"help"},
-	}
-	userSnap := CapabilitySnapshot{
-		Stage:    "user",
-		Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}},
-		Skills:   []string{"help", "loop"},
-	}
-	projectSnap := CapabilitySnapshot{
-		Stage:    "project",
-		Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}, {Name: "bar"}},
-		Skills:   []string{"help", "loop", "proj"},
-	}
+func TestBuildCapabilityLayersIncludesBuiltInClaudeCommands(t *testing.T) {
+	systemSnap := CapabilitySnapshot{Stage: "system"}
+	userSnap := CapabilitySnapshot{Stage: "user"}
+	projectSnap := CapabilitySnapshot{Stage: "project"}
 
 	layers := BuildCapabilityLayers(systemSnap, userSnap, projectSnap)
 
-	assertHasCapability(t, layers.UserOnly, string(CapabilityKindCommand), "foo")
-	assertHasCapability(t, layers.UserOnly, string(CapabilityKindSkill), "loop")
-	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindCommand), "bar")
-	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindSkill), "proj")
-
-	if len(layers.AllVisible) != 6 {
-		t.Fatalf("expected 6 all-visible capabilities, got %d", len(layers.AllVisible))
-	}
-
-	assertCapabilityOrder(t, layers.AllVisible, []string{
-		"system:command:review",
-		"system:skill:help",
-		"user:command:foo",
-		"user:skill:loop",
-		"project:command:bar",
-		"project:skill:proj",
-	})
+	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "clear")
+	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "compact")
+	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "review")
+	assertHasCapability(t, layers.AllVisible, string(CapabilityKindCommand), "clear")
 }
+
 
 func TestParseDiscoveryMessages(t *testing.T) {
 	lines := [][]byte{
@@ -218,10 +194,15 @@ func TestDiscoverCapabilityLayers(t *testing.T) {
 	}
 
 	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "review")
+	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "clear")
 	assertHasCapability(t, layers.UserOnly, string(CapabilityKindCommand), "foo")
 	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindSkill), "proj")
 
 	assertCapabilityOrder(t, layers.AllVisible, []string{
+		"system:command:add-dir",
+		"system:command:clear",
+		"system:command:compact",
+		"system:command:init",
 		"system:command:review",
 		"system:skill:help",
 		"user:command:foo",
