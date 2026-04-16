@@ -1127,7 +1127,7 @@ const FloatingPromptInputInner = (
         const isStartOfSkill = newCursorPosition === 1 ||
           (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
 
-        if (isStartOfSkill && !usesClaudeCapabilityPicker) {
+        if (isStartOfSkill) {
           console.log('[FloatingPromptInput] : detected for skill picker');
           setShowSkillPicker(true);
           setSkillQuery("");
