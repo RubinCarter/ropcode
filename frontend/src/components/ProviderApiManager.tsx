@@ -377,7 +377,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                Leave empty to use default endpoint
+                Leave empty to use the official default endpoint
               </p>
             </div>
 
@@ -392,7 +392,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
-                Optional: Overrides environment variable
+                Leave empty to use Claude Code's built-in OAuth login
               </p>
             </div>
 
