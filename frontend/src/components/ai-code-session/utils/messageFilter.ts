@@ -124,12 +124,17 @@ function hasVisibleContent(
 }
 
 function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
-  const runtimeMessage = message as ClaudeStreamMessage & {
+  const runtimeMessage = message as unknown as {
+    type?: string;
     hidden_by_default?: boolean;
     debug_meta?: { hidden_by_default?: boolean };
   };
 
-  return runtimeMessage.hidden_by_default === true || runtimeMessage.debug_meta?.hidden_by_default === true;
+  return (
+    runtimeMessage.type === 'queue-operation' ||
+    runtimeMessage.hidden_by_default === true ||
+    runtimeMessage.debug_meta?.hidden_by_default === true
+  );
 }
 
 /**
