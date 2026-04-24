@@ -52,7 +52,7 @@ type ToolProgress struct {
 
 // ApiRetryInfo holds details about the most recent API retry attempt.
 type ApiRetryInfo struct {
-	Reason       string `json:"reason,omitempty"`        // e.g. "rate_limit", "server_error"
+	Reason       string `json:"reason,omitempty"` // e.g. "rate_limit", "server_error"
 	Attempt      int    `json:"attempt,omitempty"`
 	MaxAttempts  int    `json:"max_attempts,omitempty"`
 	RetryAfterMs int    `json:"retry_after_ms,omitempty"`
@@ -307,11 +307,8 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 		// This ensures all connected clients (iOS, Mac, Web) see the user's prompt
 		if emitter != nil && s.Config.Prompt != "" {
 			userMessage := map[string]interface{}{
-				"type":       "user",
-				"source":     "broadcast",
-				"session_id": s.ID,
-				"cwd":        s.Config.ProjectPath,
-				"timestamp":  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+				"type":   "user",
+				"source": "broadcast",
 				"message": map[string]interface{}{
 					"role": "user",
 					"content": []map[string]interface{}{
@@ -322,6 +319,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 					},
 				},
 			}
+			s.enrichOutputMessage(userMessage)
 			userJSON, _ := json.Marshal(userMessage)
 			log.Printf("[Session] Broadcasting user message to all clients: session_id=%s, cwd=%s, prompt=%s", s.ID, s.Config.ProjectPath, s.Config.Prompt)
 			emitter.Emit("claude-output", string(userJSON))
@@ -414,11 +412,8 @@ func (s *Session) SendMessage(prompt string, emitter EventEmitter) error {
 	// Broadcast user message to all frontend clients (same as existing behavior)
 	if emitter != nil {
 		userMessage := map[string]interface{}{
-			"type":       "user",
-			"source":     "broadcast",
-			"session_id": s.ID,
-			"cwd":        s.Config.ProjectPath,
-			"timestamp":  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+			"type":   "user",
+			"source": "broadcast",
 			"message": map[string]interface{}{
 				"role": "user",
 				"content": []map[string]interface{}{
@@ -429,6 +424,7 @@ func (s *Session) SendMessage(prompt string, emitter EventEmitter) error {
 				},
 			},
 		}
+		s.enrichOutputMessage(userMessage)
 		userJSON, _ := json.Marshal(userMessage)
 		emitter.Emit("claude-output", string(userJSON))
 	}
@@ -463,123 +459,164 @@ func (s *Session) SendMessage(prompt string, emitter EventEmitter) error {
 // readOutput reads output from stdout or stderr
 // Claude CLI outputs JSONL format - each line is a complete JSON message
 func (s *Session) readOutput(reader io.ReadCloser, outputType string, emitter EventEmitter) {
-	scanner := bufio.NewScanner(reader)
-	// Increase buffer size for large JSON outputs
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
+	buffered := bufio.NewReader(reader)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		s.mu.Lock()
-		s.outputBuf = append(s.outputBuf, []byte(line+"\n")...)
-		// Collect stderr output to show as single error message when process ends
-		if outputType == "stderr" && line != "" {
-			log.Printf("[Session] stderr: %s", line)
-			s.stderrBuf = append(s.stderrBuf, []byte(line+"\n")...)
+	for {
+		lineBytes, err := buffered.ReadBytes('\n')
+		if len(lineBytes) > 0 {
+			s.processOutputLine(lineBytes, outputType, emitter)
 		}
-		s.mu.Unlock()
 
-		// For stdout, process and emit
-		if emitter != nil && outputType == "stdout" {
-			// Claude CLI outputs JSONL format - try to parse and enrich with cwd/session_id
-			var msg map[string]interface{}
-			if err := json.Unmarshal([]byte(line), &msg); err == nil {
-				// Update runtime state from every message (batch + interactive)
-				s.updateRuntimeStateFromMessage(msg)
+		if err != nil {
+			if err != io.EOF {
+				s.handleOutputReadError(err, outputType, emitter)
+			}
+			return
+		}
+	}
+}
 
-				// Interactive mode: filter and track certain message types
-				if s.interactive {
-					msgType, _ := msg["type"].(string)
+func (s *Session) processOutputLine(lineBytes []byte, outputType string, emitter EventEmitter) {
+	line := strings.TrimRight(string(lineBytes), "\r\n")
 
-					// Handle control_response: mark initialized, do NOT forward
-					if msgType == "control_response" {
-						s.mu.Lock()
-						s.initialized = true
-						s.mu.Unlock()
-						close(s.initDone)
-						log.Printf("[Session] Interactive session initialized (control_response received)")
-						continue
-					}
+	s.mu.Lock()
+	s.outputBuf = append(s.outputBuf, []byte(line+"\n")...)
+	// Collect stderr output to show as single error message when process ends
+	if outputType == "stderr" && line != "" {
+		log.Printf("[Session] stderr: %s", line)
+		s.stderrBuf = append(s.stderrBuf, []byte(line+"\n")...)
+	}
+	s.mu.Unlock()
 
-					// Handle system messages with specific subtypes
-					if msgType == "system" {
-						subtype, _ := msg["subtype"].(string)
-						// Filter out hook messages - do NOT forward to frontend
-						if subtype == "hook_started" || subtype == "hook_response" {
-							log.Printf("[Session] Filtering interactive hook message: subtype=%s", subtype)
-							continue
-						}
-					}
+	// For stdout, process and emit
+	if emitter == nil || outputType != "stdout" {
+		return
+	}
+
+	// Claude CLI outputs JSONL format - try to parse and enrich with cwd/session_id
+	var msg map[string]interface{}
+	if err := json.Unmarshal([]byte(line), &msg); err == nil {
+		// Update runtime state from every message (batch + interactive)
+		s.updateRuntimeStateFromMessage(msg)
+
+		// Interactive mode: filter and track certain message types
+		if s.interactive {
+			msgType, _ := msg["type"].(string)
+
+			// Handle control_response: mark initialized, do NOT forward
+			if msgType == "control_response" {
+				s.mu.Lock()
+				s.initialized = true
+				s.mu.Unlock()
+				close(s.initDone)
+				log.Printf("[Session] Interactive session initialized (control_response received)")
+				return
+			}
+
+			// Preserve hook events for fidelity, but hide them from default display.
+			if msgType == "system" {
+				subtype, _ := msg["subtype"].(string)
+				if subtype == "hook_started" || subtype == "hook_response" {
+					msg["hidden_by_default"] = true
 				}
-
-				// Save Claude's own session_id before overriding, so we can use it for --resume later
-				if s.interactive {
-					if claudeID, ok := msg["session_id"].(string); ok && claudeID != "" {
-						s.mu.Lock()
-						if s.claudeSessionID == "" {
-							s.claudeSessionID = claudeID
-							log.Printf("[Session] Captured Claude session ID for resume: %s", claudeID)
-						}
-						s.mu.Unlock()
-
-						// For system.init, expose the real Claude session ID as claude_session_id
-						// so the frontend can persist it (via SessionPersistenceService) and use it
-						// to resume the conversation after the process is stopped and restarted.
-						msgType, _ := msg["type"].(string)
-						subtype, _ := msg["subtype"].(string)
-						if msgType == "system" && subtype == "init" {
-							msg["claude_session_id"] = claudeID
-						}
-					}
-				}
-
-				// Add session_id and cwd to the message for frontend routing
-				// In interactive mode, always override session_id with Go-side session ID
-				// so frontend can use it for SendClaudeMessage RPC calls
-				if s.interactive || msg["session_id"] == nil {
-					msg["session_id"] = s.ID
-				}
-				if msg["cwd"] == nil {
-					msg["cwd"] = s.Config.ProjectPath
-				}
-
-				// Inject runtime state so frontend can show fine-grained activity status.
-				// Old clients ignore unknown fields; new clients can read processing/debug_meta.
-				s.mu.RLock()
-				runtimeCopy := s.runtime
-				s.mu.RUnlock()
-				msg["processing"] = runtimeCopy.Processing
-				msg["debug_meta"] = map[string]interface{}{
-					"runtime_state": runtimeCopy,
-				}
-
-				// Re-marshal and send as JSON string
-				enrichedJSON, _ := json.Marshal(msg)
-				log.Printf("[Session] Emitting claude-output (%s): type=%v subtype=%v", outputType, msg["type"], msg["subtype"])
-				emitter.Emit("claude-output", string(enrichedJSON))
-			} else {
-				// Not JSON - wrap as raw output message with source info
-				rawMsg := map[string]interface{}{
-					"type":       "raw",
-					"source":     outputType,
-					"content":    line,
-					"session_id": s.ID,
-					"cwd":        s.Config.ProjectPath,
-				}
-				rawJSON, _ := json.Marshal(rawMsg)
-				log.Printf("[Session] Emitting raw output (%s): %s", outputType, line)
-				emitter.Emit("claude-output", string(rawJSON))
 			}
 		}
+
+		// Save Claude's own session_id before overriding, so we can use it for --resume later
+		if s.interactive {
+			if claudeID, ok := msg["session_id"].(string); ok && claudeID != "" {
+				s.mu.Lock()
+				if s.claudeSessionID == "" {
+					s.claudeSessionID = claudeID
+					log.Printf("[Session] Captured Claude session ID for resume: %s", claudeID)
+				}
+				s.mu.Unlock()
+
+				// For system.init, expose the real Claude session ID as claude_session_id
+				// so the frontend can persist it (via SessionPersistenceService) and use it
+				// to resume the conversation after the process is stopped and restarted.
+				msgType, _ := msg["type"].(string)
+				subtype, _ := msg["subtype"].(string)
+				if msgType == "system" && subtype == "init" {
+					msg["claude_session_id"] = claudeID
+				}
+			}
+		}
+
+		s.enrichOutputMessage(msg)
+
+		// Re-marshal and send as JSON string
+		enrichedJSON, _ := json.Marshal(msg)
+		log.Printf("[Session] Emitting claude-output (%s): type=%v subtype=%v", outputType, msg["type"], msg["subtype"])
+		emitter.Emit("claude-output", string(enrichedJSON))
+	} else {
+		// Not JSON - wrap as raw output message with source info
+		rawMsg := map[string]interface{}{
+			"type":    "raw",
+			"source":  outputType,
+			"content": line,
+		}
+		s.enrichOutputMessage(rawMsg)
+		rawJSON, _ := json.Marshal(rawMsg)
+		log.Printf("[Session] Emitting raw output (%s): %s", outputType, line)
+		emitter.Emit("claude-output", string(rawJSON))
+	}
+}
+
+func (s *Session) handleOutputReadError(err error, outputType string, emitter EventEmitter) {
+	errorText := fmt.Sprintf("%s read error: %s", outputType, err.Error())
+	s.mu.Lock()
+	s.stderrBuf = append(s.stderrBuf, []byte(errorText+"\n")...)
+	s.mu.Unlock()
+
+	if emitter == nil || outputType != "stdout" {
+		return
 	}
 
-	// Handle scanner errors - add to stderr buffer
-	if err := scanner.Err(); err != nil {
-		s.mu.Lock()
-		s.stderrBuf = append(s.stderrBuf, []byte(fmt.Sprintf("Scanner error: %s\n", err.Error()))...)
-		s.mu.Unlock()
+	rawMsg := map[string]interface{}{
+		"type":     "raw",
+		"source":   outputType,
+		"content":  errorText,
+		"is_error": true,
 	}
+	s.enrichOutputMessage(rawMsg)
+	rawJSON, _ := json.Marshal(rawMsg)
+	emitter.Emit("claude-output", string(rawJSON))
+}
+
+func (s *Session) enrichOutputMessage(msg map[string]interface{}) {
+	// Add session_id and cwd to the message for frontend routing.
+	// In interactive mode, always override session_id with Go-side session ID
+	// so frontend can use it for SendClaudeMessage RPC calls.
+	if s.interactive || msg["session_id"] == nil {
+		msg["session_id"] = s.ID
+	}
+	if msg["cwd"] == nil {
+		msg["cwd"] = s.Config.ProjectPath
+	}
+	if msg["timestamp"] == nil {
+		msg["timestamp"] = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+	if msg["provider"] == nil {
+		msg["provider"] = "claude"
+	}
+
+	// Inject runtime state so frontend can show fine-grained activity status.
+	// Old clients ignore unknown fields; new clients can read processing/debug_meta.
+	s.mu.RLock()
+	runtimeCopy := s.runtime
+	s.mu.RUnlock()
+	msg["processing"] = runtimeCopy.Processing
+
+	debugMeta, _ := msg["debug_meta"].(map[string]interface{})
+	if debugMeta == nil {
+		debugMeta = map[string]interface{}{}
+	}
+	debugMeta["runtime_state"] = runtimeCopy
+	if msg["hidden_by_default"] == true {
+		debugMeta["hidden_by_default"] = true
+	}
+	msg["debug_meta"] = debugMeta
 }
 
 // updateRuntimeStateFromMessage updates s.runtime based on a parsed JSONL message.
@@ -784,12 +821,7 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 
 	// Emit completion event with cwd for frontend routing
 	if emitter != nil {
-		completeMsg := map[string]interface{}{
-			"cwd":        s.Config.ProjectPath,
-			"success":    s.Status == "completed",
-			"status":     s.Status,
-			"session_id": s.ID,
-		}
+		completeMsg := s.completionMessage()
 		completeJSON, _ := json.Marshal(completeMsg)
 		log.Printf("[Session] Emitting claude-complete: status=%s", s.Status)
 		emitter.Emit("claude-complete", string(completeJSON))
@@ -859,14 +891,28 @@ func (s *Session) watchProcessExit(emitter EventEmitter) {
 
 	// Emit completion event
 	if emitter != nil {
-		completeMsg := map[string]interface{}{
-			"cwd":        s.Config.ProjectPath,
-			"success":    s.Status == "completed",
-			"status":     s.Status,
-			"session_id": s.ID,
-		}
+		completeMsg := s.completionMessage()
 		completeJSON, _ := json.Marshal(completeMsg)
 		emitter.Emit("claude-complete", string(completeJSON))
+	}
+}
+
+func (s *Session) completionMessage() map[string]interface{} {
+	s.mu.RLock()
+	runtimeCopy := s.runtime
+	s.mu.RUnlock()
+
+	return map[string]interface{}{
+		"cwd":        s.Config.ProjectPath,
+		"success":    s.Status == "completed",
+		"status":     s.Status,
+		"session_id": s.ID,
+		"provider":   "claude",
+		"timestamp":  time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		"runtime":    runtimeCopy,
+		"debug_meta": map[string]interface{}{
+			"runtime_state": runtimeCopy,
+		},
 	}
 }
 

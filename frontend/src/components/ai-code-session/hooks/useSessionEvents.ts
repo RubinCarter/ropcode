@@ -57,9 +57,47 @@ export interface UseSessionEventsOptions {
   workflowTracking: any;
 }
 
+interface ClaudeCompletionPayload {
+  success: boolean;
+  status?: string;
+  session_id?: string;
+  cwd?: string;
+  provider?: string;
+  timestamp?: string;
+  runtime?: unknown;
+  debug_meta?: {
+    runtime_state?: unknown;
+  };
+}
+
 export interface UseSessionEventsReturn {
   handleStreamMessage: (payload: string) => void;
-  processComplete: (success: boolean) => Promise<void>;
+  processComplete: (completion: boolean | string | ClaudeCompletionPayload) => Promise<void>;
+}
+
+function coerceCompletionPayload(completion: boolean | string | ClaudeCompletionPayload): ClaudeCompletionPayload {
+  if (typeof completion === 'boolean') {
+    return { success: completion, status: completion ? 'completed' : 'failed' };
+  }
+
+  if (typeof completion === 'string') {
+    if (completion === 'true' || completion === 'false') {
+      const success = completion === 'true';
+      return { success, status: success ? 'completed' : 'failed' };
+    }
+
+    try {
+      return coerceCompletionPayload(JSON.parse(completion) as ClaudeCompletionPayload);
+    } catch (_err) {
+      return { success: false, status: 'failed' };
+    }
+  }
+
+  return {
+    ...completion,
+    success: Boolean(completion.success),
+    status: completion.status || (completion.success ? 'completed' : 'failed'),
+  };
 }
 
 /**
@@ -328,11 +366,24 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
    * Handle completion events
    * This fires when the process actually terminates (not just a result message)
    */
-  const processComplete = useCallback(async (_success: boolean) => {
+  const processComplete = useCallback(async (completion: boolean | string | ClaudeCompletionPayload) => {
+    const completePayload = coerceCompletionPayload(completion);
     hasActiveSessionRef.current = false;
     // Process terminated, clear interactive session (update ref immediately)
     setInteractiveSessionId(null);
     setIsLoading(false);
+
+    const terminalMessage = {
+      type: 'result',
+      subtype: completePayload.status,
+      session_id: completePayload.session_id,
+      cwd: completePayload.cwd || projectPathRef.current,
+      provider: completePayload.provider || options.provider || 'claude',
+      timestamp: completePayload.timestamp || new Date().toISOString(),
+      debug_meta: completePayload.debug_meta || (completePayload.runtime ? { runtime_state: completePayload.runtime } : undefined),
+      is_error: completePayload.status === 'failed' || completePayload.success === false,
+    };
+    setRuntimeTracker((current) => reduceRuntimeTracker(current, terminalMessage as any, Date.now()));
 
     // Process next queued prompt if any
     processNextInQueue();
@@ -343,7 +394,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     if (currentProjectPath) {
       setWorkspaceStatus(currentProjectPath, 'idle');
     }
-  }, [setIsLoading, hasActiveSessionRef, setInteractiveSessionId, processNextInQueue, projectPathRef, setWorkspaceStatus]);
+  }, [setIsLoading, hasActiveSessionRef, setInteractiveSessionId, processNextInQueue, projectPathRef, setWorkspaceStatus, setRuntimeTracker, options.provider]);
 
   // Set up browser event listeners
   useEffect(() => {

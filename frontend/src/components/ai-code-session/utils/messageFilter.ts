@@ -123,6 +123,15 @@ function hasVisibleContent(
   return hasVisible;
 }
 
+function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
+  const runtimeMessage = message as ClaudeStreamMessage & {
+    hidden_by_default?: boolean;
+    debug_meta?: { hidden_by_default?: boolean };
+  };
+
+  return runtimeMessage.hidden_by_default === true || runtimeMessage.debug_meta?.hidden_by_default === true;
+}
+
 /**
  * Filter messages to only include those that should be displayed in the UI
  *
@@ -133,6 +142,10 @@ function hasVisibleContent(
  */
 export function filterDisplayableMessages(messages: ClaudeStreamMessage[]): ClaudeStreamMessage[] {
   return messages.filter((message, index) => {
+    if (isHiddenByDefault(message)) {
+      return false;
+    }
+
     // Skip meta messages that don't have meaningful content
     if (message.isMeta && !message.leafUuid && !message.summary) {
       return false;

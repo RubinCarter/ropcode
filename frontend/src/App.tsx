@@ -251,21 +251,20 @@ function AppContent() {
           // Try to parse as JSON first (new format with cwd)
           const msg = JSON.parse(payload);
           const cwd = msg.cwd;
-          const success = msg.success;
 
           if (cwd) {
-            // Route to specific project
+            // Route full completion payload to specific project
             window.dispatchEvent(new CustomEvent(`claude-complete:${cwd}`, {
-              detail: success
+              detail: msg
             }));
           } else {
             // Fallback: broadcast globally for backward compatibility
             window.dispatchEvent(new CustomEvent('claude-complete', {
-              detail: success
+              detail: msg
             }));
           }
         } catch (err) {
-          // If not JSON, it's old format (boolean) - broadcast globally
+          // If not JSON, it's old format (boolean/string) - broadcast globally
           window.dispatchEvent(new CustomEvent('claude-complete', {
             detail: payload
           }));

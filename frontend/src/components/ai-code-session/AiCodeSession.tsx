@@ -915,6 +915,12 @@ ${message ? `**说明**:\n${message}` : ''}`;
     now: runtimeNow,
   });
   const runtimeStatus = describeRuntimeStatus(runtimeViewState, runtimeNow);
+  const shouldShowRuntimeStatusBar =
+    processState.isLoading ||
+    isRecoveringHistory ||
+    stopRequestedRef.current ||
+    stopStatusBubble.visible ||
+    runtimeViewState.phase !== 'idle';
 
   const runtimeStatusBar = (
     <div className="mx-auto w-full max-w-6xl px-4 pt-3">
@@ -970,6 +976,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
       processState.setIsLoading(true);
       processState.setIsPendingSend(true);
       setError(null);
+      setRuntimeTracker(createInitialRuntimeTracker());
       processState.hasActiveSessionRef.current = true;
 
       const forceFreshClaudeSession =
@@ -1408,7 +1415,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.8 }}
           transition={{ delay: 0.5 }}
-          className={cn("pointer-events-none absolute left-0 right-0 z-40 flex justify-end px-4", processState.isLoading ? "bottom-52" : "bottom-32")}
+          className={cn("pointer-events-none absolute left-0 right-0 z-40 flex justify-end px-4", shouldShowRuntimeStatusBar ? "bottom-52" : "bottom-32")}
         >
           <div className="max-w-6xl w-full flex justify-end">
           <div className="flex items-center bg-background/95 backdrop-blur-md border rounded-full shadow-lg overflow-hidden pointer-events-auto">
@@ -1608,7 +1615,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
           </AnimatePresence>
 
           <div className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30">
-            {processState.isLoading && (
+            {shouldShowRuntimeStatusBar && (
               <div className="px-4 pb-3">
                 <div className="mx-auto w-full max-w-6xl">
                   {runtimeStatusBar}

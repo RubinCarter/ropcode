@@ -280,6 +280,15 @@ const renderWithSystemInstructions = (
   return null;
 };
 
+function formatEventDetails(message: ClaudeStreamMessage): string {
+  try {
+    const serialized = JSON.stringify(message, null, 2);
+    return serialized.length > 2000 ? `${serialized.slice(0, 1999)}…` : serialized;
+  } catch (_err) {
+    return String(message);
+  }
+}
+
 /**
  * Component to render a single Claude Code stream message
  */
@@ -1293,6 +1302,31 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+      );
+    }
+
+    const eventDetails = formatEventDetails(message);
+    const eventLabel = [message.type, message.subtype].filter(Boolean).join(' · ') || 'runtime event';
+    if (runtimeSummary || message.type) {
+      return (
+        <Card className={cn("border-muted bg-muted/20", className)}>
+          <CardContent className="p-4">
+            <div className="flex items-start gap-3">
+              <Terminal className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{runtimeSummary || 'Runtime event'}</span>
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{eventLabel}</span>
+                </div>
+                <CollapsibleTextCard title="Event details" preview={eventDetails}>
+                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-3 text-xs text-muted-foreground">
+                    {eventDetails}
+                  </pre>
+                </CollapsibleTextCard>
+              </div>
+            </div>
           </CardContent>
         </Card>
       );
