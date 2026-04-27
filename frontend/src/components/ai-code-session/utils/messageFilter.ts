@@ -132,6 +132,7 @@ function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
 
   return (
     runtimeMessage.type === 'queue-operation' ||
+    runtimeMessage.type === 'progress' ||
     runtimeMessage.hidden_by_default === true ||
     runtimeMessage.debug_meta?.hidden_by_default === true
   );

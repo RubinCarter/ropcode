@@ -176,10 +176,6 @@ export function summarizeRuntimeMessage(message: RuntimePresentationMessage): st
     return parts.join(' · ');
   }
 
-  if (message.type === 'system') {
-    return message.subtype ? `Runtime: system ${message.subtype}` : 'Runtime: system event';
-  }
-
   return null;
 }
 

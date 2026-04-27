@@ -381,7 +381,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
       provider: completePayload.provider || options.provider || 'claude',
       timestamp: completePayload.timestamp || new Date().toISOString(),
       debug_meta: completePayload.debug_meta || (completePayload.runtime ? { runtime_state: completePayload.runtime } : undefined),
-      is_error: completePayload.status === 'failed' || completePayload.success === false,
+      is_error: completePayload.status === 'failed',
     };
     setRuntimeTracker((current) => reduceRuntimeTracker(current, terminalMessage as any, Date.now()));
 

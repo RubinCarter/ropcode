@@ -120,7 +120,7 @@ const parseAgentMentions = (text: string, agents: Map<string, { color?: string; 
 
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  let match;
+  let match: RegExpExecArray | null;
 
   while ((match = mentionRegex.exec(text)) !== null) {
     const matchIndex = match.index;
@@ -235,7 +235,7 @@ const renderWithSystemInstructions = (
   let lastIndex = 0;
   // Match both hyphen and underscore variants, but require matching closing tag
   const regex = /<system(-|_)instruction>([\s\S]*?)<\/system\1instruction>/g;
-  let match;
+  let match: RegExpExecArray | null;
   let keyIndex = 0;
 
   while ((match = regex.exec(contentStr)) !== null) {
@@ -325,7 +325,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
         }
       });
       setAgents(agentsMap);
-    }).catch(err => {
+    }).catch((err: unknown) => {
       console.error('Failed to load agents:', err);
     });
   }, []);
@@ -1307,9 +1307,9 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
       );
     }
 
-    const eventDetails = formatEventDetails(message);
-    const eventLabel = [message.type, message.subtype].filter(Boolean).join(' · ') || 'runtime event';
-    if (runtimeSummary || message.type) {
+    if (runtimeSummary) {
+      const eventDetails = formatEventDetails(message);
+      const eventLabel = [message.type, message.subtype].filter(Boolean).join(' · ') || 'runtime event';
       return (
         <Card className={cn("border-muted bg-muted/20", className)}>
           <CardContent className="p-4">
@@ -1317,7 +1317,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
               <Terminal className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{runtimeSummary || 'Runtime event'}</span>
+                  <span className="text-sm font-medium">{runtimeSummary}</span>
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{eventLabel}</span>
                 </div>
                 <CollapsibleTextCard title="Event details" preview={eventDetails}>

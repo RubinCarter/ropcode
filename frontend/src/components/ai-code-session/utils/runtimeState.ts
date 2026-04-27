@@ -180,6 +180,11 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     severity = 'info';
     waitingReason = tracker.lastToolResultAt ? 'result' : 'model';
     detail = tracker.lastToolResultAt ? 'Waiting for Claude after tool result' : 'Waiting for model output';
+  } else if (tracker.lastEventType === 'result' && tracker.lastEventSubtype === 'cancelled') {
+    phase = 'cancelled';
+    label = 'Cancelled';
+    severity = 'warning';
+    waitingReason = null;
   } else if (tracker.lastErrorAt && (!tracker.lastResultAt || tracker.lastErrorAt >= tracker.lastResultAt)) {
     phase = 'failed';
     label = 'Failed';
