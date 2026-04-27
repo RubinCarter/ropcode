@@ -107,14 +107,6 @@ export function summarizeRuntimeMessage(message: RuntimePresentationMessage): st
     return message.status === 'compacting' ? 'Runtime: compacting context' : `Runtime: ${message.status || 'status update'}`;
   }
 
-  if (message.type === 'system' && message.subtype === 'task_started') {
-    return 'Runtime: task started';
-  }
-
-  if (message.type === 'system' && message.subtype === 'task_notification') {
-    return 'Runtime: task notification';
-  }
-
   if (message.type === 'system' && message.subtype === 'hook_started') {
     return 'Runtime: hook started';
   }

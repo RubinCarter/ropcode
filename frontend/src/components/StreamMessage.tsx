@@ -1320,7 +1320,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                   <span className="text-sm font-medium">{runtimeSummary}</span>
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{eventLabel}</span>
                 </div>
-                <CollapsibleTextCard title="Event details" preview={eventDetails}>
+                <CollapsibleTextCard title="Event details" preview="Click to expand event JSON" defaultExpanded={false}>
                   <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-3 text-xs text-muted-foreground">
                     {eventDetails}
                   </pre>
