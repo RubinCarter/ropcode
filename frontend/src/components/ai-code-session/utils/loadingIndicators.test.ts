@@ -12,23 +12,25 @@ async function readSource(filePath: string) {
   return readFile(filePath, 'utf8');
 }
 
-test('renders persistent runtime status bar in the legacy bottom loading slot while loading', async () => {
+test('renders persistent runtime status bar above the floating prompt input', async () => {
   const source = await readSource(aiCodeSessionPath);
 
   assert.match(
     source,
-    /processState\.isLoading[\s\S]*?<div className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30">[\s\S]*?\{runtimeStatusBar\}[\s\S]*?<FloatingPromptInput/,
+    /<div className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30">[\s\S]*?\{runtimeStatusBar\}[\s\S]*?<FloatingPromptInput/,
   );
+  assert.match(source, /const runtimeStatusBar = <SessionStatusBar model=\{runtimeStatusBarModel\} \/>/);
   assert.doesNotMatch(source, /const messagesList = \([\s\S]*?\{runtimeStatusBar\}[\s\S]*?<Virtuoso/);
-  assert.doesNotMatch(source, /<div className="rotating-symbol text-primary"\s*\/?>/);
+  assert.doesNotMatch(source, /<div className="rotating-symbol text-primary"\s*\/>/);
   assert.doesNotMatch(source, /Loading session history\.\.\./);
   assert.doesNotMatch(source, /Initializing AI Code\.\.\./);
 });
 
-test('lifts scroll controls higher while loading so they do not overlap the status bar', async () => {
+test('lifts scroll controls and queued prompts above the persistent status bar', async () => {
   const source = await readSource(aiCodeSessionPath);
 
-  assert.match(source, /className=\{cn\("pointer-events-none absolute left-0 right-0 z-40 flex justify-end px-4", processState\.isLoading \? "bottom-52" : "bottom-32"\)\}/);
+  assert.match(source, /className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4"/);
+  assert.match(source, /className="absolute bottom-40 left-0 right-0 z-30 px-4"/);
   assert.match(source, /className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30"/);
 });
 

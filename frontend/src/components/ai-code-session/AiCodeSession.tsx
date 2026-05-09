@@ -18,12 +18,10 @@ import {
   ChevronDown,
   ChevronUp,
   X,
-  Hash,
   ArrowDownToLine,
   ArrowUpFromLine
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Popover } from "@/components/ui/popover";
 import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws-rpc-client";
@@ -32,9 +30,10 @@ import { cn } from "@/lib/utils";
 import { StreamMessage } from "../StreamMessage";
 import { SubagentProgressPanel } from "../SubagentProgressPanel";
 import { FloatingPromptInput, type FloatingPromptInputRef } from "../FloatingPromptInput";
+import { SessionStatusBar } from "./SessionStatusBar";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { SlashCommandsManager } from "../SlashCommandsManager";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { TooltipProvider, TooltipSimple } from "@/components/ui/tooltip-modern";
 import { SplitPane } from "@/components/ui/split-pane";
 import { WebviewPreview } from "../WebviewPreview";
@@ -46,6 +45,8 @@ import { STOP_STATUS_BUBBLE_DURATION_MS, getStopStatusBubbleState, shouldComplet
 import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "./utils/clearCommand";
 import { createInitialRuntimeTracker, deriveRuntimeViewState } from "./utils/runtimeState";
 import { describeRuntimeStatus } from "./utils/runtimePresentation";
+import { buildSessionStatusBarModel, type SessionStatusPromptConfig, type SessionThinkingStatus } from "./utils/sessionStatusBarPresentation";
+import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
 
 // Import refactored hooks and types
 import type { AiCodeSessionProps, ClaudeStreamMessage, SessionRuntimeTracker } from "./types";
@@ -96,7 +97,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const floatingPromptRef = useRef<FloatingPromptInputRef>(null);
-  const isIMEComposingRef = useRef(false);
   const loadedSessionIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
   const skipRecoveryUntilRef = useRef(0);
@@ -131,6 +131,15 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const workflowTracking = useWorkflowTracking('ai_session');
 
   const [runtimeTracker, setRuntimeTracker] = useState<SessionRuntimeTracker>(createInitialRuntimeTracker());
+  const [promptConfig, setPromptConfig] = useState<SessionStatusPromptConfig>({
+    provider: defaultProvider,
+    model: 'sonnet',
+    providerApiId: null,
+    thinkingMode: defaultProvider === 'codex' ? 'medium' : 'auto',
+  });
+  const [thinkingStatus, setThinkingStatus] = useState<SessionThinkingStatus>(null);
+  const thinkingStartedAtRef = useRef<number | null>(null);
+  const { getInProgressTodos } = useWorkspaceTodo();
 
   // Prompt queue - defined before eventsState
   const queueState = usePromptQueue({
@@ -234,7 +243,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // ==================================================================
 
   // Track if user is at the bottom for auto-scroll behavior
-  const [atBottom, setAtBottom] = useState(true);
+  const [, setAtBottom] = useState(true);
   const [runtimeNow, setRuntimeNow] = useState(() => Date.now());
 
   // ==================================================================
@@ -956,40 +965,45 @@ ${message ? `**说明**:\n${message}` : ''}`;
     now: runtimeNow,
   });
   const runtimeStatus = describeRuntimeStatus(runtimeViewState, runtimeNow);
-  const shouldShowRuntimeStatusBar =
-    processState.isLoading ||
-    isRecoveringHistory ||
-    stopRequestedRef.current ||
-    stopStatusBubble.visible ||
-    runtimeViewState.phase !== 'idle';
+  const currentTodoActiveForm = sessionState.projectPath
+    ? getInProgressTodos(sessionState.projectPath)[0]?.activeForm
+    : null;
 
-  const runtimeStatusBar = (
-    <div className="mx-auto w-full max-w-6xl px-4 pt-3">
-      <div className="rounded-xl border bg-background/80 px-4 py-3 shadow-sm backdrop-blur-sm">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <div className="text-sm font-medium">{runtimeStatus.primary}</div>
-            {runtimeStatus.secondary && (
-              <div className="mt-1 truncate text-xs text-muted-foreground">{runtimeStatus.secondary}</div>
-            )}
-          </div>
-          {runtimeStatus.chips.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {runtimeStatus.chips.map((chip) => (
-                <Badge
-                  key={chip}
-                  variant={runtimeStatus.tone === 'error' ? 'destructive' : runtimeStatus.tone === 'warning' ? 'secondary' : 'outline'}
-                  className="text-[10px]"
-                >
-                  {chip}
-                </Badge>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  useEffect(() => {
+    if (runtimeViewState.phase === 'thinking') {
+      if (thinkingStartedAtRef.current === null) {
+        thinkingStartedAtRef.current = runtimeNow;
+        setThinkingStatus({ state: 'active', startedAt: runtimeNow });
+      }
+      return;
+    }
+
+    if (thinkingStartedAtRef.current !== null) {
+      const durationMs = Math.max(0, runtimeNow - thinkingStartedAtRef.current);
+      thinkingStartedAtRef.current = null;
+      setThinkingStatus({ state: 'completed', durationMs, completedAt: runtimeNow });
+    }
+  }, [runtimeNow, runtimeViewState.phase]);
+
+  const runtimeStatusBarModel = buildSessionStatusBarModel({
+    runtime: runtimeViewState,
+    runtimeCopy: runtimeStatus,
+    now: runtimeNow,
+    loadingStartedAt: processState.loadingStartedAt,
+    totalTokens: messagesState.totalTokens,
+    partialTextLength: runtimeTracker.lastPartialTextLength,
+    subagentProgress: messagesState.subagentProgress,
+    currentTodoActiveForm,
+    promptConfig,
+    isLoading: processState.isLoading,
+    interactiveSessionId: processState.interactiveSessionId,
+    stopVisible: stopRequestedRef.current || stopStatusBubble.visible,
+    queuedPromptsCount: queueState.queuedPrompts.length,
+    thinkingStatus,
+    thinkingCycleEnabled: true,
+  });
+
+  const runtimeStatusBar = <SessionStatusBar model={runtimeStatusBarModel} />;
 
   const handleSendPrompt = async (
     prompt: string,
@@ -1506,7 +1520,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.8 }}
           transition={{ delay: 0.5 }}
-          className={cn("pointer-events-none absolute left-0 right-0 z-40 flex justify-end px-4", shouldShowRuntimeStatusBar ? "bottom-52" : "bottom-32")}
+          className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4"
         >
           <div className="max-w-6xl w-full flex justify-end">
           <div className="flex items-center bg-background/95 backdrop-blur-md border rounded-full shadow-lg overflow-hidden pointer-events-auto">
@@ -1649,7 +1663,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 20 }}
-                className="absolute bottom-24 left-0 right-0 z-30 px-4"
+                className="absolute bottom-40 left-0 right-0 z-30 px-4"
               >
                 <div className="max-w-6xl mx-auto bg-background/95 backdrop-blur-md border rounded-lg shadow-lg p-3 space-y-2">
                   <div className="flex items-center justify-between">
@@ -1706,13 +1720,11 @@ ${message ? `**说明**:\n${message}` : ''}`;
           </AnimatePresence>
 
           <div className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30">
-            {shouldShowRuntimeStatusBar && (
-              <div className="px-4 pb-3">
-                <div className="mx-auto w-full max-w-6xl">
-                  {runtimeStatusBar}
-                </div>
+            <div className="px-4 pb-3">
+              <div className="mx-auto w-full max-w-6xl">
+                {runtimeStatusBar}
               </div>
-            )}
+            </div>
             <FloatingPromptInput
               ref={floatingPromptRef}
               onSend={handleSendPrompt}
@@ -1725,6 +1737,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
               projectPath={sessionState.projectPath}
               defaultProvider={defaultProvider}
               onProviderChange={onProviderChange}
+              onConfigChange={(config) => setPromptConfig(config)}
               extraMenuItems={
                 messagesState.messages.length > 0 ? (
                   <Popover
@@ -1773,24 +1786,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
               }
             />
           </div>
-
-          {/* Token Counter – positioned above the input bar, non-interactive */}
-          <AnimatePresence>
-          {messagesState.totalTokens > 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 0.7, y: 0 }}
-              exit={{ opacity: 0, y: 4 }}
-              className="absolute bottom-16 right-6 z-20 pointer-events-none"
-            >
-              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
-                <Hash className="h-2.5 w-2.5" />
-                <span className="font-mono">{messagesState.totalTokens.toLocaleString()}</span>
-                <span>tokens</span>
-              </div>
-            </motion.div>
-          )}
-          </AnimatePresence>
         </ErrorBoundary>
 
       </div>

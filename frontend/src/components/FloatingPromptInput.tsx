@@ -127,6 +127,10 @@ interface FloatingPromptInputProps {
    * Interactive session ID (if interactive session is active)
    */
   interactiveSessionId?: string | null;
+  /**
+   * Callback when provider/model/API/thinking configuration changes
+   */
+  onConfigChange?: (config: { provider: string; model: string; providerApiId: string | null; thinkingMode: ThinkingMode }) => void;
 }
 
 export interface FloatingPromptInputRef {
@@ -149,7 +153,7 @@ export interface FloatingPromptInputRef {
  */
 type ClaudeThinkingMode = "auto" | "think" | "think_hard" | "think_harder" | "ultrathink";
 type CodexThinkingMode = "medium" | "minimal" | "low" | "high" | "xhigh";
-type ThinkingMode = ClaudeThinkingMode | CodexThinkingMode;
+export type ThinkingMode = ClaudeThinkingMode | CodexThinkingMode;
 
 /**
  * Thinking mode configuration
@@ -540,6 +544,7 @@ const FloatingPromptInputInner = (
     stopStatusLabel,
     extraMenuItems,
     interactiveSessionId,
+    onConfigChange,
   }: FloatingPromptInputProps,
   ref: React.Ref<FloatingPromptInputRef>,
 ) => {
@@ -811,6 +816,15 @@ const FloatingPromptInputInner = (
 
   // Get current thinking modes using the helper
   const currentThinkingModes = getModelThinkingModes(selectedModel, selectedProvider);
+
+  useEffect(() => {
+    onConfigChange?.({
+      provider: selectedProvider,
+      model: selectedModel,
+      providerApiId: selectedProviderApiId,
+      thinkingMode: selectedThinkingMode,
+    });
+  }, [onConfigChange, selectedModel, selectedProvider, selectedProviderApiId, selectedThinkingMode]);
 
   // Auto-switch to provider's default model when provider changes
   useEffect(() => {
@@ -1536,6 +1550,30 @@ const FloatingPromptInputInner = (
       e.preventDefault();
       setShowSkillPicker(false);
       setSkillQuery("");
+      return;
+    }
+
+    if (
+      e.key === 'Tab' &&
+      e.shiftKey &&
+      !e.ctrlKey &&
+      !e.metaKey &&
+      !e.altKey &&
+      !showFilePicker &&
+      !showSlashCommandPicker &&
+      !showSkillPicker &&
+      !providerPickerOpen &&
+      !modelPickerOpen &&
+      !thinkingModePickerOpen &&
+      !isIMEComposingRef.current
+    ) {
+      e.preventDefault();
+      const currentIndex = currentThinkingModes.findIndex((mode) => mode.id === selectedThinkingMode);
+      const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % currentThinkingModes.length;
+      const nextMode = currentThinkingModes[nextIndex];
+      if (nextMode) {
+        setSelectedThinkingMode(nextMode.id);
+      }
       return;
     }
 
