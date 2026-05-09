@@ -17,7 +17,6 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
-  X,
   ArrowDownToLine,
   ArrowUpFromLine
 } from "lucide-react";
@@ -46,6 +45,7 @@ import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "./util
 import { createInitialRuntimeTracker, deriveRuntimeViewState } from "./utils/runtimeState";
 import { describeRuntimeStatus } from "./utils/runtimePresentation";
 import { buildSessionStatusBarModel, type SessionStatusPromptConfig, type SessionThinkingStatus } from "./utils/sessionStatusBarPresentation";
+import { classifyPromptSubmit } from "./utils/promptSubmitClassification";
 import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
 
 // Import refactored hooks and types
@@ -728,19 +728,22 @@ ${message ? `**说明**:\n${message}` : ''}`;
         // Get current config from FloatingPromptInput and directly call handleSendPrompt
         // This bypasses submitPrompt() and uses the current model/provider/thinking mode
         setTimeout(() => {
-          if (floatingPromptRef.current) {
-            const config = floatingPromptRef.current.getCurrentConfig();
-            handleSendPrompt(
-              formattedMessage,
-              config.model,
-              config.providerApiId,
-              config.thinkingMode
-            );
-            console.log('[AiCodeSession] Auto-submitting element selection with config:', config);
+          void (async () => {
+            if (floatingPromptRef.current) {
+              const config = floatingPromptRef.current.getCurrentConfig();
+              const consumed = await handleSendPrompt(
+                formattedMessage,
+                config.model,
+                config.providerApiId,
+                config.thinkingMode
+              );
+              console.log('[AiCodeSession] Auto-submitting element selection with config:', config);
 
-            // Clear the input after sending
-            floatingPromptRef.current.setText('');
-          }
+              if (consumed) {
+                floatingPromptRef.current.setText('');
+              }
+            }
+          })();
         }, 100);
       }
     };
@@ -1004,7 +1007,15 @@ ${message ? `**说明**:\n${message}` : ''}`;
     thinkingStatus,
   });
 
-  const runtimeStatusBar = <SessionStatusBar model={runtimeStatusBarModel} />;
+  const runtimeStatusBar = (
+    <SessionStatusBar
+      model={runtimeStatusBarModel}
+      queuedPrompts={queueState.queuedPrompts}
+      queueCollapsed={queueState.queuedPromptsCollapsed}
+      onQueueCollapsedChange={queueState.setQueuedPromptsCollapsed}
+      onRemoveQueuedPrompt={queueState.removeFromQueue}
+    />
+  );
 
   const handleSendPrompt = async (
     prompt: string,
@@ -1012,20 +1023,36 @@ ${message ? `**说明**:\n${message}` : ''}`;
     providerApiId?: string | null,
     thinkingMode?: string,
     options?: { forceFreshClaudeSession?: boolean }
-  ) => {
+  ): Promise<boolean> => {
     console.log('[AiCodeSession] Sending prompt with thinkingMode:', thinkingMode);
 
-    if (!sessionState.projectPath) {
-      setError("Please select a project directory first");
-      return;
+    const classification = classifyPromptSubmit({
+      prompt,
+      provider: defaultProvider,
+      hasProjectPath: Boolean(sessionState.projectPath),
+      isLoading: processState.isLoading,
+      hasInteractiveSession: Boolean(processState.interactiveSessionIdRef.current),
+      forceFreshSession: options?.forceFreshClaudeSession,
+    });
+
+    if (classification.action === 'ignore') {
+      return false;
     }
 
-    // In interactive mode, send directly (Claude CLI handles concurrent messages)
-    // In batch mode, queue if already loading
-    if (processState.isLoading && !processState.interactiveSessionIdRef.current) {
+    if (classification.action === 'reject') {
+      setError("Please select a project directory first");
+      return false;
+    }
+
+    if (classification.action === 'local-clear') {
+      await handleLocalClearFallback();
+      return true;
+    }
+
+    if (classification.action === 'enqueue') {
       console.log('[AiCodeSession] Session busy (batch mode), queueing prompt');
       queueState.addToQueue(prompt, model, providerApiId, thinkingMode);
-      return;
+      return true;
     }
 
     try {
@@ -1149,6 +1176,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
         processState.setIsPendingSend(false);
         console.log('[AiCodeSession] isPendingSend cleared');
       }, 500);
+
+      return true;
     } catch (err) {
       console.error('[AiCodeSession] Failed to send prompt:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -1156,6 +1185,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
       processState.setIsLoading(false);
       processState.setIsPendingSend(false);
       processState.hasActiveSessionRef.current = false;
+      return false;
     }
   };
 
@@ -1657,69 +1687,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
         {/* Floating Prompt Input */}
         <ErrorBoundary>
-          {/* Queued Prompts Display */}
-          <AnimatePresence>
-            {queueState.queuedPrompts.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                className="absolute bottom-40 left-0 right-0 z-30 px-4"
-              >
-                <div className="max-w-6xl mx-auto bg-background/95 backdrop-blur-md border rounded-lg shadow-lg p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="text-xs font-medium text-muted-foreground mb-1">
-                      Queued Prompts ({queueState.queuedPrompts.length})
-                    </div>
-                    <TooltipSimple content={queueState.queuedPromptsCollapsed ? "Expand queue" : "Collapse queue"} side="top">
-                      <motion.div
-                        whileTap={{ scale: 0.97 }}
-                        transition={{ duration: 0.15 }}
-                      >
-                        <Button variant="ghost" size="icon" onClick={() => queueState.setQueuedPromptsCollapsed(!queueState.queuedPromptsCollapsed)}>
-                          {queueState.queuedPromptsCollapsed ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                        </Button>
-                      </motion.div>
-                    </TooltipSimple>
-                  </div>
-                  {!queueState.queuedPromptsCollapsed && queueState.queuedPrompts.map((queuedPrompt, index) => (
-                    <motion.div
-                      key={queuedPrompt.id}
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -4 }}
-                      transition={{ duration: 0.15, delay: index * 0.02 }}
-                      className="flex items-start gap-2 bg-muted/50 rounded-md p-2"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-medium text-muted-foreground">#{index + 1}</span>
-                          <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded">
-                            {queuedPrompt.model === "opus" ? "Opus" : "Sonnet"}
-                          </span>
-                        </div>
-                        <p className="text-sm line-clamp-2 break-words">{queuedPrompt.prompt}</p>
-                      </div>
-                      <motion.div
-                        whileTap={{ scale: 0.97 }}
-                        transition={{ duration: 0.15 }}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6 flex-shrink-0"
-                          onClick={() => queueState.removeFromQueue(queuedPrompt.id)}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </motion.div>
-                    </motion.div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           <div className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30">
             <div className="px-4 pb-3">
               <div className="mx-auto w-full max-w-6xl">
@@ -1729,7 +1696,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
             <FloatingPromptInput
               ref={floatingPromptRef}
               onSend={handleSendPrompt}
-              onClear={handleLocalClearFallback}
               onCancel={handleCancelExecution}
               stopStatusLabel={stopStatusBubble.label}
               isLoading={processState.isLoading}

@@ -38,8 +38,8 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { AttachmentButton } from './attachment';
 import { uploadAttachment, UploadError } from '../utils/uploadAttachment';
 import {
+  isExactClearCommand,
   shouldForwardClearToProvider,
-  shouldUseLocalClearFallback,
 } from './ai-code-session/utils/clearCommand';
 import {
   getStopStatusControlLayoutClassName,
@@ -78,7 +78,7 @@ interface FloatingPromptInputProps {
   /**
    * Callback when prompt is sent
    */
-  onSend: (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: ThinkingMode) => void;
+  onSend: (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: ThinkingMode) => void | boolean | Promise<void | boolean>;
   /**
    * Whether the input is loading
    */
@@ -111,10 +111,6 @@ interface FloatingPromptInputProps {
    * Callback when cancel is clicked (only during loading)
    */
   onCancel?: () => void;
-  /**
-   * Callback when local /clear fallback is issued
-   */
-  onClear?: () => void | Promise<void>;
   /**
    * Stop status bubble label shown near the stop button
    */
@@ -540,7 +536,6 @@ const FloatingPromptInputInner = (
     projectPath,
     className,
     onCancel,
-    onClear,
     stopStatusLabel,
     extraMenuItems,
     interactiveSessionId,
@@ -1488,15 +1483,6 @@ const FloatingPromptInputInner = (
       return;
     }
 
-    // Keep local clear fallback only for non-Claude providers
-    if (shouldUseLocalClearFallback(prompt, defaultProvider)) {
-      onClear?.();
-      setPrompt("");
-      setEmbeddedImages([]);
-      setTextareaHeight(getDefaultHeight());
-      return;
-    }
-
     // Block sending if provider API config is not yet loaded
     if (!isProviderApiConfigLoaded) {
       console.warn('[FloatingPromptInput] Provider API config not loaded yet, blocking send');
@@ -1513,6 +1499,7 @@ const FloatingPromptInputInner = (
         selectedProvider === 'claude' &&
         thinkingMode &&
         thinkingMode.phrase &&
+        !isExactClearCommand(prompt) &&
         !shouldForwardClearToProvider(prompt, selectedProvider);
 
       if (shouldAppendThinkingPhrase) {
@@ -1522,7 +1509,11 @@ const FloatingPromptInputInner = (
       // For Codex: thinking mode is passed via reasoning_effort parameter
       // The reasoning_effort will be extracted from selectedThinkingMode in the backend
 
-      onSend(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode);
+      const consumed = await onSend(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode);
+      if (consumed === false) {
+        return;
+      }
+
       setPrompt("");
       setEmbeddedImages([]);
       setTextareaHeight(getDefaultHeight()); // Reset height after sending

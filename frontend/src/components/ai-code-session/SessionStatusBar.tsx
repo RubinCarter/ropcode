@@ -1,12 +1,18 @@
 import React from 'react';
-import { AlertCircle, Bot, Brain, CheckCircle2, Clock, Loader2, RefreshCw, Sparkles, Wrench, Zap } from 'lucide-react';
+import { AlertCircle, Bot, Brain, CheckCircle2, ChevronDown, ChevronUp, Clock, Loader2, RefreshCw, Sparkles, Wrench, X, Zap } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import type { QueuedPrompt } from './types';
 import type { SessionStatusBarModel, SessionStatusGlyph, SessionStatusTone } from './utils/sessionStatusBarPresentation';
 
 interface SessionStatusBarProps {
   model: SessionStatusBarModel;
   className?: string;
+  queuedPrompts?: QueuedPrompt[];
+  queueCollapsed?: boolean;
+  onQueueCollapsedChange?: (collapsed: boolean) => void;
+  onRemoveQueuedPrompt?: (id: string) => void;
 }
 
 const glyphIcon: Record<SessionStatusGlyph, React.ElementType> = {
@@ -37,12 +43,20 @@ const iconClasses: Record<SessionStatusTone, string> = {
   error: 'text-destructive',
 };
 
-export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({ model, className }) => {
+export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
+  model,
+  className,
+  queuedPrompts = [],
+  queueCollapsed = false,
+  onQueueCollapsedChange,
+  onRemoveQueuedPrompt,
+}) => {
   const Icon = glyphIcon[model.glyph];
   const highMetrics = model.metrics.filter((metric) => metric.priority === 'high');
   const otherMetrics = model.metrics.filter((metric) => metric.priority !== 'high');
   const visibleHints = model.hints.filter((hint) => hint.priority !== 'low').slice(0, 2);
   const lowHint = model.hints.find((hint) => hint.priority === 'low');
+  const hasQueuedPrompts = queuedPrompts.length > 0;
 
   return (
     <div className={cn('mx-auto w-full max-w-6xl px-4 pt-3', className)}>
@@ -94,6 +108,52 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({ model, class
             )}
           </div>
         </div>
+
+        {hasQueuedPrompts && (
+          <div className="mt-2 border-t border-border/60 pt-2">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Queued Prompts ({queuedPrompts.length})
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => onQueueCollapsedChange?.(!queueCollapsed)}
+                aria-label={queueCollapsed ? 'Expand queued prompts' : 'Collapse queued prompts'}
+              >
+                {queueCollapsed ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
+              </Button>
+            </div>
+
+            {!queueCollapsed && (
+              <div className="mt-2 space-y-1.5">
+                {queuedPrompts.map((queuedPrompt, index) => (
+                  <div key={queuedPrompt.id} className="flex items-start gap-2 rounded-md bg-background/60 p-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex items-center gap-2">
+                        <span className="text-xs font-medium text-muted-foreground">#{index + 1}</span>
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                          {formatModel(queuedPrompt.model) || queuedPrompt.model}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 break-words text-sm">{queuedPrompt.prompt}</p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 flex-shrink-0"
+                      onClick={() => onRemoveQueuedPrompt?.(queuedPrompt.id)}
+                      aria-label="Remove queued prompt"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
