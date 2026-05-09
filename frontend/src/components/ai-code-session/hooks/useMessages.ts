@@ -10,17 +10,22 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { ClaudeStreamMessage } from "../types";
-import { filterDisplayableMessages } from "../utils/messageFilter";
+import { filterDisplayableMessages, getDisplayableMessageIndexes } from "../utils/messageFilter";
+import { buildSubagentProgress, type SubagentProgressSummary } from "@/lib/subagentProgress";
 
 export interface UseMessagesReturn {
   // State
   messages: ClaudeStreamMessage[];
   totalTokens: number;
   displayableMessages: ClaudeStreamMessage[];
+  displayableMessageIndexes: number[];
+  subagentProgress: SubagentProgressSummary;
+  subagentTranscripts: Record<string, ClaudeStreamMessage[]>;
   agentOutputMap: Map<string, any>;
 
   // Setters
   setMessages: React.Dispatch<React.SetStateAction<ClaudeStreamMessage[]>>;
+  setSubagentTranscripts: React.Dispatch<React.SetStateAction<Record<string, ClaudeStreamMessage[]>>>;
 
   // Helpers
   addMessage: (message: ClaudeStreamMessage) => void;
@@ -36,6 +41,7 @@ export interface UseMessagesReturn {
  */
 export function useMessages(): UseMessagesReturn {
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
+  const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
   const [totalTokens, setTotalTokens] = useState(0);
 
   // Refs for stable access in callbacks (avoids stale closure in useEffect([]))
@@ -44,10 +50,20 @@ export function useMessages(): UseMessagesReturn {
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
+  const subagentProgress = useMemo(
+    () => buildSubagentProgress(messages, subagentTranscripts),
+    [messages, subagentTranscripts]
+  );
+
+  const displayableMessageIndexes = useMemo(
+    () => getDisplayableMessageIndexes(messages, subagentProgress.subagentMessageIndexes),
+    [messages, subagentProgress.subagentMessageIndexes]
+  );
+
   // Filter displayable messages
   const displayableMessages = useMemo(
-    () => filterDisplayableMessages(messages),
-    [messages]
+    () => filterDisplayableMessages(messages, subagentProgress.subagentMessageIndexes),
+    [messages, subagentProgress.subagentMessageIndexes]
   );
 
   // Build agentId → AgentOutputTool result mapping
@@ -278,6 +294,7 @@ export function useMessages(): UseMessagesReturn {
 
   const clearMessages = () => {
     setMessages([]);
+    setSubagentTranscripts({});
     setTotalTokens(0);
   };
 
@@ -285,8 +302,12 @@ export function useMessages(): UseMessagesReturn {
     messages,
     totalTokens,
     displayableMessages,
+    displayableMessageIndexes,
+    subagentProgress,
+    subagentTranscripts,
     agentOutputMap,
     setMessages,
+    setSubagentTranscripts,
     addMessage,
     clearMessages,
     messagesLengthRef,

@@ -616,6 +616,14 @@ func (a *App) LoadAgentSessionHistory(sessionID string) ([]claude.Message, error
 	return a.sessionManager.LoadAgentSessionHistory(sessionID)
 }
 
+// LoadSubagentTranscripts loads sidechain subagent transcripts for a parent Claude session.
+func (a *App) LoadSubagentTranscripts(sessionID, projectID string) (map[string][]claude.Message, error) {
+	if a.sessionManager == nil {
+		return map[string][]claude.Message{}, fmt.Errorf("session manager not initialized")
+	}
+	return a.sessionManager.LoadSubagentTranscripts(projectID, sessionID)
+}
+
 // ProviderSession represents a session from any provider
 type ProviderSession struct {
 	ID               string `json:"id"`

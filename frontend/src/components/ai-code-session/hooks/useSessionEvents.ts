@@ -37,6 +37,7 @@ export interface UseSessionEventsOptions {
   // Callbacks
   addMessage: (message: ClaudeStreamMessage) => void;
   syncProcessState: () => Promise<void>;
+  onComplete?: (payload: ClaudeCompletionPayload) => void | Promise<void>;
 
   // Metrics tracking
   trackToolExecution: (toolName: string) => void;
@@ -120,6 +121,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     hasActiveSessionRef,
     addMessage,
     syncProcessState,
+    onComplete,
     processNextInQueue,
     trackToolExecution,
     trackToolFailure,
@@ -202,10 +204,16 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         // In interactive mode, prefer claude_session_id (the real Claude session ID) for
         // persistence so it can be used with --resume on app restart. The session_id field
         // in interactive mode is the Go UUID which is meaningless after restart.
-        const persistSessionId = (message as any).claude_session_id || message.session_id;
+        const realClaudeSessionId = (message as any).claude_session_id || (message as any).sessionId || message.session_id;
+        const persistSessionId = realClaudeSessionId;
         const projectId = projectPathRef.current.replace(/[^a-zA-Z0-9]/g, '-');
         if (!extractedSessionInfoRef.current || extractedSessionInfoRef.current.sessionId !== persistSessionId) {
-          setExtractedSessionInfo({ sessionId: persistSessionId, projectId });
+          setExtractedSessionInfo({
+            sessionId: persistSessionId,
+            projectId,
+            runtimeSessionId: message.session_id,
+            claudeSessionId: realClaudeSessionId,
+          });
           SessionPersistenceService.saveSession(
             persistSessionId,
             projectId,
@@ -294,6 +302,15 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
       // Handle result messages
       if (message.type === 'result') {
         console.log('[useSessionEvents] Result message received, session_id:', message.session_id);
+        void onComplete?.({
+          success: !(message as any).is_error,
+          status: (message as any).is_error ? 'failed' : 'completed',
+          session_id: message.session_id,
+          cwd: (message as any).cwd,
+          provider,
+          timestamp: (message as any).timestamp,
+          debug_meta: (message as any).debug_meta,
+        });
 
         // IMPORTANT: Set interactiveSessionId BEFORE isLoading=false
         // This ensures that when useProcessChanged fires (process still running),
@@ -349,6 +366,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     isPendingSendRef,
     hasActiveSessionRef,
     addMessage,
+    onComplete,
     trackToolExecution,
     trackToolFailure,
     trackFileOperation,
@@ -384,6 +402,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
       is_error: completePayload.status === 'failed',
     };
     setRuntimeTracker((current) => reduceRuntimeTracker(current, terminalMessage as any, Date.now()));
+    await onComplete?.(completePayload);
 
     // Process next queued prompt if any
     processNextInQueue();
@@ -394,7 +413,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     if (currentProjectPath) {
       setWorkspaceStatus(currentProjectPath, 'idle');
     }
-  }, [setIsLoading, hasActiveSessionRef, setInteractiveSessionId, processNextInQueue, projectPathRef, setWorkspaceStatus, setRuntimeTracker, options.provider]);
+  }, [setIsLoading, hasActiveSessionRef, setInteractiveSessionId, onComplete, processNextInQueue, projectPathRef, setWorkspaceStatus, setRuntimeTracker, options.provider]);
 
   // Set up browser event listeners
   useEffect(() => {

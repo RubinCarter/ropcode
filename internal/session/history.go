@@ -81,6 +81,16 @@ func (h *HistoryManager) LoadAgentSessionHistory(sessionID string) ([]claude.Mes
 	return messages, nil
 }
 
+// LoadSubagentTranscripts loads sidechain subagent transcripts for a parent session.
+func (h *HistoryManager) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]claude.Message, error) {
+	transcripts, err := claude.ReadSubagentTranscripts(h.claudeDir, projectID, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read subagent transcripts: %w", err)
+	}
+
+	return transcripts, nil
+}
+
 // StreamSessionOutput streams JSONL content via channels
 func (h *HistoryManager) StreamSessionOutput(projectID, sessionID string, eventChan chan<- claude.Message, errorChan chan<- error) {
 	filePath, err := claude.FindSessionFile(h.claudeDir, projectID, sessionID)

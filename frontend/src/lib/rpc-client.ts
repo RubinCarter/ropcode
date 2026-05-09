@@ -664,6 +664,13 @@ export function LoadProviderSessionHistory(
   return wsClient.call('LoadProviderSessionHistory', projectPath, sessionId, providerName);
 }
 
+export function LoadSubagentTranscripts(
+  sessionId: string,
+  projectId: string
+): Promise<Record<string, claude.Message[]>> {
+  return wsClient.call('LoadSubagentTranscripts', sessionId, projectId);
+}
+
 export function StreamSessionOutput(projectPath: string, sessionId: string): Promise<void> {
   return wsClient.call('StreamSessionOutput', projectPath, sessionId);
 }

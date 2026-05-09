@@ -27,6 +27,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { api, listen, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StreamMessage } from "./StreamMessage";
+import { SubagentProgressPanel } from "./SubagentProgressPanel";
+import { buildSubagentProgress } from "@/lib/subagentProgress";
 
 type UnlistenFn = () => void;
 import { ExecutionControlBar } from "./ExecutionControlBar";
@@ -172,8 +174,17 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   }, [messages]);
 
   // Filter out messages that shouldn't be displayed
+  const subagentProgress = React.useMemo(() => buildSubagentProgress(messages), [messages]);
+  const subagentPanelItem = React.useMemo(
+    () => ({ type: 'subagent-panel' as const, key: 'subagent-panel' }),
+    []
+  );
+
   const displayableMessages = React.useMemo(() => {
     return messages.filter((message, index) => {
+      if (subagentProgress.subagentMessageIndexes.has(index)) {
+        return false;
+      }
       // Skip meta messages that don't have meaningful content
       if (message.isMeta && !message.leafUuid && !message.summary) {
         return false;
@@ -236,7 +247,12 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
 
       return true;
     });
-  }, [messages]);
+  }, [messages, subagentProgress.subagentMessageIndexes]);
+
+  const streamItems = React.useMemo(
+    () => subagentProgress.subagents.length > 0 ? [subagentPanelItem, ...displayableMessages] : displayableMessages,
+    [displayableMessages, subagentPanelItem, subagentProgress.subagents.length]
+  );
 
   // Helper to scroll to bottom
   const scrollToBottom = useCallback((ref: React.RefObject<VirtuosoHandle>, behavior: 'auto' | 'smooth' = 'smooth') => {
@@ -830,7 +846,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
             ) : (
               <Virtuoso
                 ref={virtuosoRef}
-                data={displayableMessages}
+                data={streamItems}
                 className="h-full"
                 style={{ padding: '1.5rem' }}
 
@@ -845,13 +861,13 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                 atBottomThreshold={100}
 
                 // Start at bottom
-                initialTopMostItemIndex={displayableMessages.length > 0 ? displayableMessages.length - 1 : 0}
+                initialTopMostItemIndex={streamItems.length > 0 ? streamItems.length - 1 : 0}
 
                 // Stable keys
-                computeItemKey={(index, message) => `msg-${index}-${message.type}`}
+                computeItemKey={(index, item) => 'type' in item && item.type === 'subagent-panel' ? item.key : `msg-${index}-${item.type}`}
 
                 // Render each message
-                itemContent={(index, message) => (
+                itemContent={(index, item) => (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -859,7 +875,15 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                     className="pb-4"
                   >
                     <ErrorBoundary>
-                      <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                      {'type' in item && item.type === 'subagent-panel' ? (
+                        <SubagentProgressPanel
+                          summary={subagentProgress}
+                          streamMessages={messages}
+                          agentOutputMap={agentOutputMap}
+                        />
+                      ) : (
+                        <StreamMessage message={item} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                      )}
                     </ErrorBoundary>
                   </motion.div>
                 )}
@@ -960,7 +984,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
             ) : (
               <Virtuoso
                 ref={fullscreenVirtuosoRef}
-                data={displayableMessages}
+                data={streamItems}
                 className="h-full"
                 style={{ padding: '1.5rem' }}
 
@@ -975,13 +999,13 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                 atBottomThreshold={100}
 
                 // Start at bottom
-                initialTopMostItemIndex={displayableMessages.length > 0 ? displayableMessages.length - 1 : 0}
+                initialTopMostItemIndex={streamItems.length > 0 ? streamItems.length - 1 : 0}
 
                 // Stable keys
-                computeItemKey={(index, message) => `fullscreen-msg-${index}-${message.type}`}
+                computeItemKey={(index, item) => 'type' in item && item.type === 'subagent-panel' ? `fullscreen-${item.key}` : `fullscreen-msg-${index}-${item.type}`}
 
                 // Render each message
-                itemContent={(index, message) => (
+                itemContent={(index, item) => (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -989,7 +1013,15 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                     className="pb-4 max-w-5xl mx-auto"
                   >
                     <ErrorBoundary>
-                      <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                      {'type' in item && item.type === 'subagent-panel' ? (
+                        <SubagentProgressPanel
+                          summary={subagentProgress}
+                          streamMessages={messages}
+                          agentOutputMap={agentOutputMap}
+                        />
+                      ) : (
+                        <StreamMessage message={item} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                      )}
                     </ErrorBoundary>
                   </motion.div>
                 )}

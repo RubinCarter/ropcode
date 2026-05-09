@@ -227,6 +227,7 @@ const api = new Proxy({ ...rpcMethods }, {
       // Session
       getSessionOutput: 'GetClaudeSessionOutput',
       loadSessionHistory: 'LoadSessionHistory',
+      loadSubagentTranscripts: 'LoadSubagentTranscripts',
       // Git
       isGitRepository: 'IsGitRepository',
       getCurrentBranch: 'GetCurrentBranch',

@@ -68,6 +68,128 @@ func GetAgentSessionFilePath(claudeDir, sessionID string) string {
 	return filepath.Join(projectsDir, userHash, "agent-"+sessionID+".jsonl")
 }
 
+// GetSubagentSessionDir returns the directory where Claude stores sidechain subagent JSONL files.
+func GetSubagentSessionDir(claudeDir, projectID, sessionID string) string {
+	return filepath.Join(claudeDir, "projects", projectID, sessionID, "subagents")
+}
+
+func sessionFileReferencesID(filePath, sessionID string) bool {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, maxScanCapacity)
+	scanner.Buffer(buf, maxScanCapacity)
+
+	lineCount := 0
+	for scanner.Scan() {
+		lineCount++
+		var raw map[string]interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &raw); err != nil {
+			continue
+		}
+		if raw["session_id"] == sessionID || raw["sessionId"] == sessionID || raw["claude_session_id"] == sessionID {
+			return true
+		}
+		if lineCount >= 50 {
+			break
+		}
+	}
+
+	return false
+}
+
+func findSubagentSessionDir(claudeDir, projectID, sessionID string) (string, error) {
+	subagentsDir := GetSubagentSessionDir(claudeDir, projectID, sessionID)
+	if info, err := os.Stat(subagentsDir); err == nil && info.IsDir() {
+		return subagentsDir, nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to stat subagents directory: %w", err)
+	}
+
+	projectDir := filepath.Join(claudeDir, "projects", projectID)
+	entries, err := os.ReadDir(projectDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read project directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+
+		filePath := filepath.Join(projectDir, entry.Name())
+		if sessionFileReferencesID(filePath, sessionID) {
+			candidate := filepath.Join(projectDir, strings.TrimSuffix(entry.Name(), ".jsonl"), "subagents")
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				return candidate, nil
+			}
+		}
+	}
+
+	var match string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(projectDir, entry.Name(), "subagents")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			if match != "" {
+				return "", nil
+			}
+			match = candidate
+		}
+	}
+
+	return match, nil
+}
+
+// ReadSubagentTranscripts reads all sidechain subagent transcripts for a parent session.
+func ReadSubagentTranscripts(claudeDir, projectID, sessionID string) (map[string][]Message, error) {
+	subagentsDir, err := findSubagentSessionDir(claudeDir, projectID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if subagentsDir == "" {
+		return map[string][]Message{}, nil
+	}
+
+	entries, err := os.ReadDir(subagentsDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read subagents directory: %w", err)
+	}
+
+	transcripts := map[string][]Message{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".jsonl") {
+			continue
+		}
+
+		filePath := filepath.Join(subagentsDir, entry.Name())
+		messages, err := ReadAllMessages(filePath)
+		if err != nil {
+			continue
+		}
+		if len(messages) == 0 {
+			continue
+		}
+
+		agentID := messages[0].AgentID
+		if agentID == "" {
+			agentID = strings.TrimSuffix(strings.TrimPrefix(entry.Name(), "agent-"), ".jsonl")
+		}
+		transcripts[agentID] = messages
+	}
+
+	return transcripts, nil
+}
+
 // BuildMessageIndex scans a JSONL file and builds an index of message line numbers
 func BuildMessageIndex(filePath string) (*MessageIndex, error) {
 	file, err := os.Open(filePath)

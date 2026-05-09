@@ -146,35 +146,64 @@ function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
  * - Internal debug/trace logs
  * - User messages that only contain tool results already shown in widgets
  */
-export function filterDisplayableMessages(messages: ClaudeStreamMessage[]): ClaudeStreamMessage[] {
-  return messages.filter((message, index) => {
-    if (isHiddenByDefault(message)) {
+function isDisplayableMessage(
+  message: ClaudeStreamMessage,
+  index: number,
+  messages: ClaudeStreamMessage[],
+  hiddenIndexes?: Set<number>
+): boolean {
+  if (hiddenIndexes?.has(index)) {
+    return false;
+  }
+
+  if (isHiddenByDefault(message)) {
+    return false;
+  }
+
+  // Skip meta messages that don't have meaningful content
+  if (message.isMeta && !message.leafUuid && !message.summary) {
+    return false;
+  }
+
+  // Filter out internal stderr messages
+  if (message.type === "info" && message.subtype === "stderr") {
+    if (isInternalLog(message)) {
+      return false;
+    }
+  }
+
+  // Skip user messages that only contain tool results already displayed
+  if (message.type === "user" && message.message) {
+    if (message.isMeta) {
       return false;
     }
 
-    // Skip meta messages that don't have meaningful content
-    if (message.isMeta && !message.leafUuid && !message.summary) {
+    if (!hasVisibleContent(message, index, messages)) {
       return false;
     }
+  }
 
-    // Filter out internal stderr messages
-    if (message.type === "info" && message.subtype === "stderr") {
-      if (isInternalLog(message)) {
-        return false;
-      }
+  return true;
+}
+
+export function getDisplayableMessageIndexes(
+  messages: ClaudeStreamMessage[],
+  hiddenIndexes?: Set<number>
+): number[] {
+  const indexes: number[] = [];
+
+  messages.forEach((message, index) => {
+    if (isDisplayableMessage(message, index, messages, hiddenIndexes)) {
+      indexes.push(index);
     }
-
-    // Skip user messages that only contain tool results already displayed
-    if (message.type === "user" && message.message) {
-      if (message.isMeta) {
-        return false;
-      }
-
-      if (!hasVisibleContent(message, index, messages)) {
-        return false;
-      }
-    }
-
-    return true;
   });
+
+  return indexes;
+}
+
+export function filterDisplayableMessages(
+  messages: ClaudeStreamMessage[],
+  hiddenIndexes?: Set<number>
+): ClaudeStreamMessage[] {
+  return getDisplayableMessageIndexes(messages, hiddenIndexes).map((index) => messages[index]);
 }

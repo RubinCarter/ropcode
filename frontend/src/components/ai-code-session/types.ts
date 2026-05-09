@@ -55,6 +55,8 @@ export interface AiCodeSessionProps {
 export interface SessionInfo {
   sessionId: string;
   projectId: string;
+  runtimeSessionId?: string;
+  claudeSessionId?: string;
 }
 
 /**

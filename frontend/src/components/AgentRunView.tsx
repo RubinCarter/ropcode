@@ -18,6 +18,8 @@ import { api, type AgentRunWithMetrics } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatISOTimestamp } from "@/lib/date-utils";
 import { StreamMessage } from "./StreamMessage";
+import { SubagentProgressPanel } from "./SubagentProgressPanel";
+import { buildSubagentProgress } from "@/lib/subagentProgress";
 import { AGENT_ICONS } from "./CCAgents";
 import type { ClaudeStreamMessage } from "./AgentExecution";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -50,11 +52,40 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
 }) => {
   const [run, setRun] = useState<AgentRunWithMetrics | null>(null);
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
+  const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
 
+  const projectId = React.useMemo(
+    () => run?.project_path?.replace(/[^a-zA-Z0-9]/g, '-') || '',
+    [run?.project_path]
+  );
+
+  const refreshSubagentTranscripts = React.useCallback(async (sessionId?: string | null, nextProjectId?: string | null) => {
+    if (!sessionId || !nextProjectId) {
+      setSubagentTranscripts({});
+      return;
+    }
+
+    try {
+      const transcripts = await api.loadSubagentTranscripts(sessionId, nextProjectId);
+      setSubagentTranscripts(transcripts || {});
+    } catch (err) {
+      console.warn('[AgentRunView] Failed to load subagent transcripts:', err);
+    }
+  }, []);
+
   // Build agentId → AgentOutputTool result mapping
+  const subagentProgress = React.useMemo(
+    () => buildSubagentProgress(messages, subagentTranscripts),
+    [messages, subagentTranscripts]
+  );
+  const displayableMessages = React.useMemo(
+    () => messages.filter((_, index) => !subagentProgress.subagentMessageIndexes.has(index)),
+    [messages, subagentProgress.subagentMessageIndexes]
+  );
+
   const agentOutputMap = React.useMemo(() => {
     const map = new Map<string, any>();
     const toolUseMap = new Map<string, string>();
@@ -121,6 +152,8 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
           }));
           
           setMessages(loadedMessages);
+          const runProjectId = runData.project_path?.replace(/[^a-zA-Z0-9]/g, '-') || projectId;
+          await refreshSubagentTranscripts(runData.session_id, runProjectId);
           return;
         } catch (err) {
           console.warn('Failed to load from JSONL, falling back to output field:', err);
@@ -248,7 +281,8 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
           }
         };
         setMessages(prev => [...prev, stopMessage]);
-        
+        void refreshSubagentTranscripts(run.session_id, projectId);
+
         // Reload the run data after a short delay
         setTimeout(() => {
           loadRun();
@@ -416,7 +450,20 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
         {/* Output Display */}
         <div className="flex-1 overflow-hidden">
           <div className="h-full overflow-y-auto p-4 space-y-2">
-            {messages.map((message, index) => (
+            {subagentProgress.subagents.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <SubagentProgressPanel
+                  summary={subagentProgress}
+                  streamMessages={messages}
+                  agentOutputMap={agentOutputMap}
+                />
+              </motion.div>
+            )}
+            {displayableMessages.map((message, index) => (
               <motion.div
                 key={index}
                 initial={{ opacity: 0, y: 10 }}

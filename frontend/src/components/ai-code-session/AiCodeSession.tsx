@@ -30,6 +30,7 @@ import { wsClient } from "@/lib/ws-rpc-client";
 import { providers } from "@/lib/providers";
 import { cn } from "@/lib/utils";
 import { StreamMessage } from "../StreamMessage";
+import { SubagentProgressPanel } from "../SubagentProgressPanel";
 import { FloatingPromptInput, type FloatingPromptInputRef } from "../FloatingPromptInput";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { SlashCommandsManager } from "../SlashCommandsManager";
@@ -136,6 +137,42 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     onProcessNext: (prompt) => handleSendPrompt(prompt.prompt, prompt.model, prompt.providerApiId, prompt.thinkingMode),
   });
 
+  const refreshSubagentTranscripts = useCallback(async (sessionId?: string | null, projectId?: string | null) => {
+    if (!sessionId || !projectId || defaultProvider !== 'claude') {
+      messagesState.setSubagentTranscripts({});
+      return;
+    }
+
+    try {
+      const transcripts = await api.loadSubagentTranscripts(sessionId, projectId);
+      messagesState.setSubagentTranscripts(transcripts || {});
+    } catch (err) {
+      console.warn('[AiCodeSession] Failed to load subagent transcripts:', err);
+    }
+  }, [defaultProvider, messagesState.setSubagentTranscripts]);
+
+  const refreshCurrentSubagentTranscripts = useCallback(async (sessionIdOverride?: string | null) => {
+    const sessionInfo = sessionState.extractedSessionInfoRef.current;
+    const initMessage = messagesState.messagesRef.current.find((message) => message.type === 'system' && message.subtype === 'init') as any;
+    const realSessionId = sessionInfo?.claudeSessionId || initMessage?.claude_session_id || initMessage?.sessionId || sessionInfo?.sessionId;
+    const sessionId = realSessionId || sessionIdOverride || sessionState.claudeSessionIdRef.current;
+    const projectId = sessionInfo?.projectId || (initMessage?.cwd || sessionState.projectPathRef.current || '').replace(/[^a-zA-Z0-9]/g, '-');
+    await refreshSubagentTranscripts(sessionId, projectId);
+  }, [messagesState.messagesRef, refreshSubagentTranscripts, sessionState.claudeSessionIdRef, sessionState.extractedSessionInfoRef, sessionState.projectPathRef]);
+
+  useEffect(() => {
+    if (defaultProvider !== 'claude') return;
+    if (messagesState.subagentProgress.subagents.length === 0) return;
+    if (Object.keys(messagesState.subagentTranscripts).length > 0) return;
+
+    void refreshCurrentSubagentTranscripts();
+  }, [
+    defaultProvider,
+    messagesState.subagentProgress.subagents.length,
+    messagesState.subagentTranscripts,
+    refreshCurrentSubagentTranscripts,
+  ]);
+
   // Session events - depends on all other hooks
   // Note: eventsState sets up event listeners internally, doesn't need to be used explicitly
   useSessionEvents({
@@ -157,6 +194,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     hasActiveSessionRef: processState.hasActiveSessionRef,
     addMessage: messagesState.addMessage,
     syncProcessState: processState.syncProcessState,
+    onComplete: (payload) => refreshCurrentSubagentTranscripts(payload.session_id),
     processNextInQueue: queueState.processNextInQueue,
     trackToolExecution: metricsState.trackToolExecution,
     trackToolFailure: metricsState.trackToolFailure,
@@ -581,8 +619,10 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         if (backendLastTs > localLastTs) {
           console.log(`[AiCodeSession] Recovery (${trigger}): backend has newer messages, replacing local (${currentMessages.length}) with backend (${loadedMessages.length})`);
           messagesState.setMessages(loadedMessages);
+          await refreshSubagentTranscripts(sessionId, projectId);
           setTimeout(() => scrollToBottom('auto'), 100);
         } else {
+          await refreshSubagentTranscripts(sessionId, projectId);
           console.log(`[AiCodeSession] Recovery (${trigger}): local is up to date, skipping`);
         }
       } catch (err) {
@@ -824,6 +864,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         });
 
         messagesState.setMessages(loadedMessages);
+        await refreshSubagentTranscripts(s.id, s.project_id);
         sessionState.setIsFirstPrompt(false);
 
         // Scroll to bottom after history loads
@@ -1341,11 +1382,51 @@ ${message ? `**说明**:\n${message}` : ''}`;
   // RENDER - Message List
   // ==================================================================
 
+  const streamItems = React.useMemo(() => {
+    const subagentIndexes = messagesState.subagentProgress.subagents.flatMap((subagent) =>
+      Array.from(subagent.messageIndexes)
+    );
+    const firstSubagentIndex = Math.min(...subagentIndexes);
+    let insertedSubagentPanel = false;
+    const items: Array<
+      | { type: 'subagent-panel' }
+      | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number }
+    > = [];
+
+    messagesState.displayableMessageIndexes.forEach((originalIndex) => {
+      if (
+        messagesState.subagentProgress.subagents.length > 0 &&
+        !insertedSubagentPanel &&
+        Number.isFinite(firstSubagentIndex) &&
+        originalIndex > firstSubagentIndex
+      ) {
+        items.push({ type: 'subagent-panel' });
+        insertedSubagentPanel = true;
+      }
+
+      items.push({
+        type: 'message',
+        message: messagesState.messages[originalIndex],
+        originalIndex,
+      });
+    });
+
+    if (messagesState.subagentProgress.subagents.length > 0 && !insertedSubagentPanel) {
+      items.push({ type: 'subagent-panel' });
+    }
+
+    return items;
+  }, [
+    messagesState.displayableMessageIndexes,
+    messagesState.messages,
+    messagesState.subagentProgress.subagents,
+  ]);
+
   const messagesList = (
     <div className="relative flex-1">
       <Virtuoso
         ref={virtuosoRef}
-        data={messagesState.displayableMessages}
+        data={streamItems}
         className="h-full"
 
         // followOutput handles auto-scrolling during streaming
@@ -1365,22 +1446,32 @@ ${message ? `**说明**:\n${message}` : ''}`;
         atBottomThreshold={100}
 
         // Start at the bottom (most recent messages)
-        initialTopMostItemIndex={messagesState.displayableMessages.length > 0
-          ? messagesState.displayableMessages.length - 1
+        initialTopMostItemIndex={streamItems.length > 0
+          ? streamItems.length - 1
           : 0}
 
         // Stable keys prevent unnecessary re-renders
-        computeItemKey={(index, message) => message.uuid || `msg-${index}`}
+        computeItemKey={(index, item) => item.type === 'subagent-panel'
+          ? 'subagent-panel'
+          : item.message.uuid || `msg-${item.originalIndex}-${index}`}
 
         // Render each message
-        itemContent={(index, message) => (
+        itemContent={(_, item) => (
           <div className="w-full max-w-6xl mx-auto px-4 pb-4 pt-2">
-            <StreamMessage
-              message={message}
-              streamMessages={messagesState.messages}
-              onLinkDetected={handleLinkDetected}
-              agentOutputMap={messagesState.agentOutputMap}
-            />
+            {item.type === 'subagent-panel' ? (
+              <SubagentProgressPanel
+                summary={messagesState.subagentProgress}
+                streamMessages={messagesState.messages}
+                agentOutputMap={messagesState.agentOutputMap}
+              />
+            ) : (
+              <StreamMessage
+                message={item.message}
+                streamMessages={messagesState.messages}
+                onLinkDetected={handleLinkDetected}
+                agentOutputMap={messagesState.agentOutputMap}
+              />
+            )}
           </div>
         )}
 
@@ -1409,7 +1500,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
       />
 
       {/* Scroll buttons */}
-      {messagesState.displayableMessages.length > 5 && (
+      {streamItems.length > 5 && (
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}

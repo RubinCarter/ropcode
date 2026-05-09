@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Maximize2, Minimize2, Copy, RefreshCw, RotateCcw, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -10,6 +10,8 @@ import { api, listen } from '@/lib/api';
 import { useOutputCache } from '@/lib/outputCache';
 import type { AgentRun } from '@/lib/api';
 import { StreamMessage } from './StreamMessage';
+import { SubagentProgressPanel } from './SubagentProgressPanel';
+import { buildSubagentProgress } from '@/lib/subagentProgress';
 
 type UnlistenFn = () => void;
 import { ErrorBoundary } from './ErrorBoundary';
@@ -40,6 +42,7 @@ export interface ClaudeStreamMessage {
 
 export function SessionOutputViewer({ session, onClose, className }: SessionOutputViewerProps) {
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
+  const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
   const [loading, setLoading] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -53,6 +56,25 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   const fullscreenMessagesEndRef = useRef<HTMLDivElement>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const { getCachedOutput, setCachedOutput } = useOutputCache();
+
+  const projectId = useMemo(
+    () => session.project_path?.replace(/[^a-zA-Z0-9]/g, '-') || '',
+    [session.project_path]
+  );
+
+  const refreshSubagentTranscripts = useCallback(async () => {
+    if (!session.session_id || !projectId) {
+      setSubagentTranscripts({});
+      return;
+    }
+
+    try {
+      const transcripts = await api.loadSubagentTranscripts(session.session_id, projectId);
+      setSubagentTranscripts(transcripts || {});
+    } catch (err) {
+      console.warn('[SessionOutputViewer] Failed to load subagent transcripts:', err);
+    }
+  }, [projectId, session.session_id]);
 
   // Build agentId → AgentOutputTool result mapping
   const agentOutputMap = useMemo(() => {
@@ -164,6 +186,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
           }));
           
           setMessages(loadedMessages);
+          await refreshSubagentTranscripts();
 
           // Update cache
           setCachedOutput(session.id, {
@@ -205,6 +228,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
         }
       }
       setMessages(parsedMessages);
+      await refreshSubagentTranscripts();
 
       // Update cache
       setCachedOutput(session.id, {
@@ -257,6 +281,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
 
       const completeUnlisten = listen(`agent-complete:${session.id}`, () => {
         setToast({ message: 'Agent execution completed', type: 'success' });
+        void refreshSubagentTranscripts();
         // Don't set status here as the parent component should handle it
       });
 
@@ -362,8 +387,14 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     loadOutput();
   }, [session.id]);
 
+  const subagentProgress = useMemo(
+    () => buildSubagentProgress(messages, subagentTranscripts),
+    [messages, subagentTranscripts]
+  );
+
   const displayableMessages = useMemo(() => {
     return messages.filter((message, index) => {
+      if (subagentProgress.subagentMessageIndexes.has(index)) return false;
       if (message.isMeta && !message.leafUuid && !message.summary) return false;
 
       if (message.type === "user" && message.message) {
@@ -402,7 +433,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
       }
       return true;
     });
-  }, [messages]);
+  }, [messages, subagentProgress.subagentMessageIndexes]);
 
   return (
     <>
@@ -553,6 +584,20 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                 ) : (
                   <>
                     <AnimatePresence>
+                      {subagentProgress.subagents.length > 0 && (
+                        <motion.div
+                          key="subagent-progress-panel"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <SubagentProgressPanel
+                            summary={subagentProgress}
+                            streamMessages={messages}
+                            agentOutputMap={agentOutputMap}
+                          />
+                        </motion.div>
+                      )}
                       {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
                         <motion.div
                           key={index}
@@ -677,6 +722,20 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
               ) : (
                 <>
                   <AnimatePresence>
+                    {subagentProgress.subagents.length > 0 && (
+                      <motion.div
+                        key="fullscreen-subagent-progress-panel"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <SubagentProgressPanel
+                          summary={subagentProgress}
+                          streamMessages={messages}
+                          agentOutputMap={agentOutputMap}
+                        />
+                      </motion.div>
+                    )}
                     {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
                       <motion.div
                         key={index}
