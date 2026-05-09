@@ -1002,7 +1002,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
     stopVisible: stopRequestedRef.current || stopStatusBubble.visible,
     queuedPromptsCount: queueState.queuedPrompts.length,
     thinkingStatus,
-    thinkingCycleEnabled: true,
   });
 
   const runtimeStatusBar = <SessionStatusBar model={runtimeStatusBarModel} />;

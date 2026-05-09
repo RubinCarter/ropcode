@@ -11,11 +11,11 @@ async function readSource() {
   return readFile(presentationPath, 'utf8');
 }
 
-test('buildSessionStatusBarModel keeps a persistent ready state while idle', async () => {
+test('buildSessionStatusBarModel keeps a persistent ready state while idle without thinking-cycle hints', async () => {
   const source = await readSource();
 
   assert.match(source, /return \{ primary: 'Ready', secondary: null, glyph: 'idle', tone: 'neutral' \};/);
-  assert.match(source, /hints\.push\(\{ key: 'cycle-thinking', label: 'Shift\+Tab cycle thinking', priority: 'medium' \}\)/);
+  assert.doesNotMatch(source, /Shift\+Tab.*thinking|cycle-thinking|thinkingCycleEnabled/);
 });
 
 test('buildSessionStatusBarModel prioritizes active tool state with elapsed and directional token metrics', async () => {

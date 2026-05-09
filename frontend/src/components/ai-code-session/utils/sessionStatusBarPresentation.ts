@@ -51,7 +51,6 @@ export interface BuildSessionStatusBarInput {
   stopVisible: boolean;
   queuedPromptsCount: number;
   thinkingStatus: SessionThinkingStatus;
-  thinkingCycleEnabled?: boolean;
 }
 
 export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): SessionStatusBarModel {
@@ -69,7 +68,6 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
     stopVisible,
     queuedPromptsCount,
     thinkingStatus,
-    thinkingCycleEnabled = false,
   } = input;
 
   const hasRunningSubagents = subagentProgress.runningCount > 0;
@@ -139,9 +137,6 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
 
   if (isLoading || interactiveSessionId || stopVisible) {
     hints.push({ key: 'interrupt', label: 'Stop interrupts current task', priority: 'high' });
-  }
-  if (thinkingCycleEnabled) {
-    hints.push({ key: 'cycle-thinking', label: 'Shift+Tab cycle thinking', priority: 'medium' });
   }
   hints.push({ key: 'send', label: '⌘/Ctrl+Enter send', priority: 'low' });
 

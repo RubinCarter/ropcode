@@ -34,10 +34,9 @@ test('reports current provider model API and thinking config to parent component
   assert.match(source, /onConfigChange\?\.\(\{[\s\S]*provider: selectedProvider,[\s\S]*model: selectedModel,[\s\S]*providerApiId: selectedProviderApiId,[\s\S]*thinkingMode: selectedThinkingMode,[\s\S]*\}\);/);
 });
 
-test('cycles thinking mode with Shift Tab only when prompt pickers are closed', async () => {
+test('does not reserve Shift Tab for cycling thinking mode', async () => {
   const source = await readSource();
 
-  assert.match(source, /e\.key === 'Tab' &&[\s\S]*e\.shiftKey[\s\S]*!showFilePicker[\s\S]*!showSlashCommandPicker[\s\S]*!showSkillPicker[\s\S]*!providerPickerOpen[\s\S]*!modelPickerOpen[\s\S]*!thinkingModePickerOpen[\s\S]*!isIMEComposingRef\.current/);
-  assert.match(source, /const nextIndex = currentIndex === -1 \? 0 : \(currentIndex \+ 1\) % currentThinkingModes\.length;/);
-  assert.match(source, /setSelectedThinkingMode\(nextMode\.id\);/);
+  assert.doesNotMatch(source, /e\.key === 'Tab' &&[\s\S]*e\.shiftKey[\s\S]*setSelectedThinkingMode/);
+  assert.doesNotMatch(source, /setSelectedThinkingMode\(nextMode\.id\);/);
 });

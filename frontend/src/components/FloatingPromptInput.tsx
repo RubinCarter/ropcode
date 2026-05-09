@@ -1553,29 +1553,6 @@ const FloatingPromptInputInner = (
       return;
     }
 
-    if (
-      e.key === 'Tab' &&
-      e.shiftKey &&
-      !e.ctrlKey &&
-      !e.metaKey &&
-      !e.altKey &&
-      !showFilePicker &&
-      !showSlashCommandPicker &&
-      !showSkillPicker &&
-      !providerPickerOpen &&
-      !modelPickerOpen &&
-      !thinkingModePickerOpen &&
-      !isIMEComposingRef.current
-    ) {
-      e.preventDefault();
-      const currentIndex = currentThinkingModes.findIndex((mode) => mode.id === selectedThinkingMode);
-      const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % currentThinkingModes.length;
-      const nextMode = currentThinkingModes[nextIndex];
-      if (nextMode) {
-        setSelectedThinkingMode(nextMode.id);
-      }
-      return;
-    }
 
     // Add keyboard shortcut for expanding
     if (e.key === 'e' && (e.ctrlKey || e.metaKey) && e.shiftKey) {
