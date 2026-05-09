@@ -1,6 +1,7 @@
 import type { SessionRuntimeViewState } from '../types';
 import type { RuntimeStatusCopy } from './runtimePresentation';
 import type { SubagentProgressSummary } from '@/lib/subagentProgress';
+import type { TokenUsageTotals } from '../hooks/useMessages';
 import { formatCompactNumber } from '@/lib/subagentProgress';
 
 export type SessionStatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'error';
@@ -41,8 +42,7 @@ export interface BuildSessionStatusBarInput {
   runtimeCopy: RuntimeStatusCopy;
   now: number;
   loadingStartedAt: number | null;
-  totalTokens: number;
-  partialTextLength?: number;
+  tokenUsage: TokenUsageTotals;
   subagentProgress: SubagentProgressSummary;
   currentTodoActiveForm?: string | null;
   promptConfig: SessionStatusPromptConfig;
@@ -60,8 +60,7 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
     runtimeCopy,
     now,
     loadingStartedAt,
-    totalTokens,
-    partialTextLength = 0,
+    tokenUsage,
     subagentProgress,
     currentTodoActiveForm,
     promptConfig,
@@ -84,11 +83,13 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
     metrics.push({ key: 'elapsed', label: formatDuration(elapsedMs), priority: 'high' });
   }
 
-  const responseTokens = partialTextLength > 0 ? Math.round(partialTextLength / 4) : 0;
-  if (totalTokens > 0) {
-    metrics.push({ key: 'tokens', label: `${formatCompactNumber(totalTokens)} tokens`, priority: 'high' });
-  } else if (responseTokens > 0) {
-    metrics.push({ key: 'response-tokens', label: `~${formatCompactNumber(responseTokens)} response tokens`, priority: 'medium' });
+  if (tokenUsage.inputTokens > 0) {
+    metrics.push({ key: 'input-tokens', label: `↑ ${formatCompactNumber(tokenUsage.inputTokens)}`, priority: 'high' });
+  }
+  const visibleOutputTokens = tokenUsage.outputTokens + tokenUsage.estimatedOutputTokens;
+  if (visibleOutputTokens > 0) {
+    const approximate = tokenUsage.outputTokens === 0 && tokenUsage.estimatedOutputTokens > 0 ? '~' : '';
+    metrics.push({ key: 'output-tokens', label: `↓ ${approximate}${formatCompactNumber(visibleOutputTokens)}`, priority: 'high' });
   }
 
   const thinkingLabel = formatThinkingStatus(thinkingStatus, now);

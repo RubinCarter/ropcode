@@ -8,15 +8,31 @@
  * - Displayable message filtering
  */
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
 import type { ClaudeStreamMessage } from "../types";
 import { filterDisplayableMessages, getDisplayableMessageIndexes } from "../utils/messageFilter";
 import { buildSubagentProgress, type SubagentProgressSummary } from "@/lib/subagentProgress";
+
+type MessageUsage = {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  total_tokens?: number;
+};
+
+export interface TokenUsageTotals {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedOutputTokens: number;
+  totalTokens: number;
+}
 
 export interface UseMessagesReturn {
   // State
   messages: ClaudeStreamMessage[];
   totalTokens: number;
+  tokenUsage: TokenUsageTotals;
   displayableMessages: ClaudeStreamMessage[];
   displayableMessageIndexes: number[];
   subagentProgress: SubagentProgressSummary;
@@ -36,13 +52,64 @@ export interface UseMessagesReturn {
   messagesRef: React.MutableRefObject<ClaudeStreamMessage[]>;
 }
 
+function numberValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function usageInputTokens(usage?: MessageUsage): number {
+  return usage
+    ? numberValue(usage.input_tokens) + numberValue(usage.cache_creation_input_tokens) + numberValue(usage.cache_read_input_tokens)
+    : 0;
+}
+
+function usageOutputTokens(usage?: MessageUsage): number {
+  return usage ? numberValue(usage.output_tokens) : 0;
+}
+
+function textContentLength(message: ClaudeStreamMessage): number {
+  const content = message.message?.content;
+  if (!Array.isArray(content)) return 0;
+
+  return content.reduce((total, block) => {
+    if (block?.type === 'text' && typeof block.text === 'string') {
+      return total + block.text.length;
+    }
+    return total;
+  }, 0);
+}
+
+function calculateTokenUsage(messages: ClaudeStreamMessage[]): TokenUsageTotals {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let estimatedOutputTokens = 0;
+
+  for (const message of messages) {
+    const usage = message.message?.usage ?? message.usage;
+    if (usage) {
+      inputTokens += usageInputTokens(usage);
+      outputTokens += usageOutputTokens(usage);
+      continue;
+    }
+
+    if (message.type === 'assistant' && (message as any).is_delta !== true) {
+      estimatedOutputTokens += Math.round(textContentLength(message) / 4);
+    }
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    estimatedOutputTokens,
+    totalTokens: inputTokens + outputTokens,
+  };
+}
+
 /**
  * Hook to manage messages
  */
 export function useMessages(): UseMessagesReturn {
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
   const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
-  const [totalTokens, setTotalTokens] = useState(0);
 
   // Refs for stable access in callbacks (avoids stale closure in useEffect([]))
   const messagesLengthRef = useRef(messages.length);
@@ -117,19 +184,8 @@ export function useMessages(): UseMessagesReturn {
     return map;
   }, [messages]);
 
-  // Calculate total tokens from messages
-  useEffect(() => {
-    const tokens = messages.reduce((total, msg) => {
-      if (msg.message?.usage) {
-        return total + msg.message.usage.input_tokens + msg.message.usage.output_tokens;
-      }
-      if (msg.usage) {
-        return total + msg.usage.input_tokens + msg.usage.output_tokens;
-      }
-      return total;
-    }, 0);
-    setTotalTokens(tokens);
-  }, [messages]);
+  const tokenUsage = useMemo(() => calculateTokenUsage(messages), [messages]);
+  const totalTokens = tokenUsage.totalTokens;
 
   // Use ref to batch delta updates and reduce re-renders
   const deltaBufferRef = useRef<string>('');
@@ -295,12 +351,12 @@ export function useMessages(): UseMessagesReturn {
   const clearMessages = () => {
     setMessages([]);
     setSubagentTranscripts({});
-    setTotalTokens(0);
   };
 
   return {
     messages,
     totalTokens,
+    tokenUsage,
     displayableMessages,
     displayableMessageIndexes,
     subagentProgress,

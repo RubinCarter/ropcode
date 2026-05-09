@@ -18,13 +18,15 @@ test('buildSessionStatusBarModel keeps a persistent ready state while idle', asy
   assert.match(source, /hints\.push\(\{ key: 'cycle-thinking', label: 'Shift\+Tab cycle thinking', priority: 'medium' \}\)/);
 });
 
-test('buildSessionStatusBarModel prioritizes active tool state with elapsed and token metrics', async () => {
+test('buildSessionStatusBarModel prioritizes active tool state with elapsed and directional token metrics', async () => {
   const source = await readSource();
 
   assert.match(source, /if \(runtime\.phase === 'tool_running' && runtime\.activeTool\) \{/);
   assert.match(source, /primary: `Running \$\{runtime\.activeTool\}…`/);
   assert.match(source, /metrics\.push\(\{ key: 'elapsed', label: formatDuration\(elapsedMs\), priority: 'high' \}\)/);
-  assert.match(source, /metrics\.push\(\{ key: 'tokens', label: `\$\{formatCompactNumber\(totalTokens\)\} tokens`, priority: 'high' \}\)/);
+  assert.match(source, /metrics\.push\(\{ key: 'input-tokens', label: `↑ \$\{formatCompactNumber\(tokenUsage\.inputTokens\)\}`, priority: 'high' \}\)/);
+  assert.match(source, /metrics\.push\(\{ key: 'output-tokens', label: `↓ \$\{approximate\}\$\{formatCompactNumber\(visibleOutputTokens\)\}`, priority: 'high' \}\)/);
+  assert.doesNotMatch(source, /response-tokens/);
 });
 
 test('buildSessionStatusBarModel reports active and retained completed thinking duration', async () => {

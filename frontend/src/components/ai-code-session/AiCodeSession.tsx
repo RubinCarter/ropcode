@@ -990,8 +990,10 @@ ${message ? `**说明**:\n${message}` : ''}`;
     runtimeCopy: runtimeStatus,
     now: runtimeNow,
     loadingStartedAt: processState.loadingStartedAt,
-    totalTokens: messagesState.totalTokens,
-    partialTextLength: runtimeTracker.lastPartialTextLength,
+    tokenUsage: {
+      ...messagesState.tokenUsage,
+      estimatedOutputTokens: Math.max(messagesState.tokenUsage.estimatedOutputTokens, Math.round(runtimeTracker.lastPartialTextLength / 4)),
+    },
     subagentProgress: messagesState.subagentProgress,
     currentTodoActiveForm,
     promptConfig,
