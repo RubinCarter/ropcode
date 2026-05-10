@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, startTransition } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -1108,116 +1108,84 @@ const FloatingPromptInputInner = (
       }
     });
 
-    // Use startTransition for picker state updates (non-urgent, can be interrupted)
-    startTransition(() => {
-      // Check if / was just typed at the beginning of input or after whitespace
-      if (newValue.length > prompt.length && newValue[newCursorPosition - 1] === '/') {
-        // Check if it's at the start or after whitespace
-        const isStartOfCommand = newCursorPosition === 1 ||
-          (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
+    const typedCharacter = newValue.length > prompt.length ? newValue[newCursorPosition - 1] : '';
+    const isAtWordStart = newCursorPosition === 1 ||
+      (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
+    let slashPickerOpen = showSlashCommandPicker;
+    let filePickerOpen = showFilePicker;
+    let skillPickerOpen = showSkillPicker;
 
-        if (isStartOfCommand) {
-          console.log('[FloatingPromptInput] / detected for slash command');
-          setShowSlashCommandPicker(true);
-          setSlashCommandQuery("");
+    if (typedCharacter === '/' && isAtWordStart) {
+      slashPickerOpen = true;
+      setShowSlashCommandPicker(true);
+      setSlashCommandQuery("");
+    }
+
+    if (typedCharacter === '@' && projectPath?.trim()) {
+      filePickerOpen = true;
+      setShowFilePicker(true);
+      setFilePickerQuery("");
+    }
+
+    if (typedCharacter === ':' && isAtWordStart) {
+      skillPickerOpen = true;
+      setShowSkillPicker(true);
+      setSkillQuery("");
+    }
+
+    if (slashPickerOpen) {
+      let slashPosition = -1;
+      for (let i = newCursorPosition - 1; i >= 0; i--) {
+        if (newValue[i] === '/') {
+          slashPosition = i;
+          break;
         }
+        if (newValue[i] === ' ' || newValue[i] === '\n') break;
       }
 
-      // Check if @ was just typed
-      if (projectPath?.trim() && newValue.length > prompt.length && newValue[newCursorPosition - 1] === '@') {
-        console.log('[FloatingPromptInput] @ detected, projectPath:', projectPath);
-        setShowFilePicker(true);
+      if (slashPosition !== -1) {
+        setSlashCommandQuery(newValue.substring(slashPosition + 1, newCursorPosition));
+      } else {
+        setShowSlashCommandPicker(false);
+        setSlashCommandQuery("");
+      }
+    }
+
+    if (filePickerOpen) {
+      let atPosition = -1;
+      for (let i = newCursorPosition - 1; i >= 0; i--) {
+        if (newValue[i] === '@') {
+          atPosition = i;
+          break;
+        }
+        if (newValue[i] === ' ' || newValue[i] === '\n') break;
+      }
+
+      if (atPosition !== -1) {
+        setFilePickerQuery(newValue.substring(atPosition + 1, newCursorPosition));
+      } else {
+        setShowFilePicker(false);
         setFilePickerQuery("");
       }
+    }
 
-      // Check if : was just typed at the beginning of input or after whitespace
-      if (newValue.length > prompt.length && newValue[newCursorPosition - 1] === ':') {
-        // Check if it's at the start or after whitespace
-        const isStartOfSkill = newCursorPosition === 1 ||
-          (newCursorPosition > 1 && /\s/.test(newValue[newCursorPosition - 2]));
-
-        if (isStartOfSkill) {
-          console.log('[FloatingPromptInput] : detected for skill picker');
-          setShowSkillPicker(true);
-          setSkillQuery("");
+    if (skillPickerOpen) {
+      let colonPosition = -1;
+      for (let i = newCursorPosition - 1; i >= 0; i--) {
+        if (newValue[i] === ':') {
+          colonPosition = i;
+          break;
         }
+        if (newValue[i] === ' ' || newValue[i] === '\n') break;
       }
 
-      // Check if we're typing after / (for slash command search)
-      if (showSlashCommandPicker) {
-        // Find the / position before cursor
-        let slashPosition = -1;
-        for (let i = newCursorPosition - 1; i >= 0; i--) {
-          if (newValue[i] === '/') {
-            slashPosition = i;
-            break;
-          }
-          // Stop if we hit whitespace (new word)
-          if (newValue[i] === ' ' || newValue[i] === '\n') {
-            break;
-          }
-        }
-
-        if (slashPosition !== -1) {
-          const query = newValue.substring(slashPosition + 1, newCursorPosition);
-          setSlashCommandQuery(query);
-        } else {
-          // / was removed or cursor moved away
-          setShowSlashCommandPicker(false);
-          setSlashCommandQuery("");
-        }
+      if (colonPosition !== -1) {
+        setSkillQuery(newValue.substring(colonPosition + 1, newCursorPosition));
+      } else {
+        setShowSkillPicker(false);
+        setSkillQuery("");
       }
-
-      // Check if we're typing after @ (for search query) - handles both typing and deletion
-      if (showFilePicker) {
-        // Find the @ position before cursor
-        let atPosition = -1;
-        for (let i = newCursorPosition - 1; i >= 0; i--) {
-          if (newValue[i] === '@') {
-            atPosition = i;
-            break;
-          }
-          // Stop if we hit whitespace (new word)
-          if (newValue[i] === ' ' || newValue[i] === '\n') {
-            break;
-          }
-        }
-
-        if (atPosition !== -1) {
-          const query = newValue.substring(atPosition + 1, newCursorPosition);
-          setFilePickerQuery(query);
-        } else {
-          // @ was removed or cursor moved away
-          setShowFilePicker(false);
-          setFilePickerQuery("");
-        }
-      }
-
-      // Check if we're typing after : (for skill search)
-      if (showSkillPicker) {
-        // Find the : position before cursor
-        let colonPosition = -1;
-        for (let i = newCursorPosition - 1; i >= 0; i--) {
-          if (newValue[i] === ':') {
-            colonPosition = i;
-            break;
-          }
-          // Stop if we hit whitespace (new word)
-          if (newValue[i] === ' ' || newValue[i] === '\n') {
-            break;
-          }
-        }
-
-        if (colonPosition !== -1) {
-          const query = newValue.substring(colonPosition + 1, newCursorPosition);
-          setSkillQuery(query);
-        } else {
-          // : was removed or cursor moved away
-          setShowSkillPicker(false);
-          setSkillQuery("");
-        }
-      }
-    });
+    }
   };
 
   const handleFileSelect = (entry: main.FileEntry) => {

@@ -26,7 +26,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { api, listen, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { StreamMessage } from "./StreamMessage";
+import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
 import { buildSubagentProgress, isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 
@@ -287,6 +287,11 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       return true;
     });
   }, [messages, subagentProgress.subagentMessageIndexes]);
+
+  const streamMessageContext = React.useMemo(
+    () => buildStreamMessageContext(messages),
+    [messages]
+  );
 
   const streamItems = React.useMemo(
     () => subagentProgress.subagents.length > 0 ? [subagentPanelItem, ...displayableMessages] : displayableMessages,
@@ -924,7 +929,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                           agentOutputMap={agentOutputMap}
                         />
                       ) : (
-                        <StreamMessage message={item} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                        <StreamMessage message={item} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                       )}
                     </ErrorBoundary>
                   </motion.div>
@@ -1062,7 +1067,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                           agentOutputMap={agentOutputMap}
                         />
                       ) : (
-                        <StreamMessage message={item} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                        <StreamMessage message={item} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                       )}
                     </ErrorBoundary>
                   </motion.div>

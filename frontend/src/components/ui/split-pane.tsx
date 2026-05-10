@@ -62,6 +62,17 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
   const dragStartSplit = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
 
+  const clampSplitPosition = useCallback((position: number, containerWidth: number) => {
+    if (containerWidth <= 0) return position;
+    if (containerWidth <= minLeftWidth + minRightWidth) {
+      return (minLeftWidth / (minLeftWidth + minRightWidth)) * 100;
+    }
+
+    const minSplit = (minLeftWidth / containerWidth) * 100;
+    const maxSplit = 100 - (minRightWidth / containerWidth) * 100;
+    return Math.min(Math.max(position, minSplit), maxSplit);
+  }, [minLeftWidth, minRightWidth]);
+
   // Handle mouse down on divider
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -85,16 +96,11 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
       const deltaX = e.clientX - dragStartX.current;
       const deltaPercent = (deltaX / containerWidth) * 100;
       const newSplit = dragStartSplit.current + deltaPercent;
-
-      // Calculate min/max based on pixel constraints
-      const minSplit = (minLeftWidth / containerWidth) * 100;
-      const maxSplit = 100 - (minRightWidth / containerWidth) * 100;
-
-      const clampedSplit = Math.min(Math.max(newSplit, minSplit), maxSplit);
+      const clampedSplit = clampSplitPosition(newSplit, containerWidth);
       setSplitPosition(clampedSplit);
       onSplitChange?.(clampedSplit);
     });
-  }, [isDragging, minLeftWidth, minRightWidth, onSplitChange]);
+  }, [clampSplitPosition, isDragging, onSplitChange]);
 
   // Handle mouse up
   const handleMouseUp = useCallback(() => {
@@ -118,14 +124,32 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
     }
   }, [isDragging, handleMouseMove, handleMouseUp]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') return;
+
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry.contentRect.width;
+      setSplitPosition((current) => {
+        const clamped = clampSplitPosition(current, width);
+        if (clamped === current) return current;
+        onSplitChange?.(clamped);
+        return clamped;
+      });
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [clampSplitPosition, onSplitChange]);
+
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!containerRef.current) return;
 
     const step = e.shiftKey ? 10 : 2; // Larger steps with shift
     const containerWidth = containerRef.current.offsetWidth;
-    const minSplit = (minLeftWidth / containerWidth) * 100;
-    const maxSplit = 100 - (minRightWidth / containerWidth) * 100;
+    const minSplit = clampSplitPosition(0, containerWidth);
+    const maxSplit = clampSplitPosition(100, containerWidth);
 
     let newSplit = splitPosition;
 

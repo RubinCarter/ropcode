@@ -1,7 +1,7 @@
-import React, { useRef, useState, useCallback, useEffect } from 'react';
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
-import { StreamMessage } from '../StreamMessage';
+import { StreamMessage, buildStreamMessageContext } from '../StreamMessage';
 import { Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ClaudeStreamMessage } from '../AgentExecution';
@@ -23,6 +23,7 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
 }) => {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [atBottom, setAtBottom] = useState(true);
+  const streamMessageContext = useMemo(() => buildStreamMessageContext(messages), [messages]);
 
   // Force Virtuoso to re-measure when page becomes visible or fullscreen changes.
   // Uses Electron's push-based fullscreen event instead of resize polling to avoid
@@ -138,6 +139,7 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
             <StreamMessage
               message={message}
               streamMessages={messages}
+              streamContext={streamMessageContext}
               onLinkDetected={onLinkDetected}
             />
           </motion.div>

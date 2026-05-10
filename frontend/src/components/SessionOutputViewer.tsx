@@ -9,7 +9,7 @@ import { Popover } from '@/components/ui/popover';
 import { api, listen } from '@/lib/api';
 import { useOutputCache } from '@/lib/outputCache';
 import type { AgentRun } from '@/lib/api';
-import { StreamMessage } from './StreamMessage';
+import { StreamMessage, buildStreamMessageContext } from './StreamMessage';
 import { SubagentProgressPanel } from './SubagentProgressPanel';
 import { buildSubagentProgress, isSubagentEnvelopeMessage } from '@/lib/subagentProgress';
 import { useSubagentTranscriptSync } from '@/hooks';
@@ -407,6 +407,11 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     refreshKey: session.status,
   });
 
+  const streamMessageContext = useMemo(
+    () => buildStreamMessageContext(messages),
+    [messages]
+  );
+
   const displayableMessages = useMemo(() => {
     return messages.filter((message, index) => {
       if (subagentProgress.subagentMessageIndexes.has(index)) return false;
@@ -622,7 +627,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                           transition={{ duration: 0.2 }}
                         >
                           <ErrorBoundary>
-                            <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                            <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                           </ErrorBoundary>
                         </motion.div>
                       ))}
@@ -760,7 +765,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                         transition={{ duration: 0.2 }}
                       >
                         <ErrorBoundary>
-                          <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                          <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                         </ErrorBoundary>
                       </motion.div>
                     ))}

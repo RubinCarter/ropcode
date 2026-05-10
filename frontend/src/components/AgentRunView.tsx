@@ -17,7 +17,7 @@ import { Popover } from "@/components/ui/popover";
 import { api, type AgentRunWithMetrics } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatISOTimestamp } from "@/lib/date-utils";
-import { StreamMessage } from "./StreamMessage";
+import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
 import { buildSubagentProgress, isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 import { AGENT_ICONS } from "./CCAgents";
@@ -88,6 +88,11 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
       return true;
     }),
     [messages, subagentProgress.subagentMessageIndexes]
+  );
+
+  const streamMessageContext = React.useMemo(
+    () => buildStreamMessageContext(messages),
+    [messages]
   );
 
   const agentOutputMap = React.useMemo(() => {
@@ -475,7 +480,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
                 transition={{ duration: 0.2, delay: index * 0.02 }}
               >
                 <ErrorBoundary>
-                  <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                  <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                 </ErrorBoundary>
               </motion.div>
             ))}

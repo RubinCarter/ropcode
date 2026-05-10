@@ -40,3 +40,12 @@ test('does not reserve Shift Tab for cycling thinking mode', async () => {
   assert.doesNotMatch(source, /e\.key === 'Tab' &&[\s\S]*e\.shiftKey[\s\S]*setSelectedThinkingMode/);
   assert.doesNotMatch(source, /setSelectedThinkingMode\(nextMode\.id\);/);
 });
+
+test('opens slash file and skill pickers without low priority transition', async () => {
+  const source = await readSource();
+
+  assert.doesNotMatch(source, /startTransition/);
+  assert.match(source, /if \(typedCharacter === '\/' && isAtWordStart\) \{[\s\S]*setShowSlashCommandPicker\(true\);/);
+  assert.match(source, /if \(typedCharacter === '@' && projectPath\?\.trim\(\)\) \{[\s\S]*setShowFilePicker\(true\);/);
+  assert.match(source, /if \(typedCharacter === ':' && isAtWordStart\) \{[\s\S]*setShowSkillPicker\(true\);/);
+});

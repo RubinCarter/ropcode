@@ -19,7 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Toast, ToastContainer } from '@/components/ui/toast';
 import { Popover } from '@/components/ui/popover';
 import { api, listen, type AgentRunWithMetrics } from '@/lib/api';
-import { StreamMessage } from './StreamMessage';
+import { StreamMessage, buildStreamMessageContext } from './StreamMessage';
 import { SubagentProgressPanel } from './SubagentProgressPanel';
 import { buildSubagentProgress, isSubagentEnvelopeMessage } from '@/lib/subagentProgress';
 import { useSubagentTranscriptSync } from '@/hooks';
@@ -471,6 +471,11 @@ export function AgentRunOutputViewer({
     loadOutput();
   }, [run?.id]);
 
+  const streamMessageContext = useMemo(
+    () => buildStreamMessageContext(messages),
+    [messages]
+  );
+
   const displayableMessages = useMemo(() => {
     return messages.filter((message, index) => {
       if (subagentProgress.subagentMessageIndexes.has(index)) return false;
@@ -715,7 +720,7 @@ export function AgentRunOutputViewer({
                       transition={{ duration: 0.2 }}
                     >
                       <ErrorBoundary>
-                        <StreamMessage message={message} streamMessages={messages} agentOutputMap={agentOutputMap} />
+                        <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                       </ErrorBoundary>
                     </motion.div>
                   ))}
@@ -836,7 +841,7 @@ export function AgentRunOutputViewer({
                         transition={{ duration: 0.2 }}
                       >
                         <ErrorBoundary>
-                          <StreamMessage message={message} streamMessages={messages} />
+                          <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                         </ErrorBoundary>
                       </motion.div>
                     ))}

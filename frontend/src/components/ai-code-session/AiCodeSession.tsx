@@ -26,7 +26,7 @@ import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws-rpc-client";
 import { providers } from "@/lib/providers";
 import { cn } from "@/lib/utils";
-import { StreamMessage } from "../StreamMessage";
+import { StreamMessage, buildStreamMessageContext } from "../StreamMessage";
 import { SubagentProgressPanel } from "../SubagentProgressPanel";
 import { FloatingPromptInput, type FloatingPromptInputRef } from "../FloatingPromptInput";
 import { SessionStatusBar } from "./SessionStatusBar";
@@ -1435,6 +1435,11 @@ ${message ? `**说明**:\n${message}` : ''}`;
   // RENDER - Message List
   // ==================================================================
 
+  const streamMessageContext = React.useMemo(
+    () => buildStreamMessageContext(messagesState.messages),
+    [messagesState.messages]
+  );
+
   const streamItems = React.useMemo(() => {
     const subagentIndexes = messagesState.subagentProgress.subagents.flatMap((subagent) =>
       Array.from(subagent.messageIndexes)
@@ -1521,6 +1526,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
               <StreamMessage
                 message={item.message}
                 streamMessages={messagesState.messages}
+                streamContext={streamMessageContext}
                 onLinkDetected={handleLinkDetected}
                 agentOutputMap={messagesState.agentOutputMap}
               />

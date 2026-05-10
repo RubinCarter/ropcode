@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Terminal,
   User,
@@ -49,12 +49,55 @@ import {
 import { getUserMessagePresentation } from "./ai-code-session/utils/messagePresentation";
 import { summarizeRuntimeMessage } from "./ai-code-session/utils/runtimePresentation";
 
+export interface StreamMessageContext {
+  toolResults: Map<string, any>;
+  cwd: string;
+  toolUseNamesById: Map<string, string>;
+  readToolPathsById: Map<string, string>;
+}
+
 interface StreamMessageProps {
   message: ClaudeStreamMessage;
   className?: string;
   streamMessages: ClaudeStreamMessage[];
+  streamContext?: StreamMessageContext;
   onLinkDetected?: (url: string) => void;
   agentOutputMap?: Map<string, any>;
+}
+
+export function buildStreamMessageContext(streamMessages: ClaudeStreamMessage[]): StreamMessageContext {
+  const toolResults = new Map<string, any>();
+  const toolUseNamesById = new Map<string, string>();
+  const readToolPathsById = new Map<string, string>();
+  let cwd = "";
+
+  streamMessages.forEach((msg) => {
+    if (msg.type === "system" && msg.subtype === "init" && msg.cwd) {
+      cwd = msg.cwd;
+    }
+
+    if (msg.type === "assistant" && msg.message?.content && Array.isArray(msg.message.content)) {
+      msg.message.content.forEach((content: any) => {
+        if (content.type === "tool_use" && content.id) {
+          const toolName = String(content.name ?? "").toLowerCase();
+          toolUseNamesById.set(content.id, toolName);
+          if (toolName === "read" && content.input?.file_path) {
+            readToolPathsById.set(content.id, content.input.file_path);
+          }
+        }
+      });
+    }
+
+    if (msg.type === "user" && msg.message?.content && Array.isArray(msg.message.content)) {
+      msg.message.content.forEach((content: any) => {
+        if (content.type === "tool_result" && content.tool_use_id) {
+          toolResults.set(content.tool_use_id, content);
+        }
+      });
+    }
+  });
+
+  return { toolResults, cwd, toolUseNamesById, readToolPathsById };
 }
 
 interface CollapsibleTextCardProps {
@@ -292,9 +335,11 @@ function formatEventDetails(message: ClaudeStreamMessage): string {
 /**
  * Component to render a single Claude Code stream message
  */
-const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, className, streamMessages, onLinkDetected, agentOutputMap }) => {
-  // State to track tool results mapped by tool call ID
-  const [toolResults, setToolResults] = useState<Map<string, any>>(new Map());
+const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, className, streamMessages, streamContext, onLinkDetected, agentOutputMap }) => {
+  const fallbackStreamContext = useMemo(() => buildStreamMessageContext(streamMessages), [streamMessages]);
+  const sharedStreamContext = streamContext ?? fallbackStreamContext;
+  const toolResults = sharedStreamContext.toolResults;
+  const cwd = sharedStreamContext.cwd;
 
   // State to track expanded tool results
   const [expandedToolResults, setExpandedToolResults] = useState<Set<number>>(new Set());
@@ -306,9 +351,6 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
   const { theme } = useTheme();
   const syntaxTheme = getClaudeSyntaxTheme(theme);
   
-  // State to store current working directory from system init
-  const [cwd, setCwd] = useState<string>("");
-
   // State to store Claude Code agents
   const [agents, setAgents] = useState<Map<string, { color?: string; icon?: string }>>(new Map());
 
@@ -330,29 +372,6 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
     });
   }, []);
 
-  // Extract all tool results and cwd from stream messages
-  useEffect(() => {
-    const results = new Map<string, any>();
-
-    // Iterate through all messages to find tool results and cwd
-    streamMessages.forEach(msg => {
-      // Extract cwd from system init message
-      if (msg.type === "system" && msg.subtype === "init" && msg.cwd) {
-        setCwd(msg.cwd);
-      }
-
-      if (msg.type === "user" && msg.message?.content && Array.isArray(msg.message.content)) {
-        msg.message.content.forEach((content: any) => {
-          if (content.type === "tool_result" && content.tool_use_id) {
-            results.set(content.tool_use_id, content);
-          }
-        });
-      }
-    });
-
-    setToolResults(results);
-  }, [streamMessages]);
-  
   // Helper to get tool result for a specific tool call ID
   const getToolResult = (toolId: string | undefined): any => {
     if (!toolId) return null;
@@ -807,20 +826,11 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                   if (content.type === "tool_result") {
                     // Skip duplicate tool_result if a dedicated widget is present
                     let hasCorrespondingWidget = false;
-                    if (content.tool_use_id && streamMessages) {
-                      for (let i = streamMessages.length - 1; i >= 0; i--) {
-                        const prevMsg = streamMessages[i];
-                        if (prevMsg.type === 'assistant' && prevMsg.message?.content && Array.isArray(prevMsg.message.content)) {
-                          const toolUse = prevMsg.message.content.find((c: any) => c.type === 'tool_use' && c.id === content.tool_use_id);
-                          if (toolUse) {
-                            const toolName = toolUse.name?.toLowerCase();
-                            const toolsWithWidgets = ['task','edit','multiedit','todowrite','todoread','ls','read','glob','bash','write','grep','websearch','webfetch','agentoutputtool'];
-                            if (toolsWithWidgets.includes(toolName) || toolUse.name?.startsWith('mcp__')) {
-                              hasCorrespondingWidget = true;
-                            }
-                            break;
-                          }
-                        }
+                    if (content.tool_use_id) {
+                      const toolName = sharedStreamContext.toolUseNamesById.get(content.tool_use_id);
+                      const toolsWithWidgets = ['task','edit','multiedit','todowrite','todoread','ls','read','glob','bash','write','grep','websearch','webfetch','agentoutputtool'];
+                      if (toolName && (toolsWithWidgets.includes(toolName) || toolName.startsWith('mcp__'))) {
+                        hasCorrespondingWidget = true;
                       }
                     }
 
@@ -978,37 +988,12 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                     // Check if this is an LS tool result (directory tree structure)
                     const isLSResult = (() => {
                       if (!content.tool_use_id || typeof contentText !== 'string') return false;
-                      
-                      // Check if this result came from an LS tool by looking for the tool call
-                      let isFromLSTool = false;
-                      
-                      // Search in previous assistant messages for the matching tool_use
-                      if (streamMessages) {
-                        for (let i = streamMessages.length - 1; i >= 0; i--) {
-                          const prevMsg = streamMessages[i];
-                          // Only check assistant messages
-                          if (prevMsg.type === 'assistant' && prevMsg.message?.content && Array.isArray(prevMsg.message.content)) {
-                            const toolUse = prevMsg.message.content.find((c: any) => 
-                              c.type === 'tool_use' && 
-                              c.id === content.tool_use_id &&
-                              c.name?.toLowerCase() === 'ls'
-                            );
-                            if (toolUse) {
-                              isFromLSTool = true;
-                              break;
-                            }
-                          }
-                        }
-                      }
-                      
-                      // Only proceed if this is from an LS tool
-                      if (!isFromLSTool) return false;
-                      
-                      // Additional validation: check for tree structure pattern
+                      if (sharedStreamContext.toolUseNamesById.get(content.tool_use_id) !== 'ls') return false;
+
                       const lines = contentText.split('\n');
                       const hasTreeStructure = lines.some(line => /^\s*-\s+/.test(line));
                       const hasNoteAtEnd = lines.some(line => line.trim().startsWith('NOTE: do any of the files'));
-                      
+
                       return hasTreeStructure || hasNoteAtEnd;
                     })();
                     
@@ -1030,28 +1015,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                       /^\s*\d+→/.test(contentText);
                     
                     if (isReadResult) {
-                      // Try to find the corresponding Read tool call to get the file path
-                      let filePath: string | undefined;
-                      
-                      // Search in previous assistant messages for the matching tool_use
-                      if (streamMessages) {
-                        for (let i = streamMessages.length - 1; i >= 0; i--) {
-                          const prevMsg = streamMessages[i];
-                          // Only check assistant messages
-                          if (prevMsg.type === 'assistant' && prevMsg.message?.content && Array.isArray(prevMsg.message.content)) {
-                            const toolUse = prevMsg.message.content.find((c: any) => 
-                              c.type === 'tool_use' && 
-                              c.id === content.tool_use_id &&
-                              c.name?.toLowerCase() === 'read'
-                            );
-                            if (toolUse?.input?.file_path) {
-                              filePath = toolUse.input.file_path;
-                              break;
-                            }
-                          }
-                        }
-                      }
-                      
+                      const filePath = sharedStreamContext.readToolPathsById.get(content.tool_use_id);
+
                       renderedSomething = true;
                       return (
                         <div key={idx} className="space-y-2">
