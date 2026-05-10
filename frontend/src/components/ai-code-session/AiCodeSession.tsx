@@ -37,7 +37,7 @@ import { TooltipProvider, TooltipSimple } from "@/components/ui/tooltip-modern";
 import { SplitPane } from "@/components/ui/split-pane";
 import { WebviewPreview } from "../WebviewPreview";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
-import { useTrackEvent, useComponentMetrics, useWorkflowTracking } from "@/hooks";
+import { useTrackEvent, useComponentMetrics, useWorkflowTracking, useSubagentTranscriptSync } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
 import { STOP_STATUS_BUBBLE_DURATION_MS, getStopStatusBubbleState, shouldCompleteStopStatusBubble } from "./utils/stopStatusBubble";
@@ -163,24 +163,31 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const refreshCurrentSubagentTranscripts = useCallback(async (sessionIdOverride?: string | null) => {
     const sessionInfo = sessionState.extractedSessionInfoRef.current;
     const initMessage = messagesState.messagesRef.current.find((message) => message.type === 'system' && message.subtype === 'init') as any;
-    const realSessionId = sessionInfo?.claudeSessionId || initMessage?.claude_session_id || initMessage?.sessionId || sessionInfo?.sessionId;
+    const realSessionId = sessionInfo?.claudeSessionId || initMessage?.claude_session_id || initMessage?.sessionId || initMessage?.session_id || sessionInfo?.sessionId;
     const sessionId = realSessionId || sessionIdOverride || sessionState.claudeSessionIdRef.current;
     const projectId = sessionInfo?.projectId || (initMessage?.cwd || sessionState.projectPathRef.current || '').replace(/[^a-zA-Z0-9]/g, '-');
     await refreshSubagentTranscripts(sessionId, projectId);
   }, [messagesState.messagesRef, refreshSubagentTranscripts, sessionState.claudeSessionIdRef, sessionState.extractedSessionInfoRef, sessionState.projectPathRef]);
 
-  useEffect(() => {
-    if (defaultProvider !== 'claude') return;
-    if (messagesState.subagentProgress.subagents.length === 0) return;
-    if (Object.keys(messagesState.subagentTranscripts).length > 0) return;
+  const liveSubagentSessionInfo = React.useMemo(() => {
+    const sessionInfo = sessionState.extractedSessionInfo;
+    const initMessage = messagesState.messages.find((message) => message.type === 'system' && message.subtype === 'init') as any;
+    const realSessionId = sessionInfo?.claudeSessionId || initMessage?.claude_session_id || initMessage?.sessionId || initMessage?.session_id || sessionInfo?.sessionId;
+    const sessionId = realSessionId || sessionState.claudeSessionId;
+    const projectId = sessionInfo?.projectId || (initMessage?.cwd || sessionState.projectPath || '').replace(/[^a-zA-Z0-9]/g, '-');
 
-    void refreshCurrentSubagentTranscripts();
-  }, [
-    defaultProvider,
-    messagesState.subagentProgress.subagents.length,
-    messagesState.subagentTranscripts,
-    refreshCurrentSubagentTranscripts,
-  ]);
+    return { sessionId, projectId };
+  }, [messagesState.messages, sessionState.claudeSessionId, sessionState.extractedSessionInfo, sessionState.projectPath]);
+
+  useSubagentTranscriptSync({
+    sessionId: liveSubagentSessionInfo.sessionId,
+    projectId: liveSubagentSessionInfo.projectId,
+    enabled: defaultProvider === 'claude',
+    active: processState.isLoading,
+    subagentProgress: messagesState.subagentProgress,
+    setSubagentTranscripts: messagesState.setSubagentTranscripts,
+    refreshKey: `${processState.isLoading}:${processState.interactiveSessionId ?? ''}`,
+  });
 
   // Session events - depends on all other hooks
   // Note: eventsState sets up event listeners internally, doesn't need to be used explicitly
@@ -1301,6 +1308,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         timestamp: new Date().toISOString()
       };
       messagesState.addMessage(cancelMessage);
+      void refreshCurrentSubagentTranscripts();
     } catch (err) {
       console.error("Failed to cancel execution:", err);
 

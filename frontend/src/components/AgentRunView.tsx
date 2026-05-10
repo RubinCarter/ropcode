@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { formatISOTimestamp } from "@/lib/date-utils";
 import { StreamMessage } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
-import { buildSubagentProgress } from "@/lib/subagentProgress";
+import { buildSubagentProgress, isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 import { AGENT_ICONS } from "./CCAgents";
 import type { ClaudeStreamMessage } from "./AgentExecution";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -82,7 +82,11 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
     [messages, subagentTranscripts]
   );
   const displayableMessages = React.useMemo(
-    () => messages.filter((_, index) => !subagentProgress.subagentMessageIndexes.has(index)),
+    () => messages.filter((message, index) => {
+      if (subagentProgress.subagentMessageIndexes.has(index)) return false;
+      if (isSubagentEnvelopeMessage(message)) return false;
+      return true;
+    }),
     [messages, subagentProgress.subagentMessageIndexes]
   );
 

@@ -22,6 +22,11 @@ export interface TokenUsage {
 
 export type SubagentStatus = "running" | "completed" | "failed" | "unknown";
 
+export function isSubagentEnvelopeMessage(message: ClaudeStreamMessageLike): boolean {
+  const runtimeMessage = message as any;
+  return runtimeMessage.isSidechain === true || runtimeMessage.parent_tool_use_id != null || Boolean(runtimeMessage.agentId || runtimeMessage.agent_id);
+}
+
 export interface SubagentProgress {
   id: string;
   label: string;
@@ -95,7 +100,7 @@ function countToolUses(message: ClaudeStreamMessageLike): number {
 }
 
 function shouldHideGroupedMessage(message: ClaudeStreamMessageLike): boolean {
-  if (message.type === "system" && message.subtype === "task_progress") return true;
+  if (message.type === "system" && (message.subtype === "task_progress" || message.subtype === "task_started")) return true;
 
   const content = message.message?.content ?? message.content;
   if (!Array.isArray(content) || content.length === 0) return false;
@@ -303,7 +308,7 @@ function applyTaskProgressEvent(
   index: number,
   toolUseToSubagentId: Map<string, string>,
 ): boolean {
-  if (message.type !== "system" || message.subtype !== "task_progress" || !message.task_id) {
+  if (message.type !== "system" || !message.task_id || (message.subtype !== "task_progress" && message.subtype !== "task_started")) {
     return false;
   }
 

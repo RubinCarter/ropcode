@@ -11,7 +11,8 @@ import { useOutputCache } from '@/lib/outputCache';
 import type { AgentRun } from '@/lib/api';
 import { StreamMessage } from './StreamMessage';
 import { SubagentProgressPanel } from './SubagentProgressPanel';
-import { buildSubagentProgress } from '@/lib/subagentProgress';
+import { buildSubagentProgress, isSubagentEnvelopeMessage } from '@/lib/subagentProgress';
+import { useSubagentTranscriptSync } from '@/hooks';
 
 type UnlistenFn = () => void;
 import { ErrorBoundary } from './ErrorBoundary';
@@ -57,24 +58,28 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const { getCachedOutput, setCachedOutput } = useOutputCache();
 
-  const projectId = useMemo(
-    () => session.project_path?.replace(/[^a-zA-Z0-9]/g, '-') || '',
-    [session.project_path]
-  );
+  const liveSubagentSessionInfo = useMemo(() => {
+    const initMessage = messages.find((message) => message.type === 'system' && message.subtype === 'init');
+    const sessionId = initMessage?.claude_session_id || initMessage?.session_id || initMessage?.sessionId || session.session_id || '';
+    const sourceProjectPath = initMessage?.cwd || session.project_path;
+    const projectId = sourceProjectPath ? sourceProjectPath.replace(/[^a-zA-Z0-9]/g, '-') : '';
+
+    return { sessionId, projectId };
+  }, [messages, session.project_path, session.session_id]);
 
   const refreshSubagentTranscripts = useCallback(async () => {
-    if (!session.session_id || !projectId) {
+    if (!liveSubagentSessionInfo.sessionId || !liveSubagentSessionInfo.projectId) {
       setSubagentTranscripts({});
       return;
     }
 
     try {
-      const transcripts = await api.loadSubagentTranscripts(session.session_id, projectId);
+      const transcripts = await api.loadSubagentTranscripts(liveSubagentSessionInfo.sessionId, liveSubagentSessionInfo.projectId);
       setSubagentTranscripts(transcripts || {});
     } catch (err) {
       console.warn('[SessionOutputViewer] Failed to load subagent transcripts:', err);
     }
-  }, [projectId, session.session_id]);
+  }, [liveSubagentSessionInfo.projectId, liveSubagentSessionInfo.sessionId]);
 
   // Build agentId → AgentOutputTool result mapping
   const agentOutputMap = useMemo(() => {
@@ -287,6 +292,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
 
       const cancelUnlisten = listen(`agent-cancelled:${session.id}`, () => {
         setToast({ message: 'Agent execution was cancelled', type: 'error' });
+        void refreshSubagentTranscripts();
       });
 
       unlistenRefs.current = [outputUnlisten, errorUnlisten, completeUnlisten, cancelUnlisten];
@@ -392,9 +398,19 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     [messages, subagentTranscripts]
   );
 
+  useSubagentTranscriptSync({
+    sessionId: liveSubagentSessionInfo.sessionId,
+    projectId: liveSubagentSessionInfo.projectId,
+    active: session.status === 'running',
+    subagentProgress,
+    setSubagentTranscripts,
+    refreshKey: session.status,
+  });
+
   const displayableMessages = useMemo(() => {
     return messages.filter((message, index) => {
       if (subagentProgress.subagentMessageIndexes.has(index)) return false;
+      if (isSubagentEnvelopeMessage(message)) return false;
       if (message.isMeta && !message.leafUuid && !message.summary) return false;
 
       if (message.type === "user" && message.message) {
@@ -416,7 +432,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                     const toolUse = prevMsg.message.content.find((c: any) => c.type === 'tool_use' && c.id === content.tool_use_id);
                     if (toolUse) {
                       const toolName = toolUse.name?.toLowerCase();
-                      const toolsWithWidgets = ['task','edit','multiedit','todowrite','ls','read','glob','bash','write','grep'];
+                      const toolsWithWidgets = ['task','edit','multiedit','todowrite','ls','read','glob','bash','write','grep','agentoutputtool'];
                       if (toolsWithWidgets.includes(toolName) || toolUse.name?.startsWith('mcp__')) {
                         willBeSkipped = true;
                       }

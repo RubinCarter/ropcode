@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Maximize2,
@@ -20,6 +20,9 @@ import { Toast, ToastContainer } from '@/components/ui/toast';
 import { Popover } from '@/components/ui/popover';
 import { api, listen, type AgentRunWithMetrics } from '@/lib/api';
 import { StreamMessage } from './StreamMessage';
+import { SubagentProgressPanel } from './SubagentProgressPanel';
+import { buildSubagentProgress, isSubagentEnvelopeMessage } from '@/lib/subagentProgress';
+import { useSubagentTranscriptSync } from '@/hooks';
 
 type UnlistenFn = () => void;
 import { ErrorBoundary } from './ErrorBoundary';
@@ -66,6 +69,7 @@ export function AgentRunOutputViewer({
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
   const [hasUserScrolled, setHasUserScrolled] = useState(false);
+  const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
 
   // Use message window for memory-efficient message loading
   const {
@@ -77,6 +81,43 @@ export function AgentRunOutputViewer({
   } = useMessageWindow({
     runId: parseInt(agentRunId),
     enabled: !!agentRunId,
+  });
+
+  const liveSubagentSessionInfo = useMemo(() => {
+    const initMessage = messages.find((message) => message.type === 'system' && message.subtype === 'init');
+    const sessionId = initMessage?.claude_session_id || initMessage?.session_id || initMessage?.sessionId || run?.session_id || '';
+    const sourceProjectPath = initMessage?.cwd || run?.project_path;
+    const projectId = sourceProjectPath ? sourceProjectPath.replace(/[^a-zA-Z0-9]/g, '-') : '';
+
+    return { sessionId, projectId };
+  }, [messages, run?.project_path, run?.session_id]);
+
+  const refreshSubagentTranscripts = useCallback(async () => {
+    if (!liveSubagentSessionInfo.sessionId || !liveSubagentSessionInfo.projectId) {
+      setSubagentTranscripts({});
+      return;
+    }
+
+    try {
+      const transcripts = await api.loadSubagentTranscripts(liveSubagentSessionInfo.sessionId, liveSubagentSessionInfo.projectId);
+      setSubagentTranscripts(transcripts || {});
+    } catch (err) {
+      console.warn('[AgentRunOutputViewer] Failed to load subagent transcripts:', err);
+    }
+  }, [liveSubagentSessionInfo.projectId, liveSubagentSessionInfo.sessionId]);
+
+  const subagentProgress = useMemo(
+    () => buildSubagentProgress(messages, subagentTranscripts),
+    [messages, subagentTranscripts]
+  );
+
+  useSubagentTranscriptSync({
+    sessionId: liveSubagentSessionInfo.sessionId,
+    projectId: liveSubagentSessionInfo.projectId,
+    active: run?.status === 'running',
+    subagentProgress,
+    setSubagentTranscripts,
+    refreshKey: run?.status,
   });
 
   // Build agentId → AgentOutputTool result mapping
@@ -205,6 +246,10 @@ export function AgentRunOutputViewer({
     try {
       // useMessageWindow handles message loading automatically
       // We just need to set up live listeners for running sessions
+      if (liveSubagentSessionInfo.sessionId && liveSubagentSessionInfo.projectId) {
+        void refreshSubagentTranscripts();
+      }
+
       if (run.status === 'running') {
         console.log('[AgentRunOutputViewer] Setting up live listeners for running session');
         setupLiveEventListeners();
@@ -265,11 +310,13 @@ export function AgentRunOutputViewer({
 
       const completeUnlisten = listen(`agent-complete:${run!.id}`, () => {
         setToast({ message: 'Agent execution completed', type: 'success' });
+        void refreshSubagentTranscripts();
         // Don't set status here as the parent component should handle it
       });
 
       const cancelUnlisten = listen(`agent-cancelled:${run!.id}`, () => {
         setToast({ message: 'Agent execution was cancelled', type: 'error' });
+        void refreshSubagentTranscripts();
       });
 
       unlistenRefs.current = [outputUnlisten, errorUnlisten, completeUnlisten, cancelUnlisten];
@@ -425,7 +472,9 @@ export function AgentRunOutputViewer({
   }, [run?.id]);
 
   const displayableMessages = useMemo(() => {
-    return messages.filter((message) => {
+    return messages.filter((message, index) => {
+      if (subagentProgress.subagentMessageIndexes.has(index)) return false;
+      if (isSubagentEnvelopeMessage(message)) return false;
       if (message.isMeta && !message.leafUuid && !message.summary) return false;
 
       if (message.type === "user" && message.message) {
@@ -443,13 +492,13 @@ export function AgentRunOutputViewer({
               let willBeSkipped = false;
               if (content.tool_use_id) {
                 // Find the corresponding tool use
-                for (let i = messages.indexOf(message) - 1; i >= 0; i--) {
+                for (let i = index - 1; i >= 0; i--) {
                   const prevMsg = messages[i];
                   if (prevMsg.type === 'assistant' && prevMsg.message?.content && Array.isArray(prevMsg.message.content)) {
                     const toolUse = prevMsg.message.content.find((c: any) => c.type === 'tool_use' && c.id === content.tool_use_id);
                     if (toolUse) {
                       const toolName = toolUse.name?.toLowerCase();
-                      const toolsWithWidgets = ['task','edit','multiedit','todowrite','ls','read','glob','bash','write','grep'];
+                      const toolsWithWidgets = ['task','edit','multiedit','todowrite','ls','read','glob','bash','write','grep','agentoutputtool'];
                       if (toolsWithWidgets.includes(toolName) || toolUse.name?.startsWith('mcp__')) {
                         willBeSkipped = true;
                       }
@@ -466,7 +515,7 @@ export function AgentRunOutputViewer({
       }
       return true;
     });
-  }, [messages]);
+  }, [messages, subagentProgress.subagentMessageIndexes]);
 
   const renderIcon = (iconName: string) => {
     const Icon = AGENT_ICONS[iconName as keyof typeof AGENT_ICONS] || Bot;
@@ -644,6 +693,20 @@ export function AgentRunOutputViewer({
                 onScroll={handleScroll}
               >
                 <AnimatePresence>
+                  {subagentProgress.subagents.length > 0 && (
+                    <motion.div
+                      key="subagent-progress-panel"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <SubagentProgressPanel
+                        summary={subagentProgress}
+                        streamMessages={messages}
+                        agentOutputMap={agentOutputMap}
+                      />
+                    </motion.div>
+                  )}
                   {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
                     <motion.div
                       key={index}
@@ -751,6 +814,20 @@ export function AgentRunOutputViewer({
               ) : (
                 <>
                   <AnimatePresence>
+                    {subagentProgress.subagents.length > 0 && (
+                      <motion.div
+                        key="fullscreen-subagent-progress-panel"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <SubagentProgressPanel
+                          summary={subagentProgress}
+                          streamMessages={messages}
+                          agentOutputMap={agentOutputMap}
+                        />
+                      </motion.div>
+                    )}
                     {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
                       <motion.div
                         key={index}

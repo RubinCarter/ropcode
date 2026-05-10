@@ -28,14 +28,14 @@ import { api, listen, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StreamMessage } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
-import { buildSubagentProgress } from "@/lib/subagentProgress";
+import { buildSubagentProgress, isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 
 type UnlistenFn = () => void;
 import { ExecutionControlBar } from "./ExecutionControlBar";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { HooksEditor } from "./HooksEditor";
-import { useTrackEvent, useComponentMetrics, useFeatureAdoptionTracking } from "@/hooks";
+import { useTrackEvent, useComponentMetrics, useFeatureAdoptionTracking, useSubagentTranscriptSync } from "@/hooks";
 import { useTabState } from "@/hooks/useTabState";
 
 interface AgentExecutionProps {
@@ -99,6 +99,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   // Get tab state functions
   const { updateTabStatus } = useTabState();
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
+  const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
   
@@ -174,7 +175,44 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   }, [messages]);
 
   // Filter out messages that shouldn't be displayed
-  const subagentProgress = React.useMemo(() => buildSubagentProgress(messages), [messages]);
+  const subagentProgress = React.useMemo(
+    () => buildSubagentProgress(messages, subagentTranscripts),
+    [messages, subagentTranscripts]
+  );
+  const subagentSessionInfo = React.useMemo(() => {
+    const initMessage = messages.find((message) => message.type === 'system' && message.subtype === 'init');
+    const sessionId = initMessage?.claude_session_id || initMessage?.session_id || initMessage?.sessionId || '';
+    const sourceProjectPath = initMessage?.cwd || projectPath;
+    const projectId = sourceProjectPath ? sourceProjectPath.replace(/[^a-zA-Z0-9]/g, '-') : '';
+
+    return { sessionId, projectId };
+  }, [messages, projectPath]);
+  const subagentSessionInfoRef = useRef(subagentSessionInfo);
+  subagentSessionInfoRef.current = subagentSessionInfo;
+
+  const loadCurrentSubagentTranscripts = useCallback(async () => {
+    const { sessionId, projectId } = subagentSessionInfoRef.current;
+    if (!sessionId || !projectId) {
+      return;
+    }
+
+    try {
+      const transcripts = await api.loadSubagentTranscripts(sessionId, projectId);
+      setSubagentTranscripts(transcripts || {});
+    } catch (error) {
+      console.warn('[AgentExecution] Failed to load subagent transcripts:', error);
+    }
+  }, []);
+
+  useSubagentTranscriptSync({
+    sessionId: subagentSessionInfo.sessionId,
+    projectId: subagentSessionInfo.projectId,
+    active: isRunning,
+    subagentProgress,
+    setSubagentTranscripts,
+    refreshKey: runId,
+  });
+
   const subagentPanelItem = React.useMemo(
     () => ({ type: 'subagent-panel' as const, key: 'subagent-panel' }),
     []
@@ -185,6 +223,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       if (subagentProgress.subagentMessageIndexes.has(index)) {
         return false;
       }
+      if (isSubagentEnvelopeMessage(message)) return false;
       // Skip meta messages that don't have meaningful content
       if (message.isMeta && !message.leafUuid && !message.summary) {
         return false;
@@ -221,7 +260,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                       const toolName = toolUse.name?.toLowerCase();
                       const toolsWithWidgets = [
                         'task', 'edit', 'multiedit', 'todowrite', 'ls', 'read', 
-                        'glob', 'bash', 'write', 'grep'
+                        'glob', 'bash', 'write', 'grep', 'agentoutputtool'
                       ];
                       if (toolsWithWidgets.includes(toolName) || toolUse.name?.startsWith('mcp__')) {
                         willBeSkipped = true;
@@ -365,6 +404,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       }
       setExecutionStartTime(Date.now());
       setMessages([]);
+      setSubagentTranscripts({});
       setRunId(null);
       
       // Clear any existing listeners
@@ -411,6 +451,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       });
 
       const completeUnlisten = listen(`agent-complete:${executionRunId}`, (payload: boolean) => {
+        void loadCurrentSubagentTranscripts();
         setIsRunning(false);
         const duration = executionStartTime ? Date.now() - executionStartTime : undefined;
         setExecutionStartTime(null);
@@ -438,6 +479,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       });
 
       const cancelUnlisten = listen(`agent-cancelled:${executionRunId}`, () => {
+        void loadCurrentSubagentTranscripts();
         setIsRunning(false);
         setExecutionStartTime(null);
         setError("Agent execution was cancelled");

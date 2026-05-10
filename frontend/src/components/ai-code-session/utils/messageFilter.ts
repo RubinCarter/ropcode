@@ -6,6 +6,7 @@
  */
 
 import type { ClaudeStreamMessage } from "../types";
+import { isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 
 /**
  * Tools that have custom UI widgets and should hide their tool_result content
@@ -128,6 +129,7 @@ function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
     type?: string;
     hidden_by_default?: boolean;
     debug_meta?: { hidden_by_default?: boolean };
+    isSidechain?: boolean;
   };
 
   return (
@@ -153,6 +155,10 @@ function isDisplayableMessage(
   hiddenIndexes?: Set<number>
 ): boolean {
   if (hiddenIndexes?.has(index)) {
+    return false;
+  }
+
+  if (isSubagentEnvelopeMessage(message)) {
     return false;
   }
 
