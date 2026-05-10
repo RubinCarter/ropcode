@@ -332,12 +332,79 @@ function formatEventDetails(message: ClaudeStreamMessage): string {
   }
 }
 
+function getMessageContentBlocks(message: ClaudeStreamMessage): any[] {
+  const content = message.message?.content ?? (message as any).content;
+  return Array.isArray(content) ? content : [];
+}
+
+function getMessageToolUseIds(message: ClaudeStreamMessage): string[] {
+  return getMessageContentBlocks(message)
+    .filter((content) => content?.type === 'tool_use' && content.id)
+    .map((content) => content.id);
+}
+
+function getMessageToolResultIds(message: ClaudeStreamMessage): string[] {
+  return getMessageContentBlocks(message)
+    .filter((content) => content?.type === 'tool_result' && content.tool_use_id)
+    .map((content) => content.tool_use_id);
+}
+
+function getTaskAgentIds(message: ClaudeStreamMessage, context?: StreamMessageContext): string[] {
+  if (!context) return [];
+
+  return getMessageContentBlocks(message).flatMap((content) => {
+    if (content?.type !== 'tool_use' || String(content.name ?? '').toLowerCase() !== 'task' || !content.id) {
+      return [];
+    }
+
+    const result = context.toolResults.get(content.id);
+    const text = result?.content?.[0]?.text;
+    if (typeof text !== 'string') return [];
+
+    const match = text.match(/agentId:\s*([a-f0-9]+)/);
+    return match ? [match[1]] : [];
+  });
+}
+
+function streamMessagePropsAreEqual(prev: StreamMessageProps, next: StreamMessageProps): boolean {
+  if (prev.message !== next.message) return false;
+  if (prev.className !== next.className) return false;
+  if (prev.onLinkDetected !== next.onLinkDetected) return false;
+
+  const prevContext = prev.streamContext;
+  const nextContext = next.streamContext;
+  if (!prevContext || !nextContext) {
+    return prev.streamMessages === next.streamMessages && prev.agentOutputMap === next.agentOutputMap;
+  }
+  if (prevContext.cwd !== nextContext.cwd) return false;
+
+  const toolUseIds = getMessageToolUseIds(next.message);
+  for (const toolUseId of toolUseIds) {
+    if (prevContext.toolResults.get(toolUseId) !== nextContext.toolResults.get(toolUseId)) return false;
+  }
+
+  const toolResultIds = getMessageToolResultIds(next.message);
+  for (const toolResultId of toolResultIds) {
+    if (prevContext.toolUseNamesById.get(toolResultId) !== nextContext.toolUseNamesById.get(toolResultId)) return false;
+    if (prevContext.readToolPathsById.get(toolResultId) !== nextContext.readToolPathsById.get(toolResultId)) return false;
+  }
+
+  const agentIds = getTaskAgentIds(next.message, nextContext);
+  for (const agentId of agentIds) {
+    if (prev.agentOutputMap?.get(agentId) !== next.agentOutputMap?.get(agentId)) return false;
+  }
+
+  return true;
+}
+
 /**
  * Component to render a single Claude Code stream message
  */
 const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, className, streamMessages, streamContext, onLinkDetected, agentOutputMap }) => {
-  const fallbackStreamContext = useMemo(() => buildStreamMessageContext(streamMessages), [streamMessages]);
-  const sharedStreamContext = streamContext ?? fallbackStreamContext;
+  const sharedStreamContext = useMemo(
+    () => streamContext ?? buildStreamMessageContext(streamMessages),
+    [streamContext, streamMessages]
+  );
   const toolResults = sharedStreamContext.toolResults;
   const cwd = sharedStreamContext.cwd;
 
@@ -1320,4 +1387,4 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
   }
 };
 
-export const StreamMessage = React.memo(StreamMessageComponent);
+export const StreamMessage = React.memo(StreamMessageComponent, streamMessagePropsAreEqual);

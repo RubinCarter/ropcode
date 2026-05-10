@@ -22,6 +22,17 @@ test('StreamMessage builds shared stream context outside individual message effe
   assert.doesNotMatch(source, /setToolResults/);
   assert.doesNotMatch(source, /setCwd/);
   assert.doesNotMatch(source, /useEffect\(\(\) => \{[\s\S]*streamMessages\.forEach[\s\S]*\}, \[streamMessages\]\);/);
+  assert.doesNotMatch(source, /const fallbackStreamContext = useMemo\(\(\) => buildStreamMessageContext\(streamMessages\), \[streamMessages\]\);/);
+});
+
+test('StreamMessage memoization ignores unrelated stream context churn', async () => {
+  const source = await readSource(streamMessagePath);
+
+  assert.match(source, /function streamMessagePropsAreEqual\(prev: StreamMessageProps, next: StreamMessageProps\): boolean/);
+  assert.match(source, /if \(prev\.message !== next\.message\) return false;/);
+  assert.match(source, /if \(!prevContext \|\| !nextContext\) \{[\s\S]*return prev\.streamMessages === next\.streamMessages && prev\.agentOutputMap === next\.agentOutputMap;[\s\S]*\}/);
+  assert.match(source, /prevContext\.toolResults\.get\(toolUseId\) !== nextContext\.toolResults\.get\(toolUseId\)/);
+  assert.match(source, /export const StreamMessage = React\.memo\(StreamMessageComponent, streamMessagePropsAreEqual\);/);
 });
 
 test('live message renderers pass memoized stream context to StreamMessage', async () => {
