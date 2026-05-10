@@ -11,6 +11,10 @@ interface SubagentProgressPanelProps {
   streamMessages: ClaudeStreamMessageLike[];
   agentOutputMap?: Map<string, any>;
   className?: string;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  expandedAgents?: Set<string>;
+  onExpandedAgentsChange?: (expandedAgents: Set<string>) => void;
 }
 
 function statusBadgeVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
@@ -98,22 +102,42 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
   summary,
   agentOutputMap,
   className,
+  expanded: controlledExpanded,
+  onExpandedChange,
+  expandedAgents: controlledExpandedAgents,
+  onExpandedAgentsChange,
 }) => {
-  const [expanded, setExpanded] = useState(false);
-  const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
+  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(false);
+  const [uncontrolledExpandedAgents, setUncontrolledExpandedAgents] = useState<Set<string>>(new Set());
+  const expanded = controlledExpanded ?? uncontrolledExpanded;
+  const expandedAgents = controlledExpandedAgents ?? uncontrolledExpandedAgents;
 
   if (summary.subagents.length === 0) return null;
 
+  const setExpanded = (nextExpanded: boolean) => {
+    if (onExpandedChange) {
+      onExpandedChange(nextExpanded);
+    } else {
+      setUncontrolledExpanded(nextExpanded);
+    }
+  };
+
+  const setExpandedAgents = (nextExpandedAgents: Set<string>) => {
+    if (onExpandedAgentsChange) {
+      onExpandedAgentsChange(nextExpandedAgents);
+    } else {
+      setUncontrolledExpandedAgents(nextExpandedAgents);
+    }
+  };
+
   const toggleAgent = (id: string) => {
-    setExpandedAgents((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
+    const next = new Set(expandedAgents);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setExpandedAgents(next);
   };
 
   const aggregateStatus = summary.failedCount > 0
@@ -126,7 +150,7 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
     <div className={cn("rounded-lg border bg-muted/30 overflow-hidden", className)}>
       <button
         type="button"
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 p-3 text-left hover:bg-muted/50 transition-colors"
       >
         {expanded ? (

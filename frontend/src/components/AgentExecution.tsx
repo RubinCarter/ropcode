@@ -298,6 +298,17 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
     [displayableMessages, subagentPanelItem, subagentProgress.subagents.length]
   );
 
+  const messageIndexByObject = React.useMemo(() => {
+    const indexes = new WeakMap<ClaudeStreamMessage, number>();
+    messages.forEach((message, index) => indexes.set(message, index));
+    return indexes;
+  }, [messages]);
+
+  const getStreamItemKey = React.useCallback((item: typeof streamItems[number], prefix = '') => {
+    if ('type' in item && item.type === 'subagent-panel') return `${prefix}${item.key}`;
+    return `${prefix}${item.uuid || `msg-${messageIndexByObject.get(item) ?? 0}`}`;
+  }, [messageIndexByObject]);
+
   // Helper to scroll to bottom
   const scrollToBottom = useCallback((ref: React.RefObject<VirtuosoHandle>, behavior: 'auto' | 'smooth' = 'smooth') => {
     ref.current?.scrollToIndex({
@@ -910,8 +921,8 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                 // Start at bottom
                 initialTopMostItemIndex={streamItems.length > 0 ? streamItems.length - 1 : 0}
 
-                // Stable keys
-                computeItemKey={(index, item) => 'type' in item && item.type === 'subagent-panel' ? item.key : `msg-${index}-${item.type}`}
+                // Stable keys preserve row state when subagent panels or filters shift positions
+                computeItemKey={(_, item) => getStreamItemKey(item)}
 
                 // Render each message
                 itemContent={(index, item) => (
@@ -1048,8 +1059,8 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
                 // Start at bottom
                 initialTopMostItemIndex={streamItems.length > 0 ? streamItems.length - 1 : 0}
 
-                // Stable keys
-                computeItemKey={(index, item) => 'type' in item && item.type === 'subagent-panel' ? `fullscreen-${item.key}` : `fullscreen-msg-${index}-${item.type}`}
+                // Stable keys preserve row state when subagent panels or filters shift positions
+                computeItemKey={(_, item) => getStreamItemKey(item, 'fullscreen-')}
 
                 // Render each message
                 itemContent={(index, item) => (

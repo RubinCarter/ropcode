@@ -243,6 +243,8 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const [splitPosition, setSplitPosition] = useState(33);
   const [isPreviewMaximized, setIsPreviewMaximized] = useState(false);
   const [isScrollPaused, setIsScrollPaused] = useState(false);
+  const [isSubagentPanelExpanded, setIsSubagentPanelExpanded] = useState(false);
+  const [expandedSubagentIds, setExpandedSubagentIds] = useState<Set<string>>(new Set());
   const stopRequestedRef = useRef(false);
 
   // ==================================================================
@@ -1508,10 +1510,10 @@ ${message ? `**说明**:\n${message}` : ''}`;
           ? streamItems.length - 1
           : 0}
 
-        // Stable keys prevent unnecessary re-renders
-        computeItemKey={(index, item) => item.type === 'subagent-panel'
+        // Stable keys preserve message component state when filters or panels shift row positions
+        computeItemKey={(_, item) => item.type === 'subagent-panel'
           ? 'subagent-panel'
-          : item.message.uuid || `msg-${item.originalIndex}-${index}`}
+          : item.message.uuid || `msg-${item.originalIndex}`}
 
         // Render each message
         itemContent={(_, item) => (
@@ -1521,6 +1523,10 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 summary={messagesState.subagentProgress}
                 streamMessages={messagesState.messages}
                 agentOutputMap={messagesState.agentOutputMap}
+                expanded={isSubagentPanelExpanded}
+                onExpandedChange={setIsSubagentPanelExpanded}
+                expandedAgents={expandedSubagentIds}
+                onExpandedAgentsChange={setExpandedSubagentIds}
               />
             ) : (
               <StreamMessage
