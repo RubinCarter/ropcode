@@ -1458,7 +1458,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
     let insertedSubagentPanel = false;
     const items: Array<
       | { type: 'subagent-panel' }
-      | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number }
+      | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }
     > = [];
 
     messagesState.displayableMessageIndexes.forEach((originalIndex) => {
@@ -1472,10 +1472,12 @@ ${message ? `**说明**:\n${message}` : ''}`;
         insertedSubagentPanel = true;
       }
 
+      const message = messagesState.messages[originalIndex];
       items.push({
         type: 'message',
-        message: messagesState.messages[originalIndex],
+        message,
         originalIndex,
+        isStreamingTail: processState.isLoading && originalIndex === messagesState.messages.length - 1 && message?.type === 'assistant' && !message.message?.usage,
       });
     });
 
@@ -1488,6 +1490,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
     messagesState.displayableMessageIndexes,
     messagesState.messages,
     messagesState.subagentProgress.subagents,
+    processState.isLoading,
   ]);
 
   const messagesList = (
@@ -1545,6 +1548,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 streamContext={messagesState.streamMessageContext}
                 onLinkDetected={handleLinkDetected}
                 agentOutputMap={messagesState.agentOutputMap}
+                isStreamingText={item.isStreamingTail}
               />
             )}
           </div>

@@ -9,6 +9,7 @@ const subagentProgressPanelPath = path.resolve(currentDir, './SubagentProgressPa
 const aiCodeSessionPath = path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx');
 const agentExecutionPath = path.resolve(currentDir, './AgentExecution.tsx');
 const claudeMessageListPath = path.resolve(currentDir, './claude-code-session/MessageList.tsx');
+const streamMessagePath = path.resolve(currentDir, './StreamMessage.tsx');
 
 async function readSource(filePath: string) {
   return readFile(filePath, 'utf8');
@@ -62,4 +63,15 @@ test('virtualized stream rows use lightweight placeholders during fast scroll', 
     assert.match(source, /scrollSeekConfiguration=\{scrollSeekConfiguration\}/);
     assert.match(source, /ScrollSeekPlaceholder/);
   }
+});
+
+test('live streaming assistant text avoids markdown and syntax highlighting', async () => {
+  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const streamMessageSource = await readSource(streamMessagePath);
+
+  assert.match(streamMessageSource, /isStreamingText\?: boolean;/);
+  assert.match(streamMessageSource, /if \(isStreamingText\) \{[\s\S]*className="text-sm whitespace-pre-wrap break-words leading-6"[\s\S]*\{textContent\}[\s\S]*\}/);
+  assert.match(streamMessageSource, /if \(prev\.isStreamingText !== next\.isStreamingText\) return false;/);
+  assert.match(aiCodeSessionSource, /isStreamingTail: processState\.isLoading && originalIndex === messagesState\.messages\.length - 1 && message\?\.type === 'assistant' && !message\.message\?\.usage/);
+  assert.match(aiCodeSessionSource, /isStreamingText=\{item\.isStreamingTail\}/);
 });

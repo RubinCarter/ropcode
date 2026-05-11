@@ -63,6 +63,7 @@ interface StreamMessageProps {
   streamContext?: StreamMessageContext;
   onLinkDetected?: (url: string) => void;
   agentOutputMap?: Map<string, any>;
+  isStreamingText?: boolean;
 }
 
 export function buildStreamMessageContext(streamMessages: ClaudeStreamMessage[]): StreamMessageContext {
@@ -409,6 +410,7 @@ function streamMessagePropsAreEqual(prev: StreamMessageProps, next: StreamMessag
   if (prev.message !== next.message) return false;
   if (prev.className !== next.className) return false;
   if (prev.onLinkDetected !== next.onLinkDetected) return false;
+  if (prev.isStreamingText !== next.isStreamingText) return false;
 
   const prevContext = prev.streamContext;
   const nextContext = next.streamContext;
@@ -439,7 +441,7 @@ function streamMessagePropsAreEqual(prev: StreamMessageProps, next: StreamMessag
 /**
  * Component to render a single Claude Code stream message
  */
-const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, className, streamMessages, streamContext, onLinkDetected, agentOutputMap }) => {
+const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, className, streamMessages, streamContext, onLinkDetected, agentOutputMap, isStreamingText = false }) => {
   const sharedStreamContext = useMemo(
     () => streamContext ?? buildStreamMessageContext(streamMessages),
     [streamContext, streamMessages]
@@ -592,6 +594,14 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                     const systemInstructionContent = renderWithSystemInstructions(textContent, agents, `asst-${idx}-`);
                     if (systemInstructionContent) {
                       return <div key={idx}>{systemInstructionContent}</div>;
+                    }
+
+                    if (isStreamingText) {
+                      return (
+                        <div key={idx} className="text-sm whitespace-pre-wrap break-words leading-6">
+                          {textContent}
+                        </div>
+                      );
                     }
 
                     return (
