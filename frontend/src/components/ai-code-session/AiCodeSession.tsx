@@ -258,6 +258,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const [isScrollPaused, setIsScrollPaused] = useState(false);
   const [isSubagentPanelExpanded, setIsSubagentPanelExpanded] = useState(false);
   const [expandedSubagentIds, setExpandedSubagentIds] = useState<Set<string>>(new Set());
+  const [expandedMessageCards, setExpandedMessageCards] = useState<Set<string>>(new Set());
   const stopRequestedRef = useRef(false);
 
   // ==================================================================
@@ -1549,6 +1550,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 onLinkDetected={handleLinkDetected}
                 agentOutputMap={messagesState.agentOutputMap}
                 isStreamingText={item.isStreamingTail}
+                expandedCards={expandedMessageCards}
+                onExpandedCardsChange={setExpandedMessageCards}
+                messageKey={item.message.uuid || `msg-${item.originalIndex}`}
               />
             )}
           </div>

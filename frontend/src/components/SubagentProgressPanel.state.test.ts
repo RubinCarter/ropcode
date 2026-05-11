@@ -75,3 +75,17 @@ test('live streaming assistant text avoids markdown and syntax highlighting', as
   assert.match(aiCodeSessionSource, /isStreamingTail: processState\.isLoading && originalIndex === messagesState\.messages\.length - 1 && message\?\.type === 'assistant' && !message\.message\?\.usage/);
   assert.match(aiCodeSessionSource, /isStreamingText=\{item\.isStreamingTail\}/);
 });
+
+test('AiCodeSession keeps message card expansion state outside virtualized rows', async () => {
+  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const streamMessageSource = await readSource(streamMessagePath);
+
+  assert.match(aiCodeSessionSource, /const \[expandedMessageCards, setExpandedMessageCards\] = useState<Set<string>>\(new Set\(\)\);/);
+  assert.match(aiCodeSessionSource, /expandedCards=\{expandedMessageCards\}/);
+  assert.match(aiCodeSessionSource, /onExpandedCardsChange=\{setExpandedMessageCards\}/);
+  assert.match(aiCodeSessionSource, /messageKey=\{item\.message\.uuid \|\| `msg-\$\{item\.originalIndex\}`\}/);
+  assert.match(streamMessageSource, /expandedCards\?: Set<string>;/);
+  assert.match(streamMessageSource, /onExpandedCardsChange\?: \(expandedCards: Set<string>\) => void;/);
+  assert.match(streamMessageSource, /const expanded = controlledExpanded \?\? uncontrolledExpanded;/);
+  assert.match(streamMessageSource, /getCardExpansionProps\(`user-text-\$\{idx\}`, textPresentation\.defaultExpanded\)/);
+});

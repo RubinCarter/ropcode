@@ -64,6 +64,9 @@ interface StreamMessageProps {
   onLinkDetected?: (url: string) => void;
   agentOutputMap?: Map<string, any>;
   isStreamingText?: boolean;
+  expandedCards?: Set<string>;
+  onExpandedCardsChange?: (expandedCards: Set<string>) => void;
+  messageKey?: string;
 }
 
 export function buildStreamMessageContext(streamMessages: ClaudeStreamMessage[]): StreamMessageContext {
@@ -108,6 +111,8 @@ interface CollapsibleTextCardProps {
   title: string;
   preview: string;
   defaultExpanded?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
   children: React.ReactNode;
 }
 
@@ -151,14 +156,25 @@ const CollapsibleTextCard: React.FC<CollapsibleTextCardProps> = ({
   title,
   preview,
   defaultExpanded = false,
+  expanded: controlledExpanded,
+  onExpandedChange,
   children,
 }) => {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
+  const expanded = controlledExpanded ?? uncontrolledExpanded;
+
+  const toggleExpanded = () => {
+    const nextExpanded = !expanded;
+    if (controlledExpanded === undefined) {
+      setUncontrolledExpanded(nextExpanded);
+    }
+    onExpandedChange?.(nextExpanded);
+  };
 
   return (
     <div className="rounded-lg border bg-muted/30 overflow-hidden">
       <button
-        onClick={() => setExpanded((value) => !value)}
+        onClick={toggleExpanded}
         className="w-full flex items-start gap-2 p-3 text-left hover:bg-muted/50 transition-colors"
       >
         {expanded ? (
@@ -411,6 +427,9 @@ function streamMessagePropsAreEqual(prev: StreamMessageProps, next: StreamMessag
   if (prev.className !== next.className) return false;
   if (prev.onLinkDetected !== next.onLinkDetected) return false;
   if (prev.isStreamingText !== next.isStreamingText) return false;
+  if (prev.expandedCards !== next.expandedCards) return false;
+  if (prev.onExpandedCardsChange !== next.onExpandedCardsChange) return false;
+  if (prev.messageKey !== next.messageKey) return false;
 
   const prevContext = prev.streamContext;
   const nextContext = next.streamContext;
@@ -441,7 +460,7 @@ function streamMessagePropsAreEqual(prev: StreamMessageProps, next: StreamMessag
 /**
  * Component to render a single Claude Code stream message
  */
-const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, className, streamMessages, streamContext, onLinkDetected, agentOutputMap, isStreamingText = false }) => {
+const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, className, streamMessages, streamContext, onLinkDetected, agentOutputMap, isStreamingText = false, expandedCards, onExpandedCardsChange, messageKey }) => {
   const sharedStreamContext = useMemo(
     () => streamContext ?? buildStreamMessageContext(streamMessages),
     [streamContext, streamMessages]
@@ -467,7 +486,29 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
     if (!toolId) return null;
     return toolResults.get(toolId) || null;
   };
-  
+
+  const getCardExpansionProps = (cardId: string, defaultExpanded: boolean) => {
+    if (!expandedCards || !onExpandedCardsChange) {
+      return { defaultExpanded };
+    }
+
+    const expandedKey = `${messageKey ?? message.uuid ?? 'message'}:${cardId}`;
+    return {
+      expanded: expandedCards.has(expandedKey) || (defaultExpanded && !expandedCards.has(`${expandedKey}:collapsed`)),
+      onExpandedChange: (expanded: boolean) => {
+        const nextExpandedCards = new Set(expandedCards);
+        nextExpandedCards.delete(`${expandedKey}:collapsed`);
+        if (expanded) {
+          nextExpandedCards.add(expandedKey);
+        } else {
+          nextExpandedCards.delete(expandedKey);
+          nextExpandedCards.add(`${expandedKey}:collapsed`);
+        }
+        onExpandedCardsChange(nextExpandedCards);
+      },
+    };
+  };
+
   // 🆕 Helper function to identify conversation summary messages
   const isSummaryMessage = (msg: ClaudeStreamMessage): boolean => {
     return msg.isVisibleInTranscriptOnly === true && msg.isCompactSummary === true;
@@ -860,7 +901,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                         <CollapsibleTextCard
                           title={userPresentation.title}
                           preview={userPresentation.preview}
-                          defaultExpanded={userPresentation.defaultExpanded}
+                          {...getCardExpansionProps('user-string', userPresentation.defaultExpanded)}
                         >
                           <div className="text-sm whitespace-pre-wrap">
                             {parseAgentMentions(contentStr, agents)}
@@ -904,7 +945,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                           key={idx}
                           title={textPresentation.title}
                           preview={textPresentation.preview}
-                          defaultExpanded={textPresentation.defaultExpanded}
+                          {...getCardExpansionProps(`user-text-${idx}`, textPresentation.defaultExpanded)}
                         >
                           <div className="text-sm whitespace-pre-wrap">
                             {parseAgentMentions(textContent, agents)}
@@ -1383,7 +1424,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                   <span className="text-sm font-medium">{runtimeSummary}</span>
                   <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{eventLabel}</span>
                 </div>
-                <CollapsibleTextCard title="Event details" preview="Click to expand event JSON" defaultExpanded={false}>
+                <CollapsibleTextCard title="Event details" preview="Click to expand event JSON" {...getCardExpansionProps('event-details', false)}>
                   <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-3 text-xs text-muted-foreground">
                     {eventDetails}
                   </pre>
