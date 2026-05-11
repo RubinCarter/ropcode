@@ -10,6 +10,9 @@ const aiCodeSessionPath = path.resolve(currentDir, './ai-code-session/AiCodeSess
 const agentExecutionPath = path.resolve(currentDir, './AgentExecution.tsx');
 const claudeMessageListPath = path.resolve(currentDir, './claude-code-session/MessageList.tsx');
 const streamMessagePath = path.resolve(currentDir, './StreamMessage.tsx');
+const useMessagesPath = path.resolve(currentDir, './ai-code-session/hooks/useMessages.ts');
+const messageFilterPath = path.resolve(currentDir, './ai-code-session/utils/messageFilter.ts');
+const toolWidgetsPath = path.resolve(currentDir, './ToolWidgets.tsx');
 
 async function readSource(filePath: string) {
   return readFile(filePath, 'utf8');
@@ -39,7 +42,7 @@ test('virtualized stream rows use message identity instead of row index for keys
   const agentExecutionSource = await readSource(agentExecutionPath);
   const claudeMessageListSource = await readSource(claudeMessageListPath);
 
-  assert.match(aiCodeSessionSource, /increaseViewportBy=\{\{ top: 2400, bottom: 3200 \}\}/);
+  assert.match(aiCodeSessionSource, /increaseViewportBy=\{\{ top: 900, bottom: 1400 \}\}/);
   assert.doesNotMatch(aiCodeSessionSource, /overscan=\{\{ main: 600, reverse: 600 \}\}/);
   assert.match(aiCodeSessionSource, /computeItemKey=\{\(_, item\) => item\.type === 'subagent-panel'[\s\S]*item\.message\.uuid \|\| `msg-\$\{item\.originalIndex\}`/);
   assert.doesNotMatch(aiCodeSessionSource, /`msg-\$\{item\.originalIndex\}-\$\{index\}`/);
@@ -88,4 +91,32 @@ test('AiCodeSession keeps message card expansion state outside virtualized rows'
   assert.match(streamMessageSource, /onExpandedCardsChange\?: \(expandedCards: Set<string>\) => void;/);
   assert.match(streamMessageSource, /const expanded = controlledExpanded \?\? uncontrolledExpanded;/);
   assert.match(streamMessageSource, /getCardExpansionProps\(`user-text-\$\{idx\}`, textPresentation\.defaultExpanded\)/);
+});
+
+test('stream message filtering avoids duplicate scans and backward tool result lookup', async () => {
+  const useMessagesSource = await readSource(useMessagesPath);
+  const messageFilterSource = await readSource(messageFilterPath);
+
+  assert.match(useMessagesSource, /import \{ getDisplayableMessages \} from "\.\.\/utils\/messageFilter";/);
+  assert.match(useMessagesSource, /const displayable = useMemo\([\s\S]*getDisplayableMessages\(messages, subagentProgress\.subagentMessageIndexes\)/);
+  assert.doesNotMatch(useMessagesSource, /filterDisplayableMessages/);
+  assert.match(messageFilterSource, /function buildToolUseNamesById\(messages: ClaudeStreamMessage\[\]\): Map<string, string>/);
+  assert.match(messageFilterSource, /const toolUseNamesById = buildToolUseNamesById\(messages\);/);
+  assert.doesNotMatch(messageFilterSource, /for \(let i = messageIndex - 1; i >= 0; i--\)/);
+});
+
+test('heavy edit diffs are computed only when expanded', async () => {
+  const toolWidgetsSource = await readSource(toolWidgetsPath);
+
+  assert.match(toolWidgetsSource, /import React, \{ useMemo, useState \} from "react";/);
+  assert.match(toolWidgetsSource, /const diffResult = useMemo\(\(\) => \{[\s\S]*if \(!expanded\) return \[\];[\s\S]*Diff\.diffLines\(old_string \|\| '', new_string \|\| '',/);
+});
+
+test('collapsed read results do not parse or highlight file content', async () => {
+  const toolWidgetsSource = await readSource(toolWidgetsPath);
+
+  assert.match(toolWidgetsSource, /const \[isExpanded, setIsExpanded\] = useState\(false\);/);
+  assert.match(toolWidgetsSource, /\{isExpanded \? \(\(\) => \{[\s\S]*const \{ codeContent, startLineNumber \} = parseContent\(content\);[\s\S]*<SyntaxHighlighter/);
+  assert.match(toolWidgetsSource, /Click "Expand" to view the file/);
+  assert.doesNotMatch(toolWidgetsSource, /shouldUsePlainCode|PLAIN_CODE|shouldRenderPlainCodeBlock/);
 });

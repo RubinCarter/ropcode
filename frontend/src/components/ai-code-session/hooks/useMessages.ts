@@ -11,7 +11,7 @@
 import { useState, useMemo, useRef } from "react";
 import type { ClaudeStreamMessage } from "../types";
 import type { StreamMessageContext } from "../../StreamMessage";
-import { filterDisplayableMessages, getDisplayableMessageIndexes } from "../utils/messageFilter";
+import { getDisplayableMessages } from "../utils/messageFilter";
 import { buildSubagentProgress, type SubagentProgressSummary } from "@/lib/subagentProgress";
 
 type MessageUsage = {
@@ -342,16 +342,12 @@ export function useMessages(): UseMessagesReturn {
     [messages, subagentTranscripts]
   );
 
-  const displayableMessageIndexes = useMemo(
-    () => getDisplayableMessageIndexes(messages, subagentProgress.subagentMessageIndexes),
+  const displayable = useMemo(
+    () => getDisplayableMessages(messages, subagentProgress.subagentMessageIndexes),
     [messages, subagentProgress.subagentMessageIndexes]
   );
-
-  // Filter displayable messages
-  const displayableMessages = useMemo(
-    () => filterDisplayableMessages(messages, subagentProgress.subagentMessageIndexes),
-    [messages, subagentProgress.subagentMessageIndexes]
-  );
+  const displayableMessageIndexes = displayable.indexes;
+  const displayableMessages = displayable.messages;
 
   const tokenUsage = messageState.derived.tokenUsage;
   const totalTokens = tokenUsage.totalTokens;

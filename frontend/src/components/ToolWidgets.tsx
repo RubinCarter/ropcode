@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { 
   CheckCircle2, 
   Circle, 
@@ -524,7 +524,6 @@ export const ReadResultWidget: React.FC<{ content: string; filePath?: string; wo
   };
 
   const language = getLanguage(filePath);
-  const { codeContent, startLineNumber } = parseContent(content);
   const lineCount = content.split('\n').filter(line => line.trim()).length;
   const isLargeFile = lineCount > 20;
 
@@ -542,50 +541,49 @@ export const ReadResultWidget: React.FC<{ content: string; filePath?: string; wo
             </span>
           )}
         </div>
-        {isLargeFile && (
-          <button
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronRight className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-90")} />
-            {isExpanded ? "Collapse" : "Expand"}
-          </button>
-        )}
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronRight className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-90")} />
+          {isExpanded ? "Collapse" : "Expand"}
+        </button>
       </div>
       
-      {(!isLargeFile || isExpanded) && (
-        <div className="relative overflow-x-auto">
-          <SyntaxHighlighter
-            language={language}
-            style={syntaxTheme}
-            showLineNumbers
-            startingLineNumber={startLineNumber}
-            wrapLongLines={false}
-            customStyle={{
-              margin: 0,
-              background: 'transparent',
-              lineHeight: '1.6'
-            }}
-            codeTagProps={{
-              style: {
-                fontSize: '0.75rem'
-              }
-            }}
-            lineNumberStyle={{
-              minWidth: "3.5rem",
-              paddingRight: "1rem",
-              textAlign: "right",
-              opacity: 0.5,
-            }}
-          >
-            {codeContent}
-          </SyntaxHighlighter>
-        </div>
-      )}
-      
-      {isLargeFile && !isExpanded && (
+      {isExpanded ? (() => {
+        const { codeContent, startLineNumber } = parseContent(content);
+        return (
+          <div className="relative overflow-x-auto">
+            <SyntaxHighlighter
+              language={language}
+              style={syntaxTheme}
+              showLineNumbers
+              startingLineNumber={startLineNumber}
+              wrapLongLines={false}
+              customStyle={{
+                margin: 0,
+                background: 'transparent',
+                lineHeight: '1.6'
+              }}
+              codeTagProps={{
+                style: {
+                  fontSize: '0.75rem'
+                }
+              }}
+              lineNumberStyle={{
+                minWidth: "3.5rem",
+                paddingRight: "1rem",
+                textAlign: "right",
+                opacity: 0.5,
+              }}
+            >
+              {codeContent}
+            </SyntaxHighlighter>
+          </div>
+        );
+      })() : (
         <div className="px-4 py-3 text-xs text-muted-foreground text-center bg-muted/30">
-          Click "Expand" to view the full file
+          Click "Expand" to view the file
         </div>
       )}
     </div>
@@ -1196,10 +1194,13 @@ export const EditWidget: React.FC<{
   // Shorten the file path for display
   const displayPath = shortenPath(file_path, workspacePath);
 
-  const diffResult = Diff.diffLines(old_string || '', new_string || '', {
-    newlineIsToken: true,
-    ignoreWhitespace: false
-  });
+  const diffResult = useMemo(() => {
+    if (!expanded) return [];
+    return Diff.diffLines(old_string || '', new_string || '', {
+      newlineIsToken: true,
+      ignoreWhitespace: false
+    });
+  }, [expanded, old_string, new_string]);
   const language = getLanguage(file_path);
 
   return (

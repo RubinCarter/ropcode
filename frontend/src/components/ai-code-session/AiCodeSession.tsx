@@ -1500,7 +1500,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         ref={virtuosoRef}
         data={streamItems}
         className="h-full"
-        increaseViewportBy={{ top: 2400, bottom: 3200 }}
+        increaseViewportBy={{ top: 900, bottom: 1400 }}
         scrollSeekConfiguration={scrollSeekConfiguration}
 
         // followOutput handles auto-scrolling during streaming

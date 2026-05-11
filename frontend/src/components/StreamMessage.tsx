@@ -652,6 +652,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                           components={{
                             code({ node, inline, className, children, ...props }: any) {
                               const match = /language-(\w+)/.exec(className || '');
+                              const code = String(children).replace(/\n$/, '');
                               return !inline && match ? (
                                 <SyntaxHighlighter
                                   style={syntaxTheme}
@@ -659,7 +660,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                                   PreTag="div"
                                   {...props}
                                 >
-                                  {String(children).replace(/\n$/, '')}
+                                  {code}
                                 </SyntaxHighlighter>
                               ) : (
                                 <code className={className} {...props}>

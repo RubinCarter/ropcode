@@ -11,7 +11,7 @@ import { isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 /**
  * Tools that have custom UI widgets and should hide their tool_result content
  */
-const TOOLS_WITH_WIDGETS = [
+const TOOLS_WITH_WIDGETS = new Set([
   'task',
   'edit',
   'multiedit',
@@ -22,7 +22,7 @@ const TOOLS_WITH_WIDGETS = [
   'bash',
   'write',
   'grep',
-];
+]);
 
 /**
  * Check if a message is an internal debug/trace log that should be filtered
@@ -42,30 +42,30 @@ function isInternalLog(message: any): boolean {
 /**
  * Check if a tool_result should be hidden (because it has a custom widget)
  */
+function buildToolUseNamesById(messages: ClaudeStreamMessage[]): Map<string, string> {
+  const toolUseNamesById = new Map<string, string>();
+
+  messages.forEach((message) => {
+    if (message.type !== 'assistant' || !Array.isArray(message.message?.content)) return;
+
+    message.message.content.forEach((content: any) => {
+      if (content?.type === 'tool_use' && content.id) {
+        toolUseNamesById.set(content.id, String(content.name ?? '').toLowerCase());
+      }
+    });
+  });
+
+  return toolUseNamesById;
+}
+
 function shouldHideToolResult(
   content: any,
-  messageIndex: number,
-  allMessages: ClaudeStreamMessage[]
+  toolUseNamesById: Map<string, string>
 ): boolean {
   if (!content.tool_use_id) return false;
 
-  // Look for the matching tool_use in previous assistant messages
-  for (let i = messageIndex - 1; i >= 0; i--) {
-    const prevMsg = allMessages[i];
-    if (prevMsg.type === 'assistant' && prevMsg.message?.content && Array.isArray(prevMsg.message.content)) {
-      const toolUse = prevMsg.message.content.find((c: any) =>
-        c.type === 'tool_use' && c.id === content.tool_use_id
-      );
-
-      if (toolUse) {
-        const toolName = toolUse.name?.toLowerCase();
-        // Hide if it's a tool with a widget or an MCP tool
-        return TOOLS_WITH_WIDGETS.includes(toolName) || toolUse.name?.startsWith('mcp__');
-      }
-    }
-  }
-
-  return false;
+  const toolName = toolUseNamesById.get(content.tool_use_id);
+  return Boolean(toolName && (TOOLS_WITH_WIDGETS.has(toolName) || toolName.startsWith('mcp__')));
 }
 
 /**
@@ -74,8 +74,7 @@ function shouldHideToolResult(
  */
 function hasVisibleContent(
   message: ClaudeStreamMessage,
-  messageIndex: number,
-  allMessages: ClaudeStreamMessage[]
+  toolUseNamesById: Map<string, string>
 ): boolean {
   // 🔧 修复 1: 如果消息有 user_message 字段，说明是用户输入，应该显示
   if (message.user_message) {
@@ -108,7 +107,7 @@ function hasVisibleContent(
 
     // Tool results are visible if they don't have a custom widget
     if (content.type === "tool_result") {
-      if (!shouldHideToolResult(content, messageIndex, allMessages)) {
+      if (!shouldHideToolResult(content, toolUseNamesById)) {
         hasVisible = true;
         break;
       }
@@ -151,8 +150,8 @@ function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
 function isDisplayableMessage(
   message: ClaudeStreamMessage,
   index: number,
-  messages: ClaudeStreamMessage[],
-  hiddenIndexes?: Set<number>
+  hiddenIndexes: Set<number> | undefined,
+  toolUseNamesById: Map<string, string>
 ): boolean {
   if (hiddenIndexes?.has(index)) {
     return false;
@@ -184,7 +183,7 @@ function isDisplayableMessage(
       return false;
     }
 
-    if (!hasVisibleContent(message, index, messages)) {
+    if (!hasVisibleContent(message, toolUseNamesById)) {
       return false;
     }
   }
@@ -192,24 +191,34 @@ function isDisplayableMessage(
   return true;
 }
 
+export function getDisplayableMessages(
+  messages: ClaudeStreamMessage[],
+  hiddenIndexes?: Set<number>
+): { indexes: number[]; messages: ClaudeStreamMessage[] } {
+  const indexes: number[] = [];
+  const displayableMessages: ClaudeStreamMessage[] = [];
+  const toolUseNamesById = buildToolUseNamesById(messages);
+
+  messages.forEach((message, index) => {
+    if (isDisplayableMessage(message, index, hiddenIndexes, toolUseNamesById)) {
+      indexes.push(index);
+      displayableMessages.push(message);
+    }
+  });
+
+  return { indexes, messages: displayableMessages };
+}
+
 export function getDisplayableMessageIndexes(
   messages: ClaudeStreamMessage[],
   hiddenIndexes?: Set<number>
 ): number[] {
-  const indexes: number[] = [];
-
-  messages.forEach((message, index) => {
-    if (isDisplayableMessage(message, index, messages, hiddenIndexes)) {
-      indexes.push(index);
-    }
-  });
-
-  return indexes;
+  return getDisplayableMessages(messages, hiddenIndexes).indexes;
 }
 
 export function filterDisplayableMessages(
   messages: ClaudeStreamMessage[],
   hiddenIndexes?: Set<number>
 ): ClaudeStreamMessage[] {
-  return getDisplayableMessageIndexes(messages, hiddenIndexes).map((index) => messages[index]);
+  return getDisplayableMessages(messages, hiddenIndexes).messages;
 }
