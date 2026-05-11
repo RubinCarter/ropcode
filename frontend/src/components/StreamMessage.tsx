@@ -78,12 +78,15 @@ export function buildStreamMessageContext(streamMessages: ClaudeStreamMessage[])
 
     if (msg.type === "assistant" && msg.message?.content && Array.isArray(msg.message.content)) {
       msg.message.content.forEach((content: any) => {
-        if (content.type === "tool_use" && content.id) {
+        if ((content.type === "tool_use" || content.type === "server_tool_use") && content.id) {
           const toolName = String(content.name ?? "").toLowerCase();
           toolUseNamesById.set(content.id, toolName);
           if (toolName === "read" && content.input?.file_path) {
             readToolPathsById.set(content.id, content.input.file_path);
           }
+        }
+        if (content.tool_use_id) {
+          toolResults.set(content.tool_use_id, content);
         }
       });
     }
@@ -635,7 +638,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                   }
                   
                   // Tool use - render custom widgets based on tool name
-                  if (content.type === "tool_use") {
+                  if (content.type === "tool_use" || content.type === "server_tool_use") {
                     const toolName = content.name?.toLowerCase();
                     const input = content.input;
                     const toolId = content.id;
@@ -727,7 +730,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                       }
                       
                       // WebSearch tool
-                      if (toolName === "websearch" && input?.query) {
+                      if ((toolName === "websearch" || toolName === "web_search") && input?.query) {
                         renderedSomething = true;
                         return <WebSearchWidget query={input.query} result={toolResult} />;
                       }
@@ -913,7 +916,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                     let hasCorrespondingWidget = false;
                     if (content.tool_use_id) {
                       const toolName = sharedStreamContext.toolUseNamesById.get(content.tool_use_id);
-                      const toolsWithWidgets = ['task','edit','multiedit','todowrite','todoread','ls','read','glob','bash','write','grep','websearch','webfetch','agentoutputtool'];
+                      const toolsWithWidgets = ['task','edit','multiedit','todowrite','todoread','ls','read','glob','bash','write','grep','websearch','web_search','webfetch','agentoutputtool'];
                       if (toolName && (toolsWithWidgets.includes(toolName) || toolName.startsWith('mcp__'))) {
                         hasCorrespondingWidget = true;
                       }

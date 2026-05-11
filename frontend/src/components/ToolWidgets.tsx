@@ -2350,6 +2350,25 @@ export const WebSearchWidget: React.FC<{
     setExpandedSections(newExpanded);
   };
   
+  const extractPlainTextLinks = (resultContent: string): Array<{ title: string; url: string }> => {
+    const links: Array<{ title: string; url: string }> = [];
+    const seen = new Set<string>();
+    const urlRegex = /https?:\/\/[^\s)\]}>,]+/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = urlRegex.exec(resultContent)) !== null) {
+      const url = match[0];
+      if (seen.has(url)) continue;
+      seen.add(url);
+
+      const beforeUrl = resultContent.slice(0, match.index).split('\n').filter((line) => line.trim()).pop()?.trim();
+      const title = beforeUrl?.replace(/^[-*\d.\s]+/, '').replace(/[*_`]/g, '').trim() || url;
+      links.push({ title, url });
+    }
+
+    return links;
+  };
+
   // Extract result content if available
   let searchResults: {
     sections: Array<{
@@ -2358,26 +2377,52 @@ export const WebSearchWidget: React.FC<{
     }>;
     noResults: boolean;
   } = { sections: [], noResults: false };
-  
+
   if (result) {
-    let resultContent = '';
-    if (typeof result.content === 'string') {
-      resultContent = result.content;
-    } else if (result.content && typeof result.content === 'object') {
-      if (result.content.text) {
-        resultContent = result.content.text;
-      } else if (Array.isArray(result.content)) {
-        resultContent = result.content
-          .map((c: any) => (typeof c === 'string' ? c : c.text || JSON.stringify(c)))
-          .join('\n');
+    const rawContent = result.content ?? result.results ?? result;
+    const structuredResults = Array.isArray(rawContent)
+      ? rawContent.flatMap((item: any) => {
+        if (item?.type === 'web_search_result') {
+          return [{ title: item.title || item.url, url: item.url }];
+        }
+        if (item?.url) {
+          return [{ title: item.title || item.url, url: item.url }];
+        }
+        return [];
+      })
+      : [];
+
+    if (structuredResults.length > 0) {
+      searchResults.sections = [{ type: 'links', content: structuredResults }];
+    } else {
+      let resultContent = '';
+      if (typeof rawContent === 'string') {
+        resultContent = rawContent;
+      } else if (rawContent && typeof rawContent === 'object') {
+        if (rawContent.text) {
+          resultContent = rawContent.text;
+        } else if (Array.isArray(rawContent)) {
+          resultContent = rawContent
+            .map((c: any) => (typeof c === 'string' ? c : c.text || JSON.stringify(c)))
+            .join('\n');
+        } else {
+          resultContent = JSON.stringify(rawContent, null, 2);
+        }
+      }
+
+      const sections = parseSearchResult(resultContent);
+      const plainTextLinks = extractPlainTextLinks(resultContent);
+      if (plainTextLinks.length > 0) {
+        searchResults.sections = [
+          ...sections.filter((section) => section.type === 'text'),
+          { type: 'links', content: plainTextLinks },
+        ];
       } else {
-        resultContent = JSON.stringify(result.content, null, 2);
+        searchResults.noResults = resultContent.toLowerCase().includes('no links found') ||
+                                   resultContent.toLowerCase().includes('no results');
+        searchResults.sections = sections;
       }
     }
-    
-    searchResults.noResults = resultContent.toLowerCase().includes('no links found') || 
-                               resultContent.toLowerCase().includes('no results');
-    searchResults.sections = parseSearchResult(resultContent);
   }
   
   const handleLinkClick = async (url: string) => {

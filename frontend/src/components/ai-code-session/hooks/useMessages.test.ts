@@ -29,5 +29,7 @@ test('maintains hot message derived state incrementally', async () => {
   assert.match(source, /function applyMessageToDerivedState\(previous: MessageDerivedState, message: ClaudeStreamMessage\): MessageDerivedState/);
   assert.match(source, /derived: applyMessageToDerivedState\(prev\.derived, message\)/);
   assert.match(source, /function replaceLastMessageInDerivedState\([\s\S]*previousMessage: ClaudeStreamMessage,[\s\S]*nextMessage: ClaudeStreamMessage/);
+  assert.match(source, /block\?\.type === 'tool_use' \|\| block\?\.type === 'server_tool_use'/);
+  assert.match(source, /block\?\.tool_use_id[\s\S]*toolResults\.set\(block\.tool_use_id, block\)/);
   assert.doesNotMatch(source, /const agentOutputMap = useMemo\(\(\) => \{[\s\S]*messages\.forEach[\s\S]*\}, \[messages\]\);/);
 });

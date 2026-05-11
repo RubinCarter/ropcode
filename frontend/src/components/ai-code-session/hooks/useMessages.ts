@@ -235,22 +235,27 @@ function applyMessageToDerivedState(previous: MessageDerivedState, message: Clau
   const content = message.message?.content;
   if (message.type === 'assistant' && Array.isArray(content)) {
     content.forEach((block: any) => {
-      if (block?.type !== 'tool_use' || !block.id) return;
+      if ((block?.type === 'tool_use' || block?.type === 'server_tool_use') && block.id) {
+        const toolName = String(block.name ?? '').toLowerCase();
+        if (toolUseNamesById.get(block.id) !== toolName) {
+          ensureToolUseNamesById();
+          toolUseNamesById.set(block.id, toolName);
+        }
 
-      const toolName = String(block.name ?? '').toLowerCase();
-      if (toolUseNamesById.get(block.id) !== toolName) {
-        ensureToolUseNamesById();
-        toolUseNamesById.set(block.id, toolName);
+        if (toolName === 'read' && block.input?.file_path && readToolPathsById.get(block.id) !== block.input.file_path) {
+          ensureReadToolPathsById();
+          readToolPathsById.set(block.id, block.input.file_path);
+        }
+
+        if (toolName === 'agentoutputtool' && block.input?.agentId && agentOutputToolUseIds.get(block.id) !== block.input.agentId) {
+          ensureAgentOutputToolUseIds();
+          agentOutputToolUseIds.set(block.id, block.input.agentId);
+        }
       }
 
-      if (toolName === 'read' && block.input?.file_path && readToolPathsById.get(block.id) !== block.input.file_path) {
-        ensureReadToolPathsById();
-        readToolPathsById.set(block.id, block.input.file_path);
-      }
-
-      if (toolName === 'agentoutputtool' && block.input?.agentId && agentOutputToolUseIds.get(block.id) !== block.input.agentId) {
-        ensureAgentOutputToolUseIds();
-        agentOutputToolUseIds.set(block.id, block.input.agentId);
+      if (block?.tool_use_id && toolResults.get(block.tool_use_id) !== block) {
+        ensureToolResults();
+        toolResults.set(block.tool_use_id, block);
       }
     });
   }

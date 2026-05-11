@@ -45,6 +45,15 @@ test('StreamMessage shares Claude agent metadata across mounted rows', async () 
   assert.doesNotMatch(source, /useEffect\(\(\) => \{[\s\S]*api\.listClaudeAgents\(\)[\s\S]*\}, \[\]\);/);
 });
 
+test('StreamMessage binds server tool results for history views', async () => {
+  const source = await readSource(streamMessagePath);
+
+  assert.match(source, /content\.type === "tool_use" \|\| content\.type === "server_tool_use"/);
+  assert.match(source, /if \(content\.tool_use_id\) \{[\s\S]*toolResults\.set\(content\.tool_use_id, content\);[\s\S]*\}/);
+  assert.match(source, /content\.type === "tool_use" \|\| content\.type === "server_tool_use"/);
+  assert.match(source, /toolName === "websearch" \|\| toolName === "web_search"/);
+});
+
 test('live message renderers pass memoized stream context to StreamMessage', async () => {
   const aiCodeSessionSource = await readSource(aiCodeSessionPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
