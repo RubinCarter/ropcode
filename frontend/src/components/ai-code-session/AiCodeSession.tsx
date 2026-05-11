@@ -36,7 +36,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { TooltipProvider, TooltipSimple } from "@/components/ui/tooltip-modern";
 import { SplitPane } from "@/components/ui/split-pane";
 import { WebviewPreview } from "../WebviewPreview";
-import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration, type ScrollSeekPlaceholderProps } from "react-virtuoso";
+import { MessageScrollSeekPlaceholder } from "../MessageScrollSeekPlaceholder";
+import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration } from "react-virtuoso";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking, useSubagentTranscriptSync } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
@@ -66,12 +67,8 @@ const scrollSeekConfiguration: ScrollSeekConfiguration = {
   exit: (velocity) => Math.abs(velocity) < 300,
 };
 
-function ScrollSeekPlaceholder({ height }: ScrollSeekPlaceholderProps) {
-  return (
-    <div style={{ height, boxSizing: 'border-box' }} className="w-full max-w-6xl mx-auto px-4 pb-4 pt-2">
-      <div className="h-full rounded-lg border border-border/50 bg-muted/20" />
-    </div>
-  );
+function ScrollSeekPlaceholder(props: { height: number }) {
+  return <MessageScrollSeekPlaceholder {...props} className="w-full max-w-6xl mx-auto" />;
 }
 
 function formatRecoveryError(err: unknown) {

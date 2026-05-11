@@ -67,11 +67,29 @@ import { motion, AnimatePresence } from "framer-motion";
 import { shortenPath } from "@/lib/pathUtils";
 import type { ClaudeStreamMessage } from "./AgentExecution";
 
+export interface ControlledExpansionProps {
+  defaultExpanded?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+}
+
+function useControlledExpansion({ defaultExpanded = false, expanded: controlledExpanded, onExpandedChange }: ControlledExpansionProps = {}) {
+  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
+  const expanded = controlledExpanded ?? uncontrolledExpanded;
+  const setExpanded = (nextExpanded: boolean) => {
+    if (controlledExpanded === undefined) {
+      setUncontrolledExpanded(nextExpanded);
+    }
+    onExpandedChange?.(nextExpanded);
+  };
+  return [expanded, setExpanded] as const;
+}
+
 /**
  * Widget for TodoWrite tool - displays a beautiful TODO list
  */
-export const TodoWidget: React.FC<{ todos: any[]; result?: any }> = ({ todos, result: _result }) => {
-  const [expanded, setExpanded] = useState(false);
+export const TodoWidget: React.FC<{ todos: any[]; result?: any } & ControlledExpansionProps> = ({ todos, result: _result, ...expansionProps }) => {
+  const [expanded, setExpanded] = useControlledExpansion(expansionProps);
 
   const statusIcons = {
     completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
@@ -140,8 +158,8 @@ export const TodoWidget: React.FC<{ todos: any[]; result?: any }> = ({ todos, re
 /**
  * Widget for LS (List Directory) tool
  */
-export const LSWidget: React.FC<{ path: string; result?: any; workspacePath?: string }> = ({ path, result, workspacePath }) => {
-  const [expanded, setExpanded] = useState(false);
+export const LSWidget: React.FC<{ path: string; result?: any; workspacePath?: string } & ControlledExpansionProps> = ({ path, result, workspacePath, ...expansionProps }) => {
+  const [expanded, setExpanded] = useControlledExpansion(expansionProps);
 
   // Shorten the path for display
   const displayPath = shortenPath(path, workspacePath);
@@ -375,7 +393,7 @@ export const LSResultWidget: React.FC<{ content: string }> = ({ content }) => {
 /**
  * Widget for Read tool
  */
-export const ReadWidget: React.FC<{ filePath: string; result?: any; workspacePath?: string }> = ({ filePath, result, workspacePath }) => {
+export const ReadWidget: React.FC<{ filePath: string; result?: any; workspacePath?: string } & ControlledExpansionProps> = ({ filePath, result, workspacePath, ...expansionProps }) => {
   // Shorten the file path for display
   const displayPath = shortenPath(filePath, workspacePath);
 
@@ -397,7 +415,7 @@ export const ReadWidget: React.FC<{ filePath: string; result?: any; workspacePat
       }
     }
 
-    return resultContent ? <ReadResultWidget content={resultContent} filePath={filePath} workspacePath={workspacePath} /> : null;
+    return resultContent ? <ReadResultWidget content={resultContent} filePath={filePath} workspacePath={workspacePath} {...expansionProps} /> : null;
   }
 
   return (
@@ -420,8 +438,8 @@ export const ReadWidget: React.FC<{ filePath: string; result?: any; workspacePat
 /**
  * Widget for Read tool result - shows file content with line numbers
  */
-export const ReadResultWidget: React.FC<{ content: string; filePath?: string; workspacePath?: string }> = ({ content, filePath, workspacePath }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+export const ReadResultWidget: React.FC<{ content: string; filePath?: string; workspacePath?: string } & ControlledExpansionProps> = ({ content, filePath, workspacePath, ...expansionProps }) => {
+  const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
   const { theme } = useTheme();
   const syntaxTheme = getClaudeSyntaxTheme(theme);
 
@@ -593,8 +611,8 @@ export const ReadResultWidget: React.FC<{ content: string; filePath?: string; wo
 /**
  * Widget for Glob tool
  */
-export const GlobWidget: React.FC<{ pattern: string; result?: any }> = ({ pattern, result }) => {
-  const [expanded, setExpanded] = useState(false);
+export const GlobWidget: React.FC<{ pattern: string; result?: any } & ControlledExpansionProps> = ({ pattern, result, ...expansionProps }) => {
+  const [expanded, setExpanded] = useControlledExpansion(expansionProps);
 
   // Extract result content if available
   let resultContent = '';
@@ -665,8 +683,8 @@ export const BashWidget: React.FC<{
   description?: string;
   result?: any;
   cwd?: string;
-}> = ({ command, description, result, cwd }) => {
-  const [expanded, setExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ command, description, result, cwd, ...expansionProps }) => {
+  const [expanded, setExpanded] = useControlledExpansion(expansionProps);
 
   // cwd parameter reserved for future use (e.g., workspace context display)
   void cwd;
@@ -747,8 +765,8 @@ export const BashWidget: React.FC<{
 /**
  * Widget for Write tool
  */
-export const WriteWidget: React.FC<{ filePath: string; content: string; result?: any; workspacePath?: string }> = ({ filePath, content, result: _result, workspacePath }) => {
-  const [expanded, setExpanded] = useState(false);
+export const WriteWidget: React.FC<{ filePath: string; content: string; result?: any; workspacePath?: string } & ControlledExpansionProps> = ({ filePath, content, result: _result, workspacePath, ...expansionProps }) => {
+  const [expanded, setExpanded] = useControlledExpansion(expansionProps);
   const [isMaximized, setIsMaximized] = useState(false);
   const { theme } = useTheme();
   const syntaxTheme = getClaudeSyntaxTheme(theme);
@@ -939,8 +957,8 @@ export const GrepWidget: React.FC<{
   path?: string;
   exclude?: string;
   result?: any;
-}> = ({ pattern, include, path, exclude, result }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ pattern, include, path, exclude, result, ...expansionProps }) => {
+  const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
   
   // Extract result content if available
   let resultContent = '';
@@ -1186,8 +1204,8 @@ export const EditWidget: React.FC<{
   new_string: string;
   result?: any;
   workspacePath?: string;
-}> = ({ file_path, old_string, new_string, result: _result, workspacePath }) => {
-  const [expanded, setExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ file_path, old_string, new_string, result: _result, workspacePath, ...expansionProps }) => {
+  const [expanded, setExpanded] = useControlledExpansion(expansionProps);
   const { theme } = useTheme();
   const syntaxTheme = getClaudeSyntaxTheme(theme);
 
@@ -1276,19 +1294,17 @@ export const EditWidget: React.FC<{
   );
 };
 
-/**
- * Widget for Edit tool result - shows a diff view
- */
-export const EditResultWidget: React.FC<{ content: string }> = ({ content }) => {
-  const { theme } = useTheme();
-  const syntaxTheme = getClaudeSyntaxTheme(theme);
-  
-  // Parse the content to extract file path and code snippet
+function getEditResultFilePath(content: string): string {
+  const match = content.match(/The file (.+) has been updated/);
+  return match?.[1] ?? '';
+}
+
+function parseEditResultContent(content: string) {
   const lines = content.split('\n');
   let filePath = '';
   const codeLines: { lineNumber: string; code: string }[] = [];
   let inCodeBlock = false;
-  
+
   for (const rawLine of lines) {
     const line = rawLine.replace(/\r$/, '');
     if (line.includes('The file') && line.includes('has been updated')) {
@@ -1307,7 +1323,6 @@ export const EditResultWidget: React.FC<{ content: string }> = ({ content }) => 
         });
       }
     } else if (inCodeBlock) {
-      // Allow non-numbered lines inside a code block (for empty lines)
       codeLines.push({ lineNumber: '', code: line });
     }
   }
@@ -1315,47 +1330,76 @@ export const EditResultWidget: React.FC<{ content: string }> = ({ content }) => 
   const codeContent = codeLines.map(l => l.code).join('\n');
   const firstNumberedLine = codeLines.find(l => l.lineNumber !== '');
   const startLineNumber = firstNumberedLine ? parseInt(firstNumberedLine.lineNumber) : 1;
-  const language = getLanguage(filePath);
+
+  return { filePath, codeContent, startLineNumber };
+}
+
+/**
+ * Widget for Edit tool result - shows a diff view
+ */
+export const EditResultWidget: React.FC<{ content: string } & ControlledExpansionProps> = ({ content, ...expansionProps }) => {
+  const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
+  const { theme } = useTheme();
+  const syntaxTheme = getClaudeSyntaxTheme(theme);
+  const collapsedFilePath = getEditResultFilePath(content);
 
   return (
     <div className="rounded-lg border bg-background overflow-hidden">
       <div className="px-4 py-2 border-b bg-emerald-950/30 flex items-center gap-2">
         <GitBranch className="h-3.5 w-3.5 text-emerald-500" />
         <span className="text-xs font-mono text-emerald-400">Edit Result</span>
-        {filePath && (
+        {collapsedFilePath && (
           <>
             <ChevronRight className="h-3 w-3 text-muted-foreground" />
-            <span className="text-xs font-mono text-muted-foreground">{filePath}</span>
+            <span className="text-xs font-mono text-muted-foreground truncate">{collapsedFilePath}</span>
           </>
         )}
-      </div>
-      <div className="overflow-x-auto max-h-[440px]">
-        <SyntaxHighlighter
-          language={language}
-          style={syntaxTheme}
-          showLineNumbers
-          startingLineNumber={startLineNumber}
-          wrapLongLines={false}
-          customStyle={{
-            margin: 0,
-            background: 'transparent',
-            lineHeight: '1.6'
-          }}
-          codeTagProps={{
-            style: {
-              fontSize: '0.75rem'
-            }
-          }}
-          lineNumberStyle={{
-            minWidth: "3.5rem",
-            paddingRight: "1rem",
-            textAlign: "right",
-            opacity: 0.5,
-          }}
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          {codeContent}
-        </SyntaxHighlighter>
+          <ChevronRight className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-90")} />
+          {isExpanded ? "Collapse" : "Expand"}
+        </button>
       </div>
+      {isExpanded ? (() => {
+        const { filePath, codeContent, startLineNumber } = parseEditResultContent(content);
+        const language = getLanguage(filePath);
+        return (
+          <div className="overflow-x-auto max-h-[440px]">
+            <SyntaxHighlighter
+              language={language}
+              style={syntaxTheme}
+              showLineNumbers
+              startingLineNumber={startLineNumber}
+              wrapLongLines={false}
+              customStyle={{
+                margin: 0,
+                background: 'transparent',
+                lineHeight: '1.6'
+              }}
+              codeTagProps={{
+                style: {
+                  fontSize: '0.75rem'
+                }
+              }}
+              lineNumberStyle={{
+                minWidth: "3.5rem",
+                paddingRight: "1rem",
+                textAlign: "right",
+                opacity: 0.5,
+              }}
+            >
+              {codeContent}
+            </SyntaxHighlighter>
+          </div>
+        );
+      })() : (
+        <div className="px-4 py-3 text-xs text-muted-foreground text-center bg-muted/30">
+          Click "Expand" to view the edit result
+        </div>
+      )}
     </div>
   );
 };
@@ -1367,8 +1411,8 @@ export const MCPWidget: React.FC<{
   toolName: string;
   input?: any;
   result?: any;
-}> = ({ toolName, input, result }) => {
-  const [expanded, setExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ toolName, input, result, ...expansionProps }) => {
+  const [expanded, setExpanded] = useControlledExpansion(expansionProps);
   const [isParametersExpanded, setIsParametersExpanded] = useState(false);
   const [isResultExpanded, setIsResultExpanded] = useState(false);
   const { theme } = useTheme();
@@ -1400,8 +1444,8 @@ export const MCPWidget: React.FC<{
   };
 
   const hasInput = input && Object.keys(input).length > 0;
-  const inputString = hasInput ? JSON.stringify(input, null, 2) : '';
-  const isLargeInput = inputString.length > 200;
+  const inputTokenSource = hasInput ? JSON.stringify(input) : '';
+  const inputTokens = hasInput ? Math.ceil(inputTokenSource.length / 4) : 0;
 
   // Extract result content if available
   let resultContent = '';
@@ -1425,14 +1469,9 @@ export const MCPWidget: React.FC<{
   }
 
   const isLargeResult = resultContent.length > 500;
-
-  // Count tokens approximation (very rough estimate)
-  const estimateTokens = (str: string) => {
-    // Rough approximation: ~4 characters per token
-    return Math.ceil(str.length / 4);
-  };
-
-  const inputTokens = hasInput ? estimateTokens(inputString) : 0;
+  const isLargeInput = inputTokenSource.length > 200;
+  const shouldRenderFullInput = !isLargeInput || isParametersExpanded;
+  const inputString = shouldRenderFullInput ? JSON.stringify(input, null, 2) : '';
 
   return (
     <div className="rounded-lg border border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-purple-500/5 overflow-hidden">
@@ -1493,20 +1532,26 @@ export const MCPWidget: React.FC<{
                   "overflow-auto",
                   !isParametersExpanded && isLargeInput && "max-h-[150px]"
                 )}>
-                  <SyntaxHighlighter
-                    language="json"
-                    style={syntaxTheme}
-                    customStyle={{
-                      margin: 0,
-                      padding: '0.75rem',
-                      background: 'transparent',
-                      fontSize: '0.75rem',
-                      lineHeight: '1.5',
-                    }}
-                    wrapLongLines={false}
-                  >
-                    {inputString}
-                  </SyntaxHighlighter>
+                  {shouldRenderFullInput ? (
+                    <SyntaxHighlighter
+                      language="json"
+                      style={syntaxTheme}
+                      customStyle={{
+                        margin: 0,
+                        padding: '0.75rem',
+                        background: 'transparent',
+                        fontSize: '0.75rem',
+                        lineHeight: '1.5',
+                      }}
+                      wrapLongLines={false}
+                    >
+                      {inputString}
+                    </SyntaxHighlighter>
+                  ) : (
+                    <div className="px-3 py-4 text-xs text-muted-foreground text-center bg-muted/30">
+                      Click "Show full parameters" to view JSON parameters
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1748,8 +1793,8 @@ export const MultiEditWidget: React.FC<{
   file_path: string;
   edits: Array<{ old_string: string; new_string: string }>;
   result?: any;
-}> = ({ file_path, edits, result: _result }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ file_path, edits, result: _result, ...expansionProps }) => {
+  const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
   const language = getLanguage(file_path);
   const { theme } = useTheme();
   const syntaxTheme = getClaudeSyntaxTheme(theme);
@@ -1960,8 +2005,8 @@ export const SystemInitializedWidget: React.FC<{
   model?: string;
   cwd?: string;
   tools?: string[];
-}> = ({ sessionId, model, cwd, tools = [] }) => {
-  const [expanded, setExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ sessionId, model, cwd, tools = [], ...expansionProps }) => {
+  const [expanded, setExpanded] = useControlledExpansion(expansionProps);
   const [mcpExpanded, setMcpExpanded] = useState(false);
 
   // Separate regular tools from MCP tools
@@ -2179,8 +2224,8 @@ export const TaskWidget: React.FC<{
   toolUseId?: string;
   allMessages?: ClaudeStreamMessage[];
   agentOutputMap?: Map<string, any>;
-}> = ({ description, prompt, result, toolUseId: _toolUseId, allMessages: _allMessages = [], agentOutputMap }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ description, prompt, result, toolUseId: _toolUseId, allMessages: _allMessages = [], agentOutputMap, ...expansionProps }) => {
+  const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
   const [isResultExpanded, setIsResultExpanded] = useState(false);
 
   // Extract agentId from result text (e.g., "agentId: af436c78")
@@ -2295,8 +2340,8 @@ export const TaskWidget: React.FC<{
 export const WebSearchWidget: React.FC<{
   query: string;
   result?: any;
-}> = ({ query, result }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ query, result, ...expansionProps }) => {
+  const [isExpanded, setExpanded] = useControlledExpansion(expansionProps);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
 
   // Parse the result to extract all links sections and build a structured representation
@@ -2446,7 +2491,7 @@ export const WebSearchWidget: React.FC<{
     <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 overflow-hidden">
       {/* Clickable Header */}
       <button
-        onClick={() => !isLoading && setIsExpanded(!isExpanded)}
+        onClick={() => !isLoading && setExpanded(!isExpanded)}
         disabled={isLoading}
         className="w-full px-3 py-2 flex items-center justify-between hover:bg-blue-500/10 transition-colors disabled:cursor-default"
       >
@@ -2566,11 +2611,11 @@ export const WebSearchWidget: React.FC<{
  * Widget for displaying AI thinking/reasoning content
  * Collapsible and closed by default
  */
-export const ThinkingWidget: React.FC<{ 
+export const ThinkingWidget: React.FC<{
   thinking: string;
   signature?: string;
-}> = ({ thinking }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ thinking, ...expansionProps }) => {
+  const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
   
   // Strip whitespace from thinking content
   const trimmedThinking = thinking.trim();
@@ -2615,8 +2660,8 @@ export const WebFetchWidget: React.FC<{
   url: string;
   prompt?: string;
   result?: any;
-}> = ({ url, prompt, result }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+} & ControlledExpansionProps> = ({ url, prompt, result, ...expansionProps }) => {
+  const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
   const [showFullContent, setShowFullContent] = useState(false);
 
   // Extract result content if available
@@ -3312,8 +3357,8 @@ export const TodoReadWidget: React.FC<{ todos?: any[]; result?: any }> = ({ todo
 /**
  * Widget for displaying system instruction in a simple collapsible way
  */
-export const SystemInstructionWidget: React.FC<{ message: string }> = ({ message }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
+export const SystemInstructionWidget: React.FC<{ message: string } & ControlledExpansionProps> = ({ message, ...expansionProps }) => {
+  const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
 
   return (
     <div className="border-l-2 border-blue-500/30 pl-3">

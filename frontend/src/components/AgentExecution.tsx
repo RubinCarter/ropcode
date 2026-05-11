@@ -28,11 +28,12 @@ import { api, listen, type Agent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
+import { MessageScrollSeekPlaceholder } from "./MessageScrollSeekPlaceholder";
 import { buildSubagentProgress, isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 
 import { ExecutionControlBar } from "./ExecutionControlBar";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration, type ScrollSeekPlaceholderProps } from "react-virtuoso";
+import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration } from "react-virtuoso";
 import { HooksEditor } from "./HooksEditor";
 import { useTrackEvent, useComponentMetrics, useFeatureAdoptionTracking, useSubagentTranscriptSync } from "@/hooks";
 import { useTabState } from "@/hooks/useTabState";
@@ -44,12 +45,8 @@ const scrollSeekConfiguration: ScrollSeekConfiguration = {
   exit: (velocity) => Math.abs(velocity) < 300,
 };
 
-function ScrollSeekPlaceholder({ height }: ScrollSeekPlaceholderProps) {
-  return (
-    <div style={{ height, boxSizing: 'border-box' }} className="w-full max-w-5xl mx-auto pb-4">
-      <div className="h-full rounded-lg border border-border/50 bg-muted/20" />
-    </div>
-  );
+function ScrollSeekPlaceholder(props: { height: number }) {
+  return <MessageScrollSeekPlaceholder {...props} className="w-full max-w-5xl mx-auto" />;
 }
 
 interface AgentExecutionProps {

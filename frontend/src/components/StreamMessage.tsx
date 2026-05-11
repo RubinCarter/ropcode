@@ -323,7 +323,8 @@ const parseAgentMentions = (text: string, agents: Map<string, { color?: string; 
 const renderWithSystemInstructions = (
   contentStr: string,
   agents: Map<string, { color?: string; icon?: string }>,
-  keyPrefix: string = ''
+  keyPrefix: string = '',
+  getExpansionProps?: (cardId: string, defaultExpanded: boolean) => { defaultExpanded?: boolean; expanded?: boolean; onExpandedChange?: (expanded: boolean) => void }
 ): React.ReactNode | null => {
   // Quick check if there are any system instruction tags
   if (!contentStr.includes('<system-instruction>') && !contentStr.includes('<system_instruction>')) {
@@ -352,8 +353,13 @@ const renderWithSystemInstructions = (
 
     // Add the system instruction widget
     const instructionMessage = match[2].trim();
+    const instructionIndex = keyIndex++;
     parts.push(
-      <SystemInstructionWidget key={`${keyPrefix}instruction-${keyIndex++}`} message={instructionMessage} />
+      <SystemInstructionWidget
+        key={`${keyPrefix}instruction-${instructionIndex}`}
+        message={instructionMessage}
+        {...getExpansionProps?.(`${keyPrefix}system-instruction-${instructionIndex}`, false)}
+      />
     );
 
     lastIndex = match.index + match[0].length;
@@ -601,6 +607,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
             model={message.model}
             cwd={message.cwd}
             tools={message.tools}
+            {...getCardExpansionProps('system-init', false)}
           />
         </div>
       );
@@ -632,7 +639,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                     renderedSomething = true;
 
                     // Check for system-instruction tags first
-                    const systemInstructionContent = renderWithSystemInstructions(textContent, agents, `asst-${idx}-`);
+                    const systemInstructionContent = renderWithSystemInstructions(textContent, agents, `asst-${idx}-`, getCardExpansionProps);
                     if (systemInstructionContent) {
                       return <div key={idx}>{systemInstructionContent}</div>;
                     }
@@ -681,9 +688,10 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                     renderedSomething = true;
                     return (
                       <div key={idx}>
-                        <ThinkingWidget 
-                          thinking={content.thinking || ''} 
+                        <ThinkingWidget
+                          thinking={content.thinking || ''}
                           signature={content.signature}
+                          {...getCardExpansionProps(`thinking-${idx}`, false)}
                         />
                       </div>
                     );
@@ -694,7 +702,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                     const toolName = content.name?.toLowerCase();
                     const input = content.input;
                     const toolId = content.id;
-                    
+                    const toolCardKey = `tool-${toolName || 'unknown'}-${toolId || idx}`;
+
                     // Get the tool result if available
                     const toolResult = getToolResult(toolId);
                     
@@ -711,6 +720,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                             toolUseId={toolId}
                             allMessages={streamMessages}
                             agentOutputMap={agentOutputMap}
+                            {...getCardExpansionProps(`${toolCardKey}-task-instructions`, false)}
                           />
                         );
                       }
@@ -718,25 +728,25 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                       // Edit tool
                       if (toolName === "edit" && input?.file_path) {
                         renderedSomething = true;
-                        return <EditWidget {...input} result={toolResult} workspacePath={cwd} />;
+                        return <EditWidget {...input} result={toolResult} workspacePath={cwd} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // MultiEdit tool
                       if (toolName === "multiedit" && input?.file_path && input?.edits) {
                         renderedSomething = true;
-                        return <MultiEditWidget {...input} result={toolResult} />;
+                        return <MultiEditWidget {...input} result={toolResult} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // MCP tools (starting with mcp__)
                       if (content.name?.startsWith("mcp__")) {
                         renderedSomething = true;
-                        return <MCPWidget toolName={content.name} input={input} result={toolResult} />;
+                        return <MCPWidget toolName={content.name} input={input} result={toolResult} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // TodoWrite tool
                       if (toolName === "todowrite" && input?.todos) {
                         renderedSomething = true;
-                        return <TodoWidget todos={input.todos} result={toolResult} />;
+                        return <TodoWidget todos={input.todos} result={toolResult} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // TodoRead tool
@@ -748,49 +758,49 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                       // LS tool
                       if (toolName === "ls" && input?.path) {
                         renderedSomething = true;
-                        return <LSWidget path={input.path} result={toolResult} workspacePath={cwd} />;
+                        return <LSWidget path={input.path} result={toolResult} workspacePath={cwd} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // Read tool
                       if (toolName === "read" && input?.file_path) {
                         renderedSomething = true;
-                        return <ReadWidget filePath={input.file_path} result={toolResult} workspacePath={cwd} />;
+                        return <ReadWidget filePath={input.file_path} result={toolResult} workspacePath={cwd} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // Glob tool
                       if (toolName === "glob" && input?.pattern) {
                         renderedSomething = true;
-                        return <GlobWidget pattern={input.pattern} result={toolResult} />;
+                        return <GlobWidget pattern={input.pattern} result={toolResult} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // Bash tool
                       if (toolName === "bash" && input?.command) {
                         renderedSomething = true;
-                        return <BashWidget command={input.command} description={input.description} result={toolResult} cwd={cwd} />;
+                        return <BashWidget command={input.command} description={input.description} result={toolResult} cwd={cwd} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // Write tool
                       if (toolName === "write" && input?.file_path && input?.content) {
                         renderedSomething = true;
-                        return <WriteWidget filePath={input.file_path} content={input.content} result={toolResult} workspacePath={cwd} />;
+                        return <WriteWidget filePath={input.file_path} content={input.content} result={toolResult} workspacePath={cwd} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // Grep tool
                       if (toolName === "grep" && input?.pattern) {
                         renderedSomething = true;
-                        return <GrepWidget pattern={input.pattern} include={input.include} path={input.path} exclude={input.exclude} result={toolResult} />;
+                        return <GrepWidget pattern={input.pattern} include={input.include} path={input.path} exclude={input.exclude} result={toolResult} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // WebSearch tool
                       if ((toolName === "websearch" || toolName === "web_search") && input?.query) {
                         renderedSomething = true;
-                        return <WebSearchWidget query={input.query} result={toolResult} />;
+                        return <WebSearchWidget query={input.query} result={toolResult} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // WebFetch tool
                       if (toolName === "webfetch" && input?.url) {
                         renderedSomething = true;
-                        return <WebFetchWidget url={input.url} prompt={input.prompt} result={toolResult} />;
+                        return <WebFetchWidget url={input.url} prompt={input.prompt} result={toolResult} {...getCardExpansionProps(toolCardKey, false)} />;
                       }
                       
                       // Default - return null
@@ -1102,7 +1112,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                             <CheckCircle2 className="h-4 w-4 text-green-500" />
                             <span className="text-sm font-medium">Edit Result</span>
                           </div>
-                          <EditResultWidget content={contentText} />
+                          <EditResultWidget content={contentText} {...getCardExpansionProps(`tool-result-${content.tool_use_id || idx}-edit`, false)} />
                         </div>
                       );
                     }
@@ -1164,7 +1174,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                             <CheckCircle2 className="h-4 w-4 text-green-500" />
                             <span className="text-sm font-medium">Read Result</span>
                           </div>
-                          <ReadResultWidget content={contentText} filePath={filePath} workspacePath={cwd} />
+                          <ReadResultWidget content={contentText} filePath={filePath} workspacePath={cwd} {...getCardExpansionProps(`tool-result-${content.tool_use_id || idx}-read`, false)} />
                         </div>
                       );
                     }

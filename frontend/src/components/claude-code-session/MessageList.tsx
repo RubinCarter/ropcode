@@ -1,8 +1,9 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration, type ScrollSeekPlaceholderProps } from 'react-virtuoso';
+import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration } from 'react-virtuoso';
 import { StreamMessage, buildStreamMessageContext } from '../StreamMessage';
 import { Terminal } from 'lucide-react';
+import { MessageScrollSeekPlaceholder } from '../MessageScrollSeekPlaceholder';
 import { cn } from '@/lib/utils';
 import type { ClaudeStreamMessage } from '../AgentExecution';
 
@@ -11,12 +12,8 @@ const scrollSeekConfiguration: ScrollSeekConfiguration = {
   exit: (velocity) => Math.abs(velocity) < 300,
 };
 
-function ScrollSeekPlaceholder({ height }: ScrollSeekPlaceholderProps) {
-  return (
-    <div style={{ height, boxSizing: 'border-box' }} className="px-4 py-2">
-      <div className="h-full rounded-lg border border-border/50 bg-muted/20" />
-    </div>
-  );
+function ScrollSeekPlaceholder(props: { height: number }) {
+  return <MessageScrollSeekPlaceholder {...props} />;
 }
 
 interface MessageListProps {

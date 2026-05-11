@@ -13,6 +13,7 @@ const streamMessagePath = path.resolve(currentDir, './StreamMessage.tsx');
 const useMessagesPath = path.resolve(currentDir, './ai-code-session/hooks/useMessages.ts');
 const messageFilterPath = path.resolve(currentDir, './ai-code-session/utils/messageFilter.ts');
 const toolWidgetsPath = path.resolve(currentDir, './ToolWidgets.tsx');
+const messageScrollSeekPlaceholderPath = path.resolve(currentDir, './MessageScrollSeekPlaceholder.tsx');
 
 async function readSource(filePath: string) {
   return readFile(filePath, 'utf8');
@@ -59,13 +60,19 @@ test('virtualized stream rows use lightweight placeholders during fast scroll', 
   const aiCodeSessionSource = await readSource(aiCodeSessionPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
   const claudeMessageListSource = await readSource(claudeMessageListPath);
+  const messageScrollSeekPlaceholderSource = await readSource(messageScrollSeekPlaceholderPath);
 
   for (const source of [aiCodeSessionSource, agentExecutionSource, claudeMessageListSource]) {
     assert.match(source, /const scrollSeekConfiguration: ScrollSeekConfiguration = \{[\s\S]*enter: \(velocity\) => Math\.abs\(velocity\) > 900,[\s\S]*exit: \(velocity\) => Math\.abs\(velocity\) < 300,[\s\S]*\};/);
-    assert.match(source, /function ScrollSeekPlaceholder\(\{ height \}: ScrollSeekPlaceholderProps\) \{/);
+    assert.match(source, /function ScrollSeekPlaceholder\(props: \{ height: number \}\) \{/);
+    assert.match(source, /<MessageScrollSeekPlaceholder \{\.\.\.props\}/);
     assert.match(source, /scrollSeekConfiguration=\{scrollSeekConfiguration\}/);
     assert.match(source, /ScrollSeekPlaceholder/);
   }
+
+  assert.match(messageScrollSeekPlaceholderSource, /export function MessageScrollSeekPlaceholder\(\{ height, className \}: MessageScrollSeekPlaceholderProps\) \{/);
+  assert.match(messageScrollSeekPlaceholderSource, /const rowCount = height > 180 \? 3 : height > 96 \? 2 : 1;/);
+  assert.doesNotMatch(messageScrollSeekPlaceholderSource, /getBoundingClientRect|ResizeObserver|requestAnimationFrame|animate-pulse|animate-/);
 });
 
 test('live streaming assistant text avoids markdown and syntax highlighting', async () => {
@@ -112,11 +119,55 @@ test('heavy edit diffs are computed only when expanded', async () => {
   assert.match(toolWidgetsSource, /const diffResult = useMemo\(\(\) => \{[\s\S]*if \(!expanded\) return \[\];[\s\S]*Diff\.diffLines\(old_string \|\| '', new_string \|\| '',/);
 });
 
-test('collapsed read results do not parse or highlight file content', async () => {
+test('collapsed read and edit results do not parse or highlight file content', async () => {
   const toolWidgetsSource = await readSource(toolWidgetsPath);
 
-  assert.match(toolWidgetsSource, /const \[isExpanded, setIsExpanded\] = useState\(false\);/);
+  assert.match(toolWidgetsSource, /const \[isExpanded, setIsExpanded\] = useControlledExpansion\(expansionProps\);/);
   assert.match(toolWidgetsSource, /\{isExpanded \? \(\(\) => \{[\s\S]*const \{ codeContent, startLineNumber \} = parseContent\(content\);[\s\S]*<SyntaxHighlighter/);
   assert.match(toolWidgetsSource, /Click "Expand" to view the file/);
+  assert.match(toolWidgetsSource, /function getEditResultFilePath\(content: string\): string \{[\s\S]*content\.match\(\/The file \(\.\+\) has been updated\/\)/);
+  assert.match(toolWidgetsSource, /function parseEditResultContent\(content: string\) \{[\s\S]*const lines = content\.split\('\\n'\);/);
+  assert.match(toolWidgetsSource, /\{isExpanded \? \(\(\) => \{[\s\S]*const \{ filePath, codeContent, startLineNumber \} = parseEditResultContent\(content\);[\s\S]*<SyntaxHighlighter/);
+  assert.match(toolWidgetsSource, /Click "Expand" to view the edit result/);
   assert.doesNotMatch(toolWidgetsSource, /shouldUsePlainCode|PLAIN_CODE|shouldRenderPlainCodeBlock/);
+});
+
+test('collapsed MCP parameters do not stringify or highlight large JSON', async () => {
+  const toolWidgetsSource = await readSource(toolWidgetsPath);
+
+  assert.match(toolWidgetsSource, /const inputTokenSource = hasInput \? JSON\.stringify\(input\) : '';/);
+  assert.match(toolWidgetsSource, /const shouldRenderFullInput = !isLargeInput \|\| isParametersExpanded;/);
+  assert.match(toolWidgetsSource, /const inputString = shouldRenderFullInput \? JSON\.stringify\(input, null, 2\) : '';/);
+  assert.match(toolWidgetsSource, /\{shouldRenderFullInput \? \([\s\S]*<SyntaxHighlighter[\s\S]*\) : \([\s\S]*Click "Show full parameters" to view JSON parameters/);
+});
+
+test('tool card expansion state is controlled by StreamMessage stable card keys', async () => {
+  const toolWidgetsSource = await readSource(toolWidgetsPath);
+  const streamMessageSource = await readSource(streamMessagePath);
+
+  assert.match(toolWidgetsSource, /export interface ControlledExpansionProps \{[\s\S]*expanded\?: boolean;[\s\S]*onExpandedChange\?: \(expanded: boolean\) => void;/);
+  assert.match(toolWidgetsSource, /function useControlledExpansion\(\{ defaultExpanded = false, expanded: controlledExpanded, onExpandedChange \}: ControlledExpansionProps = \{\}\)/);
+  for (const widget of ['WebSearchWidget', 'WebFetchWidget', 'ReadResultWidget', 'EditResultWidget', 'GrepWidget', 'MCPWidget', 'TaskWidget', 'ThinkingWidget', 'SystemInstructionWidget']) {
+    assert.match(toolWidgetsSource, new RegExp(`export const ${widget}: React\\.FC<[\\s\\S]*ControlledExpansionProps`));
+  }
+
+  assert.match(streamMessageSource, /const toolCardKey = `tool-\$\{toolName \|\| 'unknown'\}-\$\{toolId \|\| idx\}`;/);
+  assert.match(streamMessageSource, /<WebSearchWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
+  assert.match(streamMessageSource, /<WebFetchWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
+  assert.match(streamMessageSource, /<MCPWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
+  assert.match(streamMessageSource, /<TaskWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`\$\{toolCardKey\}-task-instructions`, false\)\}/);
+  assert.match(streamMessageSource, /<ThinkingWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`thinking-\$\{idx\}`, false\)\}/);
+  assert.match(streamMessageSource, /<EditResultWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| idx\}-edit`, false\)\}/);
+  assert.match(streamMessageSource, /<ReadResultWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| idx\}-read`, false\)\}/);
+  assert.match(streamMessageSource, /<SystemInstructionWidget[\s\S]*\{\.\.\.getExpansionProps\?\.\(`\$\{keyPrefix\}system-instruction-\$\{instructionIndex\}`, false\)\}/);
+});
+
+test('SubagentProgressPanel memoizes transcript filtering while rendering all messages', async () => {
+  const source = await readSource(subagentProgressPanelPath);
+
+  assert.match(source, /const SubagentTranscript = React\.memo\(function SubagentTranscript/);
+  assert.match(source, /const transcriptMessages = React\.useMemo\([\s\S]*subagent\.messages\.filter\(\(message\) => !isDuplicatePromptMessage\(message, subagent\.prompt\)\)/);
+  assert.match(source, /return \[\.\.\.fallbackMessages, \.\.\.transcriptMessages\];/);
+  assert.match(source, /const streamContext = React\.useMemo\(\(\) => buildStreamMessageContext\(renderMessages as any\), \[renderMessages\]\);/);
+  assert.doesNotMatch(source, /MAX_RENDERED_SUBAGENT_MESSAGES|slice\(-MAX_RENDERED_SUBAGENT_MESSAGES\)|Showing latest/);
 });

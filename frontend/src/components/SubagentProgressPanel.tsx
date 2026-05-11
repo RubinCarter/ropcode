@@ -3,7 +3,7 @@ import { Bot, ChevronDown, ChevronRight, Hash, ListChecks, Loader2, Wrench } fro
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatCompactNumber, type ClaudeStreamMessageLike, type SubagentProgressSummary } from "@/lib/subagentProgress";
-import { StreamMessage } from "./StreamMessage";
+import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 interface SubagentProgressPanelProps {
@@ -97,6 +97,54 @@ function createResultMessage(result: unknown, isError: boolean): ClaudeStreamMes
     } as any,
   };
 }
+
+interface SubagentTranscriptProps {
+  subagent: SubagentProgressSummary['subagents'][number];
+  agentOutputMap?: Map<string, any>;
+}
+
+const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, agentOutputMap }: SubagentTranscriptProps) {
+  const transcriptMessages = React.useMemo(
+    () => subagent.messages.filter((message) => !isDuplicatePromptMessage(message, subagent.prompt)),
+    [subagent.messages, subagent.prompt]
+  );
+  const renderMessages = React.useMemo(() => {
+    const fallbackMessages: ClaudeStreamMessageLike[] = [];
+
+    if (subagent.prompt && transcriptMessages.length === subagent.messages.length) {
+      fallbackMessages.push(createPromptMessage(subagent.prompt));
+    }
+    if (transcriptMessages.length === 0 && (subagent.result || subagent.error)) {
+      fallbackMessages.push(createResultMessage(subagent.error || subagent.result, Boolean(subagent.error)));
+    }
+
+    return [...fallbackMessages, ...transcriptMessages];
+  }, [subagent.error, subagent.messages.length, subagent.prompt, subagent.result, transcriptMessages]);
+  const streamContext = React.useMemo(() => buildStreamMessageContext(renderMessages as any), [renderMessages]);
+
+  if (renderMessages.length === 0) {
+    return (
+      <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+        Detailed transcript is not available for this subagent yet.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {renderMessages.map((message, index) => (
+        <ErrorBoundary key={`${subagent.id}-${Math.max(0, transcriptMessages.length - renderMessages.length) + index}`}>
+          <StreamMessage
+            message={message as any}
+            streamMessages={renderMessages as any}
+            streamContext={streamContext}
+            agentOutputMap={agentOutputMap}
+          />
+        </ErrorBoundary>
+      ))}
+    </>
+  );
+});
 
 export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
   summary,
@@ -198,17 +246,6 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
         <div className="border-t divide-y bg-background/40">
           {summary.subagents.map((subagent) => {
             const agentExpanded = expandedAgents.has(subagent.id);
-            const transcriptMessages = subagent.messages.filter((message) => !isDuplicatePromptMessage(message, subagent.prompt));
-            const fallbackMessages: ClaudeStreamMessageLike[] = [];
-
-            if (subagent.prompt && transcriptMessages.length === subagent.messages.length) {
-              fallbackMessages.push(createPromptMessage(subagent.prompt));
-            }
-            if (transcriptMessages.length === 0 && (subagent.result || subagent.error)) {
-              fallbackMessages.push(createResultMessage(subagent.error || subagent.result, Boolean(subagent.error)));
-            }
-
-            const renderMessages = [...fallbackMessages, ...transcriptMessages];
 
             return (
               <div key={subagent.id}>
@@ -260,21 +297,7 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
 
                 {agentExpanded && (
                   <div className="px-3 pb-3 space-y-3">
-                    {renderMessages.length > 0 ? (
-                      renderMessages.map((message, index) => (
-                        <ErrorBoundary key={`${subagent.id}-${index}`}>
-                          <StreamMessage
-                            message={message as any}
-                            streamMessages={renderMessages as any}
-                            agentOutputMap={agentOutputMap}
-                          />
-                        </ErrorBoundary>
-                      ))
-                    ) : (
-                      <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
-                        Detailed transcript is not available for this subagent yet.
-                      </div>
-                    )}
+                    <SubagentTranscript subagent={subagent} agentOutputMap={agentOutputMap} />
                   </div>
                 )}
               </div>
