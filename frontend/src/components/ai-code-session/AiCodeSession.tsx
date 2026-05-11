@@ -62,8 +62,8 @@ import {
 const activeRecoveryKeys = new Set<string>();
 
 const scrollSeekConfiguration: ScrollSeekConfiguration = {
-  enter: (velocity) => Math.abs(velocity) > 120,
-  exit: (velocity) => Math.abs(velocity) < 30,
+  enter: (velocity) => Math.abs(velocity) > 900,
+  exit: (velocity) => Math.abs(velocity) < 300,
 };
 
 function ScrollSeekPlaceholder({ height }: ScrollSeekPlaceholderProps) {
