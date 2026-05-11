@@ -30,13 +30,27 @@ import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
 import { buildSubagentProgress, isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 
-type UnlistenFn = () => void;
 import { ExecutionControlBar } from "./ExecutionControlBar";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration, type ScrollSeekPlaceholderProps } from "react-virtuoso";
 import { HooksEditor } from "./HooksEditor";
 import { useTrackEvent, useComponentMetrics, useFeatureAdoptionTracking, useSubagentTranscriptSync } from "@/hooks";
 import { useTabState } from "@/hooks/useTabState";
+
+type UnlistenFn = () => void;
+
+const scrollSeekConfiguration: ScrollSeekConfiguration = {
+  enter: (velocity) => Math.abs(velocity) > 120,
+  exit: (velocity) => Math.abs(velocity) < 30,
+};
+
+function ScrollSeekPlaceholder({ height }: ScrollSeekPlaceholderProps) {
+  return (
+    <div style={{ height, boxSizing: 'border-box' }} className="w-full max-w-5xl mx-auto pb-4">
+      <div className="h-full rounded-lg border border-border/50 bg-muted/20" />
+    </div>
+  );
+}
 
 interface AgentExecutionProps {
   /**
@@ -923,9 +937,11 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
 
                 // Stable keys preserve row state when subagent panels or filters shift positions
                 computeItemKey={(_, item) => getStreamItemKey(item)}
+                scrollSeekConfiguration={scrollSeekConfiguration}
+                components={{ ScrollSeekPlaceholder }}
 
                 // Render each message
-                itemContent={(index, item) => (
+                itemContent={(_, item) => (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -1061,9 +1077,11 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
 
                 // Stable keys preserve row state when subagent panels or filters shift positions
                 computeItemKey={(_, item) => getStreamItemKey(item, 'fullscreen-')}
+                scrollSeekConfiguration={scrollSeekConfiguration}
+                components={{ ScrollSeekPlaceholder }}
 
                 // Render each message
-                itemContent={(index, item) => (
+                itemContent={(_, item) => (
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}

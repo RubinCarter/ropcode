@@ -36,7 +36,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { TooltipProvider, TooltipSimple } from "@/components/ui/tooltip-modern";
 import { SplitPane } from "@/components/ui/split-pane";
 import { WebviewPreview } from "../WebviewPreview";
-import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration, type ScrollSeekPlaceholderProps } from "react-virtuoso";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking, useSubagentTranscriptSync } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
@@ -60,6 +60,19 @@ import {
 } from "./hooks";
 
 const activeRecoveryKeys = new Set<string>();
+
+const scrollSeekConfiguration: ScrollSeekConfiguration = {
+  enter: (velocity) => Math.abs(velocity) > 120,
+  exit: (velocity) => Math.abs(velocity) < 30,
+};
+
+function ScrollSeekPlaceholder({ height }: ScrollSeekPlaceholderProps) {
+  return (
+    <div style={{ height, boxSizing: 'border-box' }} className="w-full max-w-6xl mx-auto px-4 pb-4 pt-2">
+      <div className="h-full rounded-lg border border-border/50 bg-muted/20" />
+    </div>
+  );
+}
 
 function formatRecoveryError(err: unknown) {
   if (err instanceof Error) {
@@ -1483,8 +1496,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
         ref={virtuosoRef}
         data={streamItems}
         className="h-full"
-        increaseViewportBy={{ top: 800, bottom: 1200 }}
-        overscan={{ main: 600, reverse: 600 }}
+        increaseViewportBy={{ top: 2400, bottom: 3200 }}
+        scrollSeekConfiguration={scrollSeekConfiguration}
 
         // followOutput handles auto-scrolling during streaming
         // Returns false to disable, 'auto' for instant scroll, 'smooth' for animated
@@ -1539,6 +1552,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
         // Custom components for loading/error states
         components={{
+          ScrollSeekPlaceholder,
           Header: () => <div className="pt-6" />,
           Footer: () => (
             <>

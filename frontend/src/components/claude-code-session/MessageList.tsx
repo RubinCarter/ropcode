@@ -1,10 +1,23 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
+import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration, type ScrollSeekPlaceholderProps } from 'react-virtuoso';
 import { StreamMessage, buildStreamMessageContext } from '../StreamMessage';
 import { Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ClaudeStreamMessage } from '../AgentExecution';
+
+const scrollSeekConfiguration: ScrollSeekConfiguration = {
+  enter: (velocity) => Math.abs(velocity) > 120,
+  exit: (velocity) => Math.abs(velocity) < 30,
+};
+
+function ScrollSeekPlaceholder({ height }: ScrollSeekPlaceholderProps) {
+  return (
+    <div style={{ height, boxSizing: 'border-box' }} className="px-4 py-2">
+      <div className="h-full rounded-lg border border-border/50 bg-muted/20" />
+    </div>
+  );
+}
 
 interface MessageListProps {
   messages: ClaudeStreamMessage[];
@@ -24,6 +37,11 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [atBottom, setAtBottom] = useState(true);
   const streamMessageContext = useMemo(() => buildStreamMessageContext(messages), [messages]);
+  const messageIndexByObject = useMemo(() => {
+    const indexes = new WeakMap<ClaudeStreamMessage, number>();
+    messages.forEach((message, index) => indexes.set(message, index));
+    return indexes;
+  }, [messages]);
 
   // Force Virtuoso to re-measure when page becomes visible or fullscreen changes.
   // Uses Electron's push-based fullscreen event instead of resize polling to avoid
@@ -126,10 +144,11 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
         initialTopMostItemIndex={messages.length > 0 ? messages.length - 1 : 0}
 
         // Stable keys
-        computeItemKey={(index, message) => `msg-${index}-${message.type}`}
+        computeItemKey={(_, message) => message.uuid || `msg-${messageIndexByObject.get(message) ?? 0}`}
+        scrollSeekConfiguration={scrollSeekConfiguration}
 
         // Render each message
-        itemContent={(index, message) => (
+        itemContent={(_, message) => (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -147,6 +166,8 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
 
         // Footer for streaming indicator
         components={{
+          ScrollSeekPlaceholder,
+
           Footer: () => isStreaming ? (
             <motion.div
               initial={{ opacity: 0 }}
