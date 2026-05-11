@@ -35,13 +35,26 @@ test('StreamMessage memoization ignores unrelated stream context churn', async (
   assert.match(source, /export const StreamMessage = React\.memo\(StreamMessageComponent, streamMessagePropsAreEqual\);/);
 });
 
+test('StreamMessage shares Claude agent metadata across mounted rows', async () => {
+  const source = await readSource(streamMessagePath);
+
+  assert.match(source, /let cachedAgents: AgentPresentationMap = new Map\(\);/);
+  assert.match(source, /let agentsLoadPromise: Promise<void> \| null = null;/);
+  assert.match(source, /function loadAgentsOnce\(\): void \{/);
+  assert.match(source, /const agents = useSyncExternalStore\(subscribeAgents, getAgentsSnapshot, getAgentsSnapshot\);/);
+  assert.doesNotMatch(source, /useEffect\(\(\) => \{[\s\S]*api\.listClaudeAgents\(\)[\s\S]*\}, \[\]\);/);
+});
+
 test('live message renderers pass memoized stream context to StreamMessage', async () => {
   const aiCodeSessionSource = await readSource(aiCodeSessionPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
   const sessionOutputViewerSource = await readSource(sessionOutputViewerPath);
   const agentRunOutputViewerSource = await readSource(agentRunOutputViewerPath);
 
-  for (const source of [aiCodeSessionSource, agentExecutionSource, sessionOutputViewerSource, agentRunOutputViewerSource]) {
+  assert.doesNotMatch(aiCodeSessionSource, /buildStreamMessageContext\(messagesState\.messages\)/);
+  assert.match(aiCodeSessionSource, /streamContext=\{messagesState\.streamMessageContext\}/);
+
+  for (const source of [agentExecutionSource, sessionOutputViewerSource, agentRunOutputViewerSource]) {
     assert.match(source, /buildStreamMessageContext/);
     assert.match(source, /streamContext=\{streamMessageContext\}/);
   }

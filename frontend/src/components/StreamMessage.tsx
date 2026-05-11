@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo, useSyncExternalStore } from "react";
 import {
   Terminal,
   User,
@@ -105,6 +105,42 @@ interface CollapsibleTextCardProps {
   preview: string;
   defaultExpanded?: boolean;
   children: React.ReactNode;
+}
+
+type AgentPresentationMap = Map<string, { color?: string; icon?: string }>;
+
+let cachedAgents: AgentPresentationMap = new Map();
+let agentsLoadPromise: Promise<void> | null = null;
+const agentStoreListeners = new Set<() => void>();
+
+function subscribeAgents(listener: () => void): () => void {
+  agentStoreListeners.add(listener);
+  return () => agentStoreListeners.delete(listener);
+}
+
+function getAgentsSnapshot(): AgentPresentationMap {
+  return cachedAgents;
+}
+
+function loadAgentsOnce(): void {
+  if (agentsLoadPromise) return;
+
+  agentsLoadPromise = api.listClaudeAgents().then((agentFiles: FileEntry[]) => {
+    const nextAgents = new Map<string, { color?: string; icon?: string }>();
+    agentFiles.forEach(agent => {
+      if (agent.entry_type === 'agent') {
+        nextAgents.set(agent.name, {
+          color: agent.color,
+          icon: agent.icon,
+        });
+      }
+    });
+    cachedAgents = nextAgents;
+    agentStoreListeners.forEach((listener) => listener());
+  }).catch((err: unknown) => {
+    agentsLoadPromise = null;
+    console.error('Failed to load agents:', err);
+  });
 }
 
 const CollapsibleTextCard: React.FC<CollapsibleTextCardProps> = ({
@@ -418,26 +454,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
   const { theme } = useTheme();
   const syntaxTheme = getClaudeSyntaxTheme(theme);
   
-  // State to store Claude Code agents
-  const [agents, setAgents] = useState<Map<string, { color?: string; icon?: string }>>(new Map());
-
-  // Load Claude Code agents on mount
-  useEffect(() => {
-    api.listClaudeAgents().then((agentFiles: FileEntry[]) => {
-      const agentsMap = new Map<string, { color?: string; icon?: string }>();
-      agentFiles.forEach(agent => {
-        if (agent.entry_type === 'agent') {
-          agentsMap.set(agent.name, {
-            color: agent.color,
-            icon: agent.icon,
-          });
-        }
-      });
-      setAgents(agentsMap);
-    }).catch((err: unknown) => {
-      console.error('Failed to load agents:', err);
-    });
-  }, []);
+  const agents = useSyncExternalStore(subscribeAgents, getAgentsSnapshot, getAgentsSnapshot);
+  loadAgentsOnce();
 
   // Helper to get tool result for a specific tool call ID
   const getToolResult = (toolId: string | undefined): any => {

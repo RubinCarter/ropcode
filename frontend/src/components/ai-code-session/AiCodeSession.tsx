@@ -26,7 +26,7 @@ import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws-rpc-client";
 import { providers } from "@/lib/providers";
 import { cn } from "@/lib/utils";
-import { StreamMessage, buildStreamMessageContext } from "../StreamMessage";
+import { StreamMessage } from "../StreamMessage";
 import { SubagentProgressPanel } from "../SubagentProgressPanel";
 import { FloatingPromptInput, type FloatingPromptInputRef } from "../FloatingPromptInput";
 import { SessionStatusBar } from "./SessionStatusBar";
@@ -1437,11 +1437,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
   // RENDER - Message List
   // ==================================================================
 
-  const streamMessageContext = React.useMemo(
-    () => buildStreamMessageContext(messagesState.messages),
-    [messagesState.messages]
-  );
-
   const streamItems = React.useMemo(() => {
     const subagentIndexes = messagesState.subagentProgress.subagents.flatMap((subagent) =>
       Array.from(subagent.messageIndexes)
@@ -1488,6 +1483,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
         ref={virtuosoRef}
         data={streamItems}
         className="h-full"
+        increaseViewportBy={{ top: 800, bottom: 1200 }}
+        overscan={{ main: 600, reverse: 600 }}
 
         // followOutput handles auto-scrolling during streaming
         // Returns false to disable, 'auto' for instant scroll, 'smooth' for animated
@@ -1532,7 +1529,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
               <StreamMessage
                 message={item.message}
                 streamMessages={messagesState.messages}
-                streamContext={streamMessageContext}
+                streamContext={messagesState.streamMessageContext}
                 onLinkDetected={handleLinkDetected}
                 agentOutputMap={messagesState.agentOutputMap}
               />

@@ -36,6 +36,8 @@ test('virtualized stream rows use message identity instead of row index for keys
   const aiCodeSessionSource = await readSource(aiCodeSessionPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
 
+  assert.match(aiCodeSessionSource, /increaseViewportBy=\{\{ top: 800, bottom: 1200 \}\}/);
+  assert.match(aiCodeSessionSource, /overscan=\{\{ main: 600, reverse: 600 \}\}/);
   assert.match(aiCodeSessionSource, /computeItemKey=\{\(_, item\) => item\.type === 'subagent-panel'[\s\S]*item\.message\.uuid \|\| `msg-\$\{item\.originalIndex\}`/);
   assert.doesNotMatch(aiCodeSessionSource, /`msg-\$\{item\.originalIndex\}-\$\{index\}`/);
   assert.match(agentExecutionSource, /const messageIndexByObject = React\.useMemo\(\(\) => \{[\s\S]*new WeakMap<ClaudeStreamMessage, number>\(\)/);

@@ -10,6 +10,7 @@
 
 import { useState, useMemo, useRef } from "react";
 import type { ClaudeStreamMessage } from "../types";
+import type { StreamMessageContext } from "../../StreamMessage";
 import { filterDisplayableMessages, getDisplayableMessageIndexes } from "../utils/messageFilter";
 import { buildSubagentProgress, type SubagentProgressSummary } from "@/lib/subagentProgress";
 
@@ -28,6 +29,18 @@ export interface TokenUsageTotals {
   totalTokens: number;
 }
 
+interface MessageDerivedState {
+  tokenUsage: TokenUsageTotals;
+  agentOutputMap: Map<string, any>;
+  streamMessageContext: StreamMessageContext;
+  agentOutputToolUseIds: Map<string, string>;
+}
+
+interface MessageState {
+  messages: ClaudeStreamMessage[];
+  derived: MessageDerivedState;
+}
+
 export interface UseMessagesReturn {
   // State
   messages: ClaudeStreamMessage[];
@@ -38,6 +51,7 @@ export interface UseMessagesReturn {
   subagentProgress: SubagentProgressSummary;
   subagentTranscripts: Record<string, ClaudeStreamMessage[]>;
   agentOutputMap: Map<string, any>;
+  streamMessageContext: StreamMessageContext;
 
   // Setters
   setMessages: React.Dispatch<React.SetStateAction<ClaudeStreamMessage[]>>;
@@ -78,38 +92,239 @@ function textContentLength(message: ClaudeStreamMessage): number {
   }, 0);
 }
 
-function calculateTokenUsage(messages: ClaudeStreamMessage[]): TokenUsageTotals {
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let estimatedOutputTokens = 0;
+function messageTokenContribution(message: ClaudeStreamMessage): TokenUsageTotals {
+  const usage = message.message?.usage ?? message.usage;
+  if (usage) {
+    const inputTokens = usageInputTokens(usage);
+    const outputTokens = usageOutputTokens(usage);
+    return {
+      inputTokens,
+      outputTokens,
+      estimatedOutputTokens: 0,
+      totalTokens: inputTokens + outputTokens,
+    };
+  }
 
-  for (const message of messages) {
-    const usage = message.message?.usage ?? message.usage;
-    if (usage) {
-      inputTokens += usageInputTokens(usage);
-      outputTokens += usageOutputTokens(usage);
-      continue;
-    }
-
-    if (message.type === 'assistant' && (message as any).is_delta !== true) {
-      estimatedOutputTokens += Math.round(textContentLength(message) / 4);
-    }
+  if (message.type === 'assistant' && (message as any).is_delta !== true) {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedOutputTokens: Math.round(textContentLength(message) / 4),
+      totalTokens: 0,
+    };
   }
 
   return {
-    inputTokens,
-    outputTokens,
-    estimatedOutputTokens,
-    totalTokens: inputTokens + outputTokens,
+    inputTokens: 0,
+    outputTokens: 0,
+    estimatedOutputTokens: 0,
+    totalTokens: 0,
   };
+}
+
+function addTokenContribution(totals: TokenUsageTotals, contribution: TokenUsageTotals): TokenUsageTotals {
+  if (
+    contribution.inputTokens === 0 &&
+    contribution.outputTokens === 0 &&
+    contribution.estimatedOutputTokens === 0 &&
+    contribution.totalTokens === 0
+  ) {
+    return totals;
+  }
+
+  return {
+    inputTokens: totals.inputTokens + contribution.inputTokens,
+    outputTokens: totals.outputTokens + contribution.outputTokens,
+    estimatedOutputTokens: totals.estimatedOutputTokens + contribution.estimatedOutputTokens,
+    totalTokens: totals.totalTokens + contribution.totalTokens,
+  };
+}
+
+function replaceTokenContribution(
+  totals: TokenUsageTotals,
+  previousMessage: ClaudeStreamMessage,
+  nextMessage: ClaudeStreamMessage,
+): TokenUsageTotals {
+  const previous = messageTokenContribution(previousMessage);
+  const next = messageTokenContribution(nextMessage);
+  if (
+    previous.inputTokens === next.inputTokens &&
+    previous.outputTokens === next.outputTokens &&
+    previous.estimatedOutputTokens === next.estimatedOutputTokens &&
+    previous.totalTokens === next.totalTokens
+  ) {
+    return totals;
+  }
+
+  return {
+    inputTokens: totals.inputTokens - previous.inputTokens + next.inputTokens,
+    outputTokens: totals.outputTokens - previous.outputTokens + next.outputTokens,
+    estimatedOutputTokens: totals.estimatedOutputTokens - previous.estimatedOutputTokens + next.estimatedOutputTokens,
+    totalTokens: totals.totalTokens - previous.totalTokens + next.totalTokens,
+  };
+}
+
+function createEmptyStreamMessageContext(): StreamMessageContext {
+  return {
+    toolResults: new Map(),
+    cwd: '',
+    toolUseNamesById: new Map(),
+    readToolPathsById: new Map(),
+  };
+}
+
+function createEmptyDerivedMessagesState(): MessageDerivedState {
+  return {
+    tokenUsage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedOutputTokens: 0,
+      totalTokens: 0,
+    },
+    agentOutputMap: new Map(),
+    streamMessageContext: createEmptyStreamMessageContext(),
+    agentOutputToolUseIds: new Map(),
+  };
+}
+
+function parseToolResultContent(content: any): any {
+  try {
+    const textContent = Array.isArray(content)
+      ? content.find((item: any) => item.type === 'text')?.text
+      : typeof content === 'string' ? content : null;
+    return textContent ? JSON.parse(textContent) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function applyMessageToDerivedState(previous: MessageDerivedState, message: ClaudeStreamMessage): MessageDerivedState {
+  let tokenUsage = addTokenContribution(previous.tokenUsage, messageTokenContribution(message));
+  let agentOutputMap = previous.agentOutputMap;
+  let agentOutputToolUseIds = previous.agentOutputToolUseIds;
+  let toolResults = previous.streamMessageContext.toolResults;
+  let toolUseNamesById = previous.streamMessageContext.toolUseNamesById;
+  let readToolPathsById = previous.streamMessageContext.readToolPathsById;
+  let cwd = previous.streamMessageContext.cwd;
+  let streamContextChanged = false;
+
+  const ensureAgentOutputMap = () => {
+    if (agentOutputMap === previous.agentOutputMap) agentOutputMap = new Map(agentOutputMap);
+  };
+  const ensureAgentOutputToolUseIds = () => {
+    if (agentOutputToolUseIds === previous.agentOutputToolUseIds) agentOutputToolUseIds = new Map(agentOutputToolUseIds);
+  };
+  const ensureToolResults = () => {
+    if (toolResults === previous.streamMessageContext.toolResults) toolResults = new Map(toolResults);
+    streamContextChanged = true;
+  };
+  const ensureToolUseNamesById = () => {
+    if (toolUseNamesById === previous.streamMessageContext.toolUseNamesById) toolUseNamesById = new Map(toolUseNamesById);
+    streamContextChanged = true;
+  };
+  const ensureReadToolPathsById = () => {
+    if (readToolPathsById === previous.streamMessageContext.readToolPathsById) readToolPathsById = new Map(readToolPathsById);
+    streamContextChanged = true;
+  };
+
+  if (message.type === 'system' && message.subtype === 'init' && message.cwd && message.cwd !== cwd) {
+    cwd = message.cwd;
+    streamContextChanged = true;
+  }
+
+  const content = message.message?.content;
+  if (message.type === 'assistant' && Array.isArray(content)) {
+    content.forEach((block: any) => {
+      if (block?.type !== 'tool_use' || !block.id) return;
+
+      const toolName = String(block.name ?? '').toLowerCase();
+      if (toolUseNamesById.get(block.id) !== toolName) {
+        ensureToolUseNamesById();
+        toolUseNamesById.set(block.id, toolName);
+      }
+
+      if (toolName === 'read' && block.input?.file_path && readToolPathsById.get(block.id) !== block.input.file_path) {
+        ensureReadToolPathsById();
+        readToolPathsById.set(block.id, block.input.file_path);
+      }
+
+      if (toolName === 'agentoutputtool' && block.input?.agentId && agentOutputToolUseIds.get(block.id) !== block.input.agentId) {
+        ensureAgentOutputToolUseIds();
+        agentOutputToolUseIds.set(block.id, block.input.agentId);
+      }
+    });
+  }
+
+  if (message.type === 'user' && Array.isArray(content)) {
+    content.forEach((block: any) => {
+      if (block?.type !== 'tool_result' || !block.tool_use_id) return;
+
+      if (toolResults.get(block.tool_use_id) !== block) {
+        ensureToolResults();
+        toolResults.set(block.tool_use_id, block);
+      }
+
+      const agentId = agentOutputToolUseIds.get(block.tool_use_id);
+      if (!agentId) return;
+
+      const result = (message as any).toolUseResult ?? parseToolResultContent(block.content);
+      if (result && agentOutputMap.get(agentId) !== result) {
+        ensureAgentOutputMap();
+        agentOutputMap.set(agentId, result);
+      }
+    });
+  }
+
+  return {
+    tokenUsage,
+    agentOutputMap,
+    streamMessageContext: streamContextChanged
+      ? { toolResults, cwd, toolUseNamesById, readToolPathsById }
+      : previous.streamMessageContext,
+    agentOutputToolUseIds,
+  };
+}
+
+function replaceLastMessageInDerivedState(
+  previous: MessageDerivedState,
+  previousMessage: ClaudeStreamMessage,
+  nextMessage: ClaudeStreamMessage,
+): MessageDerivedState {
+  const tokenUsage = replaceTokenContribution(previous.tokenUsage, previousMessage, nextMessage);
+  return tokenUsage === previous.tokenUsage ? previous : { ...previous, tokenUsage };
+}
+
+function buildDerivedMessagesState(messages: ClaudeStreamMessage[]): MessageDerivedState {
+  return messages.reduce(
+    (derived, message) => applyMessageToDerivedState(derived, message),
+    createEmptyDerivedMessagesState(),
+  );
 }
 
 /**
  * Hook to manage messages
  */
 export function useMessages(): UseMessagesReturn {
-  const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
+  const [messageState, setMessageState] = useState<MessageState>(() => ({
+    messages: [],
+    derived: createEmptyDerivedMessagesState(),
+  }));
   const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
+  const messages = messageState.messages;
+
+  const setMessages: React.Dispatch<React.SetStateAction<ClaudeStreamMessage[]>> = (nextMessagesOrUpdater) => {
+    setMessageState((previous) => {
+      const nextMessages = typeof nextMessagesOrUpdater === 'function'
+        ? nextMessagesOrUpdater(previous.messages)
+        : nextMessagesOrUpdater;
+
+      if (nextMessages === previous.messages) return previous;
+      return {
+        messages: nextMessages,
+        derived: buildDerivedMessagesState(nextMessages),
+      };
+    });
+  };
 
   // Refs for stable access in callbacks (avoids stale closure in useEffect([]))
   const messagesLengthRef = useRef(messages.length);
@@ -133,58 +348,7 @@ export function useMessages(): UseMessagesReturn {
     [messages, subagentProgress.subagentMessageIndexes]
   );
 
-  // Build agentId → AgentOutputTool result mapping
-  // Note: JSONL history has 'toolUseResult' at root level, but live stream needs to parse from content
-  const agentOutputMap = useMemo(() => {
-    const map = new Map<string, any>();
-    const toolUseMap = new Map<string, string>();
-
-    // First pass: find AgentOutputTool calls and map tool_use_id → agentId
-    messages.forEach((msg) => {
-      if (msg.type === 'assistant' && msg.message?.content && Array.isArray(msg.message.content)) {
-        msg.message.content.forEach((c: any) => {
-          if (c.type === 'tool_use' && c.name === 'AgentOutputTool' && c.input?.agentId) {
-            toolUseMap.set(c.id, c.input.agentId);
-          }
-        });
-      }
-    });
-
-    // Second pass: find tool_result messages and map agentId → toolUseResult
-    messages.forEach((msg: any) => {
-      if (msg.type === 'user' && msg.message?.content && Array.isArray(msg.message.content)) {
-        msg.message.content.forEach((c: any) => {
-          if (c.type === 'tool_result' && c.tool_use_id) {
-            const agentId = toolUseMap.get(c.tool_use_id);
-            if (agentId) {
-              // Try toolUseResult first (from JSONL history), then parse from content (live stream)
-              let result = msg.toolUseResult;
-              if (!result && c.content) {
-                // Parse from tool_result content (live stream case)
-                try {
-                  const textContent = Array.isArray(c.content)
-                    ? c.content.find((item: any) => item.type === 'text')?.text
-                    : typeof c.content === 'string' ? c.content : null;
-                  if (textContent) {
-                    result = JSON.parse(textContent);
-                  }
-                } catch {
-                  // Ignore parse errors
-                }
-              }
-              if (result) {
-                map.set(agentId, result);
-              }
-            }
-          }
-        });
-      }
-    });
-
-    return map;
-  }, [messages]);
-
-  const tokenUsage = useMemo(() => calculateTokenUsage(messages), [messages]);
+  const tokenUsage = messageState.derived.tokenUsage;
   const totalTokens = tokenUsage.totalTokens;
 
   // Use ref to batch delta updates and reduce re-renders
@@ -243,33 +407,42 @@ export function useMessages(): UseMessagesReturn {
 
         if (!bufferedText) return;
 
-        setMessages(prev => {
-          const lastIndex = prev.length - 1;
+        setMessageState(prev => {
+          const lastIndex = prev.messages.length - 1;
 
           // If there's no previous message or last message is not assistant, create new assistant message
-          if (lastIndex < 0 || prev[lastIndex].type !== 'assistant') {
-            return [...prev, {
+          if (lastIndex < 0 || prev.messages[lastIndex].type !== 'assistant') {
+            const nextMessage: ClaudeStreamMessage = {
               type: 'assistant',
               message: {
                 content: [{ type: 'text', text: bufferedText }]
               }
-            }];
+            };
+            return {
+              messages: [...prev.messages, nextMessage],
+              derived: applyMessageToDerivedState(prev.derived, nextMessage),
+            };
           }
 
           // If the last message has usage info, it's a complete message, don't accumulate
-          if (prev[lastIndex].message?.usage) {
-            return [...prev, {
+          if (prev.messages[lastIndex].message?.usage) {
+            const nextMessage: ClaudeStreamMessage = {
               type: 'assistant',
               message: {
                 content: [{ type: 'text', text: bufferedText }]
               }
-            }];
+            };
+            return {
+              messages: [...prev.messages, nextMessage],
+              derived: applyMessageToDerivedState(prev.derived, nextMessage),
+            };
           }
 
           // Accumulate delta into last assistant message
           // Clone only the last message to minimize object creation
-          const updatedMessages = [...prev];
-          const lastMessage = { ...updatedMessages[lastIndex] };
+          const updatedMessages = [...prev.messages];
+          const previousLastMessage = updatedMessages[lastIndex];
+          const lastMessage = { ...previousLastMessage };
           updatedMessages[lastIndex] = lastMessage;
 
           // Ensure message.content exists
@@ -300,7 +473,10 @@ export function useMessages(): UseMessagesReturn {
             });
           }
 
-          return updatedMessages;
+          return {
+            messages: updatedMessages,
+            derived: replaceLastMessageInDerivedState(prev.derived, previousLastMessage, lastMessage),
+          };
         });
       }, 50);
 
@@ -317,11 +493,12 @@ export function useMessages(): UseMessagesReturn {
       const bufferedText = deltaBufferRef.current;
       deltaBufferRef.current = '';
 
-      setMessages(prev => {
-        const lastIndex = prev.length - 1;
-        if (lastIndex >= 0 && prev[lastIndex].type === 'assistant' && !prev[lastIndex].message?.usage) {
-          const updatedMessages = [...prev];
-          const lastMessage = { ...updatedMessages[lastIndex] };
+      setMessageState(prev => {
+        const lastIndex = prev.messages.length - 1;
+        if (lastIndex >= 0 && prev.messages[lastIndex].type === 'assistant' && !prev.messages[lastIndex].message?.usage) {
+          const updatedMessages = [...prev.messages];
+          const previousLastMessage = updatedMessages[lastIndex];
+          const lastMessage = { ...previousLastMessage };
           updatedMessages[lastIndex] = lastMessage;
 
           if (lastMessage.message?.content && lastMessage.message.content.length > 0) {
@@ -336,15 +513,24 @@ export function useMessages(): UseMessagesReturn {
             }
           }
 
-          return [...updatedMessages, message];
+          const messagesWithNewMessage = [...updatedMessages, message];
+          const derivedWithBufferedText = replaceLastMessageInDerivedState(prev.derived, previousLastMessage, lastMessage);
+          return {
+            messages: messagesWithNewMessage,
+            derived: applyMessageToDerivedState(derivedWithBufferedText, message),
+          };
         }
 
-        return [...prev, message];
+        return {
+          messages: [...prev.messages, message],
+          derived: applyMessageToDerivedState(prev.derived, message),
+        };
       });
     } else {
-      setMessages(prev => {
-        return [...prev, message];
-      });
+      setMessageState(prev => ({
+        messages: [...prev.messages, message],
+        derived: applyMessageToDerivedState(prev.derived, message),
+      }));
     }
   };
 
@@ -361,7 +547,8 @@ export function useMessages(): UseMessagesReturn {
     displayableMessageIndexes,
     subagentProgress,
     subagentTranscripts,
-    agentOutputMap,
+    agentOutputMap: messageState.derived.agentOutputMap,
+    streamMessageContext: messageState.derived.streamMessageContext,
     setMessages,
     setSubagentTranscripts,
     addMessage,
