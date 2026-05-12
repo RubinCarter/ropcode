@@ -521,15 +521,10 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
   const toolResults = sharedStreamContext.toolResults;
   const cwd = sharedStreamContext.cwd;
 
-  // State to track expanded tool results
-  const [expandedToolResults, setExpandedToolResults] = useState<Set<number>>(new Set());
-
-  // 🆕 State to track conversation summary expansion
-  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
-
   // Get current theme
   const { theme } = useTheme();
   const syntaxTheme = useMemo(() => getClaudeSyntaxTheme(theme), [theme]);
+  const [uncontrolledExpandedCards, setUncontrolledExpandedCards] = useState<Set<string>>(new Set());
 
   const agents = useSyncExternalStore(subscribeAgents, getAgentsSnapshot, getAgentsSnapshot);
   loadAgentsOnce();
@@ -541,16 +536,16 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
   };
 
   const getCardExpansionProps = (cardId: string, defaultExpanded: boolean) => {
-    if (!expandedCards || !onExpandedCardsChange) {
-      return { defaultExpanded };
-    }
-
+    const currentExpandedCards = expandedCards ?? uncontrolledExpandedCards;
+    const updateExpandedCards = onExpandedCardsChange ?? setUncontrolledExpandedCards;
     const expandedKey = `${messageKey ?? message.uuid ?? 'message'}:${cardId}`;
+
     return {
-      expanded: expandedCards.has(expandedKey) || (defaultExpanded && !expandedCards.has(`${expandedKey}:collapsed`)),
+      defaultExpanded,
+      expanded: currentExpandedCards.has(expandedKey) || (defaultExpanded && !currentExpandedCards.has(`${expandedKey}:collapsed`)),
       onExpandedChange: (expanded: boolean) => {
-        onExpandedCardsChange((currentExpandedCards) => {
-          const nextExpandedCards = new Set(currentExpandedCards);
+        updateExpandedCards((cards) => {
+          const nextExpandedCards = new Set(cards);
           nextExpandedCards.delete(`${expandedKey}:collapsed`);
           if (expanded) {
             nextExpandedCards.add(expandedKey);
@@ -581,13 +576,15 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
       // Extract title (first line) and summary content
       const lines = content.split('\n');
       const summaryContent = lines.slice(1).join('\n');
+      const summaryExpansion = getCardExpansionProps('conversation-summary', false);
+      const isSummaryExpanded = Boolean(summaryExpansion.expanded);
 
       return (
         <Card className="border-l-4 border-blue-500 bg-blue-50 dark:bg-blue-900/20 rounded-lg my-4 overflow-hidden">
           <CardContent className="p-0">
             {/* Clickable header */}
             <button
-              onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+              onClick={() => summaryExpansion.onExpandedChange?.(!isSummaryExpanded)}
               className="w-full flex items-center justify-between p-4 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800/30 transition-colors border-b border-blue-200 dark:border-blue-700"
             >
               <div className="flex items-center gap-3">
@@ -1218,18 +1215,9 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
 
                     // Render Tool Result with collapsible functionality
                     renderedSomething = true;
-                    const isExpanded = expandedToolResults.has(idx);
-                    const toggleExpanded = () => {
-                      setExpandedToolResults(prev => {
-                        const next = new Set(prev);
-                        if (next.has(idx)) {
-                          next.delete(idx);
-                        } else {
-                          next.add(idx);
-                        }
-                        return next;
-                      });
-                    };
+                    const toolResultExpansion = getCardExpansionProps(`tool-result-${content.tool_use_id || idx}`, false);
+                    const isExpanded = Boolean(toolResultExpansion.expanded);
+                    const toggleExpanded = () => toolResultExpansion.onExpandedChange?.(!isExpanded);
 
                     return (
                       <div key={idx} className="space-y-2">
@@ -1352,7 +1340,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
     // Result message - render with markdown
     if (message.type === "result") {
       const isError = message.is_error || message.subtype?.includes("error");
-      const [expanded, setExpanded] = useState(false);
+      const resultExpansion = getCardExpansionProps('result-details', false);
+      const expanded = Boolean(resultExpansion.expanded);
 
       return (
         <Card className={cn(
@@ -1364,7 +1353,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
               <div className="mb-2 text-xs text-muted-foreground">{runtimeSummary}</div>
             )}
             <button
-              onClick={() => setExpanded(!expanded)}
+              onClick={() => resultExpansion.onExpandedChange?.(!expanded)}
               className="w-full flex items-start gap-3 text-left hover:opacity-80 transition-opacity"
             >
               {isError ? (

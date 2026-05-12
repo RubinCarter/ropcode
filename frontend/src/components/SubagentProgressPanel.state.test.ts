@@ -248,6 +248,9 @@ test('tool card expansion state is controlled by StreamMessage stable card keys'
     assert.match(toolWidgetsSource, new RegExp(`export const ${widget}: React\\.FC<[\\s\\S]*ControlledExpansionProps`));
   }
 
+  assert.match(streamMessageSource, /const \[uncontrolledExpandedCards, setUncontrolledExpandedCards\] = useState<Set<string>>\(new Set\(\)\);/);
+  assert.match(streamMessageSource, /const currentExpandedCards = expandedCards \?\? uncontrolledExpandedCards;/);
+  assert.match(streamMessageSource, /const updateExpandedCards = onExpandedCardsChange \?\? setUncontrolledExpandedCards;/);
   assert.match(streamMessageSource, /const toolCardKey = `tool-\$\{toolName \|\| 'unknown'\}-\$\{toolId \|\| idx\}`;/);
   assert.match(streamMessageSource, /<WebSearchWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
   assert.match(streamMessageSource, /<WebFetchWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
@@ -256,7 +259,11 @@ test('tool card expansion state is controlled by StreamMessage stable card keys'
   assert.match(streamMessageSource, /<ThinkingWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`thinking-\$\{idx\}`, false\)\}/);
   assert.match(streamMessageSource, /<EditResultWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| idx\}-edit`, false\)\}/);
   assert.match(streamMessageSource, /<ReadResultWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| idx\}-read`, false\)\}/);
+  assert.match(streamMessageSource, /const summaryExpansion = getCardExpansionProps\('conversation-summary', false\);/);
+  assert.match(streamMessageSource, /const toolResultExpansion = getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| idx\}`, false\);/);
+  assert.match(streamMessageSource, /const resultExpansion = getCardExpansionProps\('result-details', false\);/);
   assert.match(streamMessageSource, /<SystemInstructionWidget[\s\S]*\{\.\.\.getExpansionProps\?\.\(`\$\{keyPrefix\}system-instruction-\$\{instructionIndex\}`, false\)\}/);
+  assert.doesNotMatch(streamMessageSource, /expandedToolResults|setExpandedToolResults|setIsSummaryExpanded|const \[expanded, setExpanded\] = useState\(false\)/);
 });
 
 test('SubagentProgressPanel memoizes transcript filtering while rendering all messages', async () => {
