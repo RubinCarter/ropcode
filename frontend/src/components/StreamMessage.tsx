@@ -332,6 +332,7 @@ const MarkdownContent = React.memo(function MarkdownContent({ text, syntaxTheme 
           style={syntaxTheme}
           language={match[1]}
           PreTag="div"
+          codeTagProps={{ className: "!text-foreground" }}
           {...props}
         >
           {code}

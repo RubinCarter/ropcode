@@ -593,28 +593,30 @@ export const ReadResultWidget: React.FC<{ content: string; filePath?: string; wo
 
   return (
     <div className="rounded-lg overflow-hidden border bg-background w-full">
-      <div className="px-4 py-2 border-b bg-muted/50 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-xs font-mono text-muted-foreground">
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full px-4 py-2 border-b bg-muted/50 flex items-center justify-between text-left hover:bg-muted/70 transition-colors"
+        aria-label={isExpanded ? "Collapse file" : "Expand file"}
+      >
+        <div className="min-w-0 flex items-center gap-2">
+          <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+          <span className="min-w-0 truncate text-xs font-mono text-muted-foreground">
             {displayPath || "File content"}
           </span>
           {isLargeFile && (
-            <span className="text-xs text-muted-foreground">
+            <span className="flex-shrink-0 text-xs text-muted-foreground">
               ({lineCount} lines)
             </span>
           )}
         </div>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ChevronRight className={cn("h-3 w-3 transition-transform", isExpanded && "rotate-90")} />
-          {isExpanded ? "Collapse" : "Expand"}
-        </button>
-      </div>
+        <ChevronDown className={cn(
+          "h-4 w-4 text-muted-foreground transition-transform flex-shrink-0",
+          !isExpanded && "-rotate-90"
+        )} />
+      </button>
       
-      {isExpanded ? (() => {
+      {isExpanded && (() => {
         const { codeContent, startLineNumber } = parseContent(content);
         return (
           <div className="relative overflow-x-auto">
@@ -645,11 +647,7 @@ export const ReadResultWidget: React.FC<{ content: string; filePath?: string; wo
             </SyntaxHighlighter>
           </div>
         );
-      })() : (
-        <div className="px-4 py-3 text-xs text-muted-foreground text-center bg-muted/30">
-          Click "Expand" to view the file
-        </div>
-      )}
+      })()}
     </div>
   );
 };
@@ -1387,7 +1385,7 @@ export const EditResultWidget: React.FC<{ content: string } & ControlledExpansio
   const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
   const { theme } = useTheme();
   const syntaxTheme = getClaudeSyntaxTheme(theme);
-  const collapsedFilePath = getEditResultFilePath(content);
+  const collapsedFilePath = shortenPath(getEditResultFilePath(content));
 
   return (
     <div className="rounded-lg border bg-background overflow-hidden">

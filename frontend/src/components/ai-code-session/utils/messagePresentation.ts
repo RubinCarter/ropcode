@@ -60,6 +60,17 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
   const bulletCount = (normalized.match(BULLET_REGEX) || []).length;
   const lineCount = normalized.split('\n').length;
   const startsWithSkillBaseDir = normalized.startsWith('Base directory for this skill:');
+  const startsWithContinuationSummary = normalized.startsWith('This session is being continued from a previous conversation that ran out of context.');
+
+  if (startsWithContinuationSummary) {
+    return {
+      kind: 'structured_reference',
+      collapsible: true,
+      defaultExpanded: false,
+      title: 'Previous conversation summary',
+      preview: buildPreview(normalized),
+    };
+  }
 
   if (startsWithSkillBaseDir && (headingCount >= 1 || bulletCount >= 1 || lineCount >= 6)) {
     return {

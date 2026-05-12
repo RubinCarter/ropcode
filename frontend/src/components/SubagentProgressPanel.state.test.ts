@@ -19,10 +19,28 @@ const messageScrollSeekPlaceholderPath = path.resolve(currentDir, './MessageScro
 const sessionStatusBarPath = path.resolve(currentDir, './ai-code-session/SessionStatusBar.tsx');
 const floatingPromptInputPath = path.resolve(currentDir, './FloatingPromptInput.tsx');
 const projectListPath = path.resolve(currentDir, './ProjectList.tsx');
+const pathUtilsPath = path.resolve(currentDir, '../lib/pathUtils.ts');
+const messagePresentationPath = path.resolve(currentDir, './ai-code-session/utils/messagePresentation.ts');
 
 async function readSource(filePath: string) {
   return readFile(filePath, 'utf8');
 }
+
+test('continued conversation summaries default to collapsed cards', async () => {
+  const messagePresentationSource = await readSource(messagePresentationPath);
+
+  assert.match(messagePresentationSource, /startsWithContinuationSummary = normalized\.startsWith\('This session is being continued from a previous conversation that ran out of context\.'\)/);
+  assert.match(messagePresentationSource, /if \(startsWithContinuationSummary\) \{[\s\S]*collapsible: true,[\s\S]*defaultExpanded: false,[\s\S]*title: 'Previous conversation summary'/);
+});
+
+test('worktree paths are shortened for message cards', async () => {
+  const pathUtilsSource = await readSource(pathUtilsPath);
+  const toolWidgetsSource = await readSource(toolWidgetsPath);
+
+  assert.match(pathUtilsSource, /filePath\.match\(\/\\\/\\\.ropcode\\\/\[\^\/\]\+\\\/\(\.\+\)\$\/\)/);
+  assert.match(pathUtilsSource, /return worktreeMatch\[1\];/);
+  assert.match(toolWidgetsSource, /const collapsedFilePath = shortenPath\(getEditResultFilePath\(content\)\);/);
+});
 
 test('SubagentProgressPanel supports controlled expansion state', async () => {
   const source = await readSource(subagentProgressPanelPath);
@@ -103,6 +121,12 @@ test('virtualized stream rows use lightweight placeholders during fast scroll', 
   assert.match(messageScrollSeekPlaceholderSource, /export function MessageScrollSeekPlaceholder\(\{ height, className \}: MessageScrollSeekPlaceholderProps\) \{/);
   assert.match(messageScrollSeekPlaceholderSource, /const rowCount = height > 180 \? 3 : height > 96 \? 2 : 1;/);
   assert.doesNotMatch(messageScrollSeekPlaceholderSource, /getBoundingClientRect|ResizeObserver|requestAnimationFrame|animate-pulse|animate-/);
+});
+
+test('markdown code blocks keep readable plain text in dark themes', async () => {
+  const streamMessageSource = await readSource(streamMessagePath);
+
+  assert.match(streamMessageSource, /<SyntaxHighlighter[\s\S]*codeTagProps=\{\{ className: "!text-foreground" \}\}/);
 });
 
 test('live streaming assistant text avoids markdown and syntax highlighting', async () => {
@@ -220,8 +244,8 @@ test('collapsed read and edit results do not parse or highlight file content', a
   const toolWidgetsSource = await readSource(toolWidgetsPath);
 
   assert.match(toolWidgetsSource, /const \[isExpanded, setIsExpanded\] = useControlledExpansion\(expansionProps\);/);
-  assert.match(toolWidgetsSource, /\{isExpanded \? \(\(\) => \{[\s\S]*const \{ codeContent, startLineNumber \} = parseContent\(content\);[\s\S]*<SyntaxHighlighter/);
-  assert.match(toolWidgetsSource, /Click "Expand" to view the file/);
+  assert.match(toolWidgetsSource, /\{isExpanded && \(\(\) => \{[\s\S]*const \{ codeContent, startLineNumber \} = parseContent\(content\);[\s\S]*<SyntaxHighlighter/);
+  assert.doesNotMatch(toolWidgetsSource, /Click "Expand" to view the file/);
   assert.match(toolWidgetsSource, /function getEditResultFilePath\(content: string\): string \{[\s\S]*content\.match\(\/The file \(\.\+\) has been updated\/\)/);
   assert.match(toolWidgetsSource, /function parseEditResultContent\(content: string\) \{[\s\S]*const lines = content\.split\('\\n'\);/);
   assert.match(toolWidgetsSource, /\{isExpanded \? \(\(\) => \{[\s\S]*const \{ filePath, codeContent, startLineNumber \} = parseEditResultContent\(content\);[\s\S]*<SyntaxHighlighter/);

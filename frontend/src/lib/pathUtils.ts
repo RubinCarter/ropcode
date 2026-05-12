@@ -26,6 +26,11 @@ export function shortenPath(filePath: string, workspacePath?: string): string {
     }
   }
 
+  const worktreeMatch = filePath.match(/\/\.ropcode\/[^/]+\/(.+)$/);
+  if (worktreeMatch) {
+    return worktreeMatch[1];
+  }
+
   // Return absolute path
   return filePath;
 }
