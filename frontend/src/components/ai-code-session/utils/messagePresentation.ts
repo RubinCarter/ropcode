@@ -101,8 +101,8 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
   };
 }
 
-export function getUserMessagePresentation(message: { type?: string; message?: { content?: unknown } } | null | undefined): UserMessagePresentation {
-  const rawContent = message?.message?.content;
+export function getUserMessagePresentation(message: { type?: string; message?: { content?: unknown }; content?: unknown } | null | undefined): UserMessagePresentation {
+  const rawContent = message?.message?.content ?? message?.content;
   const text = extractUserMessageText(rawContent);
   const classification = classifyCollapsibleText(text);
 

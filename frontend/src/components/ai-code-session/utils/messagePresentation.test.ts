@@ -78,3 +78,17 @@ test('builds collapsible metadata for user text content blocks', async () => {
   assert.equal(result.collapsible, true);
   assert.equal(result.defaultExpanded, false);
 });
+
+test('collapses continued summaries from top-level live user content', async () => {
+  const { getUserMessagePresentation } = await loadModule();
+
+  const result = getUserMessagePresentation({
+    type: 'user',
+    content: `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request and Intent:\n- Fix message card defaults\n- Keep live views consistent`,
+  });
+
+  assert.equal(result.textKind, 'structured_reference');
+  assert.equal(result.collapsible, true);
+  assert.equal(result.defaultExpanded, false);
+  assert.equal(result.title, 'Previous conversation summary');
+});
