@@ -108,18 +108,11 @@ resourceMonitor.startMonitoring(120000);
 
     vv.addEventListener('resize', syncHeight);
 
-    // Also periodically sync to catch edge cases where resize doesn't fire
-    // (e.g. iOS "Done" button dismissing keyboard without resize event)
-    setInterval(() => {
-      const currentAppH = parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue('--app-height')
-      ) || 0;
-      const diff = Math.abs(currentAppH - vv.height);
-      // Only update if there's a meaningful difference (>5px avoids jitter)
-      if (diff > 5) {
-        syncHeight();
-      }
-    }, 500);
+    // Catch iOS "Done" button dismissing keyboard without firing resize:
+    // listen for focusout (input blur) and re-sync after a short delay.
+    document.addEventListener('focusout', () => {
+      setTimeout(syncHeight, 120);
+    });
   }
 })();
 

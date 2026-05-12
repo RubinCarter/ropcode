@@ -71,12 +71,14 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     };
 
     // Wait for diff computation to complete
-    setTimeout(updateChanges, 100);
+    requestAnimationFrame(updateChanges);
 
-    // Listen for content changes
+    // Listen for content changes — debounce with rAF
+    let changeRaf: number | null = null;
     const modifiedEditor = editor.getModifiedEditor();
     modifiedEditor.onDidChangeModelContent(() => {
-      setTimeout(updateChanges, 100);
+      if (changeRaf !== null) cancelAnimationFrame(changeRaf);
+      changeRaf = requestAnimationFrame(updateChanges);
     });
   }, []);
 

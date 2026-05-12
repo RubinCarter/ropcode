@@ -52,15 +52,35 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   onRemoveQueuedPrompt,
 }) => {
   const Icon = glyphIcon[model.glyph];
-  const highMetrics = model.metrics.filter((metric) => metric.priority === 'high');
-  const otherMetrics = model.metrics.filter((metric) => metric.priority !== 'high');
-  const visibleHints = model.hints.filter((hint) => hint.priority !== 'low').slice(0, 2);
-  const lowHint = model.hints.find((hint) => hint.priority === 'low');
+  const { highMetrics, otherMetrics, visibleHints, lowHint } = React.useMemo(() => {
+    const highMetrics = [] as typeof model.metrics;
+    const otherMetrics = [] as typeof model.metrics;
+    const visibleHints = [] as typeof model.hints;
+    let lowHint: typeof model.hints[number] | undefined;
+
+    for (const metric of model.metrics) {
+      if (metric.priority === 'high') {
+        highMetrics.push(metric);
+      } else {
+        otherMetrics.push(metric);
+      }
+    }
+
+    for (const hint of model.hints) {
+      if (hint.priority === 'low') {
+        lowHint ??= hint;
+      } else if (visibleHints.length < 2) {
+        visibleHints.push(hint);
+      }
+    }
+
+    return { highMetrics, otherMetrics, visibleHints, lowHint };
+  }, [model.metrics, model.hints]);
   const hasQueuedPrompts = queuedPrompts.length > 0;
 
   return (
     <div className={cn('mx-auto w-full max-w-6xl px-4 pt-3', className)}>
-      <div className={cn('rounded-xl border px-3 py-2.5 shadow-sm backdrop-blur-md transition-colors', toneClasses[model.tone])}>
+      <div className={cn('rounded-xl border px-3 py-2.5 shadow-sm transition-colors contain-paint', toneClasses[model.tone])}>
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-2.5">
             <div className="relative flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-background/80 border">
@@ -70,7 +90,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
                 <Icon className={cn('h-3.5 w-3.5', iconClasses[model.tone])} />
               )}
               {model.isActive && model.glyph === 'subagents' && (
-                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-green-500" />
               )}
             </div>
             <div className="min-w-0">
@@ -160,13 +180,16 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
 };
 
 function ModeBadge({ provider, model, thinkingMode }: { provider: string; model?: string; thinkingMode?: string }) {
-  const parts = [formatProvider(provider), formatModel(model), formatThinkingMode(thinkingMode)].filter(Boolean);
-  if (parts.length === 0) return null;
+  const label = React.useMemo(() => {
+    const parts = [formatProvider(provider), formatModel(model), formatThinkingMode(thinkingMode)].filter(Boolean);
+    return parts.join(' · ');
+  }, [provider, model, thinkingMode]);
+  if (!label) return null;
 
   return (
     <Badge variant="outline" className="h-5 px-1.5 text-[10px] font-normal">
       <Zap className="mr-1 h-3 w-3 text-muted-foreground" />
-      {parts.join(' · ')}
+      {label}
     </Badge>
   );
 }

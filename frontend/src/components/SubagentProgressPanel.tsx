@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Bot, ChevronDown, ChevronRight, Hash, ListChecks, Loader2, Wrench } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, Hash, ListChecks, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatCompactNumber, type ClaudeStreamMessageLike, type SubagentProgressSummary } from "@/lib/subagentProgress";
@@ -209,7 +209,7 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
         <div className="relative flex-shrink-0">
           <Bot className="h-4 w-4 text-primary" />
           {summary.runningCount > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-green-500" />
           )}
         </div>
         <div className="min-w-0 flex-1">
@@ -255,11 +255,10 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
                   className="w-full flex items-start gap-3 p-3 text-left hover:bg-muted/40 transition-colors"
                 >
                   <div className="pt-0.5 flex-shrink-0">
-                    {subagent.status === "running" ? (
-                      <Loader2 className="h-4 w-4 animate-spin text-green-600" />
-                    ) : (
-                      <ListChecks className="h-4 w-4 text-muted-foreground" />
-                    )}
+                    <ListChecks className={cn(
+                      "h-4 w-4",
+                      subagent.status === "running" ? "text-green-600" : "text-muted-foreground"
+                    )} />
                   </div>
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">

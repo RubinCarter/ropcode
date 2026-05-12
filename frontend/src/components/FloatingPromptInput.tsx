@@ -34,7 +34,6 @@ import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
 import { EventsOn } from "@/lib/rpc-events";
-import { useIsMobile } from '@/hooks/useIsMobile';
 import { AttachmentButton } from './attachment';
 import { uploadAttachment, UploadError } from '../utils/uploadAttachment';
 import {
@@ -59,13 +58,14 @@ type Skill = main.Skill & {
 };
 
 type ThinkingLevel = {
-  id: string;
-  name: string;
+  id?: string;
+  level?: string;
+  name?: string;
   budget?: string;
   is_default?: boolean;
 };
 
-type ModelConfig = database.ModelConfig & {
+type ModelConfig = Omit<database.ModelConfig, 'thinking_levels'> & {
   provider_id?: string;
   is_enabled?: boolean;
   display_name?: string;
@@ -551,7 +551,6 @@ const FloatingPromptInputInner = (
   );
   const [selectedProviderApiId, setSelectedProviderApiId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const isMobile = useIsMobile();
   const [mobileSelectorsOpen, setMobileSelectorsOpen] = useState(false);
 
   // Global provider API config store
@@ -671,7 +670,6 @@ const FloatingPromptInputInner = (
     if (!hasMultipleLines) {
       // For single-line content, check if text overflows (needs wrapping)
       // Use scrollWidth vs clientWidth comparison
-      const prevHeight = textarea.style.height;
       textarea.style.height = `${DEFAULT_HEIGHT}px`;
 
       // If content fits in one line, keep default height
@@ -722,19 +720,20 @@ const FloatingPromptInputInner = (
   useEffect(() => {
     const loadModelConfigs = async () => {
       try {
-        const configs = await api.getEnabledModelConfigs();
+        const configs = await api.getEnabledModelConfigs() as ModelConfig[];
         setModelConfigs(configs);
         setModelConfigsLoaded(true);
 
         // Set default model for current provider if available
-        const providerConfigs = configs.filter(c => c.provider_id === selectedProvider && c.is_enabled);
-        const defaultConfig = providerConfigs.find(c => c.is_default) || providerConfigs[0];
+        const providerConfigs = configs.filter((config) => config.provider_id === selectedProvider && config.is_enabled);
+        const defaultConfig = providerConfigs.find((config) => config.is_default) || providerConfigs[0];
         if (defaultConfig) {
           setSelectedModel(defaultConfig.model_id);
           // Set default thinking mode from config
-          const defaultThinking = defaultConfig.thinking_levels?.find(t => t.is_default);
-          if (defaultThinking) {
-            setSelectedThinkingMode(defaultThinking.id as ThinkingMode);
+          const defaultThinking = defaultConfig.thinking_levels?.find((thinkingLevel) => thinkingLevel.is_default);
+          const defaultThinkingId = defaultThinking?.id ?? defaultThinking?.level;
+          if (defaultThinkingId) {
+            setSelectedThinkingMode(defaultThinkingId as ThinkingMode);
           }
         }
       } catch (error) {
@@ -1437,9 +1436,8 @@ const FloatingPromptInputInner = (
       return true;
     }
 
-    const keyboardEvent = nativeEvent as unknown as KeyboardEvent;
-    const keyCode = keyboardEvent.keyCode ?? (keyboardEvent as unknown as { which?: number }).which;
-    if (keyCode === 229) {
+    const legacyCode = (nativeEvent as unknown as { keyCode?: number; which?: number }).keyCode ?? (nativeEvent as unknown as { which?: number }).which;
+    if (legacyCode === 229) {
       return true;
     }
 
@@ -1668,6 +1666,7 @@ const FloatingPromptInputInner = (
   const currentProviderModels = getProviderModels(selectedProvider);
   const selectedModelData = currentProviderModels.find(m => m.id === selectedModel) || currentProviderModels[0];
   const selectedProviderData = PROVIDERS.find(p => p.id === selectedProvider) || PROVIDERS[0];
+  const selectedThinkingModeData = currentThinkingModes.find(m => m.id === selectedThinkingMode) || currentThinkingModes[0];
 
   return (
     <TooltipProvider>
@@ -1802,17 +1801,17 @@ const FloatingPromptInputInner = (
                                 onClick={() => setThinkingModePickerOpen(!thinkingModePickerOpen)}
                                 className="gap-2"
                               >
-                                <span className={currentThinkingModes.find(m => m.id === selectedThinkingMode)?.color}>
-                                  {currentThinkingModes.find(m => m.id === selectedThinkingMode)?.icon}
+                                <span className={selectedThinkingModeData?.color}>
+                                  {selectedThinkingModeData?.icon}
                                 </span>
                                 <ThinkingModeIndicator
-                                  level={currentThinkingModes.find(m => m.id === selectedThinkingMode)?.level || 0}
+                                  level={selectedThinkingModeData?.level || 0}
                                 />
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p className="font-medium">{currentThinkingModes.find(m => m.id === selectedThinkingMode)?.name || "Auto"}</p>
-                              <p className="text-xs text-muted-foreground">{currentThinkingModes.find(m => m.id === selectedThinkingMode)?.description}</p>
+                              <p className="font-medium">{selectedThinkingModeData?.name || "Auto"}</p>
+                              <p className="text-xs text-muted-foreground">{selectedThinkingModeData?.description}</p>
                             </TooltipContent>
                           </Tooltip>
                       }
@@ -1879,7 +1878,7 @@ const FloatingPromptInputInner = (
       {/* Input Bar - uses className from parent for positioning */}
       <div
         className={cn(
-          "w-full bg-background/95 backdrop-blur-sm border-t border-border shadow-lg",
+          "w-full bg-background/95 border-t border-border shadow-sm contain-paint",
           dragActive && "ring-2 ring-primary ring-offset-2",
           className
         )}
@@ -1916,25 +1915,20 @@ const FloatingPromptInputInner = (
                         trigger={
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <motion.div
-                                whileTap={{ scale: 0.97 }}
-                                transition={{ duration: 0.15 }}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={disabled}
+                                className="h-9 px-1.5 hover:bg-accent/50 gap-0.5 active:scale-[0.97]"
                               >
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  disabled={disabled}
-                                  className="h-9 px-1.5 hover:bg-accent/50 gap-0.5"
-                                >
-                                  <span className={selectedProviderData.color}>
-                                    {selectedProviderData.icon}
-                                  </span>
-                                  <span className="text-[10px] font-bold opacity-70">
-                                    {selectedProviderData.shortName}
-                                  </span>
-                                  <ChevronUp className="h-3 w-3 opacity-50" />
-                                </Button>
-                              </motion.div>
+                                <span className={selectedProviderData.color}>
+                                  {selectedProviderData.icon}
+                                </span>
+                                <span className="text-[10px] font-bold opacity-70">
+                                  {selectedProviderData.shortName}
+                                </span>
+                                <ChevronUp className="h-3 w-3 opacity-50" />
+                              </Button>
                             </TooltipTrigger>
                             <TooltipContent side="top">
                               <p className="text-xs font-medium">{selectedProviderData.name}</p>
@@ -2001,25 +1995,20 @@ const FloatingPromptInputInner = (
                         trigger={
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <motion.div
-                                whileTap={{ scale: 0.97 }}
-                                  transition={{ duration: 0.15 }}
-                                >
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    disabled={disabled}
-                                    className="h-9 px-1.5 hover:bg-accent/50 gap-0.5"
-                                  >
-                                    <span className={selectedModelData.color}>
-                                      {selectedModelData.icon}
-                                    </span>
-                                    <span className="text-[10px] font-bold opacity-70">
-                                      {selectedModelData.shortName}
-                                    </span>
-                                    <ChevronUp className="h-3 w-3 opacity-50" />
-                                  </Button>
-                                </motion.div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={disabled}
+                                className="h-9 px-1.5 hover:bg-accent/50 gap-0.5 active:scale-[0.97]"
+                              >
+                                <span className={selectedModelData.color}>
+                                  {selectedModelData.icon}
+                                </span>
+                                <span className="text-[10px] font-bold opacity-70">
+                                  {selectedModelData.shortName}
+                                </span>
+                                <ChevronUp className="h-3 w-3 opacity-50" />
+                              </Button>
                               </TooltipTrigger>
                               <TooltipContent side="top">
                                 <p className="text-xs font-medium">{selectedModelData.name}</p>
@@ -2068,29 +2057,24 @@ const FloatingPromptInputInner = (
                         trigger={
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <motion.div
-                                whileTap={{ scale: 0.97 }}
-                                  transition={{ duration: 0.15 }}
-                                >
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    disabled={disabled}
-                                    className="h-9 px-1.5 hover:bg-accent/50 gap-0.5"
-                                  >
-                                    <span className={currentThinkingModes.find(m => m.id === selectedThinkingMode)?.color}>
-                                      {currentThinkingModes.find(m => m.id === selectedThinkingMode)?.icon}
-                                    </span>
-                                    <span className="text-[10px] font-semibold opacity-70">
-                                      {currentThinkingModes.find(m => m.id === selectedThinkingMode)?.shortName}
-                                    </span>
-                                    <ChevronUp className="h-3 w-3 opacity-50" />
-                                  </Button>
-                                </motion.div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={disabled}
+                                className="h-9 px-1.5 hover:bg-accent/50 gap-0.5 active:scale-[0.97]"
+                              >
+                                <span className={selectedThinkingModeData?.color}>
+                                  {selectedThinkingModeData?.icon}
+                                </span>
+                                <span className="text-[10px] font-semibold opacity-70">
+                                  {selectedThinkingModeData?.shortName}
+                                </span>
+                                <ChevronUp className="h-3 w-3 opacity-50" />
+                              </Button>
                               </TooltipTrigger>
                               <TooltipContent side="top">
-                                <p className="text-xs font-medium">Thinking: {currentThinkingModes.find(m => m.id === selectedThinkingMode)?.name || "Auto"}</p>
-                                <p className="text-xs text-muted-foreground">{currentThinkingModes.find(m => m.id === selectedThinkingMode)?.description}</p>
+                                <p className="text-xs font-medium">Thinking: {selectedThinkingModeData?.name || "Auto"}</p>
+                                <p className="text-xs text-muted-foreground">{selectedThinkingModeData?.description}</p>
                               </TooltipContent>
                             </Tooltip>
                         }
@@ -2166,20 +2150,15 @@ const FloatingPromptInputInner = (
                 {/* Action buttons inside input - fixed at bottom right */}
                 <div className="absolute right-1.5 bottom-1.5 flex items-center gap-0.5">
                   <TooltipSimple content="Expand (Ctrl+Shift+E)" side="top">
-                    <motion.div
-                      whileTap={{ scale: 0.97 }}
-                      transition={{ duration: 0.15 }}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setIsExpanded(true)}
+                      disabled={disabled}
+                      className="h-8 w-8 hover:bg-accent/50 transition-colors active:scale-[0.97]"
                     >
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setIsExpanded(true)}
-                        disabled={disabled}
-                        className="h-8 w-8 hover:bg-accent/50 transition-colors"
-                      >
-                        <Maximize2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </motion.div>
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </Button>
                   </TooltipSimple>
 
                   <AttachmentButton
@@ -2188,23 +2167,18 @@ const FloatingPromptInputInner = (
                   />
 
                   <TooltipSimple content="Send message (⌘+Enter)" side="top">
-                    <motion.div
-                      whileTap={{ scale: 0.97 }}
-                      transition={{ duration: 0.15 }}
+                    <Button
+                      onClick={handleSend}
+                      disabled={!prompt.trim() || disabled || !isProviderApiConfigLoaded}
+                      variant={prompt.trim() ? "default" : "ghost"}
+                      size="icon"
+                      className={cn(
+                        "h-8 w-8 transition-all active:scale-[0.97]",
+                        prompt.trim() && "shadow-sm"
+                      )}
                     >
-                      <Button
-                        onClick={handleSend}
-                        disabled={!prompt.trim() || disabled || !isProviderApiConfigLoaded}
-                        variant={prompt.trim() ? "default" : "ghost"}
-                        size="icon"
-                        className={cn(
-                          "h-8 w-8 transition-all",
-                          prompt.trim() && "shadow-sm"
-                        )}
-                      >
-                        <Send className="h-4 w-4" />
-                      </Button>
-                    </motion.div>
+                      <Send className="h-4 w-4" />
+                    </Button>
                   </TooltipSimple>
 
                   {(isLoading || interactiveSessionId || stopStatusLabel) && (
@@ -2222,19 +2196,14 @@ const FloatingPromptInputInner = (
                         }
                         side="top"
                       >
-                        <motion.div
-                          whileTap={{ scale: 0.97 }}
-                          transition={{ duration: 0.15 }}
+                        <Button
+                          onClick={onCancel}
+                          variant="destructive"
+                          size="icon"
+                          className="h-8 w-8 transition-all active:scale-[0.97]"
                         >
-                          <Button
-                            onClick={onCancel}
-                            variant="destructive"
-                            size="icon"
-                            className="h-8 w-8 transition-all"
-                          >
-                            <Square className="h-4 w-4" />
-                          </Button>
-                        </motion.div>
+                          <Square className="h-4 w-4" />
+                        </Button>
                       </TooltipSimple>
                     </div>
                   )}
@@ -2324,9 +2293,9 @@ const FloatingPromptInputInner = (
   );
 };
 
-export const FloatingPromptInput = React.forwardRef<
+export const FloatingPromptInput = React.memo(React.forwardRef<
   FloatingPromptInputRef,
   FloatingPromptInputProps
->(FloatingPromptInputInner);
+>(FloatingPromptInputInner));
 
 FloatingPromptInput.displayName = 'FloatingPromptInput';

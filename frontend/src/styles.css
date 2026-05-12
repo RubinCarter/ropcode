@@ -814,11 +814,8 @@ html.is-macos.is-fullscreen body {
 
 /* Rotating symbol animation */
 @keyframes rotate-symbol {
-  0%   { content: "◐"; transform: scale(1); }
-  25%  { content: "◓"; transform: scale(1); }
-  50%  { content: "◑"; transform: scale(1); }
-  75%  { content: "◒"; transform: scale(1); }
-  100% { content: "◐"; transform: scale(1); }
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 @keyframes fade-in {
@@ -851,6 +848,7 @@ html.is-macos.is-fullscreen body {
   line-height: 1;
   vertical-align: baseline;
   transform-origin: center;
+  will-change: transform;
 }
 
 /* Removed special font-weight for larger sizes to maintain consistency */
@@ -1013,6 +1011,14 @@ code::-webkit-scrollbar-thumb:hover {
 
 .animate-scanlines {
   animation: scanlines 8s linear infinite;
+}
+
+/* GPU-promote recurring animations to avoid layout/paint on main thread */
+.animate-spin,
+.animate-pulse,
+.animate-bounce {
+  will-change: transform, opacity;
+  contain: layout style paint;
 }
 
 /* Screenshot Shutter Animation */

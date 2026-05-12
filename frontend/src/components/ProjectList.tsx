@@ -1,6 +1,5 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -164,18 +163,24 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return cleanup;
   }, []);
 
+  const sshProjectIds = useMemo(
+    () => projects.filter(p => p.project_type === 'ssh').map(p => p.id),
+    [projects]
+  );
+  const sshProjectIdsKey = sshProjectIds.join('|');
+
   // Check auto sync status for SSH projects
   useEffect(() => {
     const checkAutoSyncStatuses = async () => {
-      const sshProjects = projects.filter(p => p.project_type === 'ssh');
+      const sshProjects = sshProjectIds;
       const statuses: Record<string, AutoSyncStatus> = {};
 
-      for (const project of sshProjects) {
+      for (const projectId of sshProjects) {
         try {
-          const status = await api.getAutoSyncStatus(project.id);
-          statuses[project.id] = status;
+          const status = await api.getAutoSyncStatus(projectId);
+          statuses[projectId] = status;
         } catch (err) {
-          console.error('Failed to get auto sync status for', project.id, err);
+          console.error('Failed to get auto sync status for', projectId, err);
         }
       }
 
@@ -189,7 +194,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     // Future improvement: Backend should emit auto-sync events to eliminate polling
     const interval = setInterval(checkAutoSyncStatuses, 30000);
     return () => clearInterval(interval);
-  }, [projects]);
+  }, [sshProjectIdsKey]);
 
   // Listen to auto sync events
   useEffect(() => {
@@ -240,8 +245,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         });
       }
     });
-    return paths;
+    return Array.from(new Set(paths)).sort();
   }, [projects]);
+  const allWorkspacePathsKey = allWorkspacePaths.join('|');
 
   // Initial loading of running state for ALL workspaces
   useEffect(() => {
@@ -273,7 +279,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
     // Load initial states once
     loadInitialStates();
-  }, [allWorkspacePaths]);
+  }, [allWorkspacePathsKey]);
 
   // Subscribe to process change events (replaces 200ms polling)
   useProcessChanged(undefined, (event) => {
@@ -332,17 +338,30 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     // Poll every 5 seconds
     const interval = setInterval(fetchBranches, 5000);
     return () => clearInterval(interval);
-  }, [allWorkspacePaths]);
+  }, [allWorkspacePathsKey]);
 
   // Determine how many projects to show
+  const sortedProjects = useMemo(
+    () => [...projects].sort((a, b) => (b.created_at || 0) - (a.created_at || 0)),
+    [projects]
+  );
+  const workspacesByProjectId = useMemo(() => {
+    const byProjectId = new Map<string, Project['workspaces']>();
+    for (const project of projects) {
+      if (!project.workspaces?.length) continue;
+      byProjectId.set(
+        project.id,
+        [...project.workspaces]
+          .sort((a, b) => b.added_at - a.added_at)
+          .filter((workspace) => workspace.providers?.some(p => p.provider_id === 'claude'))
+      );
+    }
+    return byProjectId;
+  }, [projects]);
+
   const projectsPerPage = showAll ? 10 : 5;
-  const totalPages = Math.ceil(projects.length / projectsPerPage);
-  
-  // Calculate which projects to display
-  const startIndex = showAll ? (currentPage - 1) * projectsPerPage : 0;
-  const endIndex = startIndex + projectsPerPage;
-  const displayedProjects = projects.slice(startIndex, endIndex);
-  
+  const totalPages = Math.ceil(sortedProjects.length / projectsPerPage);
+
   const handleViewAll = () => {
     setShowAll(true);
     setCurrentPage(1);
@@ -544,20 +563,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         <div className="py-2">
           {projects.length > 0 ? (
             <div className="space-y-1">
-              {[...projects].sort((a, b) => {
-                // Sort projects by creation time (descending - newest first)
-                // This keeps the project list order stable and predictable
-                const timeA = a.created_at || 0;
-                const timeB = b.created_at || 0;
-                return timeB - timeA;
-              }).map((project) => {
+              {sortedProjects.map((project) => {
                 const isExpanded = expandedProjects.has(project.id);
-                const hasWorkspaces = project.workspaces && project.workspaces.length > 0;
+                const projectWorkspaces = workspacesByProjectId.get(project.id) ?? [];
+                const hasWorkspaces = projectWorkspaces.length > 0;
                 const hasGitSupport = project.has_git_support ?? false;
 
                 // Check if project is directly active OR if any of its workspaces are active
                 const isProjectDirectlyActive = activeProjectPath === project.path;
-                const isProjectActiveViaWorkspace = hasWorkspaces && project.workspaces!.some(ws => {
+                const isProjectActiveViaWorkspace = hasWorkspaces && projectWorkspaces.some(ws => {
                   const claudeProvider = ws.providers.find(p => p.provider_id === 'claude');
                   return claudeProvider && activeProjectPath === claudeProvider.path;
                 });
@@ -573,7 +587,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                 }
 
                 // Aggregate workspace statuses for line 2
-                const workspaceAggStatuses = (hasGitSupport && project.workspaces) ? project.workspaces.map(ws => {
+                const workspaceAggStatuses = hasGitSupport ? projectWorkspaces.map(ws => {
                   const cp = ws.providers.find(p => p.provider_id === 'claude');
                   if (!cp) return 'idle';
                   const isRunning = workspaceRunningStates.get(cp.path) ?? false;
@@ -623,7 +637,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               <span>{sshSyncMap[project.path].percent}%</span>
                             </span>
                           )}
-                          {hasGitSupport && project.workspaces && project.workspaces.length > 0 && (
+                          {hasGitSupport && hasWorkspaces && (
                             <span className="flex-shrink-0 flex items-center gap-1 text-xs">
                               {wsWorkingCount > 0 && (
                                 <span className="flex items-center gap-0.5">
@@ -639,7 +653,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               )}
                               <span className="flex items-center gap-0.5">
                                 <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground inline-block" />
-                                <span className="text-muted-foreground">{project.workspaces.length}</span>
+                                <span className="text-muted-foreground">{projectWorkspaces.length}</span>
                               </span>
                             </span>
                           )}
@@ -647,7 +661,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         {/* Line 2: status when active, branch name when idle (OR logic, same as workspace) */}
                         <div className="text-[10px] mt-0.5">
                           {projectStatus === 'working' ? (
-                            <span className="text-purple-500 animate-pulse">Working...</span>
+                            <span className="text-purple-500">Working...</span>
                           ) : projectStatus === 'unread' ? (
                             <span className="text-orange-500 font-medium">Unread</span>
                           ) : projectStatus === 'active' && projectInProgressTodos[0] ? (
@@ -696,16 +710,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                   </div>
 
                   {/* Workspaces List - 只在有 Git 支持时显示 */}
-                  <AnimatePresence>
-                    {hasGitSupport && isExpanded && (
-                      <motion.div
-                        key={`workspaces-${project.id}`}
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.15 }}
-                        className="overflow-hidden"
-                      >
+                  {hasGitSupport && isExpanded && (
+                    <div className="overflow-hidden">
                         <div className="py-0.5 ml-2">
                           {/* New Workspace Button - First in list */}
                           <button
@@ -740,18 +746,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               </div>
                             ))}
 
-                          {hasWorkspaces && [...project.workspaces!]
-                            .sort((a, b) => {
-                              // Sort workspaces by added_at (descending - newest first)
-                              return b.added_at - a.added_at;
-                            })
-                            .filter((workspace) => {
-                              // Filter out workspaces without Claude provider
-                              return workspace.providers?.some(p => p.provider_id === 'claude');
-                            })
-                            .map((workspace) => {
-                              // Get Claude provider info from workspace
-                              const claudeProvider = workspace.providers.find(p => p.provider_id === 'claude');
+                          {hasWorkspaces && projectWorkspaces.map((workspace) => {
+                            // Get Claude provider info from workspace
+                            const claudeProvider = workspace.providers.find(p => p.provider_id === 'claude');
 
                             const isActive = activeProjectPath === claudeProvider.path;
                             const isRemoving = removingWorkspaces.has(claudeProvider.id);
@@ -812,7 +809,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               >
                                 <div className="flex-shrink-0">
                                   {workspaceStatus === 'active' ? (
-                                    <Clock className="h-3.5 w-3.5 text-blue-500 mt-0.5 animate-pulse" />
+                                    <Clock className="h-3.5 w-3.5 text-blue-500 mt-0.5" />
                                   ) : (
                                     <GitBranch className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
                                   )}
@@ -834,7 +831,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                         {firstTodo.activeForm}
                                       </span>
                                     ) : workspaceStatus === 'working' ? (
-                                      <span className="text-purple-500 truncate animate-pulse">Working...</span>
+                                      <span className="text-purple-500 truncate">Working...</span>
                                     ) : workspaceStatus === 'unread' ? (
                                       <span className="text-orange-500 font-medium">Unread</span>
                                     ) : (
@@ -870,7 +867,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                   )}
                                 >
                                   {isPendingDelete ? (
-                                    <AlertTriangle className="h-3 w-3 text-orange-500 animate-pulse" />
+                                    <AlertTriangle className="h-3 w-3 text-orange-500" />
                                   ) : (
                                     <Trash2 className="h-3 w-3 text-destructive" />
                                   )}
@@ -880,9 +877,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                             );
                           })}
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                    </div>
+                  )}
                 </div>
               );
               })}

@@ -363,9 +363,10 @@ const WorkspaceTabManagerPortal: React.FC<{ visible: boolean }> = ({ visible }) 
       setSlot(prev => prev !== element ? element : prev);
     });
 
-    observer.observe(document.body, {
+    const target = document.getElementById('workspace-tab-manager-slot')?.parentElement || document.body;
+    observer.observe(target, {
       childList: true,
-      subtree: true,
+      subtree: false,
     });
 
     return () => observer.disconnect();

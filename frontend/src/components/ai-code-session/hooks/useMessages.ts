@@ -8,7 +8,7 @@
  * - Displayable message filtering
  */
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import type { ClaudeStreamMessage } from "../types";
 import type { StreamMessageContext } from "../../StreamMessage";
 import { getDisplayableMessages } from "../utils/messageFilter";
@@ -36,11 +36,6 @@ interface MessageDerivedState {
   agentOutputToolUseIds: Map<string, string>;
 }
 
-interface MessageState {
-  messages: ClaudeStreamMessage[];
-  derived: MessageDerivedState;
-}
-
 export interface UseMessagesReturn {
   // State
   messages: ClaudeStreamMessage[];
@@ -59,6 +54,7 @@ export interface UseMessagesReturn {
 
   // Helpers
   addMessage: (message: ClaudeStreamMessage) => void;
+  flushPendingMessages: () => void;
   clearMessages: () => void;
 
   // Refs
@@ -137,30 +133,6 @@ function addTokenContribution(totals: TokenUsageTotals, contribution: TokenUsage
     outputTokens: totals.outputTokens + contribution.outputTokens,
     estimatedOutputTokens: totals.estimatedOutputTokens + contribution.estimatedOutputTokens,
     totalTokens: totals.totalTokens + contribution.totalTokens,
-  };
-}
-
-function replaceTokenContribution(
-  totals: TokenUsageTotals,
-  previousMessage: ClaudeStreamMessage,
-  nextMessage: ClaudeStreamMessage,
-): TokenUsageTotals {
-  const previous = messageTokenContribution(previousMessage);
-  const next = messageTokenContribution(nextMessage);
-  if (
-    previous.inputTokens === next.inputTokens &&
-    previous.outputTokens === next.outputTokens &&
-    previous.estimatedOutputTokens === next.estimatedOutputTokens &&
-    previous.totalTokens === next.totalTokens
-  ) {
-    return totals;
-  }
-
-  return {
-    inputTokens: totals.inputTokens - previous.inputTokens + next.inputTokens,
-    outputTokens: totals.outputTokens - previous.outputTokens + next.outputTokens,
-    estimatedOutputTokens: totals.estimatedOutputTokens - previous.estimatedOutputTokens + next.estimatedOutputTokens,
-    totalTokens: totals.totalTokens - previous.totalTokens + next.totalTokens,
   };
 }
 
@@ -290,15 +262,6 @@ function applyMessageToDerivedState(previous: MessageDerivedState, message: Clau
   };
 }
 
-function replaceLastMessageInDerivedState(
-  previous: MessageDerivedState,
-  previousMessage: ClaudeStreamMessage,
-  nextMessage: ClaudeStreamMessage,
-): MessageDerivedState {
-  const tokenUsage = replaceTokenContribution(previous.tokenUsage, previousMessage, nextMessage);
-  return tokenUsage === previous.tokenUsage ? previous : { ...previous, tokenUsage };
-}
-
 function buildDerivedMessagesState(messages: ClaudeStreamMessage[]): MessageDerivedState {
   return messages.reduce(
     (derived, message) => applyMessageToDerivedState(derived, message),
@@ -308,235 +271,158 @@ function buildDerivedMessagesState(messages: ClaudeStreamMessage[]): MessageDeri
 
 /**
  * Hook to manage messages
+ *
+ * Uses mutable array + version counter to avoid O(n) array copies on every
+ * incoming message during streaming. The messages array is mutated in place
+ * (push, in-place text append) and a version counter triggers React re-renders.
  */
 export function useMessages(): UseMessagesReturn {
-  const [messageState, setMessageState] = useState<MessageState>(() => ({
-    messages: [],
-    derived: createEmptyDerivedMessagesState(),
-  }));
+  const messagesRef = useRef<ClaudeStreamMessage[]>([]);
+  const derivedRef = useRef<MessageDerivedState>(createEmptyDerivedMessagesState());
+  const [version, setVersion] = useState(0);
   const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
-  const messages = messageState.messages;
+
+  const messages = messagesRef.current;
 
   const setMessages: React.Dispatch<React.SetStateAction<ClaudeStreamMessage[]>> = (nextMessagesOrUpdater) => {
-    setMessageState((previous) => {
-      const nextMessages = typeof nextMessagesOrUpdater === 'function'
-        ? nextMessagesOrUpdater(previous.messages)
-        : nextMessagesOrUpdater;
+    const nextMessages = typeof nextMessagesOrUpdater === 'function'
+      ? nextMessagesOrUpdater(messagesRef.current)
+      : nextMessagesOrUpdater;
 
-      if (nextMessages === previous.messages) return previous;
-      return {
-        messages: nextMessages,
-        derived: buildDerivedMessagesState(nextMessages),
-      };
-    });
+    if (nextMessages === messagesRef.current) return;
+    messagesRef.current = nextMessages;
+    derivedRef.current = buildDerivedMessagesState(nextMessages);
+    setVersion(v => v + 1);
   };
 
-  // Refs for stable access in callbacks (avoids stale closure in useEffect([]))
   const messagesLengthRef = useRef(messages.length);
   messagesLengthRef.current = messages.length;
-  const messagesRef = useRef(messages);
-  messagesRef.current = messages;
 
   const subagentProgress = useMemo(
     () => buildSubagentProgress(messages, subagentTranscripts),
-    [messages, subagentTranscripts]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [version, subagentTranscripts]
   );
 
   const displayable = useMemo(
     () => getDisplayableMessages(messages, subagentProgress.subagentMessageIndexes),
-    [messages, subagentProgress.subagentMessageIndexes]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [version, subagentProgress.subagentMessageIndexes]
   );
   const displayableMessageIndexes = displayable.indexes;
   const displayableMessages = displayable.messages;
 
-  const tokenUsage = messageState.derived.tokenUsage;
+  const tokenUsage = derivedRef.current.tokenUsage;
   const totalTokens = tokenUsage.totalTokens;
 
-  // Use ref to batch delta updates and reduce re-renders
+  // Batch delta and regular messages with rAF
   const deltaBufferRef = useRef<string>('');
-  const deltaFlushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const flushRafRef = useRef<number | null>(null);
+  const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
 
-  // Counter for locally-added user messages pending broadcast echo.
-  // When the frontend adds a user message locally (before backend broadcasts it),
-  // we increment this counter. When a broadcast user message arrives, we decrement
-  // and skip it — that echo is for the same message we already added.
-  // A counter (not a boolean) handles rapid successive sends correctly.
   const pendingLocalUserMessagesRef = useRef<number>(0);
 
-  // Helper functions
+  const flushPending = () => {
+    flushRafRef.current = null;
+    const bufferedText = deltaBufferRef.current;
+    deltaBufferRef.current = '';
+    const queued = messageQueueRef.current;
+    messageQueueRef.current = [];
+
+    const msgs = messagesRef.current;
+    let derived = derivedRef.current;
+    let changed = false;
+
+    // Apply buffered delta text
+    if (bufferedText) {
+      const lastIndex = msgs.length - 1;
+      if (lastIndex >= 0 && msgs[lastIndex].type === 'assistant' && !msgs[lastIndex].message?.usage) {
+        const lastMessage = msgs[lastIndex];
+        if (!lastMessage.message) {
+          lastMessage.message = { content: [{ type: 'text', text: bufferedText }] };
+        } else if (!lastMessage.message.content || lastMessage.message.content.length === 0) {
+          lastMessage.message.content = [{ type: 'text', text: bufferedText }];
+        } else {
+          const lastBlock = lastMessage.message.content[lastMessage.message.content.length - 1];
+          if (lastBlock.type === 'text') {
+            lastBlock.text += bufferedText;
+          } else {
+            lastMessage.message.content.push({ type: 'text', text: bufferedText });
+          }
+        }
+        changed = true;
+      } else {
+        // Need a new assistant message
+        const newMsg: ClaudeStreamMessage = {
+          type: 'assistant',
+          message: { content: [{ type: 'text', text: bufferedText }] }
+        };
+        msgs.push(newMsg);
+        derived = applyMessageToDerivedState(derived, newMsg);
+        changed = true;
+      }
+    }
+
+    // Apply queued regular messages
+    for (const msg of queued) {
+      msgs.push(msg);
+      derived = applyMessageToDerivedState(derived, msg);
+      changed = true;
+    }
+
+    if (changed) {
+      derivedRef.current = derived;
+      setVersion(v => v + 1);
+    }
+  };
+
+  const scheduleFlush = () => {
+    if (flushRafRef.current === null) {
+      flushRafRef.current = requestAnimationFrame(flushPending);
+    }
+  };
+
+  const flushPendingMessages = useCallback(() => {
+    if (flushRafRef.current !== null) {
+      cancelAnimationFrame(flushRafRef.current);
+      flushRafRef.current = null;
+    }
+    flushPending();
+  }, []);
+
   const addMessage = (message: ClaudeStreamMessage) => {
-    // Ensure message has timestamp (ISO 8601 string to match JSONL format)
     if (!message.timestamp) {
       message.timestamp = new Date().toISOString();
     }
 
-    // Skip broadcast user messages that we already added locally.
-    // When this client sends a prompt, it calls addMessage() for instant display,
-    // then the backend broadcasts the same user message (with source:"broadcast")
-    // to all clients. We skip that echo here; other clients (which didn't send
-    // the message) won't have a pending count and will add it normally.
     if (message.type === 'user' && (message as any).source === 'broadcast') {
       if (pendingLocalUserMessagesRef.current > 0) {
         pendingLocalUserMessagesRef.current--;
         return;
       }
-      // No pending local message — this was sent by another client, add it
     }
 
-    // Track locally-added user messages (non-broadcast) so we can skip the echo
     if (message.type === 'user' && (message as any).source !== 'broadcast') {
       pendingLocalUserMessagesRef.current++;
     }
 
-    // Handle delta messages - accumulate into last assistant message with batching
+    // Delta messages — accumulate text in buffer
     if (message.type === 'assistant' && (message as any).is_delta && message.message?.content) {
-      const deltaContent = message.message?.content || [];
-      const deltaText = deltaContent[0]?.text || '';
-
-      // Accumulate delta text in buffer
+      const deltaText = message.message.content[0]?.text || '';
       deltaBufferRef.current += deltaText;
-
-      // Clear any existing flush timeout
-      if (deltaFlushTimeoutRef.current) {
-        clearTimeout(deltaFlushTimeoutRef.current);
-      }
-
-      // Batch updates: flush buffer every 50ms to reduce re-renders
-      deltaFlushTimeoutRef.current = setTimeout(() => {
-        const bufferedText = deltaBufferRef.current;
-        deltaBufferRef.current = '';
-
-        if (!bufferedText) return;
-
-        setMessageState(prev => {
-          const lastIndex = prev.messages.length - 1;
-
-          // If there's no previous message or last message is not assistant, create new assistant message
-          if (lastIndex < 0 || prev.messages[lastIndex].type !== 'assistant') {
-            const nextMessage: ClaudeStreamMessage = {
-              type: 'assistant',
-              message: {
-                content: [{ type: 'text', text: bufferedText }]
-              }
-            };
-            return {
-              messages: [...prev.messages, nextMessage],
-              derived: applyMessageToDerivedState(prev.derived, nextMessage),
-            };
-          }
-
-          // If the last message has usage info, it's a complete message, don't accumulate
-          if (prev.messages[lastIndex].message?.usage) {
-            const nextMessage: ClaudeStreamMessage = {
-              type: 'assistant',
-              message: {
-                content: [{ type: 'text', text: bufferedText }]
-              }
-            };
-            return {
-              messages: [...prev.messages, nextMessage],
-              derived: applyMessageToDerivedState(prev.derived, nextMessage),
-            };
-          }
-
-          // Accumulate delta into last assistant message
-          // Clone only the last message to minimize object creation
-          const updatedMessages = [...prev.messages];
-          const previousLastMessage = updatedMessages[lastIndex];
-          const lastMessage = { ...previousLastMessage };
-          updatedMessages[lastIndex] = lastMessage;
-
-          // Ensure message.content exists
-          if (!lastMessage.message) {
-            lastMessage.message = { content: [] };
-          } else {
-            lastMessage.message = { ...lastMessage.message };
-          }
-          if (!lastMessage.message.content) {
-            lastMessage.message.content = [];
-          } else {
-            lastMessage.message.content = [...lastMessage.message.content];
-          }
-
-          const lastContentIndex = lastMessage.message.content.length - 1;
-
-          if (lastContentIndex >= 0 && lastMessage.message.content[lastContentIndex].type === 'text') {
-            // Clone and append to existing text block
-            lastMessage.message.content[lastContentIndex] = {
-              ...lastMessage.message.content[lastContentIndex],
-              text: lastMessage.message.content[lastContentIndex].text + bufferedText
-            };
-          } else {
-            // Create new text block
-            lastMessage.message.content.push({
-              type: 'text',
-              text: bufferedText
-            });
-          }
-
-          return {
-            messages: updatedMessages,
-            derived: replaceLastMessageInDerivedState(prev.derived, previousLastMessage, lastMessage),
-          };
-        });
-      }, 50);
-
+      scheduleFlush();
       return;
     }
 
-    // Regular message - just append
-    // Also flush any pending delta buffer first
-    if (deltaFlushTimeoutRef.current) {
-      clearTimeout(deltaFlushTimeoutRef.current);
-      deltaFlushTimeoutRef.current = null;
-    }
-    if (deltaBufferRef.current) {
-      const bufferedText = deltaBufferRef.current;
-      deltaBufferRef.current = '';
-
-      setMessageState(prev => {
-        const lastIndex = prev.messages.length - 1;
-        if (lastIndex >= 0 && prev.messages[lastIndex].type === 'assistant' && !prev.messages[lastIndex].message?.usage) {
-          const updatedMessages = [...prev.messages];
-          const previousLastMessage = updatedMessages[lastIndex];
-          const lastMessage = { ...previousLastMessage };
-          updatedMessages[lastIndex] = lastMessage;
-
-          if (lastMessage.message?.content && lastMessage.message.content.length > 0) {
-            lastMessage.message = { ...lastMessage.message };
-            lastMessage.message.content = [...lastMessage.message.content];
-            const lastContentIndex = lastMessage.message.content.length - 1;
-            if (lastMessage.message.content[lastContentIndex].type === 'text') {
-              lastMessage.message.content[lastContentIndex] = {
-                ...lastMessage.message.content[lastContentIndex],
-                text: lastMessage.message.content[lastContentIndex].text + bufferedText
-              };
-            }
-          }
-
-          const messagesWithNewMessage = [...updatedMessages, message];
-          const derivedWithBufferedText = replaceLastMessageInDerivedState(prev.derived, previousLastMessage, lastMessage);
-          return {
-            messages: messagesWithNewMessage,
-            derived: applyMessageToDerivedState(derivedWithBufferedText, message),
-          };
-        }
-
-        return {
-          messages: [...prev.messages, message],
-          derived: applyMessageToDerivedState(prev.derived, message),
-        };
-      });
-    } else {
-      setMessageState(prev => ({
-        messages: [...prev.messages, message],
-        derived: applyMessageToDerivedState(prev.derived, message),
-      }));
-    }
+    // Regular messages share the same rAF flush so bursts only trigger one render.
+    messageQueueRef.current.push(message);
+    scheduleFlush();
   };
 
   const clearMessages = () => {
-    setMessages([]);
+    messagesRef.current = [];
+    derivedRef.current = createEmptyDerivedMessagesState();
+    setVersion(v => v + 1);
     setSubagentTranscripts({});
   };
 
@@ -548,11 +434,12 @@ export function useMessages(): UseMessagesReturn {
     displayableMessageIndexes,
     subagentProgress,
     subagentTranscripts,
-    agentOutputMap: messageState.derived.agentOutputMap,
-    streamMessageContext: messageState.derived.streamMessageContext,
+    agentOutputMap: derivedRef.current.agentOutputMap,
+    streamMessageContext: derivedRef.current.streamMessageContext,
     setMessages,
     setSubagentTranscripts,
     addMessage,
+    flushPendingMessages,
     clearMessages,
     messagesLengthRef,
     messagesRef,

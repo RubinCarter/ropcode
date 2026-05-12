@@ -5,7 +5,7 @@
  * This is the most complex part - handle with care!
  */
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import type { ClaudeStreamMessage, Session, SessionInfo, SessionRuntimeTracker } from "../types";
 import { api } from "@/lib/api";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
@@ -76,6 +76,23 @@ export interface UseSessionEventsReturn {
   processComplete: (completion: boolean | string | ClaudeCompletionPayload) => Promise<void>;
 }
 
+function countCodeFencePairs(text: string): number {
+  let count = 0;
+  let index = text.indexOf('```');
+  while (index !== -1) {
+    count++;
+    index = text.indexOf('```', index + 3);
+  }
+  return Math.floor(count / 2);
+}
+
+function isTextDeltaMessage(message: ClaudeStreamMessage): boolean {
+  if (message.type !== 'assistant' || (message as any).is_delta !== true) return false;
+  const content = message.message?.content;
+  if (!Array.isArray(content)) return false;
+  return content.every((block: any) => block?.type === 'text');
+}
+
 function coerceCompletionPayload(completion: boolean | string | ClaudeCompletionPayload): ClaudeCompletionPayload {
   if (typeof completion === 'boolean') {
     return { success: completion, status: completion ? 'completed' : 'failed' };
@@ -120,7 +137,6 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     isPendingSendRef,
     hasActiveSessionRef,
     addMessage,
-    syncProcessState,
     onComplete,
     processNextInQueue,
     trackToolExecution,
@@ -133,10 +149,83 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
   } = options;
 
   const { updateWorkspaceTodos, setWorkspaceStatus } = useWorkspaceTodo();
+  const pendingRuntimeMessagesRef = useRef<ClaudeStreamMessage[]>([]);
+  const runtimeFlushRafRef = useRef<number | null>(null);
+  const pendingSessionSaveRef = useRef<{
+    sessionId: string;
+    projectId: string;
+    projectPath: string;
+    provider: string;
+    messageCount: number;
+  } | null>(null);
+  const sessionSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushRuntimeTracker = useCallback(() => {
+    if (runtimeFlushRafRef.current !== null) {
+      cancelAnimationFrame(runtimeFlushRafRef.current);
+      runtimeFlushRafRef.current = null;
+    }
+
+    const pendingMessages = pendingRuntimeMessagesRef.current;
+    if (pendingMessages.length === 0) return;
+    pendingRuntimeMessagesRef.current = [];
+    const now = Date.now();
+    setRuntimeTracker((current) => pendingMessages.reduce(
+      (tracker, runtimeMessage) => reduceRuntimeTracker(tracker, runtimeMessage as any, now),
+      current
+    ));
+  }, [setRuntimeTracker]);
+
+  const enqueueRuntimeTrackerUpdate = useCallback((message: ClaudeStreamMessage) => {
+    pendingRuntimeMessagesRef.current.push(message);
+    if (runtimeFlushRafRef.current === null) {
+      runtimeFlushRafRef.current = requestAnimationFrame(flushRuntimeTracker);
+    }
+  }, [flushRuntimeTracker]);
+
+  const flushPendingSessionSave = useCallback(() => {
+    if (sessionSaveTimeoutRef.current !== null) {
+      clearTimeout(sessionSaveTimeoutRef.current);
+      sessionSaveTimeoutRef.current = null;
+    }
+
+    const pendingSave = pendingSessionSaveRef.current;
+    if (!pendingSave) return;
+    pendingSessionSaveRef.current = null;
+    SessionPersistenceService.saveSession(
+      pendingSave.sessionId,
+      pendingSave.projectId,
+      pendingSave.projectPath,
+      pendingSave.provider,
+      pendingSave.messageCount
+    );
+  }, []);
+
+  const scheduleSessionSave = useCallback((provider: string) => {
+    const sessionInfo = extractedSessionInfoRef.current;
+    if (!sessionInfo) return;
+
+    pendingSessionSaveRef.current = {
+      sessionId: sessionInfo.sessionId,
+      projectId: sessionInfo.projectId,
+      projectPath: projectPathRef.current,
+      provider,
+      messageCount: messagesLengthRef.current + 1,
+    };
+
+    if (sessionSaveTimeoutRef.current === null) {
+      sessionSaveTimeoutRef.current = setTimeout(flushPendingSessionSave, 750);
+    }
+  }, [extractedSessionInfoRef, flushPendingSessionSave, messagesLengthRef, projectPathRef]);
 
   useEffect(() => {
     setRuntimeTracker(createInitialRuntimeTracker());
   }, [projectPath, setRuntimeTracker]);
+
+  useEffect(() => () => {
+    flushRuntimeTracker();
+    flushPendingSessionSave();
+  }, [flushRuntimeTracker, flushPendingSessionSave]);
 
   /**
    * Handle stream message from backend
@@ -151,7 +240,12 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
       const message = JSON.parse(payload) as ClaudeStreamMessage;
       const provider = (message as any).provider || options.provider || 'claude';
 
-      setRuntimeTracker((current) => reduceRuntimeTracker(current, message as any, Date.now()));
+      enqueueRuntimeTrackerUpdate(message);
+
+      if (isTextDeltaMessage(message)) {
+        addMessage(message);
+        return;
+      }
 
       // Extract and save session info from init messages
       if (message.type === 'system' && message.subtype === 'init' && message.session_id) {
@@ -167,9 +261,9 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         const currentProjectPath = projectPathRef.current;
         if (currentProjectPath && message.session_id) {
           api.updateProviderSession(currentProjectPath, provider, message.session_id)
-            .catch((err) => {
+            .catch((err: unknown) => {
               // Silently ignore "no rows" errors - workspace might not be in database yet
-              if (!err.toString().includes('no rows in result set')) {
+              if (!String(err).includes('no rows in result set')) {
                 console.error('[useSessionEvents] Failed to update session_id in ProjectList:', err);
               }
             });
@@ -187,13 +281,13 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
               }
 
               // Check the actual provider session state (Gemini/Codex/Claude) instead of defaulting to Claude
-              api.isClaudeSessionRunningForProject(currentProjectPath, provider).then(running => {
+              api.isClaudeSessionRunningForProject(currentProjectPath, provider).then((running: boolean) => {
                 hasActiveSessionRef.current = running;
                 // In interactive mode, isLoading is controlled by message flow,
                 // not by process running state. The process is always running.
                 // Only set isLoading from process state for batch mode.
                 // For init messages, isLoading should already be true (set when sending).
-              }).catch(err => {
+              }).catch((err: unknown) => {
                 console.error('[useSessionEvents] Failed to sync state:', err);
               });
             }, 50);
@@ -224,49 +318,45 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         }
       }
 
-      // Track tool execution
-      if (message.type === 'assistant' && message.message?.content) {
-        const toolUses = message.message.content.filter((c: any) => c.type === 'tool_use');
-        toolUses.forEach((toolUse: any) => {
-          trackToolExecution(toolUse.name);
+      if (Array.isArray(message.message?.content)) {
+        for (const block of message.message.content as any[]) {
+          if (message.type === 'assistant') {
+            if (block.type === 'tool_use') {
+              trackToolExecution(block.name);
 
-          // Track file operations
-          const toolName = toolUse.name?.toLowerCase() || '';
-          if (toolName.includes('create') || toolName.includes('write')) {
-            trackFileOperation('create');
-          } else if (toolName.includes('edit') || toolName.includes('multiedit') || toolName.includes('search_replace')) {
-            trackFileOperation('modify');
-          } else if (toolName.includes('delete')) {
-            trackFileOperation('delete');
-          }
-
-          // Track workflow step
-          workflowTracking.trackStep(toolUse.name);
-
-          // TodoWrite detection and update
-          if (toolUse.name === 'TodoWrite' && toolUse.input?.todos) {
-            try {
-              const todos = toolUse.input.todos as TodoItem[];
-              if (projectPath) {
-                updateWorkspaceTodos(projectPath, projectPath, todos);
+              const toolName = block.name?.toLowerCase() || '';
+              if (toolName.includes('create') || toolName.includes('write')) {
+                trackFileOperation('create');
+              } else if (toolName.includes('edit') || toolName.includes('multiedit') || toolName.includes('search_replace')) {
+                trackFileOperation('modify');
+              } else if (toolName.includes('delete')) {
+                trackFileOperation('delete');
               }
-            } catch (err) {
-              console.error('[useSessionEvents] Failed to parse TodoWrite:', err);
-            }
-          }
-        });
-      }
 
-      // Track tool results
-      if (message.type === 'user' && message.message?.content) {
-        const toolResults = message.message.content.filter((c: any) => c.type === 'tool_result');
-        toolResults.forEach((result: any) => {
-          if (result.is_error) {
+              workflowTracking.trackStep(block.name);
+
+              if (block.name === 'TodoWrite' && block.input?.todos) {
+                try {
+                  const todos = block.input.todos as TodoItem[];
+                  if (projectPath) {
+                    updateWorkspaceTodos(projectPath, projectPath, todos);
+                  }
+                } catch (err) {
+                  console.error('[useSessionEvents] Failed to parse TodoWrite:', err);
+                }
+              }
+            } else if (block.type === 'text' && block.text?.includes('```')) {
+              const blockCount = countCodeFencePairs(block.text);
+              for (let i = 0; i < blockCount; i++) {
+                trackCodeBlock();
+              }
+            }
+          } else if (message.type === 'user' && block.type === 'tool_result' && block.is_error) {
             trackToolFailure();
             trackEvent.enhancedError({
               error_type: 'tool_execution',
               error_code: 'tool_failed',
-              error_message: result.content,
+              error_message: block.content,
               context: 'Tool execution failed',
               user_action_before_error: 'executing_tool',
               recovery_attempted: false,
@@ -275,22 +365,6 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
               stack_trace_hash: undefined
             });
           }
-        });
-      }
-
-      // Track code blocks
-      if (message.type === 'assistant' && message.message?.content) {
-        const codeBlocks = message.message.content.filter((c: any) =>
-          c.type === 'text' && c.text?.includes('```')
-        );
-        if (codeBlocks.length > 0) {
-          codeBlocks.forEach((block: any) => {
-            const matches = (block.text.match(/```/g) || []).length;
-            const blockCount = Math.floor(matches / 2);
-            for (let i = 0; i < blockCount; i++) {
-              trackCodeBlock();
-            }
-          });
         }
       }
 
@@ -301,6 +375,8 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
 
       // Handle result messages
       if (message.type === 'result') {
+        flushRuntimeTracker();
+        flushPendingSessionSave();
         console.log('[useSessionEvents] Result message received, session_id:', message.session_id);
         void onComplete?.({
           success: !(message as any).is_error,
@@ -342,13 +418,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
 
       // Save session after assistant messages
       if (message.type === 'assistant' && extractedSessionInfoRef.current) {
-        SessionPersistenceService.saveSession(
-          extractedSessionInfoRef.current.sessionId,
-          extractedSessionInfoRef.current.projectId,
-          projectPathRef.current,
-          provider,
-          messagesLengthRef.current + 1
-        );
+        scheduleSessionSave(provider);
       }
     } catch (err) {
       console.error('[useSessionEvents] Failed to parse message:', err);
@@ -366,6 +436,9 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     isPendingSendRef,
     hasActiveSessionRef,
     addMessage,
+    enqueueRuntimeTrackerUpdate,
+    flushPendingSessionSave,
+    flushRuntimeTracker,
     onComplete,
     trackToolExecution,
     trackToolFailure,
@@ -375,6 +448,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     trackEvent,
     workflowTracking,
     updateWorkspaceTodos,
+    scheduleSessionSave,
     setRuntimeTracker,
     // Extract provider from message to add to dependencies
     // Note: Since provider is derived from message itself, we don't need to add it to dependencies
@@ -385,6 +459,8 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
    * This fires when the process actually terminates (not just a result message)
    */
   const processComplete = useCallback(async (completion: boolean | string | ClaudeCompletionPayload) => {
+    flushRuntimeTracker();
+    flushPendingSessionSave();
     const completePayload = coerceCompletionPayload(completion);
     hasActiveSessionRef.current = false;
     // Process terminated, clear interactive session (update ref immediately)
@@ -413,7 +489,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     if (currentProjectPath) {
       setWorkspaceStatus(currentProjectPath, 'idle');
     }
-  }, [setIsLoading, hasActiveSessionRef, setInteractiveSessionId, onComplete, processNextInQueue, projectPathRef, setWorkspaceStatus, setRuntimeTracker, options.provider]);
+  }, [flushRuntimeTracker, flushPendingSessionSave, setIsLoading, hasActiveSessionRef, setInteractiveSessionId, onComplete, processNextInQueue, projectPathRef, setWorkspaceStatus, setRuntimeTracker, options.provider]);
 
   // Set up browser event listeners
   useEffect(() => {

@@ -128,18 +128,26 @@ export const SplitPane: React.FC<SplitPaneProps> = ({
     const container = containerRef.current;
     if (!container || typeof ResizeObserver === 'undefined') return;
 
+    let rafId: number | null = null;
     const observer = new ResizeObserver(([entry]) => {
-      const width = entry.contentRect.width;
-      setSplitPosition((current) => {
-        const clamped = clampSplitPosition(current, width);
-        if (clamped === current) return current;
-        onSplitChange?.(clamped);
-        return clamped;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const width = entry.contentRect.width;
+        setSplitPosition((current) => {
+          const clamped = clampSplitPosition(current, width);
+          if (clamped === current) return current;
+          onSplitChange?.(clamped);
+          return clamped;
+        });
       });
     });
 
     observer.observe(container);
-    return () => observer.disconnect();
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
   }, [clampSplitPosition, onSplitChange]);
 
   // Handle keyboard navigation

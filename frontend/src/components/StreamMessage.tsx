@@ -65,7 +65,7 @@ interface StreamMessageProps {
   agentOutputMap?: Map<string, any>;
   isStreamingText?: boolean;
   expandedCards?: Set<string>;
-  onExpandedCardsChange?: (expandedCards: Set<string>) => void;
+  onExpandedCardsChange?: React.Dispatch<React.SetStateAction<Set<string>>>;
   messageKey?: string;
 }
 
@@ -320,6 +320,39 @@ const parseAgentMentions = (text: string, agents: Map<string, { color?: string; 
  * Returns null if no system-instruction tags are found
  * Supports both <system-instruction> and <system_instruction> formats
  */
+const markdownRemarkPlugins = [remarkGfm];
+
+const MarkdownContent = React.memo(function MarkdownContent({ text, syntaxTheme }: { text: string; syntaxTheme: any }) {
+  const components = useMemo(() => ({
+    code({ node, inline, className, children, ...props }: any) {
+      const match = /language-(\w+)/.exec(className || '');
+      const code = String(children).replace(/\n$/, '');
+      return !inline && match ? (
+        <SyntaxHighlighter
+          style={syntaxTheme}
+          language={match[1]}
+          PreTag="div"
+          {...props}
+        >
+          {code}
+        </SyntaxHighlighter>
+      ) : (
+        <code className={className} {...props}>
+          {children}
+        </code>
+      );
+    }
+  }), [syntaxTheme]);
+
+  return (
+    <div className="prose prose-sm dark:prose-invert max-w-none">
+      <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={components}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+});
+
 const renderWithSystemInstructions = (
   contentStr: string,
   agents: Map<string, { color?: string; icon?: string }>,
@@ -428,14 +461,28 @@ function getTaskAgentIds(message: ClaudeStreamMessage, context?: StreamMessageCo
   });
 }
 
+function expandedCardsChangedForMessage(prevCards: Set<string> | undefined, nextCards: Set<string> | undefined, messageKey: string | undefined, message: ClaudeStreamMessage): boolean {
+  if (prevCards === nextCards) return false;
+  if (!prevCards || !nextCards) return true;
+
+  const prefix = `${messageKey ?? message.uuid ?? 'message'}:`;
+  for (const key of prevCards) {
+    if (key.startsWith(prefix) && !nextCards.has(key)) return true;
+  }
+  for (const key of nextCards) {
+    if (key.startsWith(prefix) && !prevCards.has(key)) return true;
+  }
+  return false;
+}
+
 function streamMessagePropsAreEqual(prev: StreamMessageProps, next: StreamMessageProps): boolean {
   if (prev.message !== next.message) return false;
   if (prev.className !== next.className) return false;
   if (prev.onLinkDetected !== next.onLinkDetected) return false;
   if (prev.isStreamingText !== next.isStreamingText) return false;
-  if (prev.expandedCards !== next.expandedCards) return false;
   if (prev.onExpandedCardsChange !== next.onExpandedCardsChange) return false;
   if (prev.messageKey !== next.messageKey) return false;
+  if (expandedCardsChangedForMessage(prev.expandedCards, next.expandedCards, next.messageKey, next.message)) return false;
 
   const prevContext = prev.streamContext;
   const nextContext = next.streamContext;
@@ -482,8 +529,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
 
   // Get current theme
   const { theme } = useTheme();
-  const syntaxTheme = getClaudeSyntaxTheme(theme);
-  
+  const syntaxTheme = useMemo(() => getClaudeSyntaxTheme(theme), [theme]);
+
   const agents = useSyncExternalStore(subscribeAgents, getAgentsSnapshot, getAgentsSnapshot);
   loadAgentsOnce();
 
@@ -502,15 +549,17 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
     return {
       expanded: expandedCards.has(expandedKey) || (defaultExpanded && !expandedCards.has(`${expandedKey}:collapsed`)),
       onExpandedChange: (expanded: boolean) => {
-        const nextExpandedCards = new Set(expandedCards);
-        nextExpandedCards.delete(`${expandedKey}:collapsed`);
-        if (expanded) {
-          nextExpandedCards.add(expandedKey);
-        } else {
-          nextExpandedCards.delete(expandedKey);
-          nextExpandedCards.add(`${expandedKey}:collapsed`);
-        }
-        onExpandedCardsChange(nextExpandedCards);
+        onExpandedCardsChange((currentExpandedCards) => {
+          const nextExpandedCards = new Set(currentExpandedCards);
+          nextExpandedCards.delete(`${expandedKey}:collapsed`);
+          if (expanded) {
+            nextExpandedCards.add(expandedKey);
+          } else {
+            nextExpandedCards.delete(expandedKey);
+            nextExpandedCards.add(`${expandedKey}:collapsed`);
+          }
+          return nextExpandedCards;
+        });
       },
     };
   };
@@ -652,35 +701,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                       );
                     }
 
-                    return (
-                      <div key={idx} className="prose prose-sm dark:prose-invert max-w-none">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{
-                            code({ node, inline, className, children, ...props }: any) {
-                              const match = /language-(\w+)/.exec(className || '');
-                              const code = String(children).replace(/\n$/, '');
-                              return !inline && match ? (
-                                <SyntaxHighlighter
-                                  style={syntaxTheme}
-                                  language={match[1]}
-                                  PreTag="div"
-                                  {...props}
-                                >
-                                  {code}
-                                </SyntaxHighlighter>
-                              ) : (
-                                <code className={className} {...props}>
-                                  {children}
-                                </code>
-                              );
-                            }
-                          }}
-                        >
-                          {textContent}
-                        </ReactMarkdown>
-                      </div>
-                    );
+                    return <MarkdownContent key={idx} text={textContent} syntaxTheme={syntaxTheme} />;
                   }
                   
                   // Thinking content - render with ThinkingWidget
@@ -1364,34 +1385,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
 
             {expanded && (
               <div className="ml-8 mt-4 space-y-2">
-                {message.result && (
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code({ node, inline, className, children, ...props }: any) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          return !inline && match ? (
-                            <SyntaxHighlighter
-                              style={syntaxTheme}
-                              language={match[1]}
-                              PreTag="div"
-                              {...props}
-                            >
-                              {String(children).replace(/\n$/, '')}
-                            </SyntaxHighlighter>
-                          ) : (
-                            <code className={className} {...props}>
-                              {children}
-                            </code>
-                          );
-                        }
-                      }}
-                    >
-                      {message.result}
-                    </ReactMarkdown>
-                  </div>
-                )}
+                {message.result && <MarkdownContent text={message.result} syntaxTheme={syntaxTheme} />}
 
                 {message.error && (
                   <div className="text-sm text-destructive">{message.error}</div>

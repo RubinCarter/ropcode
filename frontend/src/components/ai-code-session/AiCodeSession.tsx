@@ -67,6 +67,9 @@ const scrollSeekConfiguration: ScrollSeekConfiguration = {
   exit: (velocity) => Math.abs(velocity) < 300,
 };
 
+const streamingViewportIncrease = { top: 100, bottom: 250 };
+const idleViewportIncrease = { top: 300, bottom: 600 };
+
 function ScrollSeekPlaceholder(props: { height: number }) {
   return <MessageScrollSeekPlaceholder {...props} className="w-full max-w-6xl mx-auto" />;
 }
@@ -171,13 +174,14 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   }, [defaultProvider, messagesState.setSubagentTranscripts]);
 
   const refreshCurrentSubagentTranscripts = useCallback(async (sessionIdOverride?: string | null) => {
+    messagesState.flushPendingMessages();
     const sessionInfo = sessionState.extractedSessionInfoRef.current;
     const initMessage = messagesState.messagesRef.current.find((message) => message.type === 'system' && message.subtype === 'init') as any;
     const realSessionId = sessionInfo?.claudeSessionId || initMessage?.claude_session_id || initMessage?.sessionId || initMessage?.session_id || sessionInfo?.sessionId;
     const sessionId = realSessionId || sessionIdOverride || sessionState.claudeSessionIdRef.current;
     const projectId = sessionInfo?.projectId || (initMessage?.cwd || sessionState.projectPathRef.current || '').replace(/[^a-zA-Z0-9]/g, '-');
     await refreshSubagentTranscripts(sessionId, projectId);
-  }, [messagesState.messagesRef, refreshSubagentTranscripts, sessionState.claudeSessionIdRef, sessionState.extractedSessionInfoRef, sessionState.projectPathRef]);
+  }, [messagesState.flushPendingMessages, messagesState.messagesRef, refreshSubagentTranscripts, sessionState.claudeSessionIdRef, sessionState.extractedSessionInfoRef, sessionState.projectPathRef]);
 
   const liveSubagentSessionInfo = React.useMemo(() => {
     const sessionInfo = sessionState.extractedSessionInfo;
@@ -639,6 +643,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         // which are lexicographically comparable, so string comparison works correctly.
         // IMPORTANT: use messagesRef (ref) instead of messagesState.messages (stale closure)
         // because this runs inside useEffect([], []) whose closure captures initial empty [].
+        messagesState.flushPendingMessages();
         const currentMessages = messagesState.messagesRef.current;
         const backendLastTs = loadedMessages[loadedMessages.length - 1]?.timestamp as string || '';
         const localLastTs = currentMessages[currentMessages.length - 1]?.timestamp as string || '';
@@ -1342,13 +1347,13 @@ ${message ? `**说明**:\n${message}` : ''}`;
     }
   };
 
-  const handleCopyAsJsonl = async () => {
+  const handleCopyAsJsonl = useCallback(async () => {
     const jsonl = messagesState.messages.map(m => JSON.stringify(m)).join('\n');
     await navigator.clipboard.writeText(jsonl);
     setCopyPopoverOpen(false);
-  };
+  }, [messagesState.messages]);
 
-  const handleCopyAsMarkdown = async () => {
+  const handleCopyAsMarkdown = useCallback(async () => {
     let markdown = `# AI Code Session\n\n`;
     markdown += `**Project:** ${sessionState.projectPath}\n`;
     markdown += `**Date:** ${new Date().toISOString()}\n\n`;
@@ -1418,14 +1423,60 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
     await navigator.clipboard.writeText(markdown);
     setCopyPopoverOpen(false);
-  };
+  }, [messagesState.messages, sessionState.projectPath]);
 
-  const handleLinkDetected = (url: string) => {
+  const copyConversationMenu = React.useMemo(() => (
+    messagesState.messages.length > 0 ? (
+      <Popover
+        trigger={
+          <TooltipSimple content="Copy conversation" side="top">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-muted-foreground hover:text-foreground active:scale-[0.97]"
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipSimple>
+        }
+        content={
+          <div className="w-44 p-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopyAsMarkdown}
+              className="w-full justify-start text-xs"
+            >
+              Copy as Markdown
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopyAsJsonl}
+              className="w-full justify-start text-xs"
+            >
+              Copy as JSONL
+            </Button>
+          </div>
+        }
+        open={copyPopoverOpen}
+        onOpenChange={setCopyPopoverOpen}
+        side="top"
+        align="end"
+      />
+    ) : undefined
+  ), [copyPopoverOpen, handleCopyAsJsonl, handleCopyAsMarkdown, messagesState.messages.length]);
+
+  const handlePromptConfigChange = useCallback((config: SessionStatusPromptConfig) => {
+    setPromptConfig(config);
+  }, []);
+
+  const handleLinkDetected = useCallback((url: string) => {
     if (!showPreview && !showPreviewPrompt) {
       setPreviewUrl(url);
       setShowPreviewPrompt(true);
     }
-  };
+  }, [showPreview, showPreviewPrompt]);
 
   const handleClosePreview = () => {
     setShowPreview(false);
@@ -1447,6 +1498,68 @@ ${message ? `**说明**:\n${message}` : ''}`;
   // ==================================================================
   // RENDER - Message List
   // ==================================================================
+
+  const followOutput = useCallback((isAtBottom: boolean) => {
+    if (isScrollPaused) return false;
+    if (!isAtBottom) return false;
+    return processState.isLoading ? 'auto' : 'smooth';
+  }, [isScrollPaused, processState.isLoading]);
+
+  const computeItemKey = useCallback((_: number, item: { type: 'subagent-panel' } | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number }) => item.type === 'subagent-panel'
+    ? 'subagent-panel'
+    : item.message.uuid || `msg-${item.originalIndex}`, []);
+
+  const itemContent = useCallback((_: number, item: { type: 'subagent-panel' } | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }) => (
+    <div className="w-full max-w-6xl mx-auto px-4 pb-4 pt-2">
+      {item.type === 'subagent-panel' ? (
+        <SubagentProgressPanel
+          summary={messagesState.subagentProgress}
+          streamMessages={messagesState.messages}
+          agentOutputMap={messagesState.agentOutputMap}
+          expanded={isSubagentPanelExpanded}
+          onExpandedChange={setIsSubagentPanelExpanded}
+          expandedAgents={expandedSubagentIds}
+          onExpandedAgentsChange={setExpandedSubagentIds}
+        />
+      ) : (
+        <StreamMessage
+          message={item.message}
+          streamMessages={messagesState.messages}
+          streamContext={messagesState.streamMessageContext}
+          onLinkDetected={handleLinkDetected}
+          agentOutputMap={messagesState.agentOutputMap}
+          isStreamingText={item.isStreamingTail}
+          expandedCards={expandedMessageCards}
+          onExpandedCardsChange={setExpandedMessageCards}
+          messageKey={item.message.uuid || `msg-${item.originalIndex}`}
+        />
+      )}
+    </div>
+  ), [
+    expandedMessageCards,
+    expandedSubagentIds,
+    handleLinkDetected,
+    isSubagentPanelExpanded,
+    messagesState.agentOutputMap,
+    messagesState.messages,
+    messagesState.streamMessageContext,
+    messagesState.subagentProgress,
+  ]);
+
+  const virtuosoComponents = React.useMemo(() => ({
+    ScrollSeekPlaceholder,
+    Header: () => <div className="pt-6" />,
+    Footer: () => (
+      <>
+        {error && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mx-4 max-w-6xl">
+            {error}
+          </div>
+        )}
+        <div className="h-60" />
+      </>
+    ),
+  }), [error]);
 
   const streamItems = React.useMemo(() => {
     const subagentIndexes = messagesState.subagentProgress.subagents.flatMap((subagent) =>
@@ -1497,20 +1610,12 @@ ${message ? `**说明**:\n${message}` : ''}`;
         ref={virtuosoRef}
         data={streamItems}
         className="h-full"
-        increaseViewportBy={{ top: 900, bottom: 1400 }}
+        increaseViewportBy={processState.isLoading ? streamingViewportIncrease : idleViewportIncrease}
         scrollSeekConfiguration={scrollSeekConfiguration}
 
         // followOutput handles auto-scrolling during streaming
         // Returns false to disable, 'auto' for instant scroll, 'smooth' for animated
-        followOutput={(isAtBottom) => {
-          // User manually paused scrolling
-          if (isScrollPaused) return false;
-          // User scrolled away from bottom - don't auto-scroll
-          if (!isAtBottom) return false;
-          // During streaming: use 'auto' to avoid animation lag
-          // Otherwise: use 'smooth' for better UX
-          return processState.isLoading ? 'auto' : 'smooth';
-        }}
+        followOutput={followOutput}
 
         // Track when user scrolls away from bottom
         atBottomStateChange={setAtBottom}
@@ -1522,135 +1627,65 @@ ${message ? `**说明**:\n${message}` : ''}`;
           : 0}
 
         // Stable keys preserve message component state when filters or panels shift row positions
-        computeItemKey={(_, item) => item.type === 'subagent-panel'
-          ? 'subagent-panel'
-          : item.message.uuid || `msg-${item.originalIndex}`}
+        computeItemKey={computeItemKey}
 
         // Render each message
-        itemContent={(_, item) => (
-          <div className="w-full max-w-6xl mx-auto px-4 pb-4 pt-2">
-            {item.type === 'subagent-panel' ? (
-              <SubagentProgressPanel
-                summary={messagesState.subagentProgress}
-                streamMessages={messagesState.messages}
-                agentOutputMap={messagesState.agentOutputMap}
-                expanded={isSubagentPanelExpanded}
-                onExpandedChange={setIsSubagentPanelExpanded}
-                expandedAgents={expandedSubagentIds}
-                onExpandedAgentsChange={setExpandedSubagentIds}
-              />
-            ) : (
-              <StreamMessage
-                message={item.message}
-                streamMessages={messagesState.messages}
-                streamContext={messagesState.streamMessageContext}
-                onLinkDetected={handleLinkDetected}
-                agentOutputMap={messagesState.agentOutputMap}
-                isStreamingText={item.isStreamingTail}
-                expandedCards={expandedMessageCards}
-                onExpandedCardsChange={setExpandedMessageCards}
-                messageKey={item.message.uuid || `msg-${item.originalIndex}`}
-              />
-            )}
-          </div>
-        )}
+        itemContent={itemContent}
 
         // Custom components for loading/error states
-        components={{
-          ScrollSeekPlaceholder,
-          Header: () => <div className="pt-6" />,
-          Footer: () => (
-            <>
-              {/* Error indicator */}
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mx-4 max-w-6xl"
-                >
-                  {error}
-                </motion.div>
-              )}
-
-              {/* Bottom spacer for floating input (needs extra space for queued prompts and image previews) */}
-              <div className="h-60" />
-            </>
-          ),
-        }}
+        components={virtuosoComponents}
       />
 
       {/* Scroll buttons */}
       {streamItems.length > 5 && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.8 }}
-          transition={{ delay: 0.5 }}
-          className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4"
-        >
+        <div className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4">
           <div className="max-w-6xl w-full flex justify-end">
-          <div className="flex items-center bg-background/95 backdrop-blur-md border rounded-full shadow-lg overflow-hidden pointer-events-auto">
+          <div className="flex items-center bg-background/95 border rounded-full shadow-sm overflow-hidden pointer-events-auto">
             <TooltipSimple content={isScrollPaused ? "Resume auto-scroll" : "Lock scroll position"} side="top">
-              <motion.div
-                whileTap={{ scale: 0.97 }}
-                transition={{ duration: 0.15 }}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsScrollPaused(!isScrollPaused)}
+                className="px-3 py-2 hover:bg-accent rounded-none active:scale-[0.97]"
               >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsScrollPaused(!isScrollPaused)}
-                  className="px-3 py-2 hover:bg-accent rounded-none"
-                >
-                  {isScrollPaused ? (
-                    <ArrowUpFromLine className="h-4 w-4" />
-                  ) : (
-                    <ArrowDownToLine className="h-4 w-4" />
-                  )}
-                </Button>
-              </motion.div>
+                {isScrollPaused ? (
+                  <ArrowUpFromLine className="h-4 w-4" />
+                ) : (
+                  <ArrowDownToLine className="h-4 w-4" />
+                )}
+              </Button>
             </TooltipSimple>
             <div className="w-px h-6 bg-border" />
             <TooltipSimple content="Scroll to top" side="top">
-              <motion.div
-                whileTap={{ scale: 0.97 }}
-                transition={{ duration: 0.15 }}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  virtuosoRef.current?.scrollToIndex({
+                    index: 0,
+                    align: 'start',
+                    behavior: 'smooth'
+                  });
+                }}
+                className="px-3 py-2 hover:bg-accent rounded-none active:scale-[0.97]"
               >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    virtuosoRef.current?.scrollToIndex({
-                      index: 0,
-                      align: 'start',
-                      behavior: 'smooth'
-                    });
-                  }}
-                  className="px-3 py-2 hover:bg-accent rounded-none"
-                >
-                  <ChevronUp className="h-4 w-4" />
-                </Button>
-              </motion.div>
+                <ChevronUp className="h-4 w-4" />
+              </Button>
             </TooltipSimple>
             <div className="w-px h-6 bg-border" />
             <TooltipSimple content="Scroll to bottom" side="top">
-              <motion.div
-                whileTap={{ scale: 0.97 }}
-                transition={{ duration: 0.15 }}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => scrollToBottom('smooth')}
+                className="px-3 py-2 hover:bg-accent rounded-none active:scale-[0.97]"
               >
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => scrollToBottom('smooth')}
-                  className="px-3 py-2 hover:bg-accent rounded-none"
-                >
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </motion.div>
+                <ChevronDown className="h-4 w-4" />
+              </Button>
             </TooltipSimple>
           </div>
           </div>
-        </motion.div>
+        </div>
       )}
     </div>
   );
@@ -1740,53 +1775,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
               projectPath={sessionState.projectPath}
               defaultProvider={defaultProvider}
               onProviderChange={onProviderChange}
-              onConfigChange={(config) => setPromptConfig(config)}
-              extraMenuItems={
-                messagesState.messages.length > 0 ? (
-                  <Popover
-                    trigger={
-                      <TooltipSimple content="Copy conversation" side="top">
-                        <motion.div
-                          whileTap={{ scale: 0.97 }}
-                          transition={{ duration: 0.15 }}
-                        >
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-9 w-9 text-muted-foreground hover:text-foreground"
-                          >
-                            <Copy className="h-3.5 w-3.5" />
-                          </Button>
-                        </motion.div>
-                      </TooltipSimple>
-                    }
-                    content={
-                      <div className="w-44 p-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleCopyAsMarkdown}
-                          className="w-full justify-start text-xs"
-                        >
-                          Copy as Markdown
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleCopyAsJsonl}
-                          className="w-full justify-start text-xs"
-                        >
-                          Copy as JSONL
-                        </Button>
-                      </div>
-                    }
-                    open={copyPopoverOpen}
-                    onOpenChange={setCopyPopoverOpen}
-                    side="top"
-                    align="end"
-                  />
-                ) : undefined
-              }
+              onConfigChange={handlePromptConfigChange}
+              extraMenuItems={copyConversationMenu}
             />
           </div>
         </ErrorBoundary>

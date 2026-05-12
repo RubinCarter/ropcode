@@ -384,8 +384,14 @@ export function usePtySession(options: UsePtySessionOptions) {
     handleResize();
 
     // 监听容器尺寸变化
+    let resizeRaf: number | null = null;
     const resizeObserver = new ResizeObserver(() => {
-      handleResize();
+      if (resizeRaf === null) {
+        resizeRaf = requestAnimationFrame(() => {
+          resizeRaf = null;
+          handleResize();
+        });
+      }
     });
 
     // 找到 Terminal 的容器元素

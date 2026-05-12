@@ -194,7 +194,15 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       }
     };
 
-    const resizeObserver = new ResizeObserver(handleResize);
+    let resizeRaf: number | null = null;
+    const resizeObserver = new ResizeObserver(() => {
+      if (resizeRaf === null) {
+        resizeRaf = requestAnimationFrame(() => {
+          resizeRaf = null;
+          handleResize();
+        });
+      }
+    });
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current);
     }

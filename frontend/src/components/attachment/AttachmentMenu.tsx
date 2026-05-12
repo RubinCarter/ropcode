@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { FolderOpen, Camera, Image } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -8,8 +8,8 @@ interface AttachmentMenuProps {
   onFileSelected: (file: File) => void;
 }
 
-const isMobile = (): boolean => {
-  // Check for touch device AND coarse pointer (true mobile, not desktop with touch screen)
+const detectMobile = (): boolean => {
+  if (typeof window === 'undefined') return false;
   const hasCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
   const hasTouchScreen = window.matchMedia('(hover: none)').matches;
   const isMobileUA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -26,8 +26,12 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [mobile, setMobile] = useState(false);
 
-  const mobile = isMobile();
+  useEffect(() => {
+    if (!isOpen) return;
+    setMobile(detectMobile());
+  }, [isOpen]);
 
   // Close menu when clicking outside
   useEffect(() => {

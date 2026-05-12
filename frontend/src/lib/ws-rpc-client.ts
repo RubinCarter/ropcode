@@ -25,6 +25,11 @@ export interface WSMessage {
 }
 
 type EventHandler = (payload: any) => void;
+type PendingRequest = {
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
+  timeoutId?: ReturnType<typeof setTimeout>;
+};
 
 /**
  * Generate a UUID that works in non-secure contexts (HTTP).
@@ -61,7 +66,7 @@ function getRpcTimeout(method: string): number {
 
 class WSRpcClient {
   private ws: WebSocket | null = null;
-  private pending: Map<string, { resolve: (value: any) => void; reject: (reason: any) => void }> = new Map();
+  private pending: Map<string, PendingRequest> = new Map();
   private eventListeners: Map<string, Set<EventHandler>> = new Map();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = Infinity;
@@ -199,7 +204,10 @@ class WSRpcClient {
     this.reconnectAttempts = 0;
 
     // 4. Reject stale pending RPC calls — they won't get responses
-    this.pending.forEach(({ reject: rej }) => rej(new Error('WebSocket force reconnect')));
+    this.pending.forEach((pending) => {
+      if (pending.timeoutId) clearTimeout(pending.timeoutId);
+      pending.reject(new Error('WebSocket force reconnect'));
+    });
     this.pending.clear();
 
     // 5. Connect immediately — don't await refreshAuthKey; if auth
@@ -265,7 +273,10 @@ class WSRpcClient {
             this.connectResolvers = [];
           }
           // Reject all pending RPC calls so they don't hang
-          this.pending.forEach(({ reject: rej }) => rej(new Error('WebSocket disconnected')));
+          this.pending.forEach((pending) => {
+            if (pending.timeoutId) clearTimeout(pending.timeoutId);
+            pending.reject(new Error('WebSocket disconnected'));
+          });
           this.pending.clear();
           this.scheduleReconnect();
         };
@@ -343,6 +354,7 @@ class WSRpcClient {
         const pending = this.pending.get(id);
         if (pending) {
           this.pending.delete(id);
+          if (pending.timeoutId) clearTimeout(pending.timeoutId);
           if (error) {
             pending.reject(new Error(error));
           } else {
@@ -406,11 +418,12 @@ class WSRpcClient {
     };
 
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const pending: PendingRequest = { resolve, reject };
+      this.pending.set(id, pending);
 
       // 设置超时（默认 30 秒）
       const timeout = getRpcTimeout(method);
-      setTimeout(() => {
+      pending.timeoutId = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
           reject(new Error(`RPC call ${method} timed out`));

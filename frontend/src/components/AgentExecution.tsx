@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { api, listen, type Agent } from "@/lib/api";
+import { subscribeElapsedTick } from "@/lib/elapsedTimeTicker";
 import { cn } from "@/lib/utils";
 import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
@@ -137,7 +138,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   const fullscreenVirtuosoRef = useRef<VirtuosoHandle>(null);
   const [atBottom, setAtBottom] = useState(true);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
-  const elapsedTimeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const executionStartTimeRef = useRef<number | null>(null);
   const [runId, setRunId] = useState<number | null>(null);
 
   // Build agentId → AgentOutputTool result mapping
@@ -333,9 +334,6 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
     // Clean up listeners on unmount
     return () => {
       unlistenRefs.current.forEach(unlisten => unlisten());
-      if (elapsedTimeIntervalRef.current) {
-        clearInterval(elapsedTimeIntervalRef.current);
-      }
     };
   }, []);
 
@@ -381,23 +379,18 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
     };
   }, []);
 
-  // Update elapsed time while running
+  // Update elapsed time while running — uses shared global ticker
   useEffect(() => {
     if (isRunning && executionStartTime) {
-      elapsedTimeIntervalRef.current = setInterval(() => {
-        setElapsedTime(Math.floor((Date.now() - executionStartTime) / 1000));
-      }, 100);
-    } else {
-      if (elapsedTimeIntervalRef.current) {
-        clearInterval(elapsedTimeIntervalRef.current);
-      }
+      executionStartTimeRef.current = executionStartTime;
+      const unsub = subscribeElapsedTick((now) => {
+        setElapsedTime(prev => {
+          const next = Math.floor((now - executionStartTimeRef.current!) / 1000);
+          return prev === next ? prev : next;
+        });
+      });
+      return unsub;
     }
-    
-    return () => {
-      if (elapsedTimeIntervalRef.current) {
-        clearInterval(elapsedTimeIntervalRef.current);
-      }
-    };
   }, [isRunning, executionStartTime]);
 
   // Calculate total tokens from messages

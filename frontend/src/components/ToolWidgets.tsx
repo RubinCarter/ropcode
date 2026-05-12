@@ -63,7 +63,6 @@ import remarkGfm from "remark-gfm";
 import { open } from "@/lib/shell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { motion, AnimatePresence } from "framer-motion";
 import { shortenPath } from "@/lib/pathUtils";
 import type { ClaudeStreamMessage } from "./AgentExecution";
 
@@ -71,6 +70,53 @@ export interface ControlledExpansionProps {
   defaultExpanded?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+}
+
+const systemToolIcons: Record<string, LucideIcon> = {
+  task: CheckSquare,
+  bash: Terminal,
+  glob: FolderSearch,
+  grep: Search,
+  ls: List,
+  exit_plan_mode: LogOut,
+  read: FileText,
+  edit: Edit3,
+  multiedit: Edit3,
+  write: FilePlus,
+  notebookread: Book,
+  notebookedit: BookOpen,
+  webfetch: Globe,
+  todoread: ListChecks,
+  todowrite: ListPlus,
+  websearch: Globe2,
+};
+
+function titleCaseWords(text: string): string {
+  return text
+    .replace(/_/g, ' ')
+    .replace(/-/g, ' ')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+function getSystemToolIcon(toolName: string) {
+  return systemToolIcons[toolName.toLowerCase()] || Wrench;
+}
+
+function formatMcpToolName(toolName: string) {
+  const withoutPrefix = toolName.replace(/^mcp__/, '');
+  const parts = withoutPrefix.split('__');
+  if (parts.length >= 2) {
+    return {
+      provider: titleCaseWords(parts[0]),
+      method: titleCaseWords(parts.slice(1).join('__')),
+    };
+  }
+  return {
+    provider: 'MCP',
+    method: titleCaseWords(withoutPrefix),
+  };
 }
 
 function useControlledExpansion({ defaultExpanded = false, expanded: controlledExpanded, onExpandedChange }: ControlledExpansionProps = {}) {
@@ -93,7 +139,7 @@ export const TodoWidget: React.FC<{ todos: any[]; result?: any } & ControlledExp
 
   const statusIcons = {
     completed: <CheckCircle2 className="h-4 w-4 text-green-500" />,
-    in_progress: <Clock className="h-4 w-4 text-blue-500 animate-pulse" />,
+    in_progress: <Clock className="h-4 w-4 text-blue-500" />,
     pending: <Circle className="h-4 w-4 text-muted-foreground" />
   };
 
@@ -211,7 +257,7 @@ export const LSWidget: React.FC<{ path: string; result?: any; workspacePath?: st
       </code>
       {!result && (
         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-          <div className="h-2 w-2 bg-blue-500 rounded-full animate-pulse" />
+          <div className="h-2 w-2 bg-blue-500 rounded-full" />
           <span>Loading...</span>
         </div>
       )}
@@ -427,7 +473,7 @@ export const ReadWidget: React.FC<{ filePath: string; result?: any; workspacePat
       </code>
       {!result && (
         <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-          <div className="h-2 w-2 bg-blue-500 rounded-full animate-pulse" />
+          <div className="h-2 w-2 bg-blue-500 rounded-full" />
           <span>Loading...</span>
         </div>
       )}
@@ -648,7 +694,7 @@ export const GlobWidget: React.FC<{ pattern: string; result?: any } & Controlled
         </code>
         {!result && (
           <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-            <div className="h-2 w-2 bg-blue-500 rounded-full animate-pulse" />
+            <div className="h-2 w-2 bg-blue-500 rounded-full" />
             <span>Searching...</span>
           </div>
         )}
@@ -727,7 +773,7 @@ export const BashWidget: React.FC<{
         {/* Show loading indicator when no result yet */}
         {!result && (
           <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-            <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+            <div className="h-2 w-2 bg-green-500 rounded-full" />
             <span>Running...</span>
           </div>
         )}
@@ -1014,7 +1060,7 @@ export const GrepWidget: React.FC<{
         <span className="text-sm font-medium">Searching with grep</span>
         {!result && (
           <div className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
-            <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
+            <div className="h-2 w-2 bg-emerald-500 rounded-full" />
             <span>Searching...</span>
           </div>
         )}
@@ -1644,7 +1690,7 @@ export const MCPWidget: React.FC<{
         {/* Loading indicator when no result yet */}
         {!result && (
           <div className="flex items-center gap-2 px-2 py-1">
-            <div className="h-2 w-2 bg-violet-500 rounded-full animate-pulse" />
+            <div className="h-2 w-2 bg-violet-500 rounded-full" />
             <span className="text-xs text-muted-foreground">Running...</span>
           </div>
         )}
@@ -2009,73 +2055,30 @@ export const SystemInitializedWidget: React.FC<{
   const [expanded, setExpanded] = useControlledExpansion(expansionProps);
   const [mcpExpanded, setMcpExpanded] = useState(false);
 
-  // Separate regular tools from MCP tools
-  const regularTools = tools.filter(tool => !tool.startsWith('mcp__'));
-  const mcpTools = tools.filter(tool => tool.startsWith('mcp__'));
-  
-  // Tool icon mapping for regular tools
-  const toolIcons: Record<string, LucideIcon> = {
-    'task': CheckSquare,
-    'bash': Terminal,
-    'glob': FolderSearch,
-    'grep': Search,
-    'ls': List,
-    'exit_plan_mode': LogOut,
-    'read': FileText,
-    'edit': Edit3,
-    'multiedit': Edit3,
-    'write': FilePlus,
-    'notebookread': Book,
-    'notebookedit': BookOpen,
-    'webfetch': Globe,
-    'todoread': ListChecks,
-    'todowrite': ListPlus,
-    'websearch': Globe2,
-  };
-  
-  // Get icon for a tool, fallback to Wrench
-  const getToolIcon = (toolName: string) => {
-    const normalizedName = toolName.toLowerCase();
-    return toolIcons[normalizedName] || Wrench;
-  };
-  
-  // Format MCP tool name (remove mcp__ prefix and format underscores)
-  const formatMcpToolName = (toolName: string) => {
-    // Remove mcp__ prefix
-    const withoutPrefix = toolName.replace(/^mcp__/, '');
-    // Split by double underscores first (provider separator)
-    const parts = withoutPrefix.split('__');
-    if (parts.length >= 2) {
-      // Format provider name and method name separately
-      const provider = parts[0].replace(/_/g, ' ').replace(/-/g, ' ')
-        .split(' ')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
-      const method = parts.slice(1).join('__').replace(/_/g, ' ')
-        .split(' ')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ');
-      return { provider, method };
+  const { regularTools, mcpTools } = useMemo(() => {
+    const regularTools: string[] = [];
+    const mcpTools: string[] = [];
+    for (const tool of tools) {
+      if (tool.startsWith('mcp__')) {
+        mcpTools.push(tool);
+      } else {
+        regularTools.push(tool);
+      }
     }
-    // Fallback formatting
-    return {
-      provider: 'MCP',
-      method: withoutPrefix.replace(/_/g, ' ')
-        .split(' ')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ')
-    };
-  };
-  
-  // Group MCP tools by provider
-  const mcpToolsByProvider = mcpTools.reduce((acc, tool) => {
-    const { provider } = formatMcpToolName(tool);
-    if (!acc[provider]) {
-      acc[provider] = [];
-    }
-    acc[provider].push(tool);
-    return acc;
-  }, {} as Record<string, string[]>);
+    return { regularTools, mcpTools };
+  }, [tools]);
+
+  const mcpToolsByProvider = useMemo(() => {
+    if (!expanded || !mcpExpanded) return {} as Record<string, string[]>;
+    return mcpTools.reduce((acc, tool) => {
+      const { provider } = formatMcpToolName(tool);
+      if (!acc[provider]) {
+        acc[provider] = [];
+      }
+      acc[provider].push(tool);
+      return acc;
+    }, {} as Record<string, string[]>);
+  }, [expanded, mcpExpanded, mcpTools]);
   
   return (
     <Card className="border-blue-500/20 bg-blue-500/5">
@@ -2140,7 +2143,7 @@ export const SystemInitializedWidget: React.FC<{
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {regularTools.map((tool, idx) => {
-                    const Icon = getToolIcon(tool);
+                    const Icon = getSystemToolIcon(tool);
                     return (
                       <Badge 
                         key={idx} 
@@ -2504,10 +2507,10 @@ export const WebSearchWidget: React.FC<{
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
           {isLoading ? (
-            <div className="animate-pulse flex items-center gap-1">
-              <div className="h-1 w-1 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-              <div className="h-1 w-1 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-              <div className="h-1 w-1 bg-blue-500 rounded-full animate-bounce"></div>
+            <div className="flex items-center gap-1">
+              <div className="h-1 w-1 bg-blue-500 rounded-full [animation-delay:-0.3s]"></div>
+              <div className="h-1 w-1 bg-blue-500 rounded-full [animation-delay:-0.15s]"></div>
+              <div className="h-1 w-1 bg-blue-500 rounded-full"></div>
             </div>
           ) : searchResults.noResults ? (
             <span className="text-xs text-muted-foreground">No results</span>
@@ -2629,7 +2632,7 @@ export const ThinkingWidget: React.FC<{
         <div className="flex items-center gap-2">
           <div className="relative">
             <Bot className="h-4 w-4 text-gray-500" />
-            <Sparkles className="h-2.5 w-2.5 text-gray-400 absolute -top-1 -right-1 animate-pulse" />
+            <Sparkles className="h-2.5 w-2.5 text-gray-400 absolute -top-1 -right-1" />
           </div>
           <span className="text-sm font-medium text-gray-600 dark:text-gray-400 italic">
             Thinking...
@@ -2746,10 +2749,10 @@ export const WebFetchWidget: React.FC<{
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
           {isLoading ? (
-            <div className="animate-pulse flex items-center gap-1">
-              <div className="h-1 w-1 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-              <div className="h-1 w-1 bg-purple-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-              <div className="h-1 w-1 bg-purple-500 rounded-full animate-bounce"></div>
+            <div className="flex items-center gap-1">
+              <div className="h-1 w-1 bg-purple-500 rounded-full [animation-delay:-0.3s]"></div>
+              <div className="h-1 w-1 bg-purple-500 rounded-full [animation-delay:-0.15s]"></div>
+              <div className="h-1 w-1 bg-purple-500 rounded-full"></div>
             </div>
           ) : hasError ? (
             <span className="text-xs text-destructive">Error</span>
@@ -2886,7 +2889,7 @@ export const TodoReadWidget: React.FC<{ todos?: any[]; result?: any }> = ({ todo
       label: "Completed"
     },
     in_progress: {
-      icon: <Clock className="h-4 w-4 animate-pulse" />,
+      icon: <Clock className="h-4 w-4" />,
       color: "text-blue-500",
       bgColor: "bg-blue-500/10",
       borderColor: "border-blue-500/20",
@@ -2996,13 +2999,9 @@ export const TodoReadWidget: React.FC<{ todos?: any[]; result?: any }> = ({ todo
     const config = statusConfig[todo.status as keyof typeof statusConfig] || statusConfig.pending;
     
     return (
-      <motion.div
-        layout
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
+      <div
         className={cn(
-          "group rounded-lg border p-4 transition-all hover:shadow-md cursor-pointer",
+          "group rounded-lg border p-4 transition-colors hover:bg-muted/40 cursor-pointer",
           config.bgColor,
           config.borderColor,
           todo.status === "completed" && "opacity-75"
@@ -3038,34 +3037,27 @@ export const TodoReadWidget: React.FC<{ todos?: any[]; result?: any }> = ({ todo
             </div>
             
             {/* Expanded details */}
-            <AnimatePresence>
-              {isExpanded && todo.dependencies?.length > 0 && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="overflow-hidden"
-                >
-                  <div className="pt-2 mt-2 border-t space-y-1">
-                    <span className="text-xs font-medium text-muted-foreground">Dependencies:</span>
-                    <div className="flex flex-wrap gap-1">
-                      {todo.dependencies.map((dep: string) => (
-                        <Badge
-                          key={dep}
-                          variant="outline"
-                          className="text-xs font-mono"
-                        >
-                          {dep}
-                        </Badge>
-                      ))}
-                    </div>
+            {isExpanded && todo.dependencies?.length > 0 && (
+              <div className="overflow-hidden">
+                <div className="pt-2 mt-2 border-t space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">Dependencies:</span>
+                  <div className="flex flex-wrap gap-1">
+                    {todo.dependencies.map((dep: string) => (
+                      <Badge
+                        key={dep}
+                        variant="outline"
+                        className="text-xs font-mono"
+                      >
+                        {dep}
+                      </Badge>
+                    ))}
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </motion.div>
+      </div>
     );
   };
 
@@ -3079,10 +3071,8 @@ export const TodoReadWidget: React.FC<{ todos?: any[]; result?: any }> = ({ todo
           <span className="text-2xl font-bold text-primary">{stats.completionRate}%</span>
         </div>
         <div className="w-full bg-muted rounded-full h-3 overflow-hidden">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${stats.completionRate}%` }}
-            transition={{ duration: 0.5, ease: "easeOut" }}
+          <div
+            style={{ width: `${stats.completionRate}%` }}
             className="h-full bg-gradient-to-r from-primary to-primary/80"
           />
         </div>
@@ -3124,10 +3114,8 @@ export const TodoReadWidget: React.FC<{ todos?: any[]; result?: any }> = ({ todo
               <div key={status} className="flex items-center gap-3">
                 <span className="text-xs w-20 text-right">{config.label}</span>
                 <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${percentage}%` }}
-                    transition={{ duration: 0.5, delay: 0.1 }}
+                  <div
+                    style={{ width: `${percentage}%` }}
                     className={cn("h-full", config.bgColor)}
                   />
                 </div>
@@ -3319,15 +3307,13 @@ export const TodoReadWidget: React.FC<{ todos?: any[]; result?: any }> = ({ todo
 
         <TabsContent value="list" className="mt-4">
           <div className="space-y-2">
-            <AnimatePresence mode="popLayout">
-              {filteredTodos.map(todo => (
-                <TodoCard 
-                  key={todo.id || filteredTodos.indexOf(todo)} 
-                  todo={todo} 
-                  isExpanded={expandedTodos.has(todo.id)}
-                />
-              ))}
-            </AnimatePresence>
+            {filteredTodos.map(todo => (
+              <TodoCard
+                key={todo.id || filteredTodos.indexOf(todo)}
+                todo={todo}
+                isExpanded={expandedTodos.has(todo.id)}
+              />
+            ))}
             {filteredTodos.length === 0 && (
               <div className="text-center py-8 text-sm text-muted-foreground">
                 {searchQuery || statusFilter !== "all" 
