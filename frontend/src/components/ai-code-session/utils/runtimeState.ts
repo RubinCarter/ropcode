@@ -150,6 +150,12 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     severity = 'warning';
     waitingReason = 'reconnect';
     detail = 'Waiting for WebSocket reconnection';
+  } else if (snapshot?.status === 'compacting') {
+    phase = 'compacting';
+    label = 'Compacting context';
+    severity = 'info';
+    waitingReason = 'model';
+    detail = 'Summarizing previous conversation';
   } else if (local.isRecoveringHistory || local.isRestoringSession) {
     phase = 'recovering';
     label = local.isRestoringSession ? 'Restoring session' : 'Recovering session';
@@ -229,6 +235,7 @@ function normalizeSnapshot(snapshot: ClaudeRuntimeStateSnapshot | null): ClaudeR
     processing: Boolean(snapshot.processing),
     retrying: Boolean(snapshot.retrying),
     rate_limited: Boolean(snapshot.rate_limited),
+    status: snapshot.status || '',
     active_tool: snapshot.active_tool || '',
     active_tool_progress: snapshot.active_tool_progress ?? null,
     last_api_retry: snapshot.last_api_retry ?? null,

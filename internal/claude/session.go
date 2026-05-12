@@ -65,6 +65,7 @@ type RuntimeState struct {
 	Processing            bool          `json:"processing"`
 	Retrying              bool          `json:"retrying"`
 	RateLimited           bool          `json:"rate_limited"`
+	Status                string        `json:"status,omitempty"`
 	ActiveTool            string        `json:"active_tool,omitempty"`
 	ActiveToolProgress    *ToolProgress `json:"active_tool_progress,omitempty"`
 	LastApiRetry          *ApiRetryInfo `json:"last_api_retry,omitempty"`
@@ -659,7 +660,10 @@ func (s *Session) updateRuntimeStateFromMessage(msg map[string]interface{}) {
 
 		case "status":
 			if status, _ := msg["status"].(string); status == "compacting" {
+				s.runtime.Status = "compacting"
 				s.runtime.Processing = true
+			} else {
+				s.runtime.Status = ""
 			}
 
 		case "task_started":
@@ -750,6 +754,7 @@ func (s *Session) updateRuntimeStateFromMessage(msg map[string]interface{}) {
 		s.runtime.Processing = false
 		s.runtime.Retrying = false
 		s.runtime.RateLimited = false
+		s.runtime.Status = ""
 		s.runtime.ActiveTool = ""
 		s.runtime.ActiveToolProgress = nil
 		s.runtime.LastThinkingPhase = ""

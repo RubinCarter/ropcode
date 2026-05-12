@@ -189,6 +189,10 @@ function getPrimaryState({
     return { primary: 'Running subagents…', secondary: runtimeCopy.secondary, glyph: 'subagents', tone: 'info' };
   }
 
+  if (runtime.phase === 'compacting') {
+    return { primary: 'Compacting context…', secondary: runtimeCopy.secondary, glyph: 'tool', tone: 'info' };
+  }
+
   if (currentTodoActiveForm && runtime.phase !== 'idle' && runtime.phase !== 'completed' && runtime.phase !== 'failed') {
     return { primary: ensureEllipsis(currentTodoActiveForm), secondary: runtimeCopy.secondary, glyph: 'tool', tone: 'info' };
   }

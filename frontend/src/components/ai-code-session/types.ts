@@ -109,6 +109,7 @@ export interface ClaudeRuntimeStateSnapshot {
   processing: boolean;
   retrying: boolean;
   rate_limited: boolean;
+  status?: string;
   active_tool?: string;
   active_tool_progress?: ClaudeToolProgress | null;
   last_api_retry?: ClaudeApiRetryInfo | null;

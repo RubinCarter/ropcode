@@ -64,6 +64,54 @@ test('derives tool-running phase from active tool progress', async () => {
   assert.equal(state.isStuckLikely, false);
 });
 
+test('prioritizes compacting over generic thinking while Claude is summarizing context', async () => {
+  const { deriveRuntimeViewState } = await loadModule();
+
+  const state = deriveRuntimeViewState({
+    now: 31_000,
+    tracker: {
+      snapshot: {
+        processing: true,
+        retrying: false,
+        rate_limited: false,
+        status: 'compacting',
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: 'thinking',
+        last_partial_text_length: 120,
+        last_event_type: 'system',
+        last_event_subtype: 'status',
+      },
+      systemInitReceived: true,
+      lastUpdatedAt: 30_000,
+      lastEventAt: 30_000,
+      lastEventType: 'system',
+      lastEventSubtype: 'status',
+      lastTextGrowthAt: 28_000,
+      lastPartialTextLength: 120,
+      lastToolChangeAt: null,
+      lastToolResultAt: null,
+      lastResultAt: null,
+      lastErrorAt: null,
+    },
+    local: {
+      isLoading: true,
+      interactiveSessionId: 'interactive-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+    },
+  });
+
+  assert.equal(state.phase, 'compacting');
+  assert.equal(state.label, 'Compacting context');
+  assert.equal(state.detail, 'Summarizing previous conversation');
+  assert.equal(state.waitingReason, 'model');
+});
+
 test('prioritizes rate-limited over other active phases', async () => {
   const { deriveRuntimeViewState } = await loadModule();
 

@@ -37,6 +37,14 @@ test('buildSessionStatusBarModel reports active and retained completed thinking 
   assert.match(source, /return `thought for \$\{formatDuration\(thinkingStatus\.durationMs\)\}`;/);
 });
 
+test('buildSessionStatusBarModel shows compaction before generic work labels', async () => {
+  const source = await readSource();
+
+  assert.match(source, /if \(runtime\.phase === 'compacting'\) \{/);
+  assert.match(source, /primary: 'Compacting context…'/);
+  assert.match(source, /runtime\.phase === 'compacting'[\s\S]*currentTodoActiveForm/);
+});
+
 test('buildSessionStatusBarModel summarizes subagent activity without raw event names', async () => {
   const source = await readSource();
 
