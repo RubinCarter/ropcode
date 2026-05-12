@@ -7,6 +7,7 @@
 
 import type { ClaudeStreamMessage } from "../types";
 import { isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
+import { summarizeRuntimeMessage } from './runtimePresentation';
 
 /**
  * Tools that have custom UI widgets and should hide their tool_result content
@@ -16,12 +17,17 @@ const TOOLS_WITH_WIDGETS = new Set([
   'edit',
   'multiedit',
   'todowrite',
+  'todoread',
   'ls',
   'read',
   'glob',
   'bash',
   'write',
   'grep',
+  'websearch',
+  'web_search',
+  'webfetch',
+  'agentoutputtool',
 ]);
 
 /**
@@ -46,9 +52,10 @@ function buildToolUseNamesById(messages: ClaudeStreamMessage[]): Map<string, str
   const toolUseNamesById = new Map<string, string>();
 
   messages.forEach((message) => {
-    if (message.type !== 'assistant' || !Array.isArray(message.message?.content)) return;
+    const contentBlocks = message.message?.content;
+    if (message.type !== 'assistant' || !Array.isArray(contentBlocks)) return;
 
-    message.message.content.forEach((content: any) => {
+    contentBlocks.forEach((content: any) => {
       if (content?.type === 'tool_use' && content.id) {
         toolUseNamesById.set(content.id, String(content.name ?? '').toLowerCase());
       }
@@ -68,59 +75,129 @@ function shouldHideToolResult(
   return Boolean(toolName && (TOOLS_WITH_WIDGETS.has(toolName) || toolName.startsWith('mcp__')));
 }
 
-/**
- * Check if a user message has any visible content
- * 增强版：更宽容地处理用户消息，避免误过滤
- */
-function hasVisibleContent(
+function extractText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+
+  const objectValue = value as { text?: unknown; content?: unknown; result?: unknown; output?: unknown };
+  for (const candidate of [objectValue.text, objectValue.content, objectValue.result, objectValue.output]) {
+    if (typeof candidate === 'string') return candidate;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => extractText(item)).filter(Boolean).join('\n');
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+function isNonEmptyText(value: unknown): boolean {
+  return extractText(value).trim().length > 0;
+}
+
+function hasRenderableAssistantContent(message: ClaudeStreamMessage): boolean {
+  const contentBlocks = message.message?.content;
+  if (!Array.isArray(contentBlocks)) {
+    return isNonEmptyText(contentBlocks);
+  }
+
+  return contentBlocks.some((content: any) => {
+    if (content.type === 'text') {
+      return isNonEmptyText(content.text);
+    }
+
+    if (content.type === 'thinking') {
+      return true;
+    }
+
+    if (content.type === 'tool_use' || content.type === 'server_tool_use') {
+      const toolName = String(content.name ?? '').toLowerCase();
+      if (toolName === 'agentoutputtool') return false;
+      return true;
+    }
+
+    return false;
+  });
+}
+
+function hasRenderableUserContent(
   message: ClaudeStreamMessage,
   toolUseNamesById: Map<string, string>
 ): boolean {
-  // 🔧 修复 1: 如果消息有 user_message 字段，说明是用户输入，应该显示
+  if (message.isMeta) return false;
+
   if (message.user_message) {
     return true;
   }
 
-  // 🔧 修复 2: 如果没有 message.content，但消息类型是 user，保守地保留它
-  if (!message.message?.content) {
-    return true;
+  const topLevelContent = (message as any).content;
+  if (topLevelContent !== undefined && topLevelContent !== null) {
+    if (!Array.isArray(topLevelContent)) {
+      return isNonEmptyText(topLevelContent);
+    }
+
+    return topLevelContent.some((content: any) => isRenderableUserContentBlock(content, toolUseNamesById));
   }
 
-  // 如果 content 不是数组，尝试直接显示
-  if (!Array.isArray(message.message.content)) {
-    return true;
-  }
-
-  if (message.message.content.length === 0) {
+  const nestedContent = message.message?.content;
+  if (!nestedContent) {
     return false;
   }
 
-  let hasVisible = false;
-
-  for (const content of message.message.content) {
-    // Text content is always visible
-    if (content.type === "text") {
-      // 🔧 修复 3: 即使 text 为空字符串，也应该显示（可能是有意的空消息）
-      hasVisible = true;
-      break;
-    }
-
-    // Tool results are visible if they don't have a custom widget
-    if (content.type === "tool_result") {
-      if (!shouldHideToolResult(content, toolUseNamesById)) {
-        hasVisible = true;
-        break;
-      }
-    }
-
-    // 🔧 修复 4: 如果有其他类型的内容（如 image），也应该显示
-    if (content.type && content.type !== "tool_result") {
-      hasVisible = true;
-      break;
-    }
+  if (!Array.isArray(nestedContent)) {
+    return isNonEmptyText(nestedContent);
   }
 
-  return hasVisible;
+  return nestedContent.some((content: any) => isRenderableUserContentBlock(content, toolUseNamesById));
+}
+
+function isRenderableUserContentBlock(content: any, toolUseNamesById: Map<string, string>): boolean {
+  if (!content) return false;
+
+  if (content.type === "text") {
+    return isNonEmptyText(content.text);
+  }
+
+  if (content.type === "tool_result") {
+    return !shouldHideToolResult(content, toolUseNamesById);
+  }
+
+  return false;
+}
+
+function wouldStreamMessageRender(
+  message: ClaudeStreamMessage,
+  toolUseNamesById: Map<string, string>
+): boolean {
+  if (message.isMeta && !message.leafUuid && !message.summary) {
+    return false;
+  }
+
+  if (message.leafUuid && message.summary && (message as any).type === "summary") {
+    return true;
+  }
+
+  if (message.type === "system" && message.subtype === "init") {
+    return true;
+  }
+
+  if (message.type === "assistant" && message.message) {
+    return hasRenderableAssistantContent(message);
+  }
+
+  if (message.type === "user") {
+    return hasRenderableUserContent(message, toolUseNamesById);
+  }
+
+  if (message.type === "error" || message.type === "result") {
+    return true;
+  }
+
+  return summarizeRuntimeMessage(message as any) !== null;
 }
 
 function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
@@ -177,15 +254,8 @@ function isDisplayableMessage(
     }
   }
 
-  // Skip user messages that only contain tool results already displayed
-  if (message.type === "user" && message.message) {
-    if (message.isMeta) {
-      return false;
-    }
-
-    if (!hasVisibleContent(message, toolUseNamesById)) {
-      return false;
-    }
+  if (!wouldStreamMessageRender(message, toolUseNamesById)) {
+    return false;
   }
 
   return true;

@@ -1510,7 +1510,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
     : item.message.uuid || `msg-${item.originalIndex}`, []);
 
   const itemContent = useCallback((_: number, item: { type: 'subagent-panel' } | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }) => (
-    <div className="w-full max-w-6xl mx-auto px-4 pb-4 pt-2">
+    <div className="w-full max-w-6xl mx-auto px-4 py-2">
       {item.type === 'subagent-panel' ? (
         <SubagentProgressPanel
           summary={messagesState.subagentProgress}
@@ -1584,6 +1584,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
       }
 
       const message = messagesState.messages[originalIndex];
+      if (!message) return;
+
       items.push({
         type: 'message',
         message,

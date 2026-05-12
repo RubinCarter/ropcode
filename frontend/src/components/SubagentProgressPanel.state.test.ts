@@ -188,7 +188,18 @@ test('stream message filtering avoids duplicate scans and backward tool result l
   assert.doesNotMatch(useMessagesSource, /filterDisplayableMessages/);
   assert.match(messageFilterSource, /function buildToolUseNamesById\(messages: ClaudeStreamMessage\[\]\): Map<string, string>/);
   assert.match(messageFilterSource, /const toolUseNamesById = buildToolUseNamesById\(messages\);/);
+  assert.match(messageFilterSource, /function wouldStreamMessageRender\([\s\S]*toolUseNamesById: Map<string, string>[\s\S]*\): boolean/);
+  assert.match(messageFilterSource, /if \(!wouldStreamMessageRender\(message, toolUseNamesById\)\) \{[\s\S]*return false;/);
+  assert.match(messageFilterSource, /if \(!nestedContent\) \{[\s\S]*return false;[\s\S]*\}/);
   assert.doesNotMatch(messageFilterSource, /for \(let i = messageIndex - 1; i >= 0; i--\)/);
+});
+
+test('virtualized message rows use consistent compact spacing', async () => {
+  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+
+  assert.match(aiCodeSessionSource, /<div className="w-full max-w-6xl mx-auto px-4 py-2">/);
+  assert.match(aiCodeSessionSource, /const message = messagesState\.messages\[originalIndex\];[\s\S]*if \(!message\) return;[\s\S]*items\.push\(\{/);
+  assert.doesNotMatch(aiCodeSessionSource, /px-4 pb-4 pt-2/);
 });
 
 test('render hotspots avoid repeated pure work', async () => {
