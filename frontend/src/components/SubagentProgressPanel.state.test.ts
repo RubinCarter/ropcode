@@ -19,12 +19,22 @@ const messageScrollSeekPlaceholderPath = path.resolve(currentDir, './MessageScro
 const sessionStatusBarPath = path.resolve(currentDir, './ai-code-session/SessionStatusBar.tsx');
 const floatingPromptInputPath = path.resolve(currentDir, './FloatingPromptInput.tsx');
 const projectListPath = path.resolve(currentDir, './ProjectList.tsx');
+const popoverPath = path.resolve(currentDir, './ui/popover.tsx');
 const pathUtilsPath = path.resolve(currentDir, '../lib/pathUtils.ts');
 const messagePresentationPath = path.resolve(currentDir, './ai-code-session/utils/messagePresentation.ts');
 
 async function readSource(filePath: string) {
   return readFile(filePath, 'utf8');
 }
+
+test('popover content renders outside clipped input containers', async () => {
+  const popoverSource = await readSource(popoverPath);
+
+  assert.match(popoverSource, /import \{ createPortal \} from "react-dom";/);
+  assert.match(popoverSource, /position: 'fixed',[\s\S]*zIndex: 1000/);
+  assert.match(popoverSource, /createPortal\([\s\S]*document\.body/);
+  assert.doesNotMatch(popoverSource, /"absolute z-50/);
+});
 
 test('continued conversation summaries default to collapsed cards', async () => {
   const messagePresentationSource = await readSource(messagePresentationPath);

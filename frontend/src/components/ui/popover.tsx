@@ -1,4 +1,5 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +59,7 @@ export const Popover: React.FC<PopoverProps> = ({
   
   const triggerRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
+  const [contentStyle, setContentStyle] = React.useState<React.CSSProperties>({});
   
   // Close on click outside
   React.useEffect(() => {
@@ -92,13 +94,41 @@ export const Popover: React.FC<PopoverProps> = ({
     return () => document.removeEventListener("keydown", handleEscape);
   }, [open, setOpen]);
   
-  const alignClass = {
-    start: "left-0",
-    center: "left-1/2 -translate-x-1/2",
-    end: "right-0",
-  }[align];
-  
-  const sideClass = side === "top" ? "bottom-full mb-2" : "top-full mt-2";
+  React.useLayoutEffect(() => {
+    if (!open || !triggerRef.current) return;
+
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const nextStyle: React.CSSProperties = {
+        position: 'fixed',
+        zIndex: 1000,
+        top: side === 'top' ? undefined : rect.bottom + 8,
+        bottom: side === 'top' ? window.innerHeight - rect.top + 8 : undefined,
+      };
+
+      if (align === 'start') {
+        nextStyle.left = rect.left;
+      } else if (align === 'end') {
+        nextStyle.right = window.innerWidth - rect.right;
+      } else {
+        nextStyle.left = rect.left + rect.width / 2;
+        nextStyle.transform = 'translateX(-50%)';
+      }
+
+      setContentStyle(nextStyle);
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [align, open, side]);
+
   const animationY = side === "top" ? { initial: 10, exit: 10 } : { initial: -10, exit: -10 };
   
   return (
@@ -110,25 +140,27 @@ export const Popover: React.FC<PopoverProps> = ({
         {trigger}
       </div>
       
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            ref={contentRef}
-            initial={{ opacity: 0, scale: 0.95, y: animationY.initial }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: animationY.exit }}
-            transition={{ duration: 0.15 }}
-            className={cn(
-              "absolute z-50 min-w-[200px] rounded-md border border-border bg-popover p-4 text-popover-foreground shadow-md",
-              sideClass,
-              alignClass,
-              className
-            )}
-          >
-            {content}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {open && (
+            <motion.div
+              ref={contentRef}
+              initial={{ opacity: 0, scale: 0.95, y: animationY.initial }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: animationY.exit }}
+              transition={{ duration: 0.15 }}
+              style={contentStyle}
+              className={cn(
+                "min-w-[200px] rounded-md border border-border bg-popover p-4 text-popover-foreground shadow-md",
+                className
+              )}
+            >
+              {content}
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </div>
   );
 }; 
