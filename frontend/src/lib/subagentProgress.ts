@@ -441,6 +441,12 @@ export function buildSubagentProgress(
       }
     }
 
+    // Sidechain messages always belong to the subagent panel regardless of whether
+    // the launcher has been seen yet (live stream ordering is not guaranteed).
+    if ((message as any).isSidechain === true) {
+      subagentMessageIndexes.add(index);
+    }
+
     const agentId = normalizeAgentId(String(message.agentId || message.agent_id || ""));
     if (agentId && agentIdToSubagentId.has(agentId)) {
       const subagent = subagentsById.get(agentIdToSubagentId.get(agentId)!)!;

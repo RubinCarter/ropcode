@@ -233,6 +233,13 @@ function isDisplayableMessage(
     return false;
   }
 
+  // Sidechain messages belong to the subagent panel, not the root stream.
+  // This is a fallback for live stream where buildSubagentProgress may not have
+  // seen the launcher yet and thus hasn't added the index to hiddenIndexes.
+  if ((message as any).isSidechain === true) {
+    return false;
+  }
+
   if (isHiddenByDefault(message)) {
     return false;
   }
