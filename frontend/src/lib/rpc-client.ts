@@ -50,7 +50,19 @@ export namespace ssh {
 
 export namespace main {
   export interface PtySessionInfo { sessionId: string; pid: number; }
-  export interface ProcessInfo { pid: string; sessionId: string; cmd: string; }
+  export interface ProcessInfo {
+    key?: string;
+    pid: string | number;
+    sessionId?: string;
+    cmd?: string;
+    running?: boolean;
+    run_id?: string;
+    process_type?: { ClaudeSession?: { session_id?: string } } | Record<string, unknown>;
+    project_path?: string;
+    started_at?: string;
+    model?: string;
+    task?: string;
+  }
   export interface Action {
     id: string;
     name: string;
@@ -68,7 +80,12 @@ export namespace main {
     workspace_actions: Action[];
   }
   export interface ClaudeVersionInfo { version: string; path: string; }
-  export interface ClaudeInstallation { path: string; version: string; }
+  export interface ClaudeInstallation {
+    path: string;
+    version: string;
+    installation_type?: string;
+    source?: string;
+  }
   export interface GitRepoStatus { branch: string; dirty: boolean; }
   export interface CloneRepositoryResult { success: boolean; path: string; }
   export interface WorktreeInfo {
@@ -145,17 +162,28 @@ export namespace database {
     sessions?: any[];
   }
   export interface ModelConfig {
-    id?: string;
-    provider_name: string;
+    id: string;
+    provider_name?: string;
+    provider_id: string;
     model_id: string;
-    enabled: boolean;
+    display_name: string;
+    description?: string;
+    enabled?: boolean;
+    is_enabled: boolean;
+    is_builtin: boolean;
     is_default: boolean;
     thinking_levels?: ThinkingLevel[];
+    created_at?: string;
+    updated_at?: string;
   }
   export interface ThinkingLevel {
-    level: string;
-    description: string;
-    max_tokens: number;
+    id: string;
+    name: string;
+    budget: string | number;
+    is_default: boolean;
+    level?: string;
+    description?: string;
+    max_tokens?: number;
   }
   export interface Agent {
     id: number;
@@ -168,6 +196,13 @@ export namespace database {
     hooks?: string;
     created_at: string;
     updated_at: string;
+  }
+  export interface AgentRunMetrics {
+    duration_ms?: number;
+    total_tokens?: number;
+    cost_usd?: number;
+    input_tokens?: number;
+    output_tokens?: number;
   }
   export interface AgentRun {
     id: number;
@@ -183,6 +218,10 @@ export namespace database {
     process_started_at?: string;
     created_at: string;
     completed_at?: string;
+    metrics?: AgentRunMetrics;
+    output?: string;
+    duration_ms?: number;
+    total_tokens?: number;
   }
   export interface TableData { columns: string[]; rows: any[][]; }
 }
@@ -194,11 +233,20 @@ export namespace claude {
     timestamp?: string;
   }
   export interface SessionStatus {
-    session_id: string;
+    session_id?: string;
     project_path: string;
-    running: boolean;
+    running?: boolean;
     id?: string;
     project_id?: string;
+    created_at?: number;
+    message_timestamp?: string;
+    first_message?: string;
+    todo_data?: unknown;
+    model?: string;
+    status?: string;
+    started_at?: string;
+    pid?: number;
+    runtime?: unknown;
   }
   export interface HooksConfig {
     preCommit?: HookMatcher[];
@@ -223,34 +271,56 @@ export namespace claude {
     has_file_references: boolean;
     accepts_arguments: boolean;
     scope: 'project' | 'user' | 'plugin' | 'default';
+    full_command?: string;
+    plugin_name?: string;
   }
   export interface ClaudeAgent {
-    category: string;
+    category?: string;
     name: string;
     description?: string;
     command?: string;
+    tools?: string;
+    color?: string;
+    model?: string;
+    system_prompt?: string;
+    scope?: string;
+    file_path?: string;
   }
   export interface ClaudeMdFile {
     path: string;
     type: string;
+    absolute_path?: string;
+    relative_path?: string;
+    size?: number;
+    modified?: string;
   }
 }
 
 export namespace mcp {
   export interface MCPServer {
     name: string;
-    config: MCPServerConfig;
-    enabled: boolean;
+    config?: MCPServerConfig;
+    enabled?: boolean;
+    transport?: string;
+    command?: string;
+    args?: string[];
+    env?: Record<string, string>;
+    url?: string;
+    scope?: string;
+    is_active?: boolean;
+    status?: MCPServerStatus | 'running' | 'connected' | string;
   }
   export interface MCPServerConfig {
-    command: string;
-    args: string[];
+    command?: string;
+    args?: string[];
     env?: Record<string, string>;
+    url?: string;
   }
   export interface MCPServerStatus {
     running: boolean;
-    healthy: boolean;
+    healthy?: boolean;
     error?: string;
+    last_checked?: number;
   }
 }
 

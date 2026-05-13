@@ -17,6 +17,7 @@ export type AgentRunWithMetrics = database.AgentRun;
 export type Session = claude.SessionStatus;
 export type ClaudeAgent = claude.ClaudeAgent;
 export type ClaudeMdFile = claude.ClaudeMdFile;
+export type SlashCommand = claude.SlashCommand;
 export type ClaudeInstallation = main.ClaudeInstallation;
 export type ProviderSession = main.ProviderSession;
 export type ProviderApiConfig = database.ProviderApiConfig;
