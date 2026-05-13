@@ -24,7 +24,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Build Go binaries
         run: |
@@ -40,6 +40,9 @@ jobs:
           npm ci
           npm run build
 
+      - name: Install root dependencies (electron-builder)
+        run: npm install
+
       - name: Build Electron
         working-directory: electron
         run: |
@@ -52,7 +55,7 @@ jobs:
           cp -r frontend/dist/* electron/dist/frontend/
 
       - name: Package DMG (arm64 + x64)
-        run: npx electron-builder --mac --config electron-builder.yml
+        run: npm run build:release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -83,7 +86,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install Linux build dependencies
         run: sudo apt-get update && sudo apt-get install -y rpm fakeroot
@@ -100,6 +103,9 @@ jobs:
           npm ci
           npm run build
 
+      - name: Install root dependencies (electron-builder)
+        run: npm install
+
       - name: Build Electron
         working-directory: electron
         run: |
@@ -112,7 +118,12 @@ jobs:
           cp -r frontend/dist/* electron/dist/frontend/
 
       - name: Package Linux
-        run: npx electron-builder --linux --config electron-builder.yml
+        run: |
+          sed -e "s|from: bin/darwin/\${arch}/ropcode-server|from: bin/linux/x64/ropcode-server|" \
+              -e "s|from: bin/darwin/\${arch}/ropcode$|from: bin/linux/x64/ropcode|" \
+              electron-builder.yml > electron-builder-tmp.yml
+          npx electron-builder --linux --config electron-builder-tmp.yml
+          rm -f electron-builder-tmp.yml
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
