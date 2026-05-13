@@ -80,27 +80,20 @@ export function describeRuntimeStatus(state: SessionRuntimeViewState, now: numbe
 }
 
 export function summarizeRuntimeMessage(message: RuntimePresentationMessage): string | null {
-  if ((message.type === 'system' && message.subtype === 'error') || message.type === 'error' || message.is_error || message.error) {
-    const detail = coerceErrorText(message.error);
-    return detail ? `Failed · ${detail}` : 'Failed';
-  }
-
-  if (message.type === 'system' && message.subtype === 'init') {
-    return 'Runtime: Claude session ready';
-  }
-
   if (message.type === 'system' && message.subtype === 'api_retry') {
-    const parts = ['Runtime: API retry'];
+    const parts = ['Runtime: retrying'];
     if (message.attempt && message.max_retries) {
       parts.push(`attempt ${message.attempt}/${message.max_retries}`);
     }
     if (message.retry_delay_ms) {
       parts.push(`next retry in ${formatDurationMs(message.retry_delay_ms)}`);
     }
-    if (message.error_status) {
-      parts.push(`status ${message.error_status}`);
-    }
     return parts.join(' · ');
+  }
+
+  if ((message.type === 'system' && message.subtype === 'error') || message.type === 'error' || message.is_error || message.error) {
+    const detail = coerceErrorText(message.error);
+    return detail ? `Failed · ${detail}` : 'Failed';
   }
 
   if (message.type === 'system' && message.subtype === 'status') {
