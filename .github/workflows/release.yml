@@ -1,0 +1,126 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Go binaries
+        run: |
+          mkdir -p bin/darwin/arm64 bin/darwin/x64
+          GOOS=darwin GOARCH=arm64 go build -tags server -o bin/darwin/arm64/ropcode-server .
+          GOOS=darwin GOARCH=amd64 go build -tags server -o bin/darwin/x64/ropcode-server .
+          GOOS=darwin GOARCH=arm64 go build -o bin/darwin/arm64/ropcode ./cmd/ropcode
+          GOOS=darwin GOARCH=amd64 go build -o bin/darwin/x64/ropcode ./cmd/ropcode
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Electron
+        working-directory: electron
+        run: |
+          npm install
+          npm run build
+
+      - name: Copy frontend to Electron
+        run: |
+          mkdir -p electron/dist/frontend
+          cp -r frontend/dist/* electron/dist/frontend/
+
+      - name: Package DMG (arm64 + x64)
+        run: npx electron-builder --mac --config electron-builder.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload DMG to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.dmg
+            release/*.dmg.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux:
+    name: Build Linux AppImage + deb
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Linux build dependencies
+        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot
+
+      - name: Build Go binaries
+        run: |
+          mkdir -p bin/linux/x64
+          GOOS=linux GOARCH=amd64 go build -tags server -o bin/linux/x64/ropcode-server .
+          GOOS=linux GOARCH=amd64 go build -o bin/linux/x64/ropcode ./cmd/ropcode
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Electron
+        working-directory: electron
+        run: |
+          npm install
+          npm run build
+
+      - name: Copy frontend to Electron
+        run: |
+          mkdir -p electron/dist/frontend
+          cp -r frontend/dist/* electron/dist/frontend/
+
+      - name: Package Linux
+        run: npx electron-builder --linux --config electron-builder.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Linux artifacts to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.AppImage
+            release/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
