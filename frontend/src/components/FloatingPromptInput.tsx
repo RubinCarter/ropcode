@@ -1455,8 +1455,14 @@ const FloatingPromptInputInner = (
       return;
     }
 
-    if (prompt.trim() && !disabled) {
-      let finalPrompt = prompt.trim();
+    const promptToSend = prompt;
+    if (promptToSend.trim() && !disabled) {
+      let finalPrompt = promptToSend.trim();
+      const imagesToRestore = embeddedImages;
+
+      setPrompt("");
+      setEmbeddedImages([]);
+      setTextareaHeight(getDefaultHeight());
 
       // Apply thinking mode based on provider
       const thinkingMode = currentThinkingModes.find(m => m.id === selectedThinkingMode);
@@ -1465,8 +1471,8 @@ const FloatingPromptInputInner = (
         selectedProvider === 'claude' &&
         thinkingMode &&
         thinkingMode.phrase &&
-        !isExactClearCommand(prompt) &&
-        !shouldForwardClearToProvider(prompt, selectedProvider);
+        !isExactClearCommand(promptToSend) &&
+        !shouldForwardClearToProvider(promptToSend, selectedProvider);
 
       if (shouldAppendThinkingPhrase) {
         finalPrompt = `${finalPrompt}.\n\n${thinkingMode.phrase}.`;
@@ -1475,14 +1481,17 @@ const FloatingPromptInputInner = (
       // For Codex: thinking mode is passed via reasoning_effort parameter
       // The reasoning_effort will be extracted from selectedThinkingMode in the backend
 
-      const consumed = await onSend(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode);
-      if (consumed === false) {
-        return;
+      try {
+        const consumed = await onSend(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode);
+        if (consumed === false) {
+          setPrompt((currentPrompt: string) => currentPrompt ? currentPrompt : promptToSend);
+          setEmbeddedImages((currentImages: string[]) => currentImages.length > 0 ? currentImages : imagesToRestore);
+        }
+      } catch (error) {
+        setPrompt((currentPrompt: string) => currentPrompt ? currentPrompt : promptToSend);
+        setEmbeddedImages((currentImages: string[]) => currentImages.length > 0 ? currentImages : imagesToRestore);
+        throw error;
       }
-
-      setPrompt("");
-      setEmbeddedImages([]);
-      setTextareaHeight(getDefaultHeight()); // Reset height after sending
     }
   };
 

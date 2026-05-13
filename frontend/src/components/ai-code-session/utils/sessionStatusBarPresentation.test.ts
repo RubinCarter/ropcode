@@ -48,7 +48,8 @@ test('buildSessionStatusBarModel shows compaction before generic work labels', a
 test('buildSessionStatusBarModel summarizes subagent activity without raw event names', async () => {
   const source = await readSource();
 
-  assert.match(source, /const hasRunningSubagents = subagentProgress\.runningCount > 0;/);
+  assert.match(source, /const runtimeCanHaveRunningWork = runtime\.phase !== 'idle' && runtime\.phase !== 'completed' && runtime\.phase !== 'failed' && runtime\.phase !== 'cancelled';/);
+  assert.match(source, /const hasRunningSubagents = runtimeCanHaveRunningWork && subagentProgress\.runningCount > 0;/);
   assert.match(source, /return \{ primary: 'Running subagents…'/);
   assert.match(source, /label: agentParts \|\| `\$\{subagentProgress\.subagents\.length\} agents`/);
   assert.match(source, /`\$\{formatCompactNumber\(subagentProgress\.totalTokenCount\)\} agent tokens`/);

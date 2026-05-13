@@ -76,6 +76,10 @@ function usageOutputTokens(usage?: MessageUsage): number {
   return usage ? numberValue(usage.output_tokens) : 0;
 }
 
+function estimateTokensForCharacters(characterCount: number): number {
+  return characterCount > 0 ? Math.max(1, Math.round(characterCount / 4)) : 0;
+}
+
 function textContentLength(message: ClaudeStreamMessage): number {
   const content = message.message?.content;
   if (!Array.isArray(content)) return 0;
@@ -102,10 +106,11 @@ function messageTokenContribution(message: ClaudeStreamMessage): TokenUsageTotal
   }
 
   if (message.type === 'assistant' && (message as any).is_delta !== true) {
+    const contentLength = textContentLength(message);
     return {
       inputTokens: 0,
       outputTokens: 0,
-      estimatedOutputTokens: Math.round(textContentLength(message) / 4),
+      estimatedOutputTokens: estimateTokensForCharacters(contentLength),
       totalTokens: 0,
     };
   }
@@ -133,6 +138,19 @@ function addTokenContribution(totals: TokenUsageTotals, contribution: TokenUsage
     outputTokens: totals.outputTokens + contribution.outputTokens,
     estimatedOutputTokens: totals.estimatedOutputTokens + contribution.estimatedOutputTokens,
     totalTokens: totals.totalTokens + contribution.totalTokens,
+  };
+}
+
+function replaceEstimatedWithUsage(totals: TokenUsageTotals, message: ClaudeStreamMessage): TokenUsageTotals {
+  const usage = message.message?.usage ?? message.usage;
+  if (!usage || message.type !== 'assistant') return totals;
+
+  const estimatedToReplace = estimateTokensForCharacters(textContentLength(message));
+  if (estimatedToReplace === 0) return totals;
+
+  return {
+    ...totals,
+    estimatedOutputTokens: Math.max(0, totals.estimatedOutputTokens - estimatedToReplace),
   };
 }
 
@@ -171,7 +189,10 @@ function parseToolResultContent(content: any): any {
 }
 
 function applyMessageToDerivedState(previous: MessageDerivedState, message: ClaudeStreamMessage): MessageDerivedState {
-  let tokenUsage = addTokenContribution(previous.tokenUsage, messageTokenContribution(message));
+  let tokenUsage = replaceEstimatedWithUsage(
+    addTokenContribution(previous.tokenUsage, messageTokenContribution(message)),
+    message,
+  );
   let agentOutputMap = previous.agentOutputMap;
   let agentOutputToolUseIds = previous.agentOutputToolUseIds;
   let toolResults = previous.streamMessageContext.toolResults;
@@ -335,6 +356,15 @@ export function useMessages(): UseMessagesReturn {
 
     // Apply buffered delta text
     if (bufferedText) {
+      derived = {
+        ...derived,
+        tokenUsage: addTokenContribution(derived.tokenUsage, {
+          inputTokens: 0,
+          outputTokens: 0,
+          estimatedOutputTokens: estimateTokensForCharacters(bufferedText.length),
+          totalTokens: 0,
+        }),
+      };
       const lastIndex = msgs.length - 1;
       if (lastIndex >= 0 && msgs[lastIndex].type === 'assistant' && !msgs[lastIndex].message?.usage) {
         const lastMessage = msgs[lastIndex];

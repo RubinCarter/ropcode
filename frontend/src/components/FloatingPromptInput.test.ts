@@ -49,3 +49,12 @@ test('opens slash file and skill pickers without low priority transition', async
   assert.match(source, /if \(typedCharacter === '@' && projectPath\?\.trim\(\)\) \{[\s\S]*setShowFilePicker\(true\);/);
   assert.match(source, /if \(typedCharacter === ':' && isAtWordStart\) \{[\s\S]*setShowSkillPicker\(true\);/);
 });
+
+test('clears prompt before awaiting send and restores it when not consumed', async () => {
+  const source = await readSource();
+
+  assert.match(source, /const promptToSend = prompt;/);
+  assert.match(source, /setPrompt\(""\);[\s\S]*const consumed = await onSend/);
+  assert.match(source, /if \(consumed === false\) \{[\s\S]*setPrompt\(\(currentPrompt: string\) => currentPrompt \? currentPrompt : promptToSend\);[\s\S]*setEmbeddedImages\(\(currentImages: string\[\]\) => currentImages\.length > 0 \? currentImages : imagesToRestore\);[\s\S]*\}/);
+  assert.match(source, /catch \(error\) \{[\s\S]*setPrompt\(\(currentPrompt: string\) => currentPrompt \? currentPrompt : promptToSend\);[\s\S]*setEmbeddedImages\(\(currentImages: string\[\]\) => currentImages\.length > 0 \? currentImages : imagesToRestore\);[\s\S]*throw error;/);
+});

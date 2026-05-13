@@ -18,7 +18,8 @@ test('calculates input output and estimated output token totals separately', asy
   assert.match(source, /function usageInputTokens\(usage\?: MessageUsage\): number \{/);
   assert.match(source, /numberValue\(usage\.input_tokens\) \+ numberValue\(usage\.cache_creation_input_tokens\) \+ numberValue\(usage\.cache_read_input_tokens\)/);
   assert.match(source, /function usageOutputTokens\(usage\?: MessageUsage\): number \{/);
-  assert.match(source, /estimatedOutputTokens: Math\.round\(textContentLength\(message\) \/ 4\)/);
+  assert.match(source, /function estimateTokensForCharacters\(characterCount: number\): number \{/);
+  assert.match(source, /estimatedOutputTokens: estimateTokensForCharacters\(contentLength\)/);
   assert.doesNotMatch(source, /const tokenUsage = useMemo\(\(\) => calculateTokenUsage\(messages\), \[messages\]\);/);
 });
 
@@ -33,4 +34,13 @@ test('maintains hot message derived state incrementally', async () => {
   assert.match(source, /messageQueueRef\.current\.push\(message\);[\s\S]*scheduleFlush\(\);/);
   assert.match(source, /const flushPendingMessages = useCallback\(\(\) => \{/);
   assert.doesNotMatch(source, /const agentOutputMap = useMemo\(\(\) => \{[\s\S]*messages\.forEach[\s\S]*\}, \[messages\]\);/);
+});
+
+test('adds streaming delta output estimates and replaces them with real usage', async () => {
+  const source = await readSource();
+
+  assert.match(source, /if \(bufferedText\) \{[\s\S]*estimatedOutputTokens: estimateTokensForCharacters\(bufferedText\.length\)/);
+  assert.match(source, /function replaceEstimatedWithUsage\(totals: TokenUsageTotals, message: ClaudeStreamMessage\): TokenUsageTotals \{/);
+  assert.match(source, /const estimatedToReplace = estimateTokensForCharacters\(textContentLength\(message\)\);/);
+  assert.match(source, /estimatedOutputTokens: Math\.max\(0, totals\.estimatedOutputTokens - estimatedToReplace\)/);
 });

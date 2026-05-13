@@ -70,8 +70,9 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
     thinkingStatus,
   } = input;
 
-  const hasRunningSubagents = subagentProgress.runningCount > 0;
   const active = isLoading || Boolean(interactiveSessionId) || stopVisible || runtime.phase !== 'idle';
+  const runtimeCanHaveRunningWork = runtime.phase !== 'idle' && runtime.phase !== 'completed' && runtime.phase !== 'failed' && runtime.phase !== 'cancelled';
+  const hasRunningSubagents = runtimeCanHaveRunningWork && subagentProgress.runningCount > 0;
   const base = getPrimaryState({ runtime, runtimeCopy, stopVisible, hasRunningSubagents, currentTodoActiveForm });
   const metrics: SessionStatusBarItem[] = [];
   const hints: SessionStatusBarItem[] = [];
