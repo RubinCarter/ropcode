@@ -6,7 +6,6 @@
  */
 
 import type { ClaudeStreamMessage } from "../types";
-import { isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 import { summarizeRuntimeMessage } from './runtimePresentation';
 
 /**
@@ -231,10 +230,6 @@ function isDisplayableMessage(
   toolUseNamesById: Map<string, string>
 ): boolean {
   if (hiddenIndexes?.has(index)) {
-    return false;
-  }
-
-  if (isSubagentEnvelopeMessage(message)) {
     return false;
   }
 
