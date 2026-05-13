@@ -271,7 +271,24 @@ export function getDisplayableMessages(
   const displayableMessages: ClaudeStreamMessage[] = [];
   const toolUseNamesById = buildToolUseNamesById(messages);
 
+  // First pass: find the last index of each api_retry sequence so earlier ones can be collapsed.
+  // A sequence ends when a non-api_retry displayable message appears after it.
+  const supersededApiRetryIndexes = new Set<number>();
+  let lastApiRetryIndex: number | null = null;
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i] as any;
+    if (!isDisplayableMessage(messages[i], i, hiddenIndexes, toolUseNamesById)) continue;
+    if (msg.type === 'system' && msg.subtype === 'api_retry') {
+      if (lastApiRetryIndex !== null) supersededApiRetryIndexes.add(lastApiRetryIndex);
+      lastApiRetryIndex = i;
+    } else {
+      // Any other displayable message ends the current retry sequence
+      lastApiRetryIndex = null;
+    }
+  }
+
   messages.forEach((message, index) => {
+    if (supersededApiRetryIndexes.has(index)) return;
     if (isDisplayableMessage(message, index, hiddenIndexes, toolUseNamesById)) {
       indexes.push(index);
       displayableMessages.push(message);
