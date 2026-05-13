@@ -443,7 +443,17 @@ export function buildSubagentProgress(
 
     // Sidechain messages always belong to the subagent panel regardless of whether
     // the launcher has been seen yet (live stream ordering is not guaranteed).
-    if ((message as any).isSidechain === true) {
+    // parent_tool_use_id is a reliable subagent indicator: live stream messages
+    // emitted from within a Task invocation carry it even when isSidechain is
+    // absent (e.g., Anthropic SDK stream-json emits the subagent user prompt
+    // with parent_tool_use_id pointing to the Task tool_use id).
+    const runtimeMessage = message as any;
+    if (
+      runtimeMessage.isSidechain === true ||
+      runtimeMessage.parent_tool_use_id != null ||
+      runtimeMessage.parentToolUseID != null ||
+      runtimeMessage.parentToolUseId != null
+    ) {
       subagentMessageIndexes.add(index);
     }
 

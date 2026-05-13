@@ -27,3 +27,9 @@ test('subagent progress still groups transcripts through the canonical merge pat
   assert.match(source, /subagent\.messages = transcript;/);
   assert.match(source, /return \{\n    subagents,/);
 });
+
+test('subagent progress hides live-stream messages carrying parent_tool_use_id alongside sidechain', async () => {
+  const source = await readSource();
+
+  assert.match(source, /runtimeMessage\.isSidechain === true \|\|\s*runtimeMessage\.parent_tool_use_id != null \|\|\s*runtimeMessage\.parentToolUseID != null \|\|\s*runtimeMessage\.parentToolUseId != null/);
+});

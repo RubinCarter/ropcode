@@ -236,7 +236,16 @@ function isDisplayableMessage(
   // Sidechain messages belong to the subagent panel, not the root stream.
   // This is a fallback for live stream where buildSubagentProgress may not have
   // seen the launcher yet and thus hasn't added the index to hiddenIndexes.
-  if ((message as any).isSidechain === true) {
+  // parent_tool_use_id (and its parentToolUseID/parentToolUseId aliases) is the
+  // reliable subagent marker on live-stream messages emitted from within a Task
+  // invocation — treat it the same as isSidechain.
+  const runtimeMessage = message as any;
+  if (
+    runtimeMessage.isSidechain === true ||
+    runtimeMessage.parent_tool_use_id != null ||
+    runtimeMessage.parentToolUseID != null ||
+    runtimeMessage.parentToolUseId != null
+  ) {
     return false;
   }
 
