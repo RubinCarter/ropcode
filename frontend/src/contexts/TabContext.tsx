@@ -13,6 +13,7 @@ export interface Tab {
   claudeFileId?: string; // for claude-file tabs
   diffFilePath?: string; // for diff tabs
   filePath?: string; // for file tabs (read-only file viewer)
+  gitStatus?: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed'; // for diff tabs
   webviewUrl?: string; // for webview tabs - the URL to display
   initialProjectPath?: string; // for chat tabs
   projectPath?: string; // for agent-execution tabs, diff tabs, file tabs, and webview tabs

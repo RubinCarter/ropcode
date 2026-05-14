@@ -434,7 +434,7 @@ const filenameLanguageMap: Record<string, string> = {
  * Get Monaco language ID for a file
  */
 export function getLanguageByFilename(filePath: string): string {
-  const filename = filePath.split('/').pop() || filePath;
+  const filename = basename(filePath, filePath);
   const lowerFilename = filename.toLowerCase();
 
   // Check filename-specific mapping first
@@ -451,3 +451,4 @@ export function getLanguageByFilename(filePath: string): string {
   // Default to plaintext
   return 'plaintext';
 }
+import { basename } from '@/lib/pathUtils';

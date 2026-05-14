@@ -237,6 +237,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
             <DiffViewer
               filePath={diffPath}
               workspacePath={tab.projectPath}
+              gitStatus={tab.gitStatus}
             />
           </div>
         );

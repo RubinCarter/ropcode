@@ -4,6 +4,18 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import fs from 'fs'
 
+const platformModule = process.platform === 'win32'
+  ? path.resolve(__dirname, './src/lib/platformWin.ts')
+  : path.resolve(__dirname, './src/lib/platform.ts')
+
+const diffPathModule = process.platform === 'win32'
+  ? path.resolve(__dirname, './src/lib/diffPathWin.ts')
+  : path.resolve(__dirname, './src/lib/diffPath.ts')
+
+const pathUtilsModule = process.platform === 'win32'
+  ? path.resolve(__dirname, './src/lib/pathUtilsWin.ts')
+  : path.resolve(__dirname, './src/lib/pathUtils.ts')
+
 // https://vitejs.dev/config/
 export default defineConfig({
   base: './', // 使用相对路径，以便在 Electron file:// 协议下正确加载资源
@@ -90,6 +102,9 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
+      '@/lib/platform': platformModule,
+      '@/lib/diffPath': diffPathModule,
+      '@/lib/pathUtils': pathUtilsModule,
       '@': path.resolve(__dirname, './src'),
     },
   },

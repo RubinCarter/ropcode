@@ -58,3 +58,11 @@ test('clears prompt before awaiting send and restores it when not consumed', asy
   assert.match(source, /if \(consumed === false\) \{[\s\S]*setPrompt\(\(currentPrompt: string\) => currentPrompt \? currentPrompt : promptToSend\);[\s\S]*setEmbeddedImages\(\(currentImages: string\[\]\) => currentImages\.length > 0 \? currentImages : imagesToRestore\);[\s\S]*\}/);
   assert.match(source, /catch \(error\) \{[\s\S]*setPrompt\(\(currentPrompt: string\) => currentPrompt \? currentPrompt : promptToSend\);[\s\S]*setEmbeddedImages\(\(currentImages: string\[\]\) => currentImages\.length > 0 \? currentImages : imagesToRestore\);[\s\S]*throw error;/);
 });
+
+test('shows the stop button only during active work or stop feedback', async () => {
+  const source = await readSource();
+
+  assert.match(source, /const showStopControl = isLoading \|\| Boolean\(stopStatusLabel\);/);
+  assert.match(source, /\{showStopControl && \(/);
+  assert.doesNotMatch(source, /\{\(isLoading \|\| interactiveSessionId \|\| stopStatusLabel\) && \(/);
+});

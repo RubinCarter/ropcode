@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { api, type ClaudeInstallation } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { basename } from "@/lib/pathUtils";
 import { CheckCircle, HardDrive, Settings, Terminal, Info } from "lucide-react";
 
 interface ClaudeVersionSelectorProps {
@@ -216,7 +217,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
               {selectedInstallation && (
                 <div className="flex items-center gap-2">
                   <Terminal className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="font-mono text-sm">{selectedInstallation.path.split('/').pop() || selectedInstallation.path}</span>
+                  <span className="font-mono text-sm">{basename(selectedInstallation.path, selectedInstallation.path)}</span>
                   {selectedInstallation.version && (
                     <span className="text-xs text-muted-foreground">({selectedInstallation.version})</span>
                   )}

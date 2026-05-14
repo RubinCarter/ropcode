@@ -10,6 +10,7 @@ import { useTabContext } from "@/contexts/TabContext";
 import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
 import { useContainerContext } from "@/contexts/ContainerContext";
 import { useProcessChanged } from "@/hooks";
+import { basename, homeRelativePath } from "@/lib/pathUtils";
 
 interface ProjectListProps {
   /**
@@ -46,44 +47,17 @@ interface ProjectListProps {
   className?: string;
 }
 
-/**
- * Extracts the project name from the full path
- * Works with both Unix (/) and Windows (\) path separators
- */
 const getProjectName = (path: string | undefined): string => {
-  if (!path) return 'Unknown Project';
-  // Handle both Unix and Windows path separators
-  const normalizedPath = path.replace(/\\/g, '/');
-  const parts = normalizedPath.split('/').filter(Boolean);
-  return parts[parts.length - 1] || path;
+  return basename(path, 'Unknown Project');
 };
 
 /**
  * Formats path to be more readable - shows full path relative to home
  * Truncates long paths with ellipsis in the middle
- * Works with both Unix (/) and Windows (\) path separators
  */
 const getDisplayPath = (path: string | undefined, maxLength: number = 30): string => {
   if (!path) return 'Unknown Path';
-  // Normalize path separators for consistent handling
-  const normalizedPath = path.replace(/\\/g, '/');
-
-  // Try to make path home-relative
-  let displayPath = normalizedPath;
-  const homeIndicators = ['/Users/', '/home/', 'C:/Users/', 'C:/Documents and Settings/'];
-  for (const indicator of homeIndicators) {
-    if (normalizedPath.includes(indicator)) {
-      const parts = normalizedPath.split('/');
-      const userIndex = parts.findIndex((_part, i) =>
-        i > 0 && parts[i - 1] === indicator.split('/').filter(Boolean)[indicator.split('/').filter(Boolean).length - 1]
-      );
-      if (userIndex > 0) {
-        const relativePath = parts.slice(userIndex + 1).join('/');
-        displayPath = `~/${relativePath}`;
-        break;
-      }
-    }
-  }
+  let displayPath = homeRelativePath(path);
 
   // Truncate if too long
   if (displayPath.length > maxLength) {

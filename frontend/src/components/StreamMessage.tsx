@@ -19,6 +19,7 @@ import { getClaudeSyntaxTheme } from "@/lib/claudeSyntaxTheme";
 import { useTheme } from "@/hooks";
 import type { ClaudeStreamMessage } from "./AgentExecution";
 import { api, type FileEntry } from "@/lib/api";
+import { basename, isAbsolutePath } from "@/lib/pathUtils";
 import {
   TodoWidget,
   TodoReadWidget,
@@ -231,10 +232,10 @@ const parseAgentMentions = (text: string, agents: Map<string, { color?: string; 
       parts.push(text.substring(lastIndex, matchIndex));
     }
 
-    // Check if this is a file path (starts with /)
-    if (captured.startsWith('/')) {
+    // Check if this is a file path.
+    if (isAbsolutePath(captured)) {
       const filePath = captured;
-      const fileName = filePath.split('/').pop() || filePath;
+      const fileName = basename(filePath, filePath);
 
       // Determine file type by extension
       const ext = fileName.split('.').pop()?.toLowerCase();

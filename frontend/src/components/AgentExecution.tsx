@@ -27,6 +27,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { api, listen, type Agent } from "@/lib/api";
 import { subscribeElapsedTick } from "@/lib/elapsedTimeTicker";
 import { cn } from "@/lib/utils";
+import { basename } from "@/lib/pathUtils";
 import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
 import { MessageScrollSeekPlaceholder } from "./MessageScrollSeekPlaceholder";
@@ -880,7 +881,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
               </div>
               {projectPath && (
                 <p className="text-caption text-muted-foreground">
-                  Working in: <span className="font-mono">{projectPath.split('/').pop() || projectPath}</span>
+                  Working in: <span className="font-mono">{basename(projectPath, projectPath)}</span>
                 </p>
               )}
             </div>

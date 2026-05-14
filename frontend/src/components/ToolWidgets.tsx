@@ -63,7 +63,7 @@ import remarkGfm from "remark-gfm";
 import { open } from "@/lib/shell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { shortenPath } from "@/lib/pathUtils";
+import { pathSegments, shortenPath } from "@/lib/pathUtils";
 import type { ClaudeStreamMessage } from "./AgentExecution";
 
 export interface ControlledExpansionProps {
@@ -337,8 +337,8 @@ export const LSResultWidget: React.FC<{ content: string }> = ({ content }) => {
   const getChildren = (parentPath: string, parentLevel: number) => {
     return entries.filter(e => {
       if (e.level !== parentLevel + 1) return false;
-      const parentParts = parentPath.split('/').filter(Boolean);
-      const entryParts = e.path.split('/').filter(Boolean);
+      const parentParts = pathSegments(parentPath);
+      const entryParts = pathSegments(e.path);
       
       // Check if this entry is a direct child of the parent
       if (entryParts.length !== parentParts.length + 1) return false;

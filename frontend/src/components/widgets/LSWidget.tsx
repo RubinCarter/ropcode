@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { FolderOpen, Folder, FileCode, FileText, Terminal, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { pathSegments } from "@/lib/pathUtils";
 
 interface LSWidgetProps {
   path: string;
@@ -129,8 +130,8 @@ export const LSResultWidget: React.FC<LSResultWidgetProps> = ({ content }) => {
   const getChildren = (parentPath: string, parentLevel: number) => {
     return entries.filter(e => {
       if (e.level !== parentLevel + 1) return false;
-      const parentParts = parentPath.split('/').filter(Boolean);
-      const entryParts = e.path.split('/').filter(Boolean);
+      const parentParts = pathSegments(parentPath);
+      const entryParts = pathSegments(e.path);
       
       // Check if this entry is a direct child of the parent
       if (entryParts.length !== parentParts.length + 1) return false;

@@ -20,6 +20,8 @@ import {
   saveTerminalState,
   loadTerminalState,
 } from '@/lib/terminalUtils';
+import { usesMetaKeyForAppShortcuts } from '@/lib/platform';
+import { basename, normalizePath } from '@/lib/pathUtils';
 
 interface RightSidebarProps {
   isOpen?: boolean;
@@ -88,8 +90,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const { tabs, addTab, updateTab, setActiveTab } = useWorkspaceTabContext();
 
   // 创建 Diff Tab（与 File Tab 共用同一个 slot）
-  const createDiffTab = useCallback((filePath: string, projectPath: string): string | null => {
-    const fileName = filePath.split('/').pop() || filePath;
+  const createDiffTab = useCallback((filePath: string, projectPath: string, gitStatus?: GitFileChange['status']): string | null => {
+    const fileName = basename(filePath, filePath);
 
     // 查找现有的 file 或 diff tab
     const existingTab = tabs.find(tab =>
@@ -104,6 +106,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         title: `Diff: ${fileName}`,
         icon: 'file-diff',
         filePath: filePath,
+        gitStatus,
         projectPath: projectPath,
         status: 'idle',
         hasUnsavedChanges: false
@@ -117,6 +120,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       type: 'diff',
       title: `Diff: ${fileName}`,
       filePath: filePath,
+      gitStatus,
       projectPath: projectPath,
       status: 'idle',
       hasUnsavedChanges: false,
@@ -126,7 +130,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   // 创建 File Tab（与 Diff Tab 共用同一个 slot）
   const createFileTab = useCallback((filePath: string, projectPath: string): string | null => {
-    const fileName = filePath.split('/').pop() || filePath;
+    const fileName = basename(filePath, filePath);
 
     // 查找现有的 file 或 diff tab
     const existingTab = tabs.find(tab =>
@@ -296,7 +300,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const parseProjectPath = useCallback((path: string | undefined) => {
     if (!path) return null;
 
-    const parts = path.split('/');
+    const parts = normalizePath(path).split('/');
     const ropcodeIndex = parts.findIndex(p => p === '.ropcode');
 
     if (ropcodeIndex > 0) {
@@ -373,7 +377,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     if (!currentProjectPath) return;
 
     console.log('[RightSidebar] Git file clicked, creating diff tab:', file.path);
-    createDiffTab(file.path, currentProjectPath);
+    createDiffTab(file.path, currentProjectPath, file.status);
   }, [currentProjectPath, createDiffTab]);
 
   // 处理文件树点击 - 创建 File Tab
@@ -707,8 +711,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   // 监听全局快捷键 - 使用 capture 阶段确保优先处理
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const modKey = isMac ? e.metaKey : e.ctrlKey;
+      const modKey = usesMetaKeyForAppShortcuts() ? e.metaKey : e.ctrlKey;
 
       // Cmd/Ctrl+J: 切换终端显示
       if (modKey && e.key === 'j') {

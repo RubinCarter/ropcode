@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { ContainerTabManager } from '@/components/containers';
 import { useContainerContext } from '@/contexts/ContainerContext';
 import { InstanceSwitcher } from '@/components/InstanceSwitcher';
+import { hasNativeWindowControls } from '@/lib/platform';
+import { basename } from '@/lib/pathUtils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,9 +43,6 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   // 从 ContainerContext 获取当前 workspace 路径
   const { activeType, activeWorkspaceId } = useContainerContext();
   const currentProjectPath = activeType === 'workspace' ? activeWorkspaceId : undefined;
-
-  // 检测是否在 Electron 环境中运行（Electron 有原生的 macOS 窗口按钮）
-  const isElectron = !!window.electronAPI;
 
   const isMobile = useIsMobile();
 
@@ -162,7 +161,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         const branchName = await api.getCurrentBranch(currentProjectPath);
 
         // Get workspace name from project path
-        const workspaceName = currentProjectPath.split('/').pop() || currentProjectPath.split('\\').pop() || 'Unknown';
+        const workspaceName = basename(currentProjectPath, 'Unknown');
 
         setWorkspaceInfo({
           workspaceName,
@@ -171,7 +170,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       } catch (error) {
         // Silently ignore git errors for non-git directories
         // Still set workspace name even if branch fetch fails
-        const workspaceName = currentProjectPath.split('/').pop() || currentProjectPath.split('\\').pop() || 'Unknown';
+        const workspaceName = basename(currentProjectPath, 'Unknown');
         setWorkspaceInfo({
           workspaceName,
           branchName: 'main' // fallback
@@ -491,8 +490,8 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         className="flex items-center border-r border-border/50 window-drag min-w-[48px]"
         style={{ flexShrink: 0 }}
       >
-        {/* macOS Traffic Light buttons (hidden in fullscreen and in Electron which has native buttons) */}
-        {!isFullscreen && !isElectron && (
+        {/* Traffic light buttons: Electron only provides native controls on selected platforms. */}
+        {!isFullscreen && !hasNativeWindowControls() && (
           <div className="flex items-center space-x-2 pl-5">
             {/* Close button */}
             <button

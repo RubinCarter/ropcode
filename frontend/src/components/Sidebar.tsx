@@ -18,6 +18,7 @@ import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 import { SyncFromSSHDialog } from '@/components/SyncFromSSHDialog';
 import { CloneFromURLDialog } from '@/components/CloneFromURLDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
+import { basename } from '@/lib/pathUtils';
 
 interface SidebarProps {
   /**
@@ -451,9 +452,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   size="sm"
                   variant="ghost"
                   className="h-9 w-9 p-0 font-mono text-xs"
-                  title={project.path.split('/').pop() || project.path}
+                  title={basename(project.path, project.path)}
                 >
-                  {(project.path.split('/').pop() || 'P')[0].toUpperCase()}
+                  {basename(project.path, 'P')[0].toUpperCase()}
                 </Button>
               ))}
 

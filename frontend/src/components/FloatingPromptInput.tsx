@@ -43,6 +43,7 @@ import {
 import {
   getStopStatusControlLayoutClassName,
 } from './ai-code-session/utils/stopStatusBubble';
+import { resolveWorkspacePath } from "@/lib/pathUtils";
 
 type FileEntry = main.FileEntry & {
   entry_type?: "file" | "directory" | "agent";
@@ -568,6 +569,7 @@ const FloatingPromptInputInner = (
   const [embeddedImages, setEmbeddedImages] = useState<string[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const showStopControl = isLoading || Boolean(stopStatusLabel);
 
   // Model configs from API
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([]);
@@ -948,9 +950,7 @@ const FloatingPromptInputInner = (
       // console.log('[extractImagePaths] Processing quoted path:', path);
 
       // Convert relative path to absolute if needed
-      const fullPath = path.startsWith('/')
-        ? path
-        : (projectPath ? `${projectPath}/${path}` : path);
+      const fullPath = resolveWorkspacePath(path, projectPath);
 
       if (isImageFile(fullPath)) {
         pathsSet.add(fullPath);
@@ -969,9 +969,7 @@ const FloatingPromptInputInner = (
       // console.log('[extractImagePaths] Processing unquoted path:', path);
 
       // Convert relative path to absolute if needed
-      const fullPath = path.startsWith('/')
-        ? path
-        : (projectPath ? `${projectPath}/${path}` : path);
+      const fullPath = resolveWorkspacePath(path, projectPath);
 
       if (isImageFile(fullPath)) {
         pathsSet.add(fullPath);
@@ -2190,7 +2188,7 @@ const FloatingPromptInputInner = (
                     </Button>
                   </TooltipSimple>
 
-                  {(isLoading || interactiveSessionId || stopStatusLabel) && (
+                  {showStopControl && (
                     <div className={getStopStatusControlLayoutClassName()}>
                       {stopStatusLabel && (
                         <div className="rounded-full border border-border/60 bg-background/95 px-2.5 py-1 text-[11px] font-medium text-muted-foreground shadow-sm">

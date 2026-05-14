@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { convertFileSrc } from '@/lib/file-utils';
+import { parentPath, resolveWorkspacePath } from '@/lib/pathUtils';
 import { useWebStore } from '@/widgets/web/WebModel';
 
 interface WebViewerProps {
@@ -37,19 +38,7 @@ function resolveFilePath(url: string, workspacePath?: string): string {
     return url;
   }
 
-  // 如果已经是绝对路径（以 / 或 盘符开头），直接返回
-  if (url.startsWith('/') || /^[a-zA-Z]:/.test(url)) {
-    return url;
-  }
-
-  // 如果是相对路径且有 workspacePath，拼接路径
-  if (workspacePath) {
-    // 确保路径分隔符正确（处理 Windows 和 Unix）
-    const separator = workspacePath.includes('\\') ? '\\' : '/';
-    return `${workspacePath}${separator}${url}`;
-  }
-
-  return url;
+  return resolveWorkspacePath(url, workspacePath);
 }
 
 /**
@@ -83,8 +72,7 @@ async function processUrl(
           console.log('[WebViewer] Successfully read HTML file, length:', content.length);
 
           // 获取文件所在目录，用于设置 base href
-          const fileDir = absolutePath.substring(0, absolutePath.lastIndexOf('/'));
-          const baseHref = convertFileSrc(fileDir + '/');
+          const baseHref = convertFileSrc(parentPath(absolutePath) + '/');
 
           // 注入元素选择器脚本和 base 标签
           const scriptTag = `<script>${getElementSelectorScript()}</script>`;

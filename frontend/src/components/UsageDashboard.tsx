@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { api, type UsageStats, type ProjectUsage } from "@/lib/api";
+import { tailPath } from "@/lib/pathUtils";
 import { 
   Calendar, 
   Filter,
@@ -578,7 +579,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({ }) => {
                                     <div className="flex items-center space-x-2">
                                       <Briefcase className="h-4 w-4 text-muted-foreground" />
                                       <span className="text-xs font-mono text-muted-foreground truncate max-w-[200px]" title={session.project_path ?? ''}>
-                                        {session.project_path ? session.project_path.split('/').slice(-2).join('/') : 'Unknown'}
+                                        {tailPath(session.project_path, 2)}
                                       </span>
                                     </div>
                                     <span className="text-sm font-medium mt-1">

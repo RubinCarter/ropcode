@@ -6,6 +6,8 @@ import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { getLanguageByFilename } from '@/lib/file-icons';
+import { getDiffFilePaths } from '@/lib/diffPath';
+import { basename } from '@/lib/pathUtils';
 
 // 使用本地 monaco-editor 而非 CDN
 loader.config({ monaco });
@@ -20,6 +22,7 @@ export interface DiffLine {
 interface DiffViewerProps {
   filePath: string;
   workspacePath: string;
+  gitStatus?: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed';
   className?: string;
 }
 
@@ -32,6 +35,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export const DiffViewer: React.FC<DiffViewerProps> = ({
   filePath,
   workspacePath,
+  gitStatus,
   className,
 }) => {
   const [loading, setLoading] = useState(true);
@@ -115,52 +119,37 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       setIsLargeFile(false);
 
       try {
-        // 1. 检查文件大小
-        const sizeResult = await api.executeCommand(
-          `wc -c < "${filePath}" 2>/dev/null || stat -f%z "${filePath}" 2>/dev/null || stat -c%s "${filePath}" 2>/dev/null || echo 0`,
-          workspacePath
-        );
+        const { absolutePath, gitPath } = getDiffFilePaths(filePath, workspacePath);
+        if (gitStatus === 'deleted') {
+          const oldFileContent = await api.readGitFileAtHead(workspacePath, gitPath);
+          setFileSize(oldFileContent.length);
+          setOldContent(oldFileContent || '');
+          setNewContent('');
+          setLoading(false);
+          return;
+        }
 
-        const size = parseInt(sizeResult.output?.trim() || '0', 10);
-        setFileSize(size);
+        const metadata = await api.getFileMetadata(absolutePath);
 
-        if (size > MAX_FILE_SIZE) {
+        setFileSize(metadata.size);
+
+        if (metadata.size > MAX_FILE_SIZE) {
           setIsLargeFile(true);
           setLoading(false);
           return;
         }
 
-        // 2. 检查是否为二进制文件
-        const binaryCheck = await api.executeCommand(
-          `file --mime "${filePath}"`,
-          workspacePath
-        );
-
-        if (binaryCheck.success && binaryCheck.output?.includes('charset=binary')) {
+        if (metadata.is_binary) {
           setIsBinary(true);
           setLoading(false);
           return;
         }
 
-        // 3. 获取文件内容
-        const oldResult = await api.executeCommand(
-          `git show HEAD:"${filePath}" 2>/dev/null || echo ""`,
-          workspacePath
-        );
+        const newFileContent = await api.readFile(absolutePath);
+        const oldFileContent = await api.readGitFileAtHead(workspacePath, gitPath);
 
-        const newResult = await api.executeCommand(
-          `cat "${filePath}"`,
-          workspacePath
-        );
-
-        if (!oldResult.success && !newResult.success) {
-          setError('Failed to fetch file content');
-          setLoading(false);
-          return;
-        }
-
-        setOldContent(oldResult.success ? (oldResult.output || '') : '');
-        setNewContent(newResult.success ? (newResult.output || '') : '');
+        setOldContent(oldFileContent || '');
+        setNewContent(newFileContent || '');
         setLoading(false);
       } catch (err) {
         console.error('Failed to fetch content:', err);
@@ -170,7 +159,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     };
 
     fetchContent();
-  }, [filePath, workspacePath]);
+  }, [filePath, workspacePath, gitStatus]);
 
   // 渲染二进制文件提示
   const renderBinaryNotice = () => (
@@ -236,7 +225,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <span className="text-sm font-medium font-mono truncate max-w-[200px]" title={filePath}>
-              {filePath.split('/').pop()}
+              {basename(filePath, filePath)}
             </span>
             {isBinary && (
               <span className="ml-2 px-2 py-0.5 text-xs bg-orange-500/20 text-orange-600 dark:text-orange-400 rounded">

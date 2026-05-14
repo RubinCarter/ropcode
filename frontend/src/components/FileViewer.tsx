@@ -4,7 +4,7 @@ import * as monaco from 'monaco-editor';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { FileText, Save, Eye, Pencil } from 'lucide-react';
-import { isTextFile } from '@/widgets/preview/mime-utils';
+import { basename } from '@/lib/pathUtils';
 
 // 使用本地 monaco-editor 而非 CDN，避免 404 错误
 loader.config({ monaco });
@@ -85,7 +85,7 @@ const getLanguage = (filePath: string): string => {
   }
 
   // 检查无扩展名的特殊文件
-  const filename = filePath.substring(filePath.lastIndexOf('/') + 1).toLowerCase();
+  const filename = basename(filePath, filePath).toLowerCase();
   if (filename === 'dockerfile') return 'dockerfile';
   if (filename === 'makefile') return 'makefile';
 
@@ -140,59 +140,24 @@ export const FileViewer: React.FC<FileViewerProps> = ({
       setSaveError(null);
 
       try {
-        // 1. 检查文件大小
-        const sizeResult = await api.executeCommand(
-          `wc -c < "${filePath}" 2>/dev/null || stat -f%z "${filePath}" 2>/dev/null || stat -c%s "${filePath}" 2>/dev/null || echo 0`,
-          workspacePath
-        );
+        const metadata = await api.getFileMetadata(filePath);
+        setFileSize(metadata.size);
+        setIsWritable(metadata.is_writable);
 
-        const size = parseInt(sizeResult.output?.trim() || '0', 10);
-        setFileSize(size);
-
-        if (size > MAX_FILE_SIZE) {
+        if (metadata.size > MAX_FILE_SIZE) {
           setIsLargeFile(true);
           setLoading(false);
           return;
         }
 
-        // 2. 检查文件是否可写
-        const writableCheck = await api.executeCommand(
-          `test -w "${filePath}" && echo "writable" || echo "readonly"`,
-          workspacePath
-        );
-        setIsWritable(writableCheck.output?.trim() === 'writable');
-
-        // 3. 使用系统 file 命令获取 MIME 类型
-        const mimeCheck = await api.executeCommand(
-          `file --mime-type -b "${filePath}"`,
-          workspacePath
-        );
-
-        if (mimeCheck.success && mimeCheck.output) {
-          const detectedMimeType = mimeCheck.output.trim();
-
-          // 使用 mime-utils 判断是否为文本文件
-          if (!isTextFile(detectedMimeType)) {
-            console.log(`[FileViewer] MIME type ${detectedMimeType} detected as non-text`);
-            setIsBinary(true);
-            setLoading(false);
-            return;
-          }
-        }
-
-        // 4. 获取文件内容
-        const result = await api.executeCommand(
-          `cat "${filePath}"`,
-          workspacePath
-        );
-
-        if (!result.success) {
-          setError('Failed to read file');
+        if (metadata.is_binary) {
+          setIsBinary(true);
           setLoading(false);
           return;
         }
 
-        setContent(result.output || '');
+        const result = await api.readFile(filePath);
+        setContent(result || '');
         setLoading(false);
       } catch (err) {
         console.error('Failed to fetch file content:', err);
@@ -206,7 +171,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
 
   // 获取文件名和语言
   const fileName = useMemo(() => {
-    return filePath.split('/').pop() || filePath;
+    return basename(filePath, filePath);
   }, [filePath]);
 
   const language = useMemo(() => {

@@ -217,7 +217,10 @@ const api = new Proxy({ ...rpcMethods }, {
       setModelConfigDefault: 'SetModelConfigDefault',
       // File operations
       executeCommand: 'ExecuteCommand',
+      readFile: 'ReadFile',
       writeFile: 'WriteFile',
+      getFileMetadata: 'GetFileMetadata',
+      readGitFileAtHead: 'ReadGitFileAtHead',
       // Hooks
       getHooksConfig: 'GetHooks',
       updateHooksConfig: 'SaveHooks',

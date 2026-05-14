@@ -256,6 +256,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
           <DiffViewer
             filePath={tab.filePath}
             workspacePath={tab.projectPath}
+            gitStatus={tab.gitStatus}
           />
         );
 

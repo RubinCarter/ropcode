@@ -94,7 +94,20 @@ export namespace main {
     main_branch: string;
     is_worktree: boolean;
   }
-  export interface FileEntry { name: string; path: string; isDir: boolean; }
+  export interface FileEntry {
+    name: string;
+    path: string;
+    is_directory: boolean;
+    size: number;
+    extension?: string;
+  }
+  export interface FileMetadata {
+    size: number;
+    is_directory: boolean;
+    is_writable: boolean;
+    is_binary: boolean;
+    extension?: string;
+  }
   export interface MCPAddResult { success: boolean; message: string; }
   export interface MCPImportResult { imported: string[]; errors: string[]; }
   export interface MCPProjectConfig { mcpServers: Record<string, any>; }
@@ -884,6 +897,14 @@ export function WriteFile(path: string, content: string): Promise<void> {
   return wsClient.call('WriteFile', path, content);
 }
 
+export function GetFileMetadata(path: string): Promise<main.FileMetadata> {
+  return wsClient.call('GetFileMetadata', path);
+}
+
+export function ReadGitFileAtHead(workspacePath: string, gitPath: string): Promise<string> {
+  return wsClient.call('ReadGitFileAtHead', workspacePath, gitPath);
+}
+
 export function SearchFiles(path: string, query: string): Promise<main.FileEntry[]> {
   return wsClient.call('SearchFiles', path, query);
 }
@@ -1374,8 +1395,8 @@ export function SkillGet(projectPath: string, skillName: string): Promise<main.S
 
 // ==================== 命令执行 ====================
 
-export function ExecuteCommand(cwd: string, command: string): Promise<main.CommandResult> {
-  return wsClient.call('ExecuteCommand', cwd, command);
+export function ExecuteCommand(command: string, cwd: string): Promise<main.CommandResult> {
+  return wsClient.call('ExecuteCommand', command, cwd);
 }
 
 export function ExecuteCommandWithArgs(cwd: string, args: string[], env: string): Promise<string> {

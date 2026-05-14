@@ -64,14 +64,13 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
     currentTodoActiveForm,
     promptConfig,
     isLoading,
-    interactiveSessionId,
     stopVisible,
     queuedPromptsCount,
     thinkingStatus,
   } = input;
 
-  const active = isLoading || Boolean(interactiveSessionId) || stopVisible || runtime.phase !== 'idle';
   const runtimeCanHaveRunningWork = runtime.phase !== 'idle' && runtime.phase !== 'completed' && runtime.phase !== 'failed' && runtime.phase !== 'cancelled';
+  const active = isLoading || stopVisible || runtimeCanHaveRunningWork;
   const hasRunningSubagents = runtimeCanHaveRunningWork && subagentProgress.runningCount > 0;
   const base = getPrimaryState({ runtime, runtimeCopy, stopVisible, hasRunningSubagents, currentTodoActiveForm });
   const metrics: SessionStatusBarItem[] = [];
@@ -136,7 +135,7 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
     metrics.push({ key: 'stuck', label: 'No recent updates', priority: 'high' });
   }
 
-  if (isLoading || interactiveSessionId || stopVisible) {
+  if (isLoading || stopVisible || runtimeCanHaveRunningWork) {
     hints.push({ key: 'interrupt', label: 'Stop interrupts current task', priority: 'high' });
   }
   hints.push({ key: 'send', label: '⌘/Ctrl+Enter send', priority: 'low' });

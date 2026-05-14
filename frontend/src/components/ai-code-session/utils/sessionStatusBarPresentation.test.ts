@@ -11,6 +11,14 @@ async function readSource() {
   return readFile(presentationPath, 'utf8');
 }
 
+async function loadModule() {
+  try {
+    return await import('./sessionStatusBarPresentation');
+  } catch (error) {
+    assert.fail(`sessionStatusBarPresentation module not implemented: ${error}`);
+  }
+}
+
 test('buildSessionStatusBarModel keeps a persistent ready state while idle without thinking-cycle hints', async () => {
   const source = await readSource();
 
@@ -54,4 +62,120 @@ test('buildSessionStatusBarModel summarizes subagent activity without raw event 
   assert.match(source, /label: agentParts \|\| `\$\{subagentProgress\.subagents\.length\} agents`/);
   assert.match(source, /`\$\{formatCompactNumber\(subagentProgress\.totalTokenCount\)\} agent tokens`/);
   assert.doesNotMatch(source, /task_progress|claude-output/);
+});
+
+test('buildSessionStatusBarModel treats cancelled sessions as terminal after stop completes', async () => {
+  const { buildSessionStatusBarModel } = await loadModule();
+
+  const model = buildSessionStatusBarModel({
+    runtime: {
+      phase: 'cancelled',
+      label: 'Cancelled',
+      detail: null,
+      severity: 'warning',
+      activeTool: null,
+      toolProgressText: null,
+      retry: null,
+      rateLimited: false,
+      transportState: 'connected',
+      waitingReason: null,
+      isStuckLikely: false,
+      lastUpdatedAt: 10_000,
+    },
+    runtimeCopy: {
+      primary: 'Cancelled',
+      secondary: null,
+      chips: [],
+      tone: 'warning',
+    },
+    now: 20_000,
+    loadingStartedAt: 1_000,
+    tokenUsage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedOutputTokens: 0,
+      totalTokens: 0,
+    },
+    subagentProgress: {
+      subagents: [],
+      rootMessages: [],
+      rootMessageIndexes: new Set(),
+      subagentMessageIndexes: new Set(),
+      runningCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+      totalToolUseCount: 0,
+      totalTokenCount: 0,
+    },
+    promptConfig: { provider: 'claude', model: 'sonnet' },
+    isLoading: false,
+    interactiveSessionId: null,
+    stopVisible: false,
+    queuedPromptsCount: 0,
+    thinkingStatus: null,
+  });
+
+  assert.equal(model.primary, 'Cancelled');
+  assert.equal(model.isActive, false);
+  assert.equal(model.glyph, 'warning');
+  assert.equal(model.tone, 'warning');
+  assert.deepEqual(model.metrics, []);
+  assert.equal(model.hints.some((hint) => hint.key === 'interrupt'), false);
+});
+
+test('buildSessionStatusBarModel treats completed interactive Claude sessions as idle for stop controls', async () => {
+  const { buildSessionStatusBarModel } = await loadModule();
+
+  const model = buildSessionStatusBarModel({
+    runtime: {
+      phase: 'completed',
+      label: 'Completed',
+      detail: 'Result: success',
+      severity: 'success',
+      activeTool: null,
+      toolProgressText: null,
+      retry: null,
+      rateLimited: false,
+      transportState: 'connected',
+      waitingReason: null,
+      isStuckLikely: false,
+      lastUpdatedAt: 10_000,
+    },
+    runtimeCopy: {
+      primary: 'Completed',
+      secondary: 'Result: success',
+      chips: [],
+      tone: 'success',
+    },
+    now: 20_000,
+    loadingStartedAt: null,
+    tokenUsage: {
+      inputTokens: 98_200,
+      outputTokens: 55,
+      estimatedOutputTokens: 0,
+      totalTokens: 98_255,
+    },
+    subagentProgress: {
+      subagents: [],
+      rootMessages: [],
+      rootMessageIndexes: new Set(),
+      subagentMessageIndexes: new Set(),
+      runningCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+      totalToolUseCount: 0,
+      totalTokenCount: 0,
+    },
+    promptConfig: { provider: 'claude', model: 'sonnet' },
+    isLoading: false,
+    interactiveSessionId: 'interactive-123',
+    stopVisible: false,
+    queuedPromptsCount: 0,
+    thinkingStatus: null,
+  });
+
+  assert.equal(model.primary, 'Completed');
+  assert.equal(model.isActive, false);
+  assert.equal(model.hints.some((hint) => hint.key === 'interrupt'), false);
+  assert.equal(model.metrics.some((metric) => metric.key === 'elapsed'), false);
 });

@@ -1,31 +1,36 @@
 /**
- * Path utilities for displaying file paths in a more readable format
+ * Windows path utilities for display and local path resolution.
  */
 
 export function normalizePath(path: string): string {
-  return path;
+  return path.replace(/\\/g, '/');
 }
 
 export function basename(path: string | undefined, fallback = ''): string {
   if (!path) return fallback;
-  const trimmed = path.replace(/\/+$/, '');
-  return trimmed.split('/').pop() || path;
+  const trimmed = path.replace(/[\\/]+$/, '');
+  return trimmed.split(/[\\/]/).pop() || path;
 }
 
 export function parentPath(path: string): string {
-  const trimmed = path.replace(/\/+$/, '');
-  const parent = trimmed.split('/').slice(0, -1).join('/');
-  return parent || '/';
+  const trimmed = path.replace(/[\\/]+$/, '');
+  const parts = trimmed.split(/[\\/]/);
+  parts.pop();
+  const parent = parts.join('\\');
+  if (parent) return parent;
+  if (/^[a-zA-Z]:[\\/]?$/.test(trimmed)) return trimmed.slice(0, 2) + '\\';
+  return '\\';
 }
 
 export function isAbsolutePath(path: string): boolean {
-  return path.startsWith('/');
+  return /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('\\\\') || path.startsWith('/');
 }
 
 export function joinPath(basePath: string, relativePath: string): string {
-  const base = basePath.replace(/\/+$/, '');
-  const relative = relativePath.replace(/^\/+/, '');
-  return `${base}/${relative}`;
+  const base = basePath.replace(/[\\/]+$/, '');
+  const relative = relativePath.replace(/^[\\/]+/, '');
+  const separator = basePath.includes('\\') ? '\\' : '/';
+  return `${base}${separator}${relative}`;
 }
 
 export function resolveWorkspacePath(path: string, workspacePath?: string): string {
@@ -39,7 +44,7 @@ export function homeRelativePath(path: string | undefined): string {
   if (!path) return 'Unknown Path';
 
   const normalizedPath = normalizePath(path);
-  const homeIndicators = ['/Users/', '/home/'];
+  const homeIndicators = ['/Users/', '/home/', 'C:/Users/', 'C:/Documents and Settings/'];
 
   for (const indicator of homeIndicators) {
     if (normalizedPath.includes(indicator)) {
@@ -65,21 +70,11 @@ export function pathSegments(path: string): string[] {
   return normalizePath(path).split('/').filter(Boolean);
 }
 
-/**
- * Shortens a file path for display purposes:
- * - If workspacePath is provided and the file is within it, show relative path
- * - Otherwise, show the absolute path
- *
- * @param filePath - The absolute file path to shorten
- * @param workspacePath - Optional workspace path
- * @returns The shortened path for display
- */
 export function shortenPath(filePath: string, workspacePath?: string): string {
   if (!filePath) {
     return filePath;
   }
 
-  // If workspace path is provided, try to make the path relative
   if (workspacePath) {
     const normalizedWorkspace = normalizePath(workspacePath).replace(/\/$/, '');
     const normalizedPath = normalizePath(filePath).replace(/\/$/, '');
@@ -89,11 +84,10 @@ export function shortenPath(filePath: string, workspacePath?: string): string {
     }
   }
 
-  const worktreeMatch = filePath.match(/\/\.ropcode\/[^/]+\/(.+)$/);
+  const worktreeMatch = normalizePath(filePath).match(/\/\.ropcode\/[^/]+\/(.+)$/);
   if (worktreeMatch) {
     return worktreeMatch[1];
   }
 
-  // Return absolute path
   return filePath;
 }

@@ -14,6 +14,7 @@ export interface WorkspaceTab {
   claudeFileId?: string;
   diffFilePath?: string;
   filePath?: string;
+  gitStatus?: 'modified' | 'added' | 'deleted' | 'untracked' | 'renamed';
   webviewUrl?: string;
   url?: string;  // for webview tabs
   projectPath?: string;

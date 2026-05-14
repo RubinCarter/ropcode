@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { FileEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { parentPath } from "@/lib/pathUtils";
 
 // Global caches that persist across component instances
 const globalDirectoryCache = new Map<string, FileEntry[]>();
@@ -271,8 +272,7 @@ export const FilePicker: React.FC<FilePickerProps> = React.memo(({
           variant="ghost"
           size="icon"
           onClick={() => {
-            const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
-            setCurrentPath(parentPath);
+            setCurrentPath(parentPath(currentPath));
             setSearchQuery("");
           }}
           disabled={currentPath === '/' || currentPath === basePath}

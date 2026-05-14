@@ -43,7 +43,7 @@ const MobileStatusContent: React.FC<{ projectPath: string }> = ({ projectPath })
               <FileViewer filePath={activeTab.filePath} workspacePath={activeTab.projectPath || projectPath} />
             )}
             {activeTab.type === 'diff' && activeTab.filePath && (
-              <DiffViewer filePath={activeTab.filePath} workspacePath={activeTab.projectPath || projectPath} />
+              <DiffViewer filePath={activeTab.filePath} workspacePath={activeTab.projectPath || projectPath} gitStatus={activeTab.gitStatus} />
             )}
           </div>
         </div>
