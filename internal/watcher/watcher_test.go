@@ -79,14 +79,14 @@ func TestWatcherCreateEvent(t *testing.T) {
 
 	found := false
 	for _, e := range events {
-		if e.Type == EventCreate && e.Path == testFile {
+		if (e.Type == EventCreate || e.Type == EventModify) && e.Path == testFile {
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		t.Errorf("Expected create event for %s, got events: %+v", testFile, events)
+		t.Errorf("Expected create or modify event for new file %s, got events: %+v", testFile, events)
 	}
 }
 

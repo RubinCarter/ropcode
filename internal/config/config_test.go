@@ -31,7 +31,7 @@ func TestConfig_GetProjectPath(t *testing.T) {
 	cfg, _ := Load()
 
 	path := cfg.GetProjectPath("/home/user/myproject")
-	expected := "/home/user/myproject/.claude"
+	expected := filepath.Join("/home/user/myproject", ".claude")
 
 	if path != expected {
 		t.Errorf("Expected %s, got %s", expected, path)

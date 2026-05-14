@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -14,6 +15,15 @@ import (
 
 func writeFakeProviderBinary(t *testing.T) string {
 	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		binPath := filepath.Join(t.TempDir(), "fake-provider.cmd")
+		script := "@echo off\r\necho provider-started\r\n:loop\r\ntimeout /t 1 /nobreak >nul\r\ngoto loop\r\n"
+		if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+		return binPath
+	}
 
 	binPath := filepath.Join(t.TempDir(), "fake-provider.sh")
 	script := "#!/bin/sh\nprintf 'provider-started\\n'\ntrap 'exit 0' INT TERM\nwhile true; do sleep 1; done\n"

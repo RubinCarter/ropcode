@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -128,7 +129,6 @@ func TestBuildCapabilityLayersIncludesBuiltInClaudeCommands(t *testing.T) {
 	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "review")
 	assertHasCapability(t, layers.AllVisible, string(CapabilityKindCommand), "clear")
 }
-
 
 func TestParseDiscoveryMessages(t *testing.T) {
 	lines := [][]byte{
@@ -565,7 +565,7 @@ func TestCachedCapabilityLayersIncludesSystemAndUserWithoutProject(t *testing.T)
 	transport := &stubDiscoveryTransport{
 		snapshots: map[DiscoveryStage]CapabilitySnapshot{
 			DiscoveryStageSystem: {
-				Stage: string(DiscoveryStageSystem),
+				Stage:    string(DiscoveryStageSystem),
 				Commands: []CommandSummary{{Name: "review", Description: "Request review"}},
 			},
 			DiscoveryStageUser: {
@@ -600,25 +600,17 @@ func TestCachedCapabilityLayersIncludesSystemAndUserWithoutProject(t *testing.T)
 }
 
 func TestDiscoveryTransportAllowsCommandsWithoutSkills(t *testing.T) {
-	binPath := filepath.Join(t.TempDir(), "fake-claude-discovery-commands-only.py")
-	script := strings.Join([]string{
-		"#!/usr/bin/env python3",
-		"import sys",
-		"sys.stdin.readline()",
-		"print('{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"response\":{\"commands\":[{\"name\":\"review\",\"description\":\"Request code review\",\"argumentHint\":\"[files]\"}]}}}', flush=True)",
-	}, "\n") + "\n"
-	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
-		t.Fatalf("WriteFile failed: %v", err)
-	}
+	binPath, discoveryArgs := writeFakeClaudeDiscovery(t, []fakeDiscoveryStep{
+		{Line: `{"type":"control_response","response":{"subtype":"success","response":{"commands":[{"name":"review","description":"Request code review","argumentHint":"[files]"}]}}}`},
+	})
 
 	transport := &ClaudeCapabilityDiscoveryTransport{
 		binaryPath:    binPath,
 		realHomeDir:   t.TempDir(),
-		discoveryArgs: []string{},
+		discoveryArgs: discoveryArgs,
 		timeout:       2 * time.Second,
 		makeTempDir:   os.MkdirTemp,
 	}
-
 	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
 	if err != nil {
 		t.Fatalf("expected commands-only discovery to succeed, got %v", err)
@@ -631,28 +623,19 @@ func TestDiscoveryTransportAllowsCommandsWithoutSkills(t *testing.T) {
 	}
 }
 func TestDiscoveryTransportReturnsPartialCapabilitiesBeforeLateSkills(t *testing.T) {
-	binPath := filepath.Join(t.TempDir(), "fake-claude-discovery.py")
-	script := strings.Join([]string{
-		"#!/usr/bin/env python3",
-		"import sys",
-		"import time",
-		"sys.stdin.readline()",
-		"print('{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"response\":{\"commands\":[{\"name\":\"review\",\"description\":\"Request code review\",\"argumentHint\":\"[files]\"}]}}}', flush=True)",
-		"time.sleep(0.2)",
-		"print('{\"type\":\"system\",\"subtype\":\"init\",\"skills\":[\"loop\"]}', flush=True)",
-	}, "\n") + "\n"
-	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
-		t.Fatalf("WriteFile failed: %v", err)
-	}
+	binPath, discoveryArgs := writeFakeClaudeDiscovery(t, []fakeDiscoveryStep{
+		{Line: `{"type":"control_response","response":{"subtype":"success","response":{"commands":[{"name":"review","description":"Request code review","argumentHint":"[files]"}]}}}`},
+		{Sleep: 200 * time.Millisecond},
+		{Line: `{"type":"system","subtype":"init","skills":["loop"]}`},
+	})
 
 	transport := &ClaudeCapabilityDiscoveryTransport{
 		binaryPath:    binPath,
 		realHomeDir:   t.TempDir(),
-		discoveryArgs: []string{},
+		discoveryArgs: discoveryArgs,
 		timeout:       2 * time.Second,
 		makeTempDir:   os.MkdirTemp,
 	}
-
 	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
 	if err != nil {
 		t.Fatalf("expected partial discovery to succeed, got %v", err)
@@ -663,28 +646,19 @@ func TestDiscoveryTransportReturnsPartialCapabilitiesBeforeLateSkills(t *testing
 }
 
 func TestDiscoveryTransportReturnsAfterCommandsAndSkillsWithoutWaitingForProcessExit(t *testing.T) {
-	binPath := filepath.Join(t.TempDir(), "fake-claude-discovery-hangs.py")
-	script := strings.Join([]string{
-		"#!/usr/bin/env python3",
-		"import sys",
-		"import time",
-		"sys.stdin.readline()",
-		"print('{\"type\":\"control_response\",\"response\":{\"subtype\":\"success\",\"response\":{\"commands\":[{\"name\":\"review\",\"description\":\"Request code review\",\"argumentHint\":\"[files]\"}]}}}', flush=True)",
-		"print('{\"type\":\"system\",\"subtype\":\"init\",\"skills\":[\"loop\"]}', flush=True)",
-		"time.sleep(10)",
-	}, "\n") + "\n"
-	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
-		t.Fatalf("WriteFile failed: %v", err)
-	}
+	binPath, discoveryArgs := writeFakeClaudeDiscovery(t, []fakeDiscoveryStep{
+		{Line: `{"type":"control_response","response":{"subtype":"success","response":{"commands":[{"name":"review","description":"Request code review","argumentHint":"[files]"}]}}}`},
+		{Line: `{"type":"system","subtype":"init","skills":["loop"]}`},
+		{Sleep: 10 * time.Second},
+	})
 
 	transport := &ClaudeCapabilityDiscoveryTransport{
 		binaryPath:    binPath,
 		realHomeDir:   t.TempDir(),
-		discoveryArgs: []string{},
-		timeout:       1500 * time.Millisecond,
+		discoveryArgs: discoveryArgs,
+		timeout:       4 * time.Second,
 		makeTempDir:   os.MkdirTemp,
 	}
-
 	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
 	if err != nil {
 		t.Fatalf("expected discovery to finish without waiting for process exit, got %v", err)
@@ -695,6 +669,74 @@ func TestDiscoveryTransportReturnsAfterCommandsAndSkillsWithoutWaitingForProcess
 	if !reflect.DeepEqual(snapshot.Skills, []string{"loop"}) {
 		t.Fatalf("expected skills %#v, got %#v", []string{"loop"}, snapshot.Skills)
 	}
+}
+
+type fakeDiscoveryStep struct {
+	Line  string
+	Sleep time.Duration
+}
+
+func writeFakeClaudeDiscovery(t *testing.T, steps []fakeDiscoveryStep) (string, []string) {
+	t.Helper()
+
+	tmpDir := t.TempDir()
+	stepsPath := filepath.Join(tmpDir, "fake-claude-discovery.steps")
+	lines := make([]string, 0, len(steps))
+	for _, step := range steps {
+		if step.Sleep > 0 {
+			lines = append(lines, "sleep "+step.Sleep.String())
+		}
+		if step.Line != "" {
+			lines = append(lines, "line "+step.Line)
+		}
+	}
+	if err := os.WriteFile(stepsPath, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	return os.Args[0], []string{"-test.run=TestFakeClaudeDiscoveryHelperProcess", "--", "fake-discovery", stepsPath}
+}
+
+func TestFakeClaudeDiscoveryHelperProcess(t *testing.T) {
+	args := os.Args
+	separator := -1
+	for i, arg := range args {
+		if arg == "--" {
+			separator = i
+			break
+		}
+	}
+	if separator < 0 || separator+1 >= len(args) || args[separator+1] != "fake-discovery" {
+		return
+	}
+
+	if separator+2 >= len(args) {
+		os.Exit(2)
+	}
+
+	_, _ = fmt.Fscanln(os.Stdin)
+	data, err := os.ReadFile(args[separator+2])
+	if err != nil {
+		os.Exit(2)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "sleep "); ok {
+			duration, err := time.ParseDuration(value)
+			if err != nil {
+				os.Exit(2)
+			}
+			time.Sleep(duration)
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "line "); ok {
+			fmt.Println(value)
+		}
+	}
+	os.Exit(0)
 }
 
 type discoveryCall struct {

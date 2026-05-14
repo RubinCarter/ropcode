@@ -141,10 +141,10 @@ func (m *SessionManager) StartSession(config SessionConfig) (string, error) {
 
 // TerminateSession terminates a specific session by ID
 func (m *SessionManager) TerminateSession(sessionID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+	m.mu.RLock()
 	session, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
 	if !exists {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
@@ -158,19 +158,23 @@ func (m *SessionManager) TerminateSession(sessionID string) error {
 
 // TerminateByProject terminates all sessions for a specific project path
 func (m *SessionManager) TerminateByProject(projectPath string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.mu.RLock()
+	sessions := make([]*Session, 0)
+	for _, session := range m.sessions {
+		if session.Config.ProjectPath == projectPath && session.IsRunning() {
+			sessions = append(sessions, session)
+		}
+	}
+	m.mu.RUnlock()
 
 	var lastErr error
 	terminated := 0
 
-	for _, session := range m.sessions {
-		if session.Config.ProjectPath == projectPath && session.IsRunning() {
-			if err := session.Terminate(); err != nil {
-				lastErr = err
-			} else {
-				terminated++
-			}
+	for _, session := range sessions {
+		if err := session.Terminate(); err != nil {
+			lastErr = err
+		} else {
+			terminated++
 		}
 	}
 

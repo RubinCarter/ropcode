@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"ropcode/internal/sessionproc"
 )
 
 type SessionConfig struct {
@@ -231,6 +232,9 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 
 	// Create command - use project path as working directory (NOT as --project-path arg)
 	s.cmd = exec.CommandContext(ctx, binaryPath, args...)
+	if err := sessionproc.Configure(s.cmd); err != nil {
+		return fmt.Errorf("failed to configure command: %w", err)
+	}
 
 	// Set working directory to project path
 	if s.Config.ProjectPath != "" {
@@ -279,7 +283,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// Note: No stdin pipe needed in batch mode - Claude CLI with -p flag operates in non-interactive mode
 
 	// Start the command
-	if err := s.cmd.Start(); err != nil {
+	if err := sessionproc.Start(s.cmd); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
@@ -765,6 +769,7 @@ func (s *Session) updateRuntimeStateFromMessage(msg map[string]interface{}) {
 // waitForCompletion waits for the command to complete
 func (s *Session) waitForCompletion(emitter EventEmitter) {
 	err := s.cmd.Wait()
+	sessionproc.Cleanup(s.cmd)
 
 	s.mu.Lock()
 	pid := s.cmd.Process.Pid
@@ -837,6 +842,7 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 // Unlike waitForCompletion, it doesn't expect the process to end after a single response
 func (s *Session) watchProcessExit(emitter EventEmitter) {
 	err := s.cmd.Wait()
+	sessionproc.Cleanup(s.cmd)
 
 	s.mu.Lock()
 	pid := s.cmd.Process.Pid
@@ -924,36 +930,25 @@ func (s *Session) completionMessage() map[string]interface{} {
 // Terminate terminates the running session
 func (s *Session) Terminate() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.cmd == nil || s.cmd.Process == nil {
+		s.mu.Unlock()
 		return fmt.Errorf("no running process")
 	}
 
 	s.cancelled = true
+	cmd := s.cmd
+	done := s.done
+	stdin := s.stdin
+	interactive := s.interactive
+	s.mu.Unlock()
 
 	// In interactive mode, close stdin first to signal the process to stop
-	if s.interactive && s.stdin != nil {
-		s.stdin.Close()
+	if interactive && stdin != nil {
+		_ = stdin.Close()
 	}
 
-	// Try graceful termination first
-	if err := s.cmd.Process.Signal(os.Interrupt); err != nil {
-		// If graceful termination fails, force kill
-		return s.cmd.Process.Kill()
-	}
-
-	// Wait a bit for graceful termination
-	timer := time.NewTimer(5 * time.Second)
-	defer timer.Stop()
-
-	select {
-	case <-s.done:
-		return nil
-	case <-timer.C:
-		// Force kill if graceful termination didn't work
-		return s.cmd.Process.Kill()
-	}
+	return sessionproc.Terminate(cmd, done)
 }
 
 // GetOutput returns the accumulated output

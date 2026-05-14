@@ -52,9 +52,8 @@ You are a project-specific assistant.`
 	}
 
 	// Temporarily replace home directory for testing
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	// Test listing agents
 	agents, err := ListClaudeConfigAgents(projectDir)
@@ -134,9 +133,8 @@ Test system prompt.`
 	}
 
 	// Temporarily replace home directory for testing
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	// Test getting agent
 	agent, err := GetClaudeAgent("user", "test", "")
@@ -169,9 +167,8 @@ func TestSaveClaudeAgent(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Temporarily replace home directory for testing
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	// Create test agent
 	agent := &ClaudeAgent{
@@ -236,9 +233,8 @@ func TestDeleteClaudeAgent(t *testing.T) {
 	}
 
 	// Temporarily replace home directory for testing
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	// Delete agent
 	err := DeleteClaudeAgent("user", "delete-me", "")

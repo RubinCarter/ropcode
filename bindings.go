@@ -2,20 +2,19 @@
 package main
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	goruntime "runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -1404,8 +1403,36 @@ type FileEntry struct {
 	Extension   string `json:"extension,omitempty"`
 }
 
+type FileMetadata struct {
+	Size        int64  `json:"size"`
+	IsDirectory bool   `json:"is_directory"`
+	IsWritable  bool   `json:"is_writable"`
+	IsBinary    bool   `json:"is_binary"`
+	Extension   string `json:"extension,omitempty"`
+}
+
+func isBinaryContent(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+
+	// Won't fix for now: this lightweight NUL-byte heuristic can miss some
+	// binary formats, but is accepted here to keep file metadata cheap.
+	limit := len(data)
+	if limit > 8000 {
+		limit = 8000
+	}
+	for _, b := range data[:limit] {
+		if b == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ListDirectoryContents lists files and directories in a path
 func (a *App) ListDirectoryContents(path string) ([]FileEntry, error) {
+	path = normalizeClientPath(path)
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
@@ -1437,6 +1464,7 @@ func (a *App) ListDirectoryContents(path string) ([]FileEntry, error) {
 
 // ReadFile reads the content of a file
 func (a *App) ReadFile(path string) (string, error) {
+	path = normalizeClientPath(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -1446,11 +1474,57 @@ func (a *App) ReadFile(path string) (string, error) {
 
 // WriteFile writes content to a file
 func (a *App) WriteFile(path, content string) error {
+	path = normalizeClientPath(path)
 	return os.WriteFile(path, []byte(content), 0644)
+}
+
+// GetFileMetadata returns cross-platform file information for the frontend editor.
+func (a *App) GetFileMetadata(path string) (*FileMetadata, error) {
+	path = normalizeClientPath(path)
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := &FileMetadata{
+		Size:        info.Size(),
+		IsDirectory: info.IsDir(),
+		IsWritable:  true,
+		Extension:   strings.TrimPrefix(filepath.Ext(path), "."),
+	}
+
+	if info.IsDir() {
+		return metadata, nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	buf := make([]byte, 8000)
+	n, readErr := file.Read(buf)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return nil, readErr
+	}
+	metadata.IsBinary = isBinaryContent(buf[:n])
+
+	if appendFile, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0); err == nil {
+		if closeErr := appendFile.Close(); closeErr != nil {
+			return nil, closeErr
+		}
+	} else {
+		metadata.IsWritable = false
+	}
+
+	return metadata, nil
 }
 
 // SearchFiles searches for files matching a query in a base path
 func (a *App) SearchFiles(basePath, query string) ([]FileEntry, error) {
+	basePath = normalizeClientPath(basePath)
 	var results []FileEntry
 	query = strings.ToLower(query)
 
@@ -2634,41 +2708,6 @@ type CommandResult struct {
 	Success bool   `json:"success"`
 	Output  string `json:"output"`
 	Error   string `json:"error"`
-}
-
-// ExecuteCommand executes a shell command synchronously and returns the output
-// This version accepts a single shell command string (compatible with Electron/Tauri API)
-func (a *App) ExecuteCommand(command string, cwd string) CommandResult {
-	// Determine shell based on OS
-	var shellCmd *exec.Cmd
-	if goruntime.GOOS == "windows" {
-		shellCmd = exec.Command("cmd", "/C", command)
-	} else {
-		shellCmd = exec.Command("sh", "-c", command)
-	}
-
-	if cwd != "" {
-		shellCmd.Dir = cwd
-	}
-
-	var stdout, stderr bytes.Buffer
-	shellCmd.Stdout = &stdout
-	shellCmd.Stderr = &stderr
-
-	err := shellCmd.Run()
-	if err != nil {
-		return CommandResult{
-			Success: false,
-			Output:  stdout.String(),
-			Error:   stderr.String() + ": " + err.Error(),
-		}
-	}
-
-	return CommandResult{
-		Success: true,
-		Output:  stdout.String(),
-		Error:   stderr.String(),
-	}
 }
 
 // ExecuteCommandWithArgs executes a command with arguments synchronously

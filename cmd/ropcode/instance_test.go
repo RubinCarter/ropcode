@@ -29,7 +29,9 @@ func (a *cliTestApp) Greet(name string) string {
 func setupCLITestDB(t *testing.T) (*config.Config, *database.Database) {
 	t.Helper()
 
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	cfg, err := config.Load()
 	if err != nil {

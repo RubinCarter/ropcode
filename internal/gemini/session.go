@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"ropcode/internal/sessionproc"
 )
 
 type SessionConfig struct {
@@ -48,12 +49,12 @@ type Session struct {
 	stdout io.ReadCloser
 	stderr io.ReadCloser
 
-	outputBuf       []byte
-	stderrBuf       []byte // Collect stderr output to show as single error message
-	mu              sync.RWMutex
-	done            chan struct{}
-	cancelled       bool
-	processEmitter  ProcessChangedEmitter
+	outputBuf      []byte
+	stderrBuf      []byte // Collect stderr output to show as single error message
+	mu             sync.RWMutex
+	done           chan struct{}
+	cancelled      bool
+	processEmitter ProcessChangedEmitter
 }
 
 // EventEmitter interface for emitting events
@@ -125,6 +126,9 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 
 	// Create command
 	s.cmd = exec.CommandContext(ctx, binaryPath, args...)
+	if err := sessionproc.Configure(s.cmd); err != nil {
+		return fmt.Errorf("failed to configure command: %w", err)
+	}
 
 	// Set working directory to project path
 	if s.Config.ProjectPath != "" {
@@ -166,7 +170,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	}
 
 	// Start the command
-	if err := s.cmd.Start(); err != nil {
+	if err := sessionproc.Start(s.cmd); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
@@ -492,6 +496,7 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	}
 
 	err := s.cmd.Wait()
+	sessionproc.Cleanup(s.cmd)
 
 	s.mu.Lock()
 	pid := s.cmd.Process.Pid
@@ -561,21 +566,18 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 // Terminate terminates the session
 func (s *Session) Terminate() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.cmd == nil || s.cmd.Process == nil {
+		s.mu.Unlock()
 		return fmt.Errorf("no process to terminate")
 	}
 
 	s.cancelled = true
+	cmd := s.cmd
+	done := s.done
+	s.mu.Unlock()
 
-	// Try graceful termination first (SIGINT)
-	if err := s.cmd.Process.Signal(os.Interrupt); err != nil {
-		// Force kill if graceful termination fails
-		return s.cmd.Process.Kill()
-	}
-
-	return nil
+	return sessionproc.Terminate(cmd, done)
 }
 
 // IsRunning checks if the session is still running

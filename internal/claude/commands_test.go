@@ -21,9 +21,8 @@ func TestSlashCommands(t *testing.T) {
 	}
 
 	// Override home directory for testing
-	originalHome := os.Getenv("HOME")
-	os.Setenv("HOME", tmpDir)
-	defer os.Setenv("HOME", originalHome)
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("USERPROFILE", tmpDir)
 
 	projectPath := filepath.Join(tmpDir, "project")
 

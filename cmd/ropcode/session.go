@@ -157,6 +157,36 @@ func runRuntimeWorkspaceCommand(state cliState, args []string) error {
 		return nil
 	}
 
+	var opts sessionCommandOptions
+	switch args[0] {
+	case "send":
+		parsed, err := parseSessionSendArgs(args[1:], state.cwdFlag)
+		if err != nil {
+			return err
+		}
+		opts = parsed
+	case "status", "list":
+		parsed, err := parseSessionListArgs(args[1:], state.cwdFlag)
+		if err != nil {
+			return err
+		}
+		opts = parsed
+	case "logs":
+		parsed, err := parseSessionLogsArgs(args[1:], state.cwdFlag)
+		if err != nil {
+			return err
+		}
+		opts = parsed
+	case "stop":
+		parsed, err := parseSessionStopArgs(args[1:], state.cwdFlag)
+		if err != nil {
+			return err
+		}
+		opts = parsed
+	default:
+		return fmt.Errorf("unknown workspace subcommand %q", strings.Join(args, " "))
+	}
+
 	cfg, err := state.deps.loadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -175,34 +205,14 @@ func runRuntimeWorkspaceCommand(state cliState, args []string) error {
 
 	switch args[0] {
 	case "send":
-		opts, err := parseSessionSendArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
 		return runSessionSend(state, client, opts)
 	case "status":
-		opts, err := parseSessionListArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
 		return runWorkspaceStatus(state, client, opts)
 	case "list":
-		opts, err := parseSessionListArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
 		return runSessionList(state, client, opts)
 	case "logs":
-		opts, err := parseSessionLogsArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
 		return runSessionLogs(state, client, opts)
 	case "stop":
-		opts, err := parseSessionStopArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
 		return runSessionStop(state, client, opts)
 	default:
 		return fmt.Errorf("unknown workspace subcommand %q", strings.Join(args, " "))
