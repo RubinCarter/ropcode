@@ -5,6 +5,7 @@
  * Pure functions - no side effects
  */
 
+import { isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 import type { ClaudeStreamMessage } from "../types";
 import { summarizeRuntimeMessage } from './runtimePresentation';
 
@@ -233,19 +234,7 @@ function isDisplayableMessage(
     return false;
   }
 
-  // Sidechain messages belong to the subagent panel, not the root stream.
-  // This is a fallback for live stream where buildSubagentProgress may not have
-  // seen the launcher yet and thus hasn't added the index to hiddenIndexes.
-  // parent_tool_use_id (and its parentToolUseID/parentToolUseId aliases) is the
-  // reliable subagent marker on live-stream messages emitted from within a Task
-  // invocation — treat it the same as isSidechain.
-  const runtimeMessage = message as any;
-  if (
-    runtimeMessage.isSidechain === true ||
-    runtimeMessage.parent_tool_use_id != null ||
-    runtimeMessage.parentToolUseID != null ||
-    runtimeMessage.parentToolUseId != null
-  ) {
+  if (isSubagentEnvelopeMessage(message)) {
     return false;
   }
 

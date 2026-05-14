@@ -24,7 +24,12 @@ export type SubagentStatus = "running" | "completed" | "failed" | "unknown";
 
 export function isSubagentEnvelopeMessage(message: ClaudeStreamMessageLike): boolean {
   const runtimeMessage = message as any;
-  return runtimeMessage.isSidechain === true || runtimeMessage.parent_tool_use_id != null || Boolean(runtimeMessage.agentId || runtimeMessage.agent_id);
+  return (
+    runtimeMessage.isSidechain === true ||
+    runtimeMessage.parent_tool_use_id != null ||
+    runtimeMessage.parentToolUseID != null ||
+    runtimeMessage.parentToolUseId != null
+  );
 }
 
 export interface SubagentProgress {
@@ -441,19 +446,7 @@ export function buildSubagentProgress(
       }
     }
 
-    // Sidechain messages always belong to the subagent panel regardless of whether
-    // the launcher has been seen yet (live stream ordering is not guaranteed).
-    // parent_tool_use_id is a reliable subagent indicator: live stream messages
-    // emitted from within a Task invocation carry it even when isSidechain is
-    // absent (e.g., Anthropic SDK stream-json emits the subagent user prompt
-    // with parent_tool_use_id pointing to the Task tool_use id).
-    const runtimeMessage = message as any;
-    if (
-      runtimeMessage.isSidechain === true ||
-      runtimeMessage.parent_tool_use_id != null ||
-      runtimeMessage.parentToolUseID != null ||
-      runtimeMessage.parentToolUseId != null
-    ) {
+    if (isSubagentEnvelopeMessage(message)) {
       subagentMessageIndexes.add(index);
     }
 

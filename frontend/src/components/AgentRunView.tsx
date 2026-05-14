@@ -19,7 +19,8 @@ import { cn } from "@/lib/utils";
 import { formatISOTimestamp } from "@/lib/date-utils";
 import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
-import { buildSubagentProgress, isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
+import { buildSubagentProgress } from "@/lib/subagentProgress";
+import { getDisplayableMessages } from "./ai-code-session/utils/messageFilter";
 import { AGENT_ICONS } from "./CCAgents";
 import type { ClaudeStreamMessage } from "./AgentExecution";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -82,11 +83,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
     [messages, subagentTranscripts]
   );
   const displayableMessages = React.useMemo(
-    () => messages.filter((message, index) => {
-      if (subagentProgress.subagentMessageIndexes.has(index)) return false;
-      if (isSubagentEnvelopeMessage(message)) return false;
-      return true;
-    }),
+    () => getDisplayableMessages(messages, subagentProgress.subagentMessageIndexes).messages,
     [messages, subagentProgress.subagentMessageIndexes]
   );
 
