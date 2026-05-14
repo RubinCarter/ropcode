@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { getDisplayableMessages } from './messageFilter';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const messageFilterPath = path.resolve(currentDir, './messageFilter.ts');
@@ -37,4 +38,39 @@ test('filters assistant messages that only contain hidden or empty content', asy
   assert.match(source, /if \(message\.type === "assistant" && message\.message\) \{[\s\S]*return hasRenderableAssistantContent\(message\);/);
   assert.match(source, /if \(toolName === 'agentoutputtool'\) return false;/);
   assert.match(source, /return isNonEmptyText\(content\.text\);/);
+});
+
+test('uses the shared subagent envelope predicate for root stream filtering', async () => {
+  const source = await readSource();
+
+  assert.match(source, /import \{ isSubagentEnvelopeMessage \} from "@\/lib\/subagentProgress";/);
+  assert.match(source, /if \(isSubagentEnvelopeMessage\(message\)\) \{[\s\S]*return false;/);
+  assert.doesNotMatch(source, /runtimeMessage\.isSidechain === true \|\|\s*runtimeMessage\.parent_tool_use_id != null/);
+});
+
+test('display filter hides explicit subagent envelopes while preserving agentId-only root messages', () => {
+  const messages = [
+    { type: 'system', subtype: 'init' },
+    { type: 'assistant', agentId: 'agent-1', message: { content: [{ type: 'text', text: 'visible correlated root text' }] } },
+    { type: 'user', parent_tool_use_id: 'toolu_1', message: { content: [{ type: 'text', text: 'subagent prompt' }] } },
+    { type: 'assistant', parentToolUseID: 'toolu_1', message: { content: [{ type: 'text', text: 'subagent alias 1' }] } },
+    { type: 'assistant', parentToolUseId: 'toolu_1', message: { content: [{ type: 'text', text: 'subagent alias 2' }] } },
+    { type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: 'sidechain text' }] } },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'normal root text' }] } },
+  ];
+
+  const displayable = getDisplayableMessages(messages as any);
+
+  assert.deepEqual(displayable.indexes, [0, 1, 6]);
+  assert.equal(displayable.messages[1], messages[1]);
+});
+
+test('display filter honors hidden indexes before envelope fallback', () => {
+  const messages = [
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'root text' }] } },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'indexed subagent text' }] } },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'other root text' }] } },
+  ];
+
+  assert.deepEqual(getDisplayableMessages(messages as any, new Set([1])).indexes, [0, 2]);
 });

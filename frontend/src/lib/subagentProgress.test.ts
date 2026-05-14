@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { buildSubagentProgress, isSubagentEnvelopeMessage } from './subagentProgress';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const sourcePath = path.resolve(currentDir, './subagentProgress.ts');
@@ -28,8 +29,35 @@ test('subagent progress still groups transcripts through the canonical merge pat
   assert.match(source, /return \{\n    subagents,/);
 });
 
-test('subagent progress hides live-stream messages carrying parent_tool_use_id alongside sidechain', async () => {
-  const source = await readSource();
+test('subagent envelope predicate hides explicit sidechain and parent tool messages only', () => {
+  assert.equal(isSubagentEnvelopeMessage({ isSidechain: true }), true);
+  assert.equal(isSubagentEnvelopeMessage({ parent_tool_use_id: 'toolu_1' }), true);
+  assert.equal(isSubagentEnvelopeMessage({ parentToolUseID: 'toolu_1' }), true);
+  assert.equal(isSubagentEnvelopeMessage({ parentToolUseId: 'toolu_1' }), true);
+  assert.equal(isSubagentEnvelopeMessage({ agentId: 'agent-1' }), false);
+  assert.equal(isSubagentEnvelopeMessage({ agent_id: 'agent-1' }), false);
+});
 
-  assert.match(source, /runtimeMessage\.isSidechain === true \|\|\s*runtimeMessage\.parent_tool_use_id != null \|\|\s*runtimeMessage\.parentToolUseID != null \|\|\s*runtimeMessage\.parentToolUseId != null/);
+test('subagent progress hides explicit envelopes but not agentId-only root messages', () => {
+  const messages = [
+    {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', id: 'toolu_launcher', name: 'Task', input: { description: 'Explore', prompt: 'Check files', agentId: 'agent-1' } }],
+      },
+    },
+    { type: 'assistant', isSidechain: true, message: { content: [{ type: 'text', text: 'sidechain' }] } },
+    { type: 'user', parent_tool_use_id: 'toolu_launcher', message: { content: [{ type: 'text', text: 'subagent prompt' }] } },
+    { type: 'assistant', parentToolUseID: 'toolu_launcher', message: { content: [{ type: 'text', text: 'alias 1' }] } },
+    { type: 'assistant', parentToolUseId: 'toolu_launcher', message: { content: [{ type: 'text', text: 'alias 2' }] } },
+    { type: 'assistant', agentId: 'agent-1', message: { content: [{ type: 'text', text: 'root-visible correlated message' }] } },
+  ];
+
+  const summary = buildSubagentProgress(messages as any);
+
+  assert.equal(summary.subagentMessageIndexes.has(1), true);
+  assert.equal(summary.subagentMessageIndexes.has(2), true);
+  assert.equal(summary.subagentMessageIndexes.has(3), true);
+  assert.equal(summary.subagentMessageIndexes.has(4), true);
+  assert.equal(summary.subagentMessageIndexes.has(5), false);
 });

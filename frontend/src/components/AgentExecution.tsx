@@ -30,7 +30,8 @@ import { cn } from "@/lib/utils";
 import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { SubagentProgressPanel } from "./SubagentProgressPanel";
 import { MessageScrollSeekPlaceholder } from "./MessageScrollSeekPlaceholder";
-import { buildSubagentProgress, isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
+import { buildSubagentProgress } from "@/lib/subagentProgress";
+import { getDisplayableMessages } from "./ai-code-session/utils/messageFilter";
 
 import { ExecutionControlBar } from "./ExecutionControlBar";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -230,75 +231,10 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
     []
   );
 
-  const displayableMessages = React.useMemo(() => {
-    return messages.filter((message, index) => {
-      if (subagentProgress.subagentMessageIndexes.has(index)) {
-        return false;
-      }
-      if (isSubagentEnvelopeMessage(message)) return false;
-      // Skip meta messages that don't have meaningful content
-      if (message.isMeta && !message.leafUuid && !message.summary) {
-        return false;
-      }
-
-      // Skip empty user messages
-      if (message.type === "user" && message.message) {
-        if (message.isMeta) return false;
-        
-        const msg = message.message;
-        if (!msg.content || (Array.isArray(msg.content) && msg.content.length === 0)) {
-          return false;
-        }
-        
-        // Check if user message has visible content by checking its parts
-        if (Array.isArray(msg.content)) {
-          let hasVisibleContent = false;
-          for (const content of msg.content) {
-            if (content.type === "text") {
-              hasVisibleContent = true;
-              break;
-            } else if (content.type === "tool_result") {
-              // Check if this tool result will be skipped by a widget
-              let willBeSkipped = false;
-              if (content.tool_use_id) {
-                // Look for the matching tool_use in previous assistant messages
-                for (let i = index - 1; i >= 0; i--) {
-                  const prevMsg = messages[i];
-                  if (prevMsg.type === 'assistant' && prevMsg.message?.content && Array.isArray(prevMsg.message.content)) {
-                    const toolUse = prevMsg.message.content.find((c: any) => 
-                      c.type === 'tool_use' && c.id === content.tool_use_id
-                    );
-                    if (toolUse) {
-                      const toolName = toolUse.name?.toLowerCase();
-                      const toolsWithWidgets = [
-                        'task', 'edit', 'multiedit', 'todowrite', 'ls', 'read', 
-                        'glob', 'bash', 'write', 'grep', 'agentoutputtool'
-                      ];
-                      if (toolsWithWidgets.includes(toolName) || toolUse.name?.startsWith('mcp__')) {
-                        willBeSkipped = true;
-                      }
-                      break;
-                    }
-                  }
-                }
-              }
-              
-              if (!willBeSkipped) {
-                hasVisibleContent = true;
-                break;
-              }
-            }
-          }
-          
-          if (!hasVisibleContent) {
-            return false;
-          }
-        }
-      }
-
-      return true;
-    });
-  }, [messages, subagentProgress.subagentMessageIndexes]);
+  const displayableMessages = React.useMemo(
+    () => getDisplayableMessages(messages, subagentProgress.subagentMessageIndexes).messages,
+    [messages, subagentProgress.subagentMessageIndexes]
+  );
 
   const streamMessageContext = React.useMemo(
     () => buildStreamMessageContext(messages),
