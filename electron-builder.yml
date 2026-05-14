@@ -25,6 +25,10 @@ extraResources:
     to: frontend
     filter:
       - "**/*"
+  - from: assets
+    to: assets
+    filter:
+      - "**/*"
 
 mac:
   target:

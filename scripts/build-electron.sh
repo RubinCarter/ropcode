@@ -69,15 +69,26 @@ echo "Preparing electron-builder config for $CURRENT_OS..."
 if [[ "$CURRENT_OS" == "darwin" ]]; then
   SERVER_BIN="bin/darwin/\${arch}/ropcode-server"
   CLI_BIN="bin/darwin/\${arch}/ropcode"
+  SERVER_RESOURCE="bin/ropcode-server"
+  CLI_RESOURCE="bin/ropcode"
 elif [[ "$CURRENT_OS" == "linux" ]]; then
   SERVER_BIN="bin/linux/x64/ropcode-server"
   CLI_BIN="bin/linux/x64/ropcode"
+  SERVER_RESOURCE="bin/ropcode-server"
+  CLI_RESOURCE="bin/ropcode"
 elif [[ "$CURRENT_OS" == "win32" ]]; then
   SERVER_BIN="bin/win32/x64/ropcode-server.exe"
   CLI_BIN="bin/win32/x64/ropcode.exe"
+  SERVER_RESOURCE="bin/ropcode-server.exe"
+  CLI_RESOURCE="bin/ropcode.exe"
 fi
 
-sed -e "s|from: bin/darwin/\${arch}/ropcode-server|from: $SERVER_BIN|" -e "s|from: bin/darwin/\${arch}/ropcode$|from: $CLI_BIN|" electron-builder.yml > electron-builder-tmp.yml
+sed \
+  -e "s|from: bin/darwin/\${arch}/ropcode-server|from: $SERVER_BIN|" \
+  -e "s|to: bin/ropcode-server|to: $SERVER_RESOURCE|" \
+  -e "s|from: bin/darwin/\${arch}/ropcode$|from: $CLI_BIN|" \
+  -e "s|to: bin/ropcode$|to: $CLI_RESOURCE|" \
+  electron-builder.yml > electron-builder-tmp.yml
 
 # 6. 打包
 echo "Packaging with electron-builder ($BUILDER_TARGET)..."
