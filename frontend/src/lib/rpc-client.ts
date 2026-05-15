@@ -119,6 +119,56 @@ export namespace main {
     message_timestamp?: string;
     first_message?: string;
   }
+  export interface ClaudeActivityUsage {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+    total_tokens?: number;
+    tool_uses?: number;
+  }
+  export interface ClaudeActivity {
+    id: string;
+    type: 'local_agent' | 'local_bash' | 'other';
+    task_type: string;
+    description?: string;
+    summary?: string;
+    status: 'running' | 'stopping' | 'completed' | 'failed' | 'stopped' | 'stale' | 'stop_unknown';
+    started_at?: string;
+    updated_at: string;
+    ended_at?: string;
+    output_file?: string;
+    last_activity?: string;
+    usage?: ClaudeActivityUsage;
+    pid?: number | null;
+    can_stop: boolean;
+    error?: string;
+  }
+  export interface ClaudeActivitySnapshot {
+    session_id: string;
+    project_path: string;
+    activities: ClaudeActivity[];
+    subagents: ClaudeActivity[];
+    background_tasks: ClaudeActivity[];
+    other: ClaudeActivity[];
+    running_count: number;
+    stopping_count: number;
+    failed_count: number;
+  }
+  export interface ClaudeActivityLogTail {
+    session_id: string;
+    activity_id: string;
+    path?: string;
+    content: string;
+    line_count: number;
+    truncated_lines: number;
+    truncated_bytes: number;
+    error?: string;
+    path_exists: boolean;
+    bytes_read: number;
+    requested_lines: number;
+    resolved_by?: string;
+  }
   export interface HookValidationResult { valid: boolean; error?: string; }
   export interface UsageStats { totalRequests: number; }
   export interface ClaudeAgentEntry { name: string; category: string; }
@@ -789,6 +839,22 @@ export function IsClaudeSessionRunningForProject(projectPath: string, sessionId:
 
 export function ListRunningClaudeSessions(): Promise<claude.SessionStatus[]> {
   return wsClient.call('ListRunningClaudeSessions');
+}
+
+export function GetClaudeSessionActivities(sessionId: string): Promise<main.ClaudeActivitySnapshot> {
+  return wsClient.call('GetClaudeSessionActivities', sessionId);
+}
+
+export function GetClaudeActivityLogTail(
+  sessionId: string,
+  activityId: string,
+  maxLines: number
+): Promise<main.ClaudeActivityLogTail> {
+  return wsClient.call('GetClaudeActivityLogTail', sessionId, activityId, maxLines);
+}
+
+export function StopClaudeActivity(sessionId: string, activityId: string): Promise<void> {
+  return wsClient.call('StopClaudeActivity', sessionId, activityId);
 }
 
 // ==================== Claude 设置 ====================

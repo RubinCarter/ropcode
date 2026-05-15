@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 	"ropcode/internal/claude"
+	"ropcode/internal/claudeactivity"
 	"ropcode/internal/codex"
 	"ropcode/internal/database"
 	"ropcode/internal/gemini"
@@ -640,6 +641,18 @@ type LiveProviderSession struct {
 	StartedAt   time.Time `json:"started_at"`
 	PID         int       `json:"pid,omitempty"`
 	Provider    string    `json:"provider"`
+}
+
+type claudeActivityControlSender struct {
+	manager   *claude.SessionManager
+	sessionID string
+}
+
+func (s claudeActivityControlSender) SendStopTask(requestID, taskID string) error {
+	if s.manager == nil {
+		return fmt.Errorf("claude manager not initialized")
+	}
+	return s.manager.SendStopTaskRequest(s.sessionID, requestID, taskID)
 }
 
 // ListProviderSessions lists sessions for a project based on provider type
@@ -1989,6 +2002,12 @@ func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID, r
 	if err != nil {
 		return "", err
 	}
+	if a.claudeActivity != nil {
+		a.claudeActivity.EnsureSession(sessionID, projectPath, true, claudeActivityControlSender{
+			manager:   a.claudeManager,
+			sessionID: sessionID,
+		})
+	}
 
 	// Wait for the interactive session to complete initialization (control_request/response)
 	// This must complete before SendClaudeMessage can be called
@@ -2063,6 +2082,27 @@ func (a *App) ListRunningClaudeSessions() []*claude.SessionStatus {
 		return nil
 	}
 	return a.claudeManager.ListRunningSessions()
+}
+
+func (a *App) GetClaudeSessionActivities(sessionID string) (claudeactivity.Snapshot, error) {
+	if a.claudeActivity == nil {
+		return claudeactivity.Snapshot{}, fmt.Errorf("claude activity service not initialized")
+	}
+	return a.claudeActivity.GetSnapshot(sessionID)
+}
+
+func (a *App) GetClaudeActivityLogTail(sessionID, activityID string, maxLines int) (claudeactivity.LogTail, error) {
+	if a.claudeActivity == nil {
+		return claudeactivity.LogTail{}, fmt.Errorf("claude activity service not initialized")
+	}
+	return a.claudeActivity.GetLogTail(sessionID, activityID, maxLines)
+}
+
+func (a *App) StopClaudeActivity(sessionID, activityID string) error {
+	if a.claudeActivity == nil {
+		return fmt.Errorf("claude activity service not initialized")
+	}
+	return a.claudeActivity.StopActivity(sessionID, activityID)
 }
 
 // GetClaudeSessionOutput returns the output of a session

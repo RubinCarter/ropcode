@@ -38,12 +38,13 @@ func discoverClaudeBinaryPath() (string, error) {
 }
 
 type SessionManager struct {
-	ctx            context.Context
-	emitter        EventEmitter
-	processEmitter ProcessChangedEmitter
-	sessions       map[string]*Session
-	binaryPath     string
-	mu             sync.RWMutex
+	ctx              context.Context
+	emitter          EventEmitter
+	processEmitter   ProcessChangedEmitter
+	activityObserver ActivityObserver
+	sessions         map[string]*Session
+	binaryPath       string
+	mu               sync.RWMutex
 }
 
 // NewSessionManager creates a new session manager
@@ -81,6 +82,12 @@ func (m *SessionManager) SetProcessEmitter(emitter ProcessChangedEmitter) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.processEmitter = emitter
+}
+
+func (m *SessionManager) SetActivityObserver(observer ActivityObserver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.activityObserver = observer
 }
 
 // discoverBinary attempts to find the Claude binary in common locations
@@ -127,6 +134,7 @@ func (m *SessionManager) StartSession(config SessionConfig) (string, error) {
 
 	// Create new session
 	session := NewSession(config)
+	session.activityObserver = m.activityObserver
 
 	// Start the session
 	if err := session.Start(m.ctx, m.binaryPath, m.emitter, m.processEmitter); err != nil {
@@ -272,6 +280,18 @@ func (m *SessionManager) SendMessage(sessionID, prompt string) error {
 
 	log.Printf("[SendMessage] Sending message to session %s: %s", sessionID, prompt[:min(50, len(prompt))])
 	return session.SendMessage(prompt, m.emitter)
+}
+
+func (m *SessionManager) SendStopTaskRequest(sessionID, requestID, taskID string) error {
+	m.mu.RLock()
+	session, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	return session.SendStopTaskRequest(requestID, taskID)
 }
 
 // WaitForInit waits for an interactive session to complete initialization

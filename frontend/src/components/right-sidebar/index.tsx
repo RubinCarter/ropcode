@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Terminal, FolderTree } from 'lucide-react';
+import { Terminal, FolderTree, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ResizeHandle } from './ResizeHandle';
 import { VerticalResizeHandle } from './VerticalResizeHandle';
@@ -11,6 +11,7 @@ import { TerminalInput } from './TerminalInput';
 import { XtermTerminal } from './XtermTerminal';
 import { RunTabPane } from './RunTabPane';
 import { FileTreeBrowser } from './FileTreeBrowser';
+import { ClaudeActivityPane } from './ClaudeActivityPane';
 import { api, listen, type Action } from '@/lib/api';
 import { useWorkspaceTabContext } from '@/contexts/WorkspaceTabContext';
 import {
@@ -22,6 +23,8 @@ import {
 } from '@/lib/terminalUtils';
 import { usesMetaKeyForAppShortcuts } from '@/lib/platform';
 import { basename, normalizePath } from '@/lib/pathUtils';
+import { activityBadgeCount } from '@/lib/claudeActivity';
+import type { main } from '@/lib/rpc-client';
 
 interface RightSidebarProps {
   isOpen?: boolean;
@@ -56,7 +59,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 }) => {
   const [widthPercent, setWidthPercent] = useState(defaultWidthPercent);
   const [hasGitSupport, setHasGitSupport] = useState(false);
-  const [activeRightTab, setActiveRightTab] = useState<'console' | 'files'>('console');
+  const [activeRightTab, setActiveRightTab] = useState<'console' | 'files' | 'tasks'>('console');
+  const [activitySnapshot, setActivitySnapshot] = useState<main.ClaudeActivitySnapshot | null>(null);
 
   // 广播右侧栏宽度变化
   useEffect(() => {
@@ -87,7 +91,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
   const [gitPaneHeight, setGitPaneHeight] = useState(250); // Git 面板高度
   const terminalContainerRef = useRef<HTMLDivElement>(null);
-  const { tabs, addTab, updateTab, setActiveTab } = useWorkspaceTabContext();
+  const { tabs, activeTabId, addTab, updateTab, setActiveTab } = useWorkspaceTabContext();
+  const activeWorkspaceTab = tabs.find(tab => tab.id === activeTabId);
+  const activeClaudeChatTab =
+    activeWorkspaceTab?.type === 'chat' && (activeWorkspaceTab.providerId ?? 'claude') === 'claude'
+      ? activeWorkspaceTab
+      : undefined;
 
   // 创建 Diff Tab（与 File Tab 共用同一个 slot）
   const createDiffTab = useCallback((filePath: string, projectPath: string, gitStatus?: GitFileChange['status']): string | null => {
@@ -792,6 +801,26 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           <FolderTree className="w-4 h-4" />
           Files
         </button>
+        <button
+          onClick={() => setActiveRightTab('tasks')}
+          disabled={!activeClaudeChatTab}
+          className={cn(
+            "flex-1 px-4 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2",
+            activeRightTab === 'tasks'
+              ? "bg-background text-foreground border-b-2 border-primary"
+              : activeClaudeChatTab
+                ? "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                : "text-muted-foreground/50 cursor-not-allowed"
+          )}
+        >
+          <ListChecks className="w-4 h-4" />
+          Tasks
+          {activityBadgeCount(activitySnapshot) > 0 && (
+            <span className="ml-0.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">
+              {activityBadgeCount(activitySnapshot)}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Tab 内容 - Console */}
@@ -891,6 +920,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             workspacePath={currentProjectPath}
             onFileClick={handleFileTreeClick}
           />
+        </div>
+      )}
+
+      {activeRightTab === 'tasks' && (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {activeClaudeChatTab ? (
+            <ClaudeActivityPane
+              workspacePath={currentProjectPath || activeClaudeChatTab.projectPath}
+              onSnapshotChange={setActivitySnapshot}
+            />
+          ) : (
+            <div className="flex-1 grid place-items-center px-4 text-center text-sm text-muted-foreground">
+              Select a Claude chat tab to view tasks.
+            </div>
+          )}
         </div>
       )}
 

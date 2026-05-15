@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"ropcode/internal/claude"
+	"ropcode/internal/claudeactivity"
 	"ropcode/internal/codex"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
@@ -34,6 +35,7 @@ type App struct {
 	processManager      *process.Manager
 	dbManager           *database.Database
 	claudeManager       *claude.SessionManager
+	claudeActivity      *claudeactivity.Service
 	geminiManager       *gemini.SessionManager
 	codexManager        *codex.SessionManager
 	mcpManager          *mcp.Manager
@@ -91,8 +93,10 @@ func (a *App) startup(ctx context.Context) {
 	a.processManager.SetEventHub(a.eventHub)
 
 	// Initialize Claude session manager
+	a.claudeActivity = claudeactivity.NewService()
 	a.claudeManager = claude.NewSessionManager(ctx, eventEmitter)
 	a.claudeManager.SetProcessEmitter(&claudeProcessEmitter{eventHub: a.eventHub})
+	a.claudeManager.SetActivityObserver(a.claudeActivity)
 
 	// Initialize Gemini session manager
 	a.geminiManager = gemini.NewSessionManager(ctx, eventEmitter)

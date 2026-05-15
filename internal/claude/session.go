@@ -106,13 +106,15 @@ type Session struct {
 	processEmitter ProcessChangedEmitter
 
 	// Interactive mode fields
-	stdin           io.WriteCloser
-	interactive     bool
-	initialized     bool
-	initDone        chan struct{}
-	runtime         RuntimeState // Fine-grained activity state derived from JSONL stream
-	emitter         EventEmitter // Save reference for SendMessage to use
-	claudeSessionID string       // The Claude-side session ID (from system.init), used for --resume
+	stdin            io.WriteCloser
+	interactive      bool
+	initialized      bool
+	initDone         chan struct{}
+	runtime          RuntimeState // Fine-grained activity state derived from JSONL stream
+	emitter          EventEmitter // Save reference for SendMessage to use
+	claudeSessionID  string       // The Claude-side session ID (from system.init), used for --resume
+	activityObserver ActivityObserver
+	initDoneClosed   bool
 }
 
 // EventEmitter interface for emitting events
@@ -123,6 +125,12 @@ type EventEmitter interface {
 // ProcessChangedEmitter interface for emitting process state changes
 type ProcessChangedEmitter interface {
 	EmitProcessChanged(event ProcessChangedEvent)
+}
+
+type ActivityObserver interface {
+	ObserveClaudeEvent(sessionID string, event map[string]interface{})
+	CompleteSession(sessionID string)
+	HandleControlResponse(sessionID string, response map[string]interface{})
 }
 
 // ProcessChangedEvent represents a process state change
@@ -343,31 +351,64 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 
 // sendInitialize sends the control_request to initialize the interactive session
 func (s *Session) sendInitialize() {
-	controlRequest := map[string]interface{}{
-		"type":       "control_request",
-		"request_id": "init_1",
-		"request": map[string]interface{}{
-			"subtype": "initialize",
-		},
+	controlRequest := controlRequestMessage("init_1", "initialize", "")
+	s.writeControlRequest(controlRequest, "initialize")
+}
+
+func controlRequestMessage(requestID, subtype, taskID string) map[string]interface{} {
+	request := map[string]interface{}{
+		"subtype": subtype,
 	}
+	if taskID != "" {
+		request["task_id"] = taskID
+	}
+	return map[string]interface{}{
+		"type":       "control_request",
+		"request_id": requestID,
+		"request":    request,
+	}
+}
+
+func (s *Session) writeControlRequest(controlRequest map[string]interface{}, label string) error {
 	jsonBytes, err := json.Marshal(controlRequest)
 	if err != nil {
-		log.Printf("[Session] Failed to marshal initialize request: %v", err)
-		return
+		log.Printf("[Session] Failed to marshal %s request: %v", label, err)
+		return fmt.Errorf("failed to marshal %s request: %w", label, err)
 	}
 	jsonBytes = append(jsonBytes, '\n')
 
 	s.mu.Lock()
 	if s.stdin == nil {
 		s.mu.Unlock()
-		return
+		return fmt.Errorf("session stdin is not available")
 	}
 	stdin := s.stdin
 	s.mu.Unlock()
 
 	if _, err := stdin.Write(jsonBytes); err != nil {
-		log.Printf("[Session] Failed to send initialize request: %v", err)
+		log.Printf("[Session] Failed to send %s request: %v", label, err)
+		return fmt.Errorf("failed to send %s request: %w", label, err)
 	}
+	return nil
+}
+
+func (s *Session) SendStopTaskRequest(requestID, taskID string) error {
+	if requestID == "" || taskID == "" {
+		return fmt.Errorf("request id and task id are required")
+	}
+
+	s.mu.RLock()
+	interactive := s.interactive
+	running := s.Status == "running"
+	s.mu.RUnlock()
+	if !interactive {
+		return fmt.Errorf("session is not in interactive mode")
+	}
+	if !running {
+		return fmt.Errorf("session is not running")
+	}
+
+	return s.writeControlRequest(controlRequestMessage(requestID, "stop_task", taskID), "stop_task")
 }
 
 // WaitForInit blocks until the interactive session is initialized or timeout/error occurs
@@ -508,13 +549,13 @@ func (s *Session) processOutputLine(lineBytes []byte, outputType string, emitter
 		if s.interactive {
 			msgType, _ := msg["type"].(string)
 
-			// Handle control_response: mark initialized, do NOT forward
+			if s.activityObserver != nil {
+				s.activityObserver.ObserveClaudeEvent(s.ID, msg)
+			}
+
+			// Handle control_response: route by request_id, do NOT forward
 			if msgType == "control_response" {
-				s.mu.Lock()
-				s.initialized = true
-				s.mu.Unlock()
-				close(s.initDone)
-				log.Printf("[Session] Interactive session initialized (control_response received)")
+				s.handleControlResponse(msg)
 				return
 			}
 
@@ -566,6 +607,33 @@ func (s *Session) processOutputLine(lineBytes []byte, outputType string, emitter
 		log.Printf("[Session] Emitting raw output (%s): %s", outputType, line)
 		emitter.Emit("claude-output", string(rawJSON))
 	}
+}
+
+func (s *Session) handleControlResponse(msg map[string]interface{}) bool {
+	requestID, _ := msg["request_id"].(string)
+	if requestID == "init_1" {
+		s.mu.Lock()
+		s.initialized = true
+		shouldClose := s.initDone != nil && !s.initDoneClosed
+		if shouldClose {
+			s.initDoneClosed = true
+		}
+		s.mu.Unlock()
+		if shouldClose {
+			close(s.initDone)
+		}
+		log.Printf("[Session] Interactive session initialized (control_response received)")
+		return true
+	}
+
+	if s.activityObserver != nil {
+		s.activityObserver.HandleControlResponse(s.ID, msg)
+		log.Printf("[Session] Routed control_response to activity observer: request_id=%s", requestID)
+		return true
+	}
+
+	log.Printf("[Session] Unknown control_response request_id=%s", requestID)
+	return true
 }
 
 func (s *Session) handleOutputReadError(err error, outputType string, emitter EventEmitter) {
@@ -808,6 +876,9 @@ func (s *Session) waitForCompletion(emitter EventEmitter) {
 	}
 
 	close(s.done)
+	if s.activityObserver != nil {
+		s.activityObserver.CompleteSession(s.ID)
+	}
 
 	// If process failed with error, emit stderr output as single error message
 	if err != nil && emitter != nil && !s.cancelled {
@@ -881,6 +952,9 @@ func (s *Session) watchProcessExit(emitter EventEmitter) {
 	}
 
 	close(s.done)
+	if s.activityObserver != nil {
+		s.activityObserver.CompleteSession(s.ID)
+	}
 
 	// If process failed unexpectedly, emit error
 	if err != nil && emitter != nil && !s.cancelled {
