@@ -8,6 +8,7 @@ import (
 )
 
 const maxActivitiesPerSession = 50
+const ActivityServiceBuild = "async-tool-result-v2"
 
 type ControlSender interface {
 	SendStopTask(requestID, taskID string) error
@@ -23,11 +24,12 @@ type sessionBucket struct {
 }
 
 type Service struct {
-	mu       sync.RWMutex
-	buckets  map[string]*sessionBucket
-	requests map[string]controlRequest
-	nextID   int64
-	now      func() time.Time
+	mu            sync.RWMutex
+	buckets       map[string]*sessionBucket
+	requests      map[string]controlRequest
+	nextID        int64
+	now           func() time.Time
+	claudeHomeDir string
 }
 
 type controlRequest struct {
@@ -37,9 +39,10 @@ type controlRequest struct {
 
 func NewService() *Service {
 	return &Service{
-		buckets:  make(map[string]*sessionBucket),
-		requests: make(map[string]controlRequest),
-		now:      func() time.Time { return time.Now().UTC() },
+		buckets:       make(map[string]*sessionBucket),
+		requests:      make(map[string]controlRequest),
+		now:           func() time.Time { return time.Now().UTC() },
+		claudeHomeDir: defaultClaudeHomeDir(),
 	}
 }
 
@@ -129,12 +132,12 @@ func (s *Service) GetSnapshot(sessionID string) (Snapshot, error) {
 
 func (b *sessionBucket) snapshot() Snapshot {
 	snapshot := Snapshot{
-		SessionID:        b.sessionID,
-		ProjectPath:      b.projectPath,
-		Activities:       make([]Activity, 0, len(b.activities)),
-		Subagents:        make([]Activity, 0),
-		BackgroundTasks:  make([]Activity, 0),
-		Other:            make([]Activity, 0),
+		SessionID:       b.sessionID,
+		ProjectPath:     b.projectPath,
+		Activities:      make([]Activity, 0, len(b.activities)),
+		Subagents:       make([]Activity, 0),
+		BackgroundTasks: make([]Activity, 0),
+		Other:           make([]Activity, 0),
 	}
 	for _, id := range b.order {
 		activity := b.activities[id]
@@ -148,7 +151,11 @@ func (b *sessionBucket) snapshot() Snapshot {
 		case ActivityTypeLocalAgent:
 			snapshot.Subagents = append(snapshot.Subagents, copy)
 		case ActivityTypeLocalBash:
-			snapshot.BackgroundTasks = append(snapshot.BackgroundTasks, copy)
+			if copy.Async {
+				snapshot.BackgroundTasks = append(snapshot.BackgroundTasks, copy)
+			} else {
+				snapshot.Other = append(snapshot.Other, copy)
+			}
 		default:
 			snapshot.Other = append(snapshot.Other, copy)
 		}

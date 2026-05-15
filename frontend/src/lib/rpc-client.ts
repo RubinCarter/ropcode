@@ -138,6 +138,7 @@ export namespace main {
     updated_at: string;
     ended_at?: string;
     output_file?: string;
+    async?: boolean;
     last_activity?: string;
     usage?: ClaudeActivityUsage;
     pid?: number | null;

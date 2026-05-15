@@ -44,6 +44,9 @@ func (s *Service) ObserveClaudeEvent(sessionID string, event map[string]interfac
 func (s *Service) observeTaskStarted(bucket *sessionBucket, event map[string]interface{}, now time.Time) {
 	id := stringField(event, "task_id")
 	taskType := stringField(event, "task_type")
+	if shouldIgnoreUntrackedTaskEvent(bucket, id, taskType, event) {
+		return
+	}
 	activity := bucket.ensureActivity(id, taskType, now)
 	if activity == nil {
 		return
@@ -63,6 +66,9 @@ func (s *Service) observeTaskStarted(bucket *sessionBucket, event map[string]int
 func (s *Service) observeTaskProgress(bucket *sessionBucket, event map[string]interface{}, now time.Time) {
 	id := stringField(event, "task_id")
 	taskType := stringField(event, "task_type")
+	if shouldIgnoreUntrackedTaskEvent(bucket, id, taskType, event) {
+		return
+	}
 	activity := bucket.ensureActivity(id, taskType, now)
 	if activity == nil {
 		return
@@ -79,6 +85,9 @@ func (s *Service) observeTaskProgress(bucket *sessionBucket, event map[string]in
 func (s *Service) observeTaskNotification(bucket *sessionBucket, event map[string]interface{}, now time.Time) {
 	id := stringField(event, "task_id")
 	taskType := stringField(event, "task_type")
+	if shouldIgnoreUntrackedTaskEvent(bucket, id, taskType, event) {
+		return
+	}
 	activity := bucket.ensureActivity(id, taskType, now)
 	if activity == nil {
 		return
@@ -89,6 +98,9 @@ func (s *Service) observeTaskNotification(bucket *sessionBucket, event map[strin
 	setStringIfPresent(&activity.Description, event, "description")
 	setStringIfPresent(&activity.Summary, event, "summary")
 	setStringIfPresent(&activity.OutputFile, event, "output_file")
+	if taskType == "local_bash" && activity.OutputFile != "" {
+		activity.Async = true
+	}
 	setStringIfPresent(&activity.Error, event, "error")
 	if usage, ok := usageFromValue(event["usage"]); ok {
 		activity.Usage = usage
@@ -108,7 +120,31 @@ func (s *Service) observeTaskNotification(bucket *sessionBucket, event map[strin
 	}
 }
 
+func shouldIgnoreUntrackedTaskEvent(bucket *sessionBucket, id, taskType string, event map[string]interface{}) bool {
+	if bucket.activities[id] != nil {
+		return false
+	}
+	if taskType == "local_agent" {
+		return false
+	}
+	return !isAsyncLocalBashLifecycleEvent(taskType, event)
+}
+
+func isAsyncLocalBashLifecycleEvent(taskType string, event map[string]interface{}) bool {
+	if taskType != "local_bash" {
+		return false
+	}
+	if stringField(event, "output_file") != "" {
+		return true
+	}
+	return extractBackgroundOutputPathFromEvent(event) != ""
+}
+
 func (s *Service) observeToolResult(bucket *sessionBucket, event map[string]interface{}, now time.Time) {
+	if s.observeStructuredAsyncToolResult(bucket, event, now) {
+		return
+	}
+
 	message, _ := event["message"].(map[string]interface{})
 	content, _ := message["content"].([]interface{})
 	for _, item := range content {
@@ -133,11 +169,77 @@ func (s *Service) observeToolResult(bucket *sessionBucket, event map[string]inte
 			continue
 		}
 		activity.OutputFile = outputFile
+		activity.Async = true
 		activity.UpdatedAt = now
 		if activity.Description == "" {
 			activity.Description = id
 		}
 	}
+}
+
+func (s *Service) observeStructuredAsyncToolResult(bucket *sessionBucket, event map[string]interface{}, now time.Time) bool {
+	result, ok := event["toolUseResult"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	if id := stringField(result, "backgroundTaskId"); id != "" {
+		activity := bucket.ensureActivity(id, "local_bash", now)
+		if activity == nil {
+			return false
+		}
+		activity.Async = true
+		activity.UpdatedAt = now
+		setStringIfPresent(&activity.OutputFile, result, "outputFile")
+		if activity.OutputFile == "" {
+			activity.OutputFile = extractBackgroundOutputPathFromEvent(event)
+		}
+		if activity.Description == "" {
+			activity.Description = id
+		}
+		return true
+	}
+
+	if isAsync, _ := result["isAsync"].(bool); !isAsync {
+		return false
+	}
+	if strings.ToLower(stringField(result, "status")) != "async_launched" {
+		return false
+	}
+	id := stringField(result, "agentId")
+	if id == "" {
+		return false
+	}
+	activity := bucket.ensureActivity(id, "local_agent", now)
+	if activity == nil {
+		return false
+	}
+	activity.Async = true
+	activity.UpdatedAt = now
+	setStringIfPresent(&activity.Description, result, "description")
+	setStringIfPresent(&activity.OutputFile, result, "outputFile")
+	if activity.OutputFile == "" {
+		activity.OutputFile = extractBackgroundOutputPathFromEvent(event)
+	}
+	if transcriptPath := resolveClaudeSubagentTranscript(s.claudeHomeDir, activity.OutputFile, id); transcriptPath != "" {
+		activity.OutputFile = transcriptPath
+	}
+	return true
+}
+
+func extractBackgroundOutputPathFromEvent(event map[string]interface{}) string {
+	message, _ := event["message"].(map[string]interface{})
+	content, _ := message["content"].([]interface{})
+	for _, item := range content {
+		block, ok := item.(map[string]interface{})
+		if !ok || stringField(block, "type") != "tool_result" {
+			continue
+		}
+		if outputFile := extractBackgroundOutputPath(stringify(block["content"])); outputFile != "" {
+			return outputFile
+		}
+	}
+	return ""
 }
 
 func extractBackgroundOutputPath(text string) string {

@@ -42,6 +42,7 @@ type Activity struct {
 	UpdatedAt    time.Time      `json:"updated_at"`
 	EndedAt      *time.Time     `json:"ended_at,omitempty"`
 	OutputFile   string         `json:"output_file,omitempty"`
+	Async        bool           `json:"async,omitempty"`
 	LastActivity string         `json:"last_activity,omitempty"`
 	Usage        Usage          `json:"usage,omitempty"`
 	PID          *int           `json:"pid"`

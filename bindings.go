@@ -2117,10 +2117,12 @@ func (a *App) GetClaudeActivityLogTail(sessionID, activityID string, maxLines in
 		return claudeactivity.LogTail{}, err
 	}
 	log.Printf(
-		"[GetClaudeActivityLogTail] session=%s activity=%s max_lines=%d path_exists=%v bytes_read=%d lines=%d truncated_lines=%d error=%q",
+		"[GetClaudeActivityLogTail] session=%s activity=%s max_lines=%d resolved_by=%s path=%q path_exists=%v bytes_read=%d lines=%d truncated_lines=%d error=%q",
 		sessionID,
 		activityID,
 		maxLines,
+		tail.ResolvedBy,
+		tail.Path,
 		tail.PathExists,
 		tail.BytesRead,
 		tail.LineCount,

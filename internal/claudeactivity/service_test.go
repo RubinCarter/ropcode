@@ -104,6 +104,205 @@ func TestExtractsBackgroundOutputPathFromToolResult(t *testing.T) {
 	if activity.OutputFile != outputPath {
 		t.Fatalf("expected output path %q, got %q", outputPath, activity.OutputFile)
 	}
+	if !activity.Async {
+		t.Fatal("expected background tool result to mark activity async")
+	}
+}
+
+func TestLocalBashWithoutBackgroundOutputIsNotShownAsBackgroundTask(t *testing.T) {
+	service := NewService()
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type":        "system",
+		"subtype":     "task_started",
+		"task_id":     "sync-bash",
+		"task_type":   "local_bash",
+		"description": "List release tags",
+	})
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type":      "system",
+		"subtype":   "task_notification",
+		"task_id":   "sync-bash",
+		"task_type": "local_bash",
+		"status":    "completed",
+	})
+
+	snapshot, err := service.GetSnapshot("runtime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.BackgroundTasks) != 0 {
+		t.Fatalf("expected no background tasks, got %d", len(snapshot.BackgroundTasks))
+	}
+	if len(snapshot.Other) != 0 {
+		t.Fatalf("expected sync bash to be ignored, got %d other activities", len(snapshot.Other))
+	}
+	if len(snapshot.Activities) != 0 {
+		t.Fatalf("expected sync bash to be ignored, got %d activities", len(snapshot.Activities))
+	}
+}
+
+func TestSystemTaskWithoutTaskTypeIsIgnoredUnlessTracked(t *testing.T) {
+	service := NewService()
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type":        "system",
+		"subtype":     "task_started",
+		"task_id":     "sync-tool",
+		"description": "git log --oneline -30",
+	})
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type":    "system",
+		"subtype": "task_notification",
+		"task_id": "sync-tool",
+		"status":  "completed",
+	})
+
+	snapshot, err := service.GetSnapshot("runtime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Activities) != 0 {
+		t.Fatalf("expected untyped sync task to be ignored, got %d activities", len(snapshot.Activities))
+	}
+}
+
+func TestUntrackedLocalBashNotificationWithOutputFileIsCaptured(t *testing.T) {
+	service := NewService()
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+	outputPath := filepath.Join(t.TempDir(), "bash-output.txt")
+
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type":        "system",
+		"subtype":     "task_notification",
+		"task_id":     "bash-1",
+		"task_type":   "local_bash",
+		"status":      "completed",
+		"output_file": outputPath,
+	})
+
+	snapshot, err := service.GetSnapshot("runtime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.BackgroundTasks) != 1 {
+		t.Fatalf("expected one background task, got %d", len(snapshot.BackgroundTasks))
+	}
+	activity := snapshot.BackgroundTasks[0]
+	if activity.ID != "bash-1" || !activity.Async || activity.OutputFile != outputPath {
+		t.Fatalf("unexpected background task: %#v", activity)
+	}
+	if activity.Status != ActivityStatusCompleted {
+		t.Fatalf("expected completed, got %q", activity.Status)
+	}
+}
+
+func TestStructuredBackgroundToolResultMarksLocalBashAsync(t *testing.T) {
+	service := NewService()
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+	outputPath := filepath.Join(t.TempDir(), "bash-output.txt")
+
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type": "user",
+		"toolUseResult": map[string]interface{}{
+			"backgroundTaskId":          "b123",
+			"assistantAutoBackgrounded": false,
+			"stdout":                    "",
+			"stderr":                    "",
+			"interrupted":               false,
+			"isImage":                   false,
+			"noOutputExpected":          false,
+		},
+		"message": map[string]interface{}{
+			"content": []interface{}{
+				map[string]interface{}{
+					"type":    "tool_result",
+					"content": "Command running in background with ID: b123. Output is being written to: " + outputPath,
+				},
+			},
+		},
+	})
+
+	snapshot, err := service.GetSnapshot("runtime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.BackgroundTasks) != 1 {
+		t.Fatalf("expected one background task, got %d", len(snapshot.BackgroundTasks))
+	}
+	activity := snapshot.BackgroundTasks[0]
+	if activity.ID != "b123" || !activity.Async {
+		t.Fatalf("unexpected activity: %#v", activity)
+	}
+	if activity.OutputFile != outputPath {
+		t.Fatalf("expected output path %q, got %q", outputPath, activity.OutputFile)
+	}
+}
+
+func TestStructuredAsyncAgentResultMarksSubagentAsync(t *testing.T) {
+	service := NewService()
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+	outputPath := filepath.Join(t.TempDir(), "agent.output")
+
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type": "user",
+		"toolUseResult": map[string]interface{}{
+			"isAsync":           true,
+			"status":            "async_launched",
+			"agentId":           "agent-1",
+			"description":       "Investigate history",
+			"outputFile":        outputPath,
+			"canReadOutputFile": true,
+		},
+	})
+
+	snapshot, err := service.GetSnapshot("runtime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Subagents) != 1 {
+		t.Fatalf("expected one subagent, got %d", len(snapshot.Subagents))
+	}
+	activity := snapshot.Subagents[0]
+	if activity.ID != "agent-1" || !activity.Async {
+		t.Fatalf("unexpected activity: %#v", activity)
+	}
+	if activity.Description != "Investigate history" || activity.OutputFile != outputPath {
+		t.Fatalf("structured fields were not retained: %#v", activity)
+	}
+}
+
+func TestStructuredAsyncAgentResultResolvesTranscriptOutputFile(t *testing.T) {
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "claude", "project-slug", "claude-session", "tasks", "agent-1.output")
+	transcriptPath := filepath.Join(dir, ".claude", "projects", "project-slug", "claude-session", "subagents", "agent-agent-1.jsonl")
+
+	service := NewService()
+	service.claudeHomeDir = filepath.Join(dir, ".claude")
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type": "user",
+		"toolUseResult": map[string]interface{}{
+			"isAsync":     true,
+			"status":      "async_launched",
+			"agentId":     "agent-1",
+			"description": "Investigate history",
+			"outputFile":  outputPath,
+		},
+	})
+
+	snapshot, err := service.GetSnapshot("runtime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Subagents) != 1 {
+		t.Fatalf("expected one subagent, got %d", len(snapshot.Subagents))
+	}
+	if snapshot.Subagents[0].OutputFile != transcriptPath {
+		t.Fatalf("expected transcript path %q, got %q", transcriptPath, snapshot.Subagents[0].OutputFile)
+	}
 }
 
 func TestSnapshotUsesEmptySlicesForJSONLists(t *testing.T) {
@@ -132,10 +331,10 @@ func TestCompleteSessionMarksRunningActivitiesStale(t *testing.T) {
 	service := NewService()
 	service.EnsureSession("runtime-1", "E:\\repo", true, &recordingControlSender{})
 	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
-		"type":      "system",
-		"subtype":   "task_started",
-		"task_id":   "b123",
-		"task_type": "local_bash",
+		"type": "user",
+		"toolUseResult": map[string]interface{}{
+			"backgroundTaskId": "b123",
+		},
 	})
 
 	service.CompleteSession("runtime-1")
@@ -158,9 +357,10 @@ func TestKeepsOnlyMostRecentActivities(t *testing.T) {
 
 	for i := 0; i < maxActivitiesPerSession+5; i++ {
 		service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
-			"type":    "system",
-			"subtype": "task_started",
-			"task_id": "task-" + string(rune('a'+i)),
+			"type":      "system",
+			"subtype":   "task_started",
+			"task_id":   "task-" + string(rune('a'+i)),
+			"task_type": "local_agent",
 		})
 	}
 
@@ -186,11 +386,11 @@ func TestLogTailReadsLastLines(t *testing.T) {
 	service := NewService()
 	service.EnsureSession("runtime-1", dir, true, nil)
 	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
-		"type":        "system",
-		"subtype":     "task_notification",
-		"task_id":     "b123",
-		"task_type":   "local_bash",
-		"output_file": logPath,
+		"type": "user",
+		"toolUseResult": map[string]interface{}{
+			"backgroundTaskId": "b123",
+			"outputFile":       logPath,
+		},
 	})
 
 	tail, err := service.GetLogTail("runtime-1", "b123", 2)
@@ -205,15 +405,93 @@ func TestLogTailReadsLastLines(t *testing.T) {
 	}
 }
 
+func TestLogTailFallsBackToClaudeSubagentTranscript(t *testing.T) {
+	dir := t.TempDir()
+	outputPath := filepath.Join(dir, "claude", "project-slug", "claude-session", "tasks", "agent-1.output")
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outputPath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	transcriptPath := filepath.Join(dir, ".claude", "projects", "project-slug", "claude-session", "subagents", "agent-agent-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcriptPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, []byte("alpha\nbeta\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService()
+	service.claudeHomeDir = filepath.Join(dir, ".claude")
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type":        "system",
+		"subtype":     "task_notification",
+		"task_id":     "agent-1",
+		"task_type":   "local_agent",
+		"output_file": outputPath,
+	})
+
+	tail, err := service.GetLogTail("runtime-1", "agent-1", 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.Content != "alpha\nbeta" {
+		t.Fatalf("unexpected tail content %q", tail.Content)
+	}
+	if tail.ResolvedBy != "claude_subagent_transcript" {
+		t.Fatalf("expected fallback resolver, got %q", tail.ResolvedBy)
+	}
+}
+
+func TestLogTailFindsClaudeSubagentTranscriptWithoutOutputFile(t *testing.T) {
+	dir := t.TempDir()
+	transcriptPath := filepath.Join(dir, ".claude", "projects", "project-slug", "claude-session", "subagents", "agent-agent-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcriptPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcriptPath, []byte("alpha\nbeta\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService()
+	service.claudeHomeDir = filepath.Join(dir, ".claude")
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type": "user",
+		"toolUseResult": map[string]interface{}{
+			"isAsync":     true,
+			"status":      "async_launched",
+			"agentId":     "agent-1",
+			"description": "Investigate history",
+		},
+	})
+
+	tail, err := service.GetLogTail("runtime-1", "agent-1", 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tail.Content != "alpha\nbeta" {
+		t.Fatalf("unexpected tail content %q", tail.Content)
+	}
+	if tail.Path != transcriptPath {
+		t.Fatalf("expected path %q, got %q", transcriptPath, tail.Path)
+	}
+	if tail.ResolvedBy != "claude_subagent_transcript" {
+		t.Fatalf("expected fallback resolver, got %q", tail.ResolvedBy)
+	}
+}
+
 func TestStopActivitySendsControlRequestAndMarksStopping(t *testing.T) {
 	sender := &recordingControlSender{}
 	service := NewService()
 	service.EnsureSession("runtime-1", "E:\\repo", true, sender)
 	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
-		"type":      "system",
-		"subtype":   "task_started",
-		"task_id":   "b123",
-		"task_type": "local_bash",
+		"type": "user",
+		"toolUseResult": map[string]interface{}{
+			"backgroundTaskId": "b123",
+		},
 	})
 
 	if err := service.StopActivity("runtime-1", "b123"); err != nil {

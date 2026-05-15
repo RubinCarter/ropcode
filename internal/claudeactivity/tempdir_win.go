@@ -13,3 +13,11 @@ func ClaudeTempDir() string {
 	}
 	return filepath.Join(os.TempDir(), "claude")
 }
+
+func defaultClaudeHomeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude")
+}

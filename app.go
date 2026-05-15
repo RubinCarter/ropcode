@@ -144,6 +144,7 @@ func (a *App) startup(ctx context.Context) {
 	}()
 
 	log.Println("ropcode started successfully")
+	log.Printf("[claudeactivity] build=%s", claudeactivity.ActivityServiceBuild)
 }
 
 // shutdown is called when the app is shutting down
