@@ -1522,33 +1522,48 @@ ${message ? `**说明**:\n${message}` : ''}`;
     ? 'subagent-panel'
     : item.message.uuid || `msg-${item.originalIndex}`, []);
 
-  const itemContent = useCallback((_: number, item: { type: 'subagent-panel' } | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }) => (
-    <div className="w-full max-w-6xl mx-auto px-4 py-2">
-      {item.type === 'subagent-panel' ? (
-        <SubagentProgressPanel
-          summary={messagesState.subagentProgress}
-          streamMessages={messagesState.messages}
-          agentOutputMap={messagesState.agentOutputMap}
-          expanded={isSubagentPanelExpanded}
-          onExpandedChange={setIsSubagentPanelExpanded}
-          expandedAgents={expandedSubagentIds}
-          onExpandedAgentsChange={setExpandedSubagentIds}
-        />
-      ) : (
-        <StreamMessage
-          message={item.message}
-          streamMessages={messagesState.messages}
-          streamContext={messagesState.streamMessageContext}
-          onLinkDetected={handleLinkDetected}
-          agentOutputMap={messagesState.agentOutputMap}
-          isStreamingText={item.isStreamingTail}
-          expandedCards={expandedMessageCards}
-          onExpandedCardsChange={setExpandedMessageCards}
-          messageKey={item.message.uuid || `msg-${item.originalIndex}`}
-        />
-      )}
-    </div>
-  ), [
+  const itemContent = useCallback((_: number, item: { type: 'subagent-panel' } | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }) => {
+    if (item.type === 'subagent-panel') {
+      return (
+        <div className="w-full max-w-6xl mx-auto px-4 py-2">
+          <SubagentProgressPanel
+            summary={messagesState.subagentProgress}
+            streamMessages={messagesState.messages}
+            agentOutputMap={messagesState.agentOutputMap}
+            expanded={isSubagentPanelExpanded}
+            onExpandedChange={setIsSubagentPanelExpanded}
+            expandedAgents={expandedSubagentIds}
+            onExpandedAgentsChange={setExpandedSubagentIds}
+          />
+        </div>
+      );
+    }
+
+    const depth = messagesState.subagentProgress.messageDepthByIndex.get(item.originalIndex) ?? 0;
+    const indentClass = depth === 0
+      ? ''
+      : depth === 1
+        ? 'pl-4 ml-2 border-l-2 border-purple-400/40'
+        : 'pl-4 ml-6 border-l-2 border-purple-400/30';
+
+    return (
+      <div className="w-full max-w-6xl mx-auto px-4 py-2">
+        <div className={cn(indentClass)}>
+          <StreamMessage
+            message={item.message}
+            streamMessages={messagesState.messages}
+            streamContext={messagesState.streamMessageContext}
+            onLinkDetected={handleLinkDetected}
+            agentOutputMap={messagesState.agentOutputMap}
+            isStreamingText={item.isStreamingTail}
+            expandedCards={expandedMessageCards}
+            onExpandedCardsChange={setExpandedMessageCards}
+            messageKey={item.message.uuid || `msg-${item.originalIndex}`}
+          />
+        </div>
+      </div>
+    );
+  }, [
     expandedMessageCards,
     expandedSubagentIds,
     handleLinkDetected,

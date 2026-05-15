@@ -5,7 +5,6 @@
  * Pure functions - no side effects
  */
 
-import { isSubagentEnvelopeMessage } from "@/lib/subagentProgress";
 import type { ClaudeStreamMessage } from "../types";
 import { summarizeRuntimeMessage } from './runtimePresentation';
 
@@ -14,6 +13,8 @@ import { summarizeRuntimeMessage } from './runtimePresentation';
  */
 const TOOLS_WITH_WIDGETS = new Set([
   'task',
+  'agent',
+  'agenttool',
   'edit',
   'multiedit',
   'todowrite',
@@ -269,10 +270,6 @@ function isDisplayableMessage(
   toolUseNamesById: Map<string, string>
 ): boolean {
   if (hiddenIndexes?.has(index)) {
-    return false;
-  }
-
-  if (isSubagentEnvelopeMessage(message)) {
     return false;
   }
 

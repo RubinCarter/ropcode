@@ -450,7 +450,11 @@ function getTaskAgentIds(message: ClaudeStreamMessage, context?: StreamMessageCo
   if (!context) return [];
 
   return getMessageContentBlocks(message).flatMap((content) => {
-    if (content?.type !== 'tool_use' || String(content.name ?? '').toLowerCase() !== 'task' || !content.id) {
+    const toolName = String(content?.name ?? '').toLowerCase();
+    if (content?.type !== 'tool_use' || !content.id) {
+      return [];
+    }
+    if (toolName !== 'task' && toolName !== 'agent' && toolName !== 'agenttool') {
       return [];
     }
 
@@ -729,8 +733,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
                     
                     // Function to render the appropriate tool widget
                     const renderToolWidget = () => {
-                      // Task tool - for sub-agent tasks
-                      if (toolName === "task" && input) {
+                      // Task tool - for sub-agent tasks (Claude CLI emits "Task" / "Agent" / "AgentTool")
+                      if ((toolName === "task" || toolName === "agent" || toolName === "agenttool") && input) {
                         renderedSomething = true;
                         return (
                           <TaskWidget

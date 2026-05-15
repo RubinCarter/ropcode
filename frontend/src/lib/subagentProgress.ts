@@ -55,6 +55,7 @@ export interface SubagentProgressSummary {
   rootMessages: ClaudeStreamMessageLike[];
   rootMessageIndexes: Set<number>;
   subagentMessageIndexes: Set<number>;
+  messageDepthByIndex: Map<number, number>;
   totalToolUseCount: number;
   totalTokenCount: number;
   runningCount: number;
@@ -104,25 +105,17 @@ function countToolUses(message: ClaudeStreamMessageLike): number {
   return assistantToolUses(message).length;
 }
 
-function shouldHideGroupedMessage(message: ClaudeStreamMessageLike): boolean {
-  if (message.type === "system" && (message.subtype === "task_progress" || message.subtype === "task_started")) return true;
-
+function isLauncherToolResultMessage(message: ClaudeStreamMessageLike, toolUseToSubagentId: Map<string, string>): boolean {
+  if (message.type !== "user") return false;
   const content = message.message?.content ?? message.content;
   if (!Array.isArray(content) || content.length === 0) return false;
+  return content.every((block) => block?.type === "tool_result" && block.tool_use_id && toolUseToSubagentId.has(String(block.tool_use_id)));
+}
 
-  if (message.type === "assistant") {
-    return content.every((block) => {
-      if (block?.type === "thinking") return true;
-      if (block?.type !== "tool_use") return false;
-      return isSubagentLauncher(block) || String(block.name ?? "").toLowerCase() === "agentoutputtool";
-    });
-  }
-
-  if (message.type === "user") {
-    return content.every((block) => block?.type === "tool_result" && block.tool_use_id);
-  }
-
-  return false;
+function isTaskLifecycleSystemMessage(message: ClaudeStreamMessageLike): boolean {
+  if (message.type !== "system") return false;
+  const subtype = String(message.subtype ?? "");
+  return subtype === "task_progress" || subtype === "task_started" || subtype === "task_notification";
 }
 
 function getToolResultBlocks(message: ClaudeStreamMessageLike): any[] {
@@ -383,10 +376,18 @@ export function buildSubagentProgress(
   const toolUseToSubagentId = new Map<string, string>();
   const agentIdToSubagentId = new Map<string, string>();
   const subagentMessageIndexes = new Set<number>();
+  const messageDepthByIndex = new Map<number, number>();
+  const subagentDepth = new Map<string, number>();
+
+  const assignToSubagent = (subagentId: string, index: number) => {
+    if (messageDepthByIndex.has(index)) return;
+    const depth = subagentDepth.get(subagentId) ?? 1;
+    messageDepthByIndex.set(index, depth);
+  };
 
   messages.forEach((message, index) => {
     if (applyTaskProgressEvent(subagentsById, message, index, toolUseToSubagentId)) {
-      if (shouldHideGroupedMessage(message)) subagentMessageIndexes.add(index);
+      if (isTaskLifecycleSystemMessage(message)) subagentMessageIndexes.add(index);
       return;
     }
 
@@ -394,6 +395,7 @@ export function buildSubagentProgress(
       if (!isSubagentLauncher(toolUse)) continue;
 
       const id = String(toolUse.id || toolUse.input?.agentId || toolUse.input?.agent_id || `subagent-${index}`);
+      const isNew = !subagentsById.has(id);
       const subagent = ensureSubagent(subagentsById, id, labelFromInput(toolUse.input, `Subagent ${subagentsById.size + 1}`));
       subagent.description = getInputValue(toolUse.input, ["description"]) ?? subagent.description;
       subagent.prompt = getInputValue(toolUse.input, ["prompt"]);
@@ -406,8 +408,15 @@ export function buildSubagentProgress(
       }
 
       if (toolUse.id) toolUseToSubagentId.set(toolUse.id, id);
+
+      // Depth of the subagent itself = parent depth + 1; parent depth comes from the
+      // launcher message's own depth (if it's a sidechain message of another subagent).
+      if (isNew) {
+        const launcherDepth = messageDepthByIndex.get(index) ?? 0;
+        subagentDepth.set(id, launcherDepth + 1);
+      }
+
       addMessageToSubagent(subagent, message, index, { countMessage: false });
-      if (shouldHideGroupedMessage(message)) subagentMessageIndexes.add(index);
     }
 
     for (const resultBlock of getToolResultBlocks(message)) {
@@ -422,7 +431,6 @@ export function buildSubagentProgress(
         subagent.status = hasErrorResult(resultBlock) ? "failed" : "completed";
         subagent.lastActivity = subagent.status === "failed" ? "Error" : "Completed";
         addMessageToSubagent(subagent, message, index, { countMessage: false });
-        if (shouldHideGroupedMessage(message)) subagentMessageIndexes.add(index);
       }
 
       let parsedResult: any;
@@ -435,19 +443,20 @@ export function buildSubagentProgress(
         }
       }
 
-      if (parsedResult && applyAgentOutputResult(subagentsById, parsedResult, index, message, agentIdToSubagentId)) {
-        if (shouldHideGroupedMessage(message)) subagentMessageIndexes.add(index);
+      if (parsedResult) {
+        applyAgentOutputResult(subagentsById, parsedResult, index, message, agentIdToSubagentId);
       }
     }
 
     if ((message as any).toolUseResult?.agents) {
-      if (applyAgentOutputResult(subagentsById, (message as any).toolUseResult, index, message, agentIdToSubagentId)) {
-        if (shouldHideGroupedMessage(message)) subagentMessageIndexes.add(index);
-      }
+      applyAgentOutputResult(subagentsById, (message as any).toolUseResult, index, message, agentIdToSubagentId);
+    }
+
+    if (isLauncherToolResultMessage(message, toolUseToSubagentId)) {
+      subagentMessageIndexes.add(index);
     }
 
     if (isSubagentEnvelopeMessage(message)) {
-      subagentMessageIndexes.add(index);
       const parentToolUseId =
         (message as any).parent_tool_use_id ??
         (message as any).parentToolUseID ??
@@ -457,15 +466,21 @@ export function buildSubagentProgress(
         if (subagentId) {
           const subagent = subagentsById.get(subagentId)!;
           addMessageToSubagent(subagent, message, index);
+          assignToSubagent(subagentId, index);
+        } else {
+          // Unknown launcher — keep the message-filter envelope fallback active by
+          // hiding it. Once the launcher arrives the user can re-run / scroll to see it.
+          subagentMessageIndexes.add(index);
         }
       }
     }
 
     const agentId = normalizeAgentId(String(message.agentId || message.agent_id || ""));
     if (agentId && agentIdToSubagentId.has(agentId)) {
-      const subagent = subagentsById.get(agentIdToSubagentId.get(agentId)!)!;
+      const subagentId = agentIdToSubagentId.get(agentId)!;
+      const subagent = subagentsById.get(subagentId)!;
       addMessageToSubagent(subagent, message, index);
-      if (shouldHideGroupedMessage(message)) subagentMessageIndexes.add(index);
+      assignToSubagent(subagentId, index);
     }
   });
 
@@ -501,6 +516,7 @@ export function buildSubagentProgress(
       rootMessages: messages,
       rootMessageIndexes: new Set(messages.map((_, index) => index)),
       subagentMessageIndexes: new Set(),
+      messageDepthByIndex: new Map(),
       totalToolUseCount: 0,
       totalTokenCount: 0,
       runningCount: 0,
@@ -520,6 +536,7 @@ export function buildSubagentProgress(
     rootMessages,
     rootMessageIndexes,
     subagentMessageIndexes,
+    messageDepthByIndex,
     totalToolUseCount: subagents.reduce((sum, subagent) => sum + subagent.toolUseCount, 0),
     totalTokenCount: subagents.reduce((sum, subagent) => sum + subagent.tokenCount, 0),
     runningCount: subagents.filter((subagent) => subagent.status === "running").length,
