@@ -139,3 +139,71 @@ jobs:
             release/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build Go binaries
+        run: |
+          mkdir -p bin/win32/x64
+          $env:GOOS="windows"; $env:GOARCH="amd64"; go build -tags server -o bin/win32/x64/ropcode-server.exe .
+          $env:GOOS="windows"; $env:GOARCH="amd64"; go build -o bin/win32/x64/ropcode.exe ./cmd/ropcode
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install root dependencies (electron-builder)
+        run: npm install
+
+      - name: Build Electron
+        working-directory: electron
+        run: |
+          npm install
+          npm run build
+
+      - name: Copy frontend to Electron
+        run: |
+          New-Item -ItemType Directory -Force -Path electron/dist/frontend
+          Copy-Item -Recurse -Force frontend/dist/* electron/dist/frontend/
+
+      - name: Package Windows EXE
+        run: |
+          $content = Get-Content electron-builder.yml -Raw
+          $content = $content -replace 'from: bin/darwin/\$\{arch\}/ropcode-server', 'from: bin/win32/x64/ropcode-server.exe'
+          $content = $content -replace 'from: bin/darwin/\$\{arch\}/ropcode$', 'from: bin/win32/x64/ropcode.exe'
+          $content | Set-Content electron-builder-tmp.yml
+          npx electron-builder --win --config electron-builder-tmp.yml
+          Remove-Item electron-builder-tmp.yml
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Windows artifacts to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
