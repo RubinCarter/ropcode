@@ -11,13 +11,16 @@ const listeners = new Set<() => void>();
 function serialize(args: unknown[]): string[] {
   return args.map(a => {
     if (typeof a === 'string') return a;
+    if (a instanceof Error) return a.stack || a.message;
     try { return JSON.stringify(a); } catch { return String(a); }
   });
 }
 
 function push(level: LogEntry['level'], args: unknown[]) {
-  entries.push({ timestamp: Date.now(), level, args: serialize(args) });
+  const serializedArgs = serialize(args);
+  entries.push({ timestamp: Date.now(), level, args: serializedArgs });
   if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
+  window.electronAPI?.writeRendererLog?.(level, 'renderer-debug-log', serializedArgs);
   listeners.forEach(fn => fn());
 }
 

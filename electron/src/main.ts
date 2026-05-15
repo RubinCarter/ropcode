@@ -6,9 +6,13 @@ import { startGoServer, stopGoServer, GoServerInfo } from './go-server';
 import { buildAppMenuTemplate } from './app-menu';
 import { createInstallEnvironment, installCliToPath, resolvePackagedCliBinaryPath } from './cli-installer';
 import { resolveDevCliBinaryPath } from './main-paths';
+import { createFileLogger, patchConsoleToFile } from './file-logger';
 
 let mainWindow: BrowserWindow | null = null;
 let goServerInfo: GoServerInfo | null = null;
+const electronLogger = createFileLogger('ropcode-electron');
+const rendererLogger = createFileLogger('ropcode-renderer');
+patchConsoleToFile(electronLogger);
 
 const isDev = !app.isPackaged;
 
@@ -93,6 +97,16 @@ async function createWindow() {
   const loadUrl = `http://localhost:${goServerInfo!.port}`;
 
   console.log('[Electron] Loading URL:', loadUrl);
+  mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const levelName = level >= 3 ? 'error' : level === 2 ? 'warn' : 'log';
+    rendererLogger.write(levelName, 'renderer-console', [message, { sourceId, line }]);
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    rendererLogger.write('error', 'render-process-gone', [details]);
+  });
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    rendererLogger.write('error', 'did-fail-load', [{ errorCode, errorDescription, validatedURL }]);
+  });
   mainWindow.webContents.once('did-finish-load', async () => {
     try {
       const runtimeConfig = await mainWindow?.webContents.executeJavaScript(`({
@@ -162,6 +176,13 @@ async function createWindow() {
 }
 
 function registerIpcHandlers() {
+  ipcMain.on('renderer:log', (_event, payload: { level?: string; scope?: string; args?: unknown[] }) => {
+    const level = payload.level === 'error' || payload.level === 'warn' || payload.level === 'info' || payload.level === 'debug'
+      ? payload.level
+      : 'log';
+    rendererLogger.write(level, payload.scope || 'renderer', Array.isArray(payload.args) ? payload.args : []);
+  });
+
   ipcMain.handle('window:minimize', () => mainWindow?.minimize());
   ipcMain.handle('window:maximize', () => mainWindow?.maximize());
   ipcMain.handle('window:unmaximize', () => mainWindow?.unmaximize());
@@ -278,4 +299,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   console.log('[Electron] Stopping Go server...');
   stopGoServer();
+  rendererLogger.close();
+  electronLogger.close();
 });

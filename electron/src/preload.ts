@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // WebSocket 配置（由 Go 服务器提供）
   wsPort: process.env.ROPCODE_WS_PORT ? parseInt(process.env.ROPCODE_WS_PORT, 10) : undefined,
   authKey: process.env.ROPCODE_AUTH_KEY,
+  writeRendererLog: (level: string, scope: string, args: unknown[]) => {
+    ipcRenderer.send('renderer:log', { level, scope, args });
+  },
 
   // 窗口控制
   minimizeWindow: () => ipcRenderer.invoke('window:minimize'),

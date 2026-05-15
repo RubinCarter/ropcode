@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,14 @@ import (
 )
 
 func main() {
+	logPath, cleanupLogging, err := configureServerLogging()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to configure logging: %v\n", err)
+	} else {
+		defer cleanupLogging()
+		log.Printf("[server] logging to %s", logPath)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

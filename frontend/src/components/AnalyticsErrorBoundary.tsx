@@ -36,6 +36,10 @@ export class AnalyticsErrorBoundary extends Component<Props, State> {
     
     // Log to console for debugging
     console.error('UI Error caught by boundary:', error, errorInfo);
+    window.electronAPI?.writeRendererLog?.('error', 'analytics-error-boundary', [
+      error.stack || error.message,
+      errorInfo.componentStack,
+    ]);
   }
 
   reset = () => {

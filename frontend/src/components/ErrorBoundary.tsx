@@ -30,6 +30,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     // Log the error to console
     console.error("Error caught by boundary:", error, errorInfo);
+    window.electronAPI?.writeRendererLog?.('error', 'react-error-boundary', [
+      error.stack || error.message,
+      errorInfo.componentStack,
+    ]);
   }
 
   reset = () => {

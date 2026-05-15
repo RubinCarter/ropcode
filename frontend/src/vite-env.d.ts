@@ -8,6 +8,7 @@ interface Window {
   electronAPI?: {
     wsPort?: number;
     authKey?: string;
+    writeRendererLog?: (level: string, scope: string, args: unknown[]) => void;
     minimizeWindow: () => Promise<void>;
     maximizeWindow: () => Promise<void>;
     unmaximizeWindow: () => Promise<void>;
