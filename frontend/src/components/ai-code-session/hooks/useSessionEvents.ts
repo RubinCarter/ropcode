@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { useWorkspaceTodo, type TodoItem } from "@/contexts/WorkspaceTodoContext";
 import { createInitialRuntimeTracker, reduceRuntimeTracker } from "../utils/runtimeState";
+import { clearInteractiveSessionIdAfterProcessExit } from "../utils/interactiveSessionState";
 
 export interface UseSessionEventsOptions {
   projectPath: string;
@@ -464,7 +465,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     const completePayload = coerceCompletionPayload(completion);
     hasActiveSessionRef.current = false;
     // Process terminated, clear interactive session (update ref immediately)
-    setInteractiveSessionId(null);
+    clearInteractiveSessionIdAfterProcessExit(setInteractiveSessionId);
     setIsLoading(false);
 
     const terminalMessage = {
@@ -525,6 +526,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         // Stop loading state since session failed
         setIsLoading(false);
         hasActiveSessionRef.current = false;
+        clearInteractiveSessionIdAfterProcessExit(setInteractiveSessionId);
       } catch (parseErr) {
         // If parsing fails, show raw error
         const errorMessage: ClaudeStreamMessage = {
@@ -536,6 +538,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         trackError();
         setIsLoading(false);
         hasActiveSessionRef.current = false;
+        clearInteractiveSessionIdAfterProcessExit(setInteractiveSessionId);
       }
     };
 

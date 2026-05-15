@@ -422,7 +422,7 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 	transport := &ClaudeCapabilityDiscoveryTransport{
 		binaryPath:    "/usr/local/bin/claude",
 		realHomeDir:   realHome,
-		discoveryArgs: []string{"--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"},
+		discoveryArgs: []string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"},
 		makeTempDir: func(dir, pattern string) (string, error) {
 			return t.TempDir(), nil
 		},

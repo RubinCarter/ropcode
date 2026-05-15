@@ -104,6 +104,7 @@ func NewClaudeCapabilityDiscoveryTransport() (*ClaudeCapabilityDiscoveryTranspor
 		binaryPath:  binaryPath,
 		realHomeDir: realHomeDir,
 		discoveryArgs: []string{
+			"--print",
 			"--input-format", "stream-json",
 			"--output-format", "stream-json",
 			"--verbose",
@@ -294,7 +295,6 @@ func (s *CapabilityDiscoveryService) discover(projectPath string, force bool) (C
 
 	return layers, nil
 }
-
 
 func (s *CapabilityDiscoveryService) loadSystemSnapshot(projectPath, key string, force bool) (CapabilitySnapshot, error) {
 	if !force {
@@ -560,7 +560,7 @@ func (t *ClaudeCapabilityDiscoveryTransport) buildCommand(ctx context.Context, s
 		t.makeTempDir = os.MkdirTemp
 	}
 	if len(t.discoveryArgs) == 0 {
-		t.discoveryArgs = []string{"--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"}
+		t.discoveryArgs = []string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions"}
 	}
 
 	workingDir := projectPath

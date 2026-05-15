@@ -171,72 +171,15 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// Store processEmitter for later use
 	s.processEmitter = processEmitter
 
-	// Build command arguments - following the original Rust implementation
-	args := []string{}
+	args := buildClaudeArgs(s.Config)
 
-	if s.Config.InteractiveMode {
-		// Interactive mode: long-lived process, messages sent via stdin
-		// Add --input-format for stdin message protocol
-		args = append(args, "--input-format", "stream-json")
-		// Resume previous conversation if a Claude session ID is provided
-		if s.Config.ResumeClaudeSessionID != "" {
-			args = append(args, "--resume", s.Config.ResumeClaudeSessionID)
-			log.Printf("[Session] Resuming Claude conversation with session ID: %s", s.Config.ResumeClaudeSessionID)
-		}
-	} else {
-		// Batch mode: single prompt execution
-		// Add resume/continue flags first (before prompt)
-		// --resume requires a session ID value
-		if s.Config.Resume && s.Config.SessionID != "" {
-			args = append(args, "--resume", s.Config.SessionID)
-		}
-		if s.Config.Continue {
-			args = append(args, "--continue")
-		}
-
-		// Add prompt with -p flag (non-interactive print mode)
-		if s.Config.Prompt != "" {
-			args = append(args, "-p", s.Config.Prompt)
-		}
-	}
-
-	// Add model if specified
-	if s.Config.Model != "" {
-		args = append(args, "--model", s.Config.Model)
-	}
-
-	// Note: Thinking depth for Claude is handled via prompt engineering in frontend
-	// The frontend appends phrases like "think", "think hard", "ultrathink" to the prompt
-	// ThinkingLevel field is kept for compatibility but not used in CLI args for Claude
-
-	// Add output format for JSONL streaming
-	args = append(args, "--output-format", "stream-json")
-
-	// Add verbose flag
-	args = append(args, "--verbose")
-
-	// Skip permission checks for automated execution
-	args = append(args, "--dangerously-skip-permissions")
-
-	// Add ~/.claude/ to allowed directories for file access
-	homeDir, err := os.UserHomeDir()
-	if err == nil {
-		claudeDir := homeDir + "/.claude"
-		if _, statErr := os.Stat(claudeDir); statErr == nil {
-			args = append(args, "--add-dir", claudeDir)
-		}
-	}
-
-	// Log custom API configuration if provided
-	// Will be set as environment variables on the command
-	if s.Config.BaseURL != "" {
-		log.Printf("[Session] Using custom base URL via env var: %s", s.Config.BaseURL)
-	}
-	if s.Config.AuthToken != "" {
-		log.Printf("[Session] Using custom auth token via env var")
-	}
-
-	log.Printf("[Session] Starting Claude with args: %v", args)
+	log.Printf("[Session] Starting Claude: binary=%q cwd=%q interactive=%t resumeClaudeSession=%q args=%q",
+		binaryPath,
+		s.Config.ProjectPath,
+		s.Config.InteractiveMode,
+		s.Config.ResumeClaudeSessionID,
+		args,
+	)
 
 	// Create command - use project path as working directory (NOT as --project-path arg)
 	s.cmd = exec.CommandContext(ctx, binaryPath, args...)
@@ -256,9 +199,11 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// Add custom API configuration via environment variables
 	// This is the recommended approach and avoids FSWatcher issues with --settings
 	if s.Config.BaseURL != "" {
+		log.Printf("[Session] Using custom base URL via env var: %s", s.Config.BaseURL)
 		s.cmd.Env = append(s.cmd.Env, fmt.Sprintf("ANTHROPIC_BASE_URL=%s", s.Config.BaseURL))
 	}
 	if s.Config.AuthToken != "" {
+		log.Printf("[Session] Using custom auth token via env var")
 		s.cmd.Env = append(s.cmd.Env, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", s.Config.AuthToken))
 	}
 
@@ -267,6 +212,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	s.cmd.Env = append(s.cmd.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true")
 
 	// Setup pipes
+	var err error
 	s.stdout, err = s.cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -294,6 +240,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	if err := sessionproc.Start(s.cmd); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
+	log.Printf("[Session] Claude process started: pid=%d session=%s cwd=%q", s.cmd.Process.Pid, s.ID, s.Config.ProjectPath)
 
 	s.Status = "running"
 	s.StartedAt = time.Now()
@@ -347,6 +294,68 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	}
 
 	return nil
+}
+
+func buildClaudeArgs(config SessionConfig) []string {
+	args := []string{}
+
+	if config.InteractiveMode {
+		// Claude only honors stream-json stdin/stdout in print mode. Without --print,
+		// recent CLI versions can show interactive trust prompts and never complete init.
+		args = append(args, "--print")
+		// Interactive mode: long-lived process, messages sent via stdin
+		// Add --input-format for stdin message protocol
+		args = append(args, "--input-format", "stream-json")
+		// Resume previous conversation if a Claude session ID is provided
+		if config.ResumeClaudeSessionID != "" {
+			args = append(args, "--resume", config.ResumeClaudeSessionID)
+			log.Printf("[Session] Resuming Claude conversation with session ID: %s", config.ResumeClaudeSessionID)
+		}
+	} else {
+		// Batch mode: single prompt execution
+		// Add resume/continue flags first (before prompt)
+		// --resume requires a session ID value
+		if config.Resume && config.SessionID != "" {
+			args = append(args, "--resume", config.SessionID)
+		}
+		if config.Continue {
+			args = append(args, "--continue")
+		}
+
+		// Add prompt with -p flag (non-interactive print mode)
+		if config.Prompt != "" {
+			args = append(args, "-p", config.Prompt)
+		}
+	}
+
+	// Add model if specified
+	if config.Model != "" {
+		args = append(args, "--model", config.Model)
+	}
+
+	// Note: Thinking depth for Claude is handled via prompt engineering in frontend
+	// The frontend appends phrases like "think", "think hard", "ultrathink" to the prompt
+	// ThinkingLevel field is kept for compatibility but not used in CLI args for Claude
+
+	// Add output format for JSONL streaming
+	args = append(args, "--output-format", "stream-json")
+
+	// Add verbose flag
+	args = append(args, "--verbose")
+
+	// Skip permission checks for automated execution
+	args = append(args, "--dangerously-skip-permissions")
+
+	// Add ~/.claude/ to allowed directories for file access
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		claudeDir := homeDir + "/.claude"
+		if _, statErr := os.Stat(claudeDir); statErr == nil {
+			args = append(args, "--add-dir", claudeDir)
+		}
+	}
+
+	return args
 }
 
 // sendInitialize sends the control_request to initialize the interactive session
@@ -611,18 +620,9 @@ func (s *Session) processOutputLine(lineBytes []byte, outputType string, emitter
 
 func (s *Session) handleControlResponse(msg map[string]interface{}) bool {
 	requestID, _ := msg["request_id"].(string)
-	if requestID == "init_1" {
-		s.mu.Lock()
-		s.initialized = true
-		shouldClose := s.initDone != nil && !s.initDoneClosed
-		if shouldClose {
-			s.initDoneClosed = true
-		}
-		s.mu.Unlock()
-		if shouldClose {
-			close(s.initDone)
-		}
-		log.Printf("[Session] Interactive session initialized (control_response received)")
+	if requestID == "init_1" || s.shouldTreatControlResponseAsInitFallback(requestID) {
+		s.markInitialized()
+		log.Printf("[Session] Interactive session initialized (control_response received, request_id=%q)", requestID)
 		return true
 	}
 
@@ -634,6 +634,30 @@ func (s *Session) handleControlResponse(msg map[string]interface{}) bool {
 
 	log.Printf("[Session] Unknown control_response request_id=%s", requestID)
 	return true
+}
+
+func (s *Session) shouldTreatControlResponseAsInitFallback(requestID string) bool {
+	if requestID != "" {
+		return false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.interactive && !s.initialized && s.initDone != nil
+}
+
+func (s *Session) markInitialized() {
+	s.mu.Lock()
+	s.initialized = true
+	shouldClose := s.initDone != nil && !s.initDoneClosed
+	if shouldClose {
+		s.initDoneClosed = true
+	}
+	s.mu.Unlock()
+
+	if shouldClose {
+		close(s.initDone)
+	}
 }
 
 func (s *Session) handleOutputReadError(err error, outputType string, emitter EventEmitter) {
@@ -1073,46 +1097,4 @@ func (s *Session) GetStatus() *SessionStatus {
 	}
 
 	return status
-}
-
-// ensureFullShellPath ensures the environment has the full PATH from user's login shell.
-// This is necessary because GUI apps (like Electron) don't inherit shell PATH on macOS.
-func ensureFullShellPath(env []string) []string {
-	// Get user's default shell
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/zsh" // Default on modern macOS
-	}
-
-	// Execute login shell to get the full PATH
-	// Using -l (login) and -c to run a command
-	cmd := exec.Command(shell, "-l", "-c", "echo $PATH")
-	output, err := cmd.Output()
-	if err != nil {
-		log.Printf("[Session] Failed to get shell PATH: %v, using current PATH", err)
-		return env
-	}
-
-	shellPath := strings.TrimSpace(string(output))
-	if shellPath == "" {
-		return env
-	}
-
-	// Update or append PATH in the environment
-	pathFound := false
-	for i, e := range env {
-		if strings.HasPrefix(e, "PATH=") {
-			env[i] = "PATH=" + shellPath
-			pathFound = true
-			log.Printf("[Session] Updated PATH from login shell")
-			break
-		}
-	}
-
-	if !pathFound {
-		env = append(env, "PATH="+shellPath)
-		log.Printf("[Session] Added PATH from login shell")
-	}
-
-	return env
 }
