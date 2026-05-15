@@ -2,6 +2,8 @@
 
 package main
 
+import "ropcode/internal/pathutil"
+
 func normalizeClientPath(path string) string {
-	return path
+	return pathutil.NormalizeClientPath(path)
 }

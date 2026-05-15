@@ -1,4 +1,4 @@
-package main
+package gitcontent
 
 import (
 	"os"
@@ -15,7 +15,7 @@ func TestReadGitFileAtHeadReturnsCommittedContent(t *testing.T) {
 		t.Fatalf("failed to modify file: %v", err)
 	}
 
-	got, err := (&App{}).ReadGitFileAtHead(repoPath, "bindings.go")
+	got, err := ReadGitFileAtHead(repoPath, "bindings.go")
 	if err != nil {
 		t.Fatalf("ReadGitFileAtHead failed: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestReadGitFileAtHeadReturnsCommittedContent(t *testing.T) {
 func TestReadGitFileAtHeadRejectsParentTraversal(t *testing.T) {
 	repoPath := setupGitContentTestRepo(t)
 
-	if _, err := (&App{}).ReadGitFileAtHead(repoPath, "../outside.txt"); err == nil {
+	if _, err := ReadGitFileAtHead(repoPath, "../outside.txt"); err == nil {
 		t.Fatal("expected parent traversal path to be rejected")
 	}
 }
@@ -35,7 +35,7 @@ func TestReadGitFileAtHeadRejectsParentTraversal(t *testing.T) {
 func TestReadGitFileAtHeadReturnsEmptyForNewFile(t *testing.T) {
 	repoPath := setupGitContentTestRepo(t)
 
-	got, err := (&App{}).ReadGitFileAtHead(repoPath, "new-file.go")
+	got, err := ReadGitFileAtHead(repoPath, "new-file.go")
 	if err != nil {
 		t.Fatalf("ReadGitFileAtHead failed: %v", err)
 	}

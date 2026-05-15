@@ -29,6 +29,7 @@ import (
 	"ropcode/internal/git"
 	"ropcode/internal/github"
 	"ropcode/internal/mcp"
+	"ropcode/internal/pathutil"
 	"ropcode/internal/plugin"
 	"ropcode/internal/ssh"
 	"ropcode/internal/usage"
@@ -1445,7 +1446,7 @@ func isBinaryContent(data []byte) bool {
 
 // ListDirectoryContents lists files and directories in a path
 func (a *App) ListDirectoryContents(path string) ([]FileEntry, error) {
-	path = normalizeClientPath(path)
+	path = pathutil.NormalizeClientPath(path)
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return nil, err
@@ -1477,7 +1478,7 @@ func (a *App) ListDirectoryContents(path string) ([]FileEntry, error) {
 
 // ReadFile reads the content of a file
 func (a *App) ReadFile(path string) (string, error) {
-	path = normalizeClientPath(path)
+	path = pathutil.NormalizeClientPath(path)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -1487,13 +1488,13 @@ func (a *App) ReadFile(path string) (string, error) {
 
 // WriteFile writes content to a file
 func (a *App) WriteFile(path, content string) error {
-	path = normalizeClientPath(path)
+	path = pathutil.NormalizeClientPath(path)
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
 // GetFileMetadata returns cross-platform file information for the frontend editor.
 func (a *App) GetFileMetadata(path string) (*FileMetadata, error) {
-	path = normalizeClientPath(path)
+	path = pathutil.NormalizeClientPath(path)
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -1537,7 +1538,7 @@ func (a *App) GetFileMetadata(path string) (*FileMetadata, error) {
 
 // SearchFiles searches for files matching a query in a base path
 func (a *App) SearchFiles(basePath, query string) ([]FileEntry, error) {
-	basePath = normalizeClientPath(basePath)
+	basePath = pathutil.NormalizeClientPath(basePath)
 	var results []FileEntry
 	query = strings.ToLower(query)
 

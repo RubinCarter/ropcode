@@ -46,7 +46,7 @@ func TestPlatformFileNamesUseWinSuffix(t *testing.T) {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "dist", "release", "bin":
+			case ".git", ".ropcode", "node_modules", "dist", "release", "bin":
 				return filepath.SkipDir
 			}
 			return nil

@@ -10,11 +10,12 @@ import (
 	"os/signal"
 	"syscall"
 
+	"ropcode/internal/logging"
 	"ropcode/internal/websocket"
 )
 
 func main() {
-	logPath, cleanupLogging, err := configureServerLogging()
+	logPath, cleanupLogging, err := logging.ConfigureServerLogging()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to configure logging: %v\n", err)
 	} else {

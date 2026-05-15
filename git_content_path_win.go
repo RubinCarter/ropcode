@@ -2,13 +2,8 @@
 
 package main
 
-import (
-	"path"
-	"strings"
-)
+import "ropcode/internal/gitcontent"
 
 func normalizeGitObjectPath(gitPath string) string {
-	gitPath = strings.TrimSpace(strings.ReplaceAll(gitPath, "\\", "/"))
-	gitPath = strings.TrimLeft(gitPath, "/")
-	return path.Clean(gitPath)
+	return gitcontent.NormalizeGitObjectPath(gitPath)
 }

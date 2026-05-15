@@ -1,4 +1,4 @@
-package main
+package logging
 
 import (
 	"log"
@@ -14,9 +14,9 @@ func TestConfigureServerLoggingCreatesTimestampedLogFile(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
 
-	logPath, cleanup, err := configureServerLogging()
+	logPath, cleanup, err := ConfigureServerLogging()
 	if err != nil {
-		t.Fatalf("configureServerLogging failed: %v", err)
+		t.Fatalf("ConfigureServerLogging failed: %v", err)
 	}
 	defer cleanup()
 
@@ -46,15 +46,15 @@ func TestConfigureServerLoggingCreatesNewFileForEachStartup(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("HOME", home)
 
-	firstPath, firstCleanup, err := configureServerLogging()
+	firstPath, firstCleanup, err := ConfigureServerLogging()
 	if err != nil {
-		t.Fatalf("first configureServerLogging failed: %v", err)
+		t.Fatalf("first ConfigureServerLogging failed: %v", err)
 	}
 	firstCleanup()
 
-	secondPath, secondCleanup, err := configureServerLogging()
+	secondPath, secondCleanup, err := ConfigureServerLogging()
 	if err != nil {
-		t.Fatalf("second configureServerLogging failed: %v", err)
+		t.Fatalf("second ConfigureServerLogging failed: %v", err)
 	}
 	defer secondCleanup()
 
