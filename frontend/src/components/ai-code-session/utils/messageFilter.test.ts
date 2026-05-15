@@ -74,3 +74,22 @@ test('display filter honors hidden indexes before envelope fallback', () => {
 
   assert.deepEqual(getDisplayableMessages(messages as any, new Set([1])).indexes, [0, 2]);
 });
+
+test('display filter collapses consecutive transient runtime events into the latest one', () => {
+  const messages = [
+    { type: 'system', subtype: 'init' },
+    { type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 5 },
+    { type: 'error', error: 'server_error 1' },
+    { type: 'system', subtype: 'api_retry', attempt: 2, max_retries: 5 },
+    { type: 'error', error: 'server_error 2' },
+    { type: 'system', subtype: 'api_retry', attempt: 3, max_retries: 5 },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'reply' }] } },
+    { type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 5 },
+  ];
+
+  const displayable = getDisplayableMessages(messages as any);
+
+  // Keep init, the latest transient before the assistant reply, the assistant reply,
+  // and the standalone trailing transient.
+  assert.deepEqual(displayable.indexes, [0, 5, 6, 7]);
+});

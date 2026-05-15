@@ -217,6 +217,44 @@ function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
 }
 
 /**
+ * Transient runtime events that should collapse into a single "latest" card
+ * when emitted in a row. The user only cares about the most recent state of
+ * a retry/error storm, not the full history.
+ *
+ * Real assistant/user/result/tool_use messages are NOT collapsible — they
+ * end the current transient sequence so a later transient starts a new card.
+ */
+function isCollapsibleTransientMessage(message: ClaudeStreamMessage): boolean {
+  const msg = message as unknown as {
+    type?: string;
+    subtype?: string;
+    is_error?: boolean;
+    error?: unknown;
+  };
+
+  if (msg.type === 'system' && (msg.subtype === 'api_retry' || msg.subtype === 'error')) {
+    return true;
+  }
+
+  if (msg.type === 'rate_limit_event' || msg.type === 'raw') {
+    return true;
+  }
+
+  // Top-level error events (e.g. server_error) without a result/tool payload.
+  if (msg.type === 'error') {
+    return true;
+  }
+
+  // Some providers emit error-flavored payloads under a generic type with
+  // is_error / error set. Treat them as transient too.
+  if (msg.is_error === true && !msg.type) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Filter messages to only include those that should be displayed in the UI
  *
  * Filters out:
@@ -269,24 +307,25 @@ export function getDisplayableMessages(
   const displayableMessages: ClaudeStreamMessage[] = [];
   const toolUseNamesById = buildToolUseNamesById(messages);
 
-  // First pass: find the last index of each api_retry sequence so earlier ones can be collapsed.
-  // A sequence ends when a non-api_retry displayable message appears after it.
-  const supersededApiRetryIndexes = new Set<number>();
-  let lastApiRetryIndex: number | null = null;
+  // First pass: collapse consecutive transient runtime events (api_retry,
+  // server_error, rate_limit_event, raw) into a single "latest" card so
+  // long retry/error storms don't pile up as a tall list of duplicates.
+  // A real assistant/user/result/tool message ends the sequence and forces
+  // any subsequent transient event to start a fresh card.
+  const supersededTransientIndexes = new Set<number>();
+  let lastTransientIndex: number | null = null;
   for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i] as any;
     if (!isDisplayableMessage(messages[i], i, hiddenIndexes, toolUseNamesById)) continue;
-    if (msg.type === 'system' && msg.subtype === 'api_retry') {
-      if (lastApiRetryIndex !== null) supersededApiRetryIndexes.add(lastApiRetryIndex);
-      lastApiRetryIndex = i;
+    if (isCollapsibleTransientMessage(messages[i])) {
+      if (lastTransientIndex !== null) supersededTransientIndexes.add(lastTransientIndex);
+      lastTransientIndex = i;
     } else {
-      // Any other displayable message ends the current retry sequence
-      lastApiRetryIndex = null;
+      lastTransientIndex = null;
     }
   }
 
   messages.forEach((message, index) => {
-    if (supersededApiRetryIndexes.has(index)) return;
+    if (supersededTransientIndexes.has(index)) return;
     if (isDisplayableMessage(message, index, hiddenIndexes, toolUseNamesById)) {
       indexes.push(index);
       displayableMessages.push(message);
