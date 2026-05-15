@@ -30,7 +30,11 @@ export function getExpandedLogActivities(
   expandedLogs: Set<string>,
 ): main.ClaudeActivity[] {
   if (expandedLogs.size === 0) return [];
-  return snapshot.activities.filter((activity) => expandedLogs.has(activity.id) && Boolean(activity.output_file));
+  return snapshot.activities.filter((activity) => expandedLogs.has(activity.id) && canLoadActivityLog(activity));
+}
+
+export function canLoadActivityLog(activity: main.ClaudeActivity): boolean {
+  return Boolean(activity.output_file) || activity.type === 'local_agent';
 }
 
 export function activityStatusLabel(status: main.ClaudeActivity['status']): string {

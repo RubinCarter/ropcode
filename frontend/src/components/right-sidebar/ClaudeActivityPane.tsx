@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import type { claude, main } from '@/lib/rpc-client';
 import {
   activityStatusLabel,
+  canLoadActivityLog,
   findActiveClaudeSessionForProject,
   getExpandedLogActivities,
   normalizeClaudeActivitySnapshot,
@@ -170,7 +171,6 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
   }, [activeSession, pollActivities]);
 
   const hasActivities = Boolean(snapshot && snapshot.activities.length > 0);
-
   return (
     <div className={cn('h-full flex flex-col bg-background', className)}>
       <div className="px-3 py-2 border-b">
@@ -316,7 +316,7 @@ const ActivityList: React.FC<ActivityListProps> = ({
                       size="sm"
                       className="h-7 px-2 text-xs"
                       onClick={() => onToggleLog(activity)}
-                      disabled={!activity.output_file}
+                      disabled={!canLoadActivityLog(activity)}
                     >
                       {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
                       Log
