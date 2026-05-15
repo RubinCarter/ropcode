@@ -28,6 +28,7 @@ import (
 	"ropcode/internal/database"
 	"ropcode/internal/gemini"
 	"ropcode/internal/git"
+	"ropcode/internal/gitcontent"
 	"ropcode/internal/github"
 	"ropcode/internal/mcp"
 	"ropcode/internal/pathutil"
@@ -2791,6 +2792,11 @@ type CommandResult struct {
 func (a *App) ExecuteCommand(cmd string, cwd string) CommandResult {
 	r := command.Execute(cmd, cwd)
 	return CommandResult{Success: r.Success, Output: r.Output, Error: r.Error}
+}
+
+// ReadGitFileAtHead returns a file's content from HEAD for the diff viewer.
+func (a *App) ReadGitFileAtHead(workspacePath, gitPath string) (string, error) {
+	return gitcontent.ReadGitFileAtHead(workspacePath, gitPath)
 }
 
 // ExecuteCommandWithArgs executes a command with arguments synchronously
