@@ -13,6 +13,26 @@ export function activityBadgeCount(snapshot?: main.ClaudeActivitySnapshot | null
   return snapshot.running_count + snapshot.stopping_count + snapshot.failed_count;
 }
 
+export function normalizeClaudeActivitySnapshot(
+  snapshot: main.ClaudeActivitySnapshot,
+): main.ClaudeActivitySnapshot {
+  return {
+    ...snapshot,
+    activities: Array.isArray(snapshot.activities) ? snapshot.activities : [],
+    subagents: Array.isArray(snapshot.subagents) ? snapshot.subagents : [],
+    background_tasks: Array.isArray(snapshot.background_tasks) ? snapshot.background_tasks : [],
+    other: Array.isArray(snapshot.other) ? snapshot.other : [],
+  };
+}
+
+export function getExpandedLogActivities(
+  snapshot: main.ClaudeActivitySnapshot,
+  expandedLogs: Set<string>,
+): main.ClaudeActivity[] {
+  if (expandedLogs.size === 0) return [];
+  return snapshot.activities.filter((activity) => expandedLogs.has(activity.id) && Boolean(activity.output_file));
+}
+
 export function activityStatusLabel(status: main.ClaudeActivity['status']): string {
   switch (status) {
     case 'stop_unknown':

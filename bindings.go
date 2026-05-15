@@ -2088,20 +2088,53 @@ func (a *App) GetClaudeSessionActivities(sessionID string) (claudeactivity.Snaps
 	if a.claudeActivity == nil {
 		return claudeactivity.Snapshot{}, fmt.Errorf("claude activity service not initialized")
 	}
-	return a.claudeActivity.GetSnapshot(sessionID)
+	snapshot, err := a.claudeActivity.GetSnapshot(sessionID)
+	if err != nil {
+		log.Printf("[GetClaudeSessionActivities] session=%s error=%v", sessionID, err)
+		return claudeactivity.Snapshot{}, err
+	}
+	log.Printf(
+		"[GetClaudeSessionActivities] session=%s activities=%d subagents=%d background_tasks=%d other=%d running=%d stopping=%d failed=%d",
+		sessionID,
+		len(snapshot.Activities),
+		len(snapshot.Subagents),
+		len(snapshot.BackgroundTasks),
+		len(snapshot.Other),
+		snapshot.RunningCount,
+		snapshot.StoppingCount,
+		snapshot.FailedCount,
+	)
+	return snapshot, nil
 }
 
 func (a *App) GetClaudeActivityLogTail(sessionID, activityID string, maxLines int) (claudeactivity.LogTail, error) {
 	if a.claudeActivity == nil {
 		return claudeactivity.LogTail{}, fmt.Errorf("claude activity service not initialized")
 	}
-	return a.claudeActivity.GetLogTail(sessionID, activityID, maxLines)
+	tail, err := a.claudeActivity.GetLogTail(sessionID, activityID, maxLines)
+	if err != nil {
+		log.Printf("[GetClaudeActivityLogTail] session=%s activity=%s max_lines=%d error=%v", sessionID, activityID, maxLines, err)
+		return claudeactivity.LogTail{}, err
+	}
+	log.Printf(
+		"[GetClaudeActivityLogTail] session=%s activity=%s max_lines=%d path_exists=%v bytes_read=%d lines=%d truncated_lines=%d error=%q",
+		sessionID,
+		activityID,
+		maxLines,
+		tail.PathExists,
+		tail.BytesRead,
+		tail.LineCount,
+		tail.TruncatedLines,
+		tail.Error,
+	)
+	return tail, nil
 }
 
 func (a *App) StopClaudeActivity(sessionID, activityID string) error {
 	if a.claudeActivity == nil {
 		return fmt.Errorf("claude activity service not initialized")
 	}
+	log.Printf("[StopClaudeActivity] session=%s activity=%s", sessionID, activityID)
 	return a.claudeActivity.StopActivity(sessionID, activityID)
 }
 

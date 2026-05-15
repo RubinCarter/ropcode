@@ -106,6 +106,28 @@ func TestExtractsBackgroundOutputPathFromToolResult(t *testing.T) {
 	}
 }
 
+func TestSnapshotUsesEmptySlicesForJSONLists(t *testing.T) {
+	service := NewService()
+	service.EnsureSession("runtime-1", "E:\\repo", true, nil)
+
+	snapshot, err := service.GetSnapshot("runtime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Activities == nil {
+		t.Fatal("activities must be an empty slice, not nil")
+	}
+	if snapshot.Subagents == nil {
+		t.Fatal("subagents must be an empty slice, not nil")
+	}
+	if snapshot.BackgroundTasks == nil {
+		t.Fatal("background tasks must be an empty slice, not nil")
+	}
+	if snapshot.Other == nil {
+		t.Fatal("other activities must be an empty slice, not nil")
+	}
+}
+
 func TestCompleteSessionMarksRunningActivitiesStale(t *testing.T) {
 	service := NewService()
 	service.EnsureSession("runtime-1", "E:\\repo", true, &recordingControlSender{})

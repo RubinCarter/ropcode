@@ -129,9 +129,12 @@ func (s *Service) GetSnapshot(sessionID string) (Snapshot, error) {
 
 func (b *sessionBucket) snapshot() Snapshot {
 	snapshot := Snapshot{
-		SessionID:   b.sessionID,
-		ProjectPath: b.projectPath,
-		Activities:  make([]Activity, 0, len(b.activities)),
+		SessionID:        b.sessionID,
+		ProjectPath:      b.projectPath,
+		Activities:       make([]Activity, 0, len(b.activities)),
+		Subagents:        make([]Activity, 0),
+		BackgroundTasks:  make([]Activity, 0),
+		Other:            make([]Activity, 0),
 	}
 	for _, id := range b.order {
 		activity := b.activities[id]

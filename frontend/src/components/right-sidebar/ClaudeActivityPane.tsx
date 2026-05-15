@@ -5,7 +5,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { claude, main } from '@/lib/rpc-client';
-import { activityStatusLabel, findActiveClaudeSessionForProject } from '@/lib/claudeActivity';
+import {
+  activityStatusLabel,
+  findActiveClaudeSessionForProject,
+  getExpandedLogActivities,
+  normalizeClaudeActivitySnapshot,
+} from '@/lib/claudeActivity';
 import { usePageVisibilityPolling } from '@/hooks';
 
 interface ClaudeActivityPaneProps {
@@ -40,6 +45,45 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
   const [loadingLogs, setLoadingLogs] = useState<Set<string>>(new Set());
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
 
+  const refreshExpandedLogTails = useCallback(async (
+    sessionId: string,
+    nextSnapshot: main.ClaudeActivitySnapshot,
+  ) => {
+    const activities = getExpandedLogActivities(nextSnapshot, expandedLogs);
+    if (activities.length === 0) return;
+
+    const tails = await Promise.all(
+      activities.map(async (activity) => {
+        try {
+          const tail = await api.GetClaudeActivityLogTail(sessionId, activity.id, 80);
+          return [activity.id, tail] as const;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return [activity.id, {
+            session_id: sessionId,
+            activity_id: activity.id,
+            content: '',
+            line_count: 0,
+            truncated_lines: 0,
+            truncated_bytes: 0,
+            error: message,
+            path_exists: false,
+            bytes_read: 0,
+            requested_lines: 80,
+          } satisfies main.ClaudeActivityLogTail] as const;
+        }
+      }),
+    );
+
+    setLogTails((current) => {
+      const next = { ...current };
+      for (const [activityId, tail] of tails) {
+        next[activityId] = tail;
+      }
+      return next;
+    });
+  }, [expandedLogs]);
+
   const pollActivities = useCallback(async () => {
     if (!workspacePath) {
       setActiveSession(null);
@@ -59,9 +103,10 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
     }
 
     try {
-      const next = await api.GetClaudeSessionActivities(session.session_id);
+      const next = normalizeClaudeActivitySnapshot(await api.GetClaudeSessionActivities(session.session_id));
       setSnapshot(next);
       onSnapshotChange?.(next);
+      await refreshExpandedLogTails(session.session_id, next);
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -69,7 +114,7 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
       setSnapshot(null);
       onSnapshotChange?.(null);
     }
-  }, [workspacePath, onSnapshotChange]);
+  }, [workspacePath, onSnapshotChange, refreshExpandedLogTails]);
 
   usePageVisibilityPolling(pollActivities, {
     interval: 2500,
