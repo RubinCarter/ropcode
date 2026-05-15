@@ -24,6 +24,7 @@ import (
 	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/codex"
+	"ropcode/internal/command"
 	"ropcode/internal/database"
 	"ropcode/internal/gemini"
 	"ropcode/internal/git"
@@ -2784,6 +2785,12 @@ type CommandResult struct {
 	Success bool   `json:"success"`
 	Output  string `json:"output"`
 	Error   string `json:"error"`
+}
+
+// ExecuteCommand executes a shell command string synchronously and returns the output.
+func (a *App) ExecuteCommand(cmd string, cwd string) CommandResult {
+	r := command.Execute(cmd, cwd)
+	return CommandResult{Success: r.Success, Output: r.Output, Error: r.Error}
 }
 
 // ExecuteCommandWithArgs executes a command with arguments synchronously
