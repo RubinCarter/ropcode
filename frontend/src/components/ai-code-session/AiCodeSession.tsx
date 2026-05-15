@@ -998,11 +998,24 @@ ${message ? `**说明**:\n${message}` : ''}`;
     : null;
 
   useEffect(() => {
-    if (runtimeViewState.phase === 'thinking') {
+    const phase = runtimeViewState.phase;
+
+    if (phase === 'thinking') {
       if (thinkingStartedAtRef.current === null) {
         thinkingStartedAtRef.current = runtimeNow;
         setThinkingStatus({ state: 'active', startedAt: runtimeNow });
       }
+      return;
+    }
+
+    // Transport/recovery blips (e.g. visibility-triggered force reconnect when the
+    // user switches to another app) flip the phase out of 'thinking' even though
+    // the model is still thinking. Preserve startedAt across these so the counter
+    // stays continuous when phase returns to 'thinking'.
+    if (
+      (phase === 'reconnecting' || phase === 'recovering' || phase === 'rate_limited' || phase === 'retrying') &&
+      thinkingStartedAtRef.current !== null
+    ) {
       return;
     }
 
