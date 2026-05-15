@@ -43,6 +43,13 @@ Build note: a plain `go build .` does not produce a runnable server because `ser
 
 The Go server prints `WS_PORT:<port>` to stdout. Electron parses that line and loads the UI through the Go server. The browser should talk to Go, not directly to Vite.
 
+When testing the unpacked packaged app from `release\win-unpacked\Ropcode.exe`, Electron does not use root `bin\` or `frontend\dist` directly. It starts:
+
+- `release\win-unpacked\resources\bin\ropcode-server.exe`
+- `release\win-unpacked\resources\frontend`
+
+After changing backend or frontend code for a packaged-app repro, rebuild and copy the updated artifacts into those `resources` paths, or run a full release packaging step. Verify with `Get-Process ropcode-server | Select Path`, `Get-FileHash`, or a fresh server log marker before judging the fix.
+
 ### Reflection RPC
 
 `internal/websocket/router.go` reflects exported methods on `*App` and exposes them as RPC endpoints. To add a frontend-callable API:
@@ -87,5 +94,6 @@ Pick the smallest verification that covers the change:
 - Frontend TypeScript changes: `cd frontend && npm run build:typecheck`.
 - Electron main-process changes: `cd electron && npm test`.
 - Cross-surface changes: combine the relevant commands above.
+- Packaged Electron repros: confirm the running process uses `release\win-unpacked\resources\bin\ropcode-server.exe` and that this file matches the newly built server hash. If needed, copy `bin\ropcode-server.exe`, `bin\ropcode.exe`, and `frontend\dist` into `release\win-unpacked\resources\bin\` and `release\win-unpacked\resources\frontend\`, then restart the app.
 
 When a command cannot be run, report that clearly with the reason.
