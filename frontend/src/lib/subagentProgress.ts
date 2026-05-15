@@ -448,6 +448,17 @@ export function buildSubagentProgress(
 
     if (isSubagentEnvelopeMessage(message)) {
       subagentMessageIndexes.add(index);
+      const parentToolUseId =
+        (message as any).parent_tool_use_id ??
+        (message as any).parentToolUseID ??
+        (message as any).parentToolUseId;
+      if (parentToolUseId) {
+        const subagentId = toolUseToSubagentId.get(String(parentToolUseId));
+        if (subagentId) {
+          const subagent = subagentsById.get(subagentId)!;
+          addMessageToSubagent(subagent, message, index);
+        }
+      }
     }
 
     const agentId = normalizeAgentId(String(message.agentId || message.agent_id || ""));
