@@ -128,6 +128,13 @@ interface FloatingPromptInputProps {
    * Callback when provider/model/API/thinking configuration changes
    */
   onConfigChange?: (config: { provider: string; model: string; providerApiId: string | null; thinkingMode: ThinkingMode }) => void;
+  /**
+   * Notify the parent that the user picked a new ProviderApi while a turn was
+   * still in flight. The CLI applies the change to the next turn — we never
+   * interrupt the running one — and the parent renders a transient banner so
+   * the user knows it didn't take effect immediately.
+   */
+  onProviderApiHotSwapDuringStream?: (configName: string) => void;
 }
 
 export interface FloatingPromptInputRef {
@@ -541,6 +548,7 @@ const FloatingPromptInputInner = (
     extraMenuItems,
     interactiveSessionId,
     onConfigChange,
+    onProviderApiHotSwapDuringStream,
   }: FloatingPromptInputProps,
   ref: React.Ref<FloatingPromptInputRef>,
 ) => {
@@ -1987,6 +1995,9 @@ const FloatingPromptInputInner = (
                           providerId={selectedProvider}
                           disabled={disabled}
                           value={selectedProviderApiId}
+                          interactiveSessionId={interactiveSessionId}
+                          isStreaming={isLoading}
+                          onHotSwapDuringStream={onProviderApiHotSwapDuringStream}
                           onConfigChange={(configId) => {
                             setSelectedProviderApiId(configId);
                             // Also update global store cache
