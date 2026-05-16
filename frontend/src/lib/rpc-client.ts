@@ -757,6 +757,38 @@ export function SendClaudeMessage(
   return wsClient.call('SendClaudeMessage', projectPath, sessionId, prompt);
 }
 
+export function SetClaudeSessionModel(
+  sessionId: string,
+  model: string
+): Promise<void> {
+  return wsClient.call('SetClaudeSessionModel', sessionId, model);
+}
+
+export function SetClaudeSessionPermissionMode(
+  sessionId: string,
+  mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk'
+): Promise<void> {
+  return wsClient.call('SetClaudeSessionPermissionMode', sessionId, mode);
+}
+
+export function InterruptClaudeSession(sessionId: string): Promise<void> {
+  return wsClient.call('InterruptClaudeSession', sessionId);
+}
+
+export function UpdateClaudeSessionEnvironment(
+  sessionId: string,
+  variables: Record<string, string>
+): Promise<void> {
+  return wsClient.call('UpdateClaudeSessionEnvironment', sessionId, variables);
+}
+
+export function SwitchClaudeSessionProviderApi(
+  sessionId: string,
+  providerApiId: string
+): Promise<void> {
+  return wsClient.call('SwitchClaudeSessionProviderApi', sessionId, providerApiId || '');
+}
+
 export function StartProviderSession(
   provider: string,
   projectPath: string,

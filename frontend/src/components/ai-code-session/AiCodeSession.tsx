@@ -18,7 +18,8 @@ import {
   ChevronDown,
   ChevronUp,
   ArrowDownToLine,
-  ArrowUpFromLine
+  ArrowUpFromLine,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover } from "@/components/ui/popover";
@@ -152,6 +153,12 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   });
   const [thinkingStatus, setThinkingStatus] = useState<SessionThinkingStatus>(null);
   const thinkingStartedAtRef = useRef<number | null>(null);
+  // Transient banner shown at the top when the user picks a new ProviderApi
+  // while a turn is still streaming. The CLI applies the change to the next
+  // turn — we never interrupt the running one. Cleared automatically after a
+  // few seconds, or when the next turn finishes.
+  const [providerApiSwitchNotice, setProviderApiSwitchNotice] = useState<string | null>(null);
+  const providerApiSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { getInProgressTodos } = useWorkspaceTodo();
 
   // Prompt queue - defined before eventsState
@@ -1484,6 +1491,35 @@ ${message ? `**说明**:\n${message}` : ''}`;
     setPromptConfig(config);
   }, []);
 
+  const handleProviderApiHotSwapDuringStream = useCallback((configName: string) => {
+    if (providerApiSwitchTimerRef.current) {
+      clearTimeout(providerApiSwitchTimerRef.current);
+    }
+    setProviderApiSwitchNotice(configName);
+    providerApiSwitchTimerRef.current = setTimeout(() => {
+      setProviderApiSwitchNotice(null);
+      providerApiSwitchTimerRef.current = null;
+    }, 8000);
+  }, []);
+
+  // Clear the notice once the in-flight turn finishes — the swap has now
+  // taken effect on whatever comes next, so the warning is no longer useful.
+  useEffect(() => {
+    if (!processState.isLoading && providerApiSwitchNotice) {
+      setProviderApiSwitchNotice(null);
+      if (providerApiSwitchTimerRef.current) {
+        clearTimeout(providerApiSwitchTimerRef.current);
+        providerApiSwitchTimerRef.current = null;
+      }
+    }
+  }, [processState.isLoading, providerApiSwitchNotice]);
+
+  useEffect(() => () => {
+    if (providerApiSwitchTimerRef.current) {
+      clearTimeout(providerApiSwitchTimerRef.current);
+    }
+  }, []);
+
   const handleLinkDetected = useCallback((url: string) => {
     if (!showPreview && !showPreviewPrompt) {
       setPreviewUrl(url);
@@ -1738,6 +1774,43 @@ ${message ? `**说明**:\n${message}` : ''}`;
       <div className={cn("relative flex flex-col h-full bg-background", className)}>
         <div className="w-full h-full flex flex-col">
 
+        {/* Provider API hot-swap notice — only visible while a turn is in
+            flight after the user picked a new ProviderApi. The CLI applies
+            the new credentials to the next request automatically; we never
+            interrupt the running turn. */}
+        <AnimatePresence>
+          {providerApiSwitchNotice && (
+            <motion.div
+              key="provider-api-switch-notice"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="px-4 pt-2"
+            >
+              <div className="mx-auto w-full max-w-6xl">
+                <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs">
+                  <Info className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
+                  <div className="flex-1 leading-relaxed">
+                    <span className="font-medium">Switched API to {providerApiSwitchNotice}.</span>
+                    <span className="ml-1 text-muted-foreground">
+                      The current reply finishes on the previous endpoint; the next message will use the new one.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setProviderApiSwitchNotice(null)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Dismiss notice"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Main Content Area */}
         <div className="flex-1 overflow-hidden transition-all duration-300">
           {showPreview ? (
@@ -1791,6 +1864,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
               defaultProvider={defaultProvider}
               onProviderChange={onProviderChange}
               onConfigChange={handlePromptConfigChange}
+              onProviderApiHotSwapDuringStream={handleProviderApiHotSwapDuringStream}
               extraMenuItems={copyConversationMenu}
             />
           </div>

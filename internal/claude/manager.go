@@ -294,6 +294,63 @@ func (m *SessionManager) SendStopTaskRequest(sessionID, requestID, taskID string
 	return session.SendStopTaskRequest(requestID, taskID)
 }
 
+// SetSessionModel switches the model on a running interactive Claude session.
+func (m *SessionManager) SetSessionModel(sessionID, model string) error {
+	m.mu.RLock()
+	session, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	return session.SetModel(model)
+}
+
+// SetSessionPermissionMode switches the permission mode on a running
+// interactive Claude session.
+func (m *SessionManager) SetSessionPermissionMode(sessionID, mode string) error {
+	m.mu.RLock()
+	session, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	return session.SetPermissionMode(mode)
+}
+
+// InterruptSession asks the Claude CLI to abort the currently running turn
+// without killing the process.
+func (m *SessionManager) InterruptSession(sessionID string) error {
+	m.mu.RLock()
+	session, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	return session.Interrupt()
+}
+
+// UpdateSessionEnvironment pushes runtime env var updates into a running
+// interactive Claude CLI process. Variable names map directly to env keys
+// the CLI re-reads on each API call (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN,
+// CLAUDE_CODE_USE_BEDROCK, etc.).
+func (m *SessionManager) UpdateSessionEnvironment(sessionID string, variables map[string]string) error {
+	m.mu.RLock()
+	session, exists := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	return session.UpdateEnvironmentVariables(variables)
+}
+
 // WaitForInit waits for an interactive session to complete initialization
 func (m *SessionManager) WaitForInit(sessionID string, timeout time.Duration) error {
 	m.mu.RLock()

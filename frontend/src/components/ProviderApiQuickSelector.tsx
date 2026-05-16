@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Globe, ChevronUp, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,24 @@ interface ProviderApiQuickSelectorProps {
   /** Current selected config ID (controlled by parent) */
   value?: string | null;
   onConfigChange?: (configId: string | null) => void;
+  /**
+   * Active interactive Claude session ID. When set and providerId === 'claude',
+   * picking a config also pushes the new credentials into the running CLI
+   * process via update_environment_variables (no restart required).
+   */
+  interactiveSessionId?: string | null;
+  /**
+   * Whether the active session currently has a turn in flight. Used purely so
+   * the parent can decide whether to show a "takes effect after this turn"
+   * notice; this component never interrupts the turn on its own.
+   */
+  isStreaming?: boolean;
+  /**
+   * Notify parent that a successful hot-swap happened mid-turn. Parent is
+   * expected to render a transient banner — we don't show one here because
+   * the popover is already closed by the time the swap returns.
+   */
+  onHotSwapDuringStream?: (configName: string) => void;
   className?: string;
 }
 
@@ -32,6 +50,9 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
   disabled = false,
   value,
   onConfigChange,
+  interactiveSessionId,
+  isStreaming = false,
+  onHotSwapDuringStream,
   className,
 }) => {
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -48,11 +69,33 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
   const selectedConfigId = value ?? null;
 
   const handleConfigChange = async (configId: string) => {
-    console.log('[ProviderApiQuickSelector] handleConfigChange called:', { configId, projectPath, providerId });
+    console.log('[ProviderApiQuickSelector] handleConfigChange called:', { configId, projectPath, providerId, interactiveSessionId, isStreaming });
     try {
-      // 保存用户选择的配置到项目
+      // Persist the user's choice on the project so future sessions inherit it.
       await api.setProjectProviderApiConfig(projectPath, providerId, configId);
       console.log('[ProviderApiQuickSelector] Config saved successfully');
+
+      // Hot-swap the credentials on the running Claude session, if any.
+      // Only Claude sessions support runtime env updates today; other
+      // providers fall back to "next launch will use the new config".
+      // We deliberately do NOT interrupt an in-flight turn — the parent shows
+      // a notice instead so the user knows the swap takes effect on the next
+      // request.
+      if (providerId === 'claude' && interactiveSessionId) {
+        try {
+          await api.switchClaudeSessionProviderApi(interactiveSessionId, configId);
+          console.log('[ProviderApiQuickSelector] Hot-swapped provider api on running session');
+          if (isStreaming) {
+            const swappedConfig = configs.find(c => c.id === configId);
+            onHotSwapDuringStream?.(swappedConfig?.name ?? 'new API config');
+          }
+        } catch (hotSwapError) {
+          // Don't block the picker — the persisted choice still takes effect
+          // on the next launch. Surface the error so callers can react.
+          console.error('[ProviderApiQuickSelector] Failed to hot-swap provider api:', hotSwapError);
+        }
+      }
+
       // Notify parent to update the value (controlled component pattern)
       onConfigChange?.(configId);
       setPickerOpen(false);

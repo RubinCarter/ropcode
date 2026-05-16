@@ -204,6 +204,11 @@ const api = new Proxy({ ...rpcMethods }, {
       cancelClaudeExecutionByProject: 'CancelClaudeExecutionByProject',
       startInteractiveClaudeSession: 'StartInteractiveClaudeSession',
       sendClaudeMessage: 'SendClaudeMessage',
+      setClaudeSessionModel: 'SetClaudeSessionModel',
+      setClaudeSessionPermissionMode: 'SetClaudeSessionPermissionMode',
+      interruptClaudeSession: 'InterruptClaudeSession',
+      updateClaudeSessionEnvironment: 'UpdateClaudeSessionEnvironment',
+      switchClaudeSessionProviderApi: 'SwitchClaudeSessionProviderApi',
       isClaudeSessionRunningForProject: 'IsClaudeSessionRunningForProject',
       getSetting: 'GetSetting',
       // Plugin

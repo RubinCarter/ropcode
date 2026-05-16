@@ -106,15 +106,24 @@ type Session struct {
 	processEmitter ProcessChangedEmitter
 
 	// Interactive mode fields
-	stdin            io.WriteCloser
-	interactive      bool
-	initialized      bool
-	initDone         chan struct{}
-	runtime          RuntimeState // Fine-grained activity state derived from JSONL stream
-	emitter          EventEmitter // Save reference for SendMessage to use
-	claudeSessionID  string       // The Claude-side session ID (from system.init), used for --resume
-	activityObserver ActivityObserver
-	initDoneClosed   bool
+	stdin                  io.WriteCloser
+	interactive            bool
+	initialized            bool
+	initDone               chan struct{}
+	runtime                RuntimeState // Fine-grained activity state derived from JSONL stream
+	emitter                EventEmitter // Save reference for SendMessage to use
+	claudeSessionID        string       // The Claude-side session ID (from system.init), used for --resume
+	activityObserver       ActivityObserver
+	initDoneClosed         bool
+	pendingControlRequests map[string]chan controlResponseResult
+	controlRequestSeq      uint64
+}
+
+// controlResponseResult is delivered when a previously sent control_request
+// receives its matching control_response from the Claude CLI.
+type controlResponseResult struct {
+	response map[string]interface{}
+	err      error
 }
 
 // EventEmitter interface for emitting events
@@ -149,13 +158,14 @@ func NewSession(config SessionConfig) *Session {
 	}
 
 	return &Session{
-		ID:        sessionID,
-		Config:    config,
-		Status:    "created",
-		StartedAt: time.Now(),
-		outputBuf: make([]byte, 0),
-		done:      make(chan struct{}),
-		cancelled: false,
+		ID:                     sessionID,
+		Config:                 config,
+		Status:                 "created",
+		StartedAt:              time.Now(),
+		outputBuf:              make([]byte, 0),
+		done:                   make(chan struct{}),
+		cancelled:              false,
+		pendingControlRequests: make(map[string]chan controlResponseResult),
 	}
 }
 
@@ -420,6 +430,208 @@ func (s *Session) SendStopTaskRequest(requestID, taskID string) error {
 	return s.writeControlRequest(controlRequestMessage(requestID, "stop_task", taskID), "stop_task")
 }
 
+// nextControlRequestID returns a unique request_id for control requests routed
+// to/from this session. Concurrent calls return distinct ids.
+func (s *Session) nextControlRequestID(prefix string) string {
+	s.mu.Lock()
+	s.controlRequestSeq++
+	seq := s.controlRequestSeq
+	s.mu.Unlock()
+	return fmt.Sprintf("ropcode-%s-%d", prefix, seq)
+}
+
+// sendInteractiveControlRequest sends an arbitrary control_request and blocks
+// until the matching control_response is received or the timeout fires. It
+// requires the session to be interactive, initialized, and running.
+//
+// timeout = 0 disables the timeout (use with care; falls back to session done
+// signal so we never leak goroutines).
+func (s *Session) sendInteractiveControlRequest(prefix, label string, request map[string]interface{}, timeout time.Duration) (map[string]interface{}, error) {
+	s.mu.RLock()
+	interactive := s.interactive
+	initialized := s.initialized
+	running := s.Status == "running"
+	s.mu.RUnlock()
+	if !interactive {
+		return nil, fmt.Errorf("session is not in interactive mode")
+	}
+	if !initialized {
+		return nil, fmt.Errorf("session is not yet initialized")
+	}
+	if !running {
+		return nil, fmt.Errorf("session is not running")
+	}
+
+	requestID := s.nextControlRequestID(prefix)
+	envelope := map[string]interface{}{
+		"type":       "control_request",
+		"request_id": requestID,
+		"request":    request,
+	}
+
+	resultCh := make(chan controlResponseResult, 1)
+
+	s.mu.Lock()
+	if s.pendingControlRequests == nil {
+		s.pendingControlRequests = make(map[string]chan controlResponseResult)
+	}
+	s.pendingControlRequests[requestID] = resultCh
+	s.mu.Unlock()
+
+	cleanup := func() {
+		s.mu.Lock()
+		delete(s.pendingControlRequests, requestID)
+		s.mu.Unlock()
+	}
+
+	if err := s.writeControlRequest(envelope, label); err != nil {
+		cleanup()
+		return nil, err
+	}
+
+	var timeoutCh <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		timeoutCh = timer.C
+	}
+
+	select {
+	case res := <-resultCh:
+		if res.err != nil {
+			return nil, res.err
+		}
+		return res.response, nil
+	case <-s.done:
+		cleanup()
+		return nil, fmt.Errorf("session ended before %s control response was received", label)
+	case <-timeoutCh:
+		cleanup()
+		return nil, fmt.Errorf("%s control request timed out after %s", label, timeout)
+	}
+}
+
+// SetModel switches the model for subsequent conversation turns without
+// restarting the Claude CLI process. Pass an empty string or "default" to
+// reset to the CLI's default model. Updates Session.Config.Model on success
+// so future status snapshots reflect the new model.
+func (s *Session) SetModel(model string) error {
+	request := map[string]interface{}{
+		"subtype": "set_model",
+	}
+	requested := strings.TrimSpace(model)
+	if requested != "" && requested != "default" {
+		request["model"] = requested
+	}
+
+	if _, err := s.sendInteractiveControlRequest("set-model", "set_model", request, 10*time.Second); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	s.Config.Model = requested
+	s.mu.Unlock()
+	return nil
+}
+
+// SetPermissionMode switches the permission mode for tool execution. Valid
+// modes match the Claude CLI: "default", "acceptEdits", "bypassPermissions",
+// "plan", "dontAsk".
+func (s *Session) SetPermissionMode(mode string) error {
+	mode = strings.TrimSpace(mode)
+	switch mode {
+	case "default", "acceptEdits", "bypassPermissions", "plan", "dontAsk":
+		// ok
+	default:
+		return fmt.Errorf("invalid permission mode: %q", mode)
+	}
+
+	request := map[string]interface{}{
+		"subtype": "set_permission_mode",
+		"mode":    mode,
+	}
+	_, err := s.sendInteractiveControlRequest("set-permission-mode", "set_permission_mode", request, 10*time.Second)
+	return err
+}
+
+// Interrupt asks the Claude CLI to abort the currently running conversation
+// turn without killing the process. The session remains usable afterward.
+func (s *Session) Interrupt() error {
+	request := map[string]interface{}{
+		"subtype": "interrupt",
+	}
+	_, err := s.sendInteractiveControlRequest("interrupt", "interrupt", request, 10*time.Second)
+	return err
+}
+
+// UpdateEnvironmentVariables pushes a {key: value} map into the Claude CLI
+// process via the stdin `update_environment_variables` message type. Values
+// are applied directly to process.env inside the CLI, so the next API call
+// will pick up new values for env-driven settings such as ANTHROPIC_BASE_URL,
+// ANTHROPIC_AUTH_TOKEN, ANTHROPIC_API_KEY, ANTHROPIC_CUSTOM_HEADERS, and the
+// CLAUDE_CODE_USE_BEDROCK / VERTEX / FOUNDRY toggles.
+//
+// Caveats (verified against claude-code-source-code/src):
+//   - This message has no control_response. We fire-and-forget after writing
+//     it. Any failure surfaces only as a stdin write error.
+//   - It is applied per-message; we do not buffer or de-dup.
+//   - It does not interrupt the current turn — call Interrupt() first if the
+//     caller wants the next API request to use the new values immediately.
+//   - Empty-string values are forwarded verbatim. The CLI sets process.env[k]
+//     to the empty string, which getAPIProvider() and similar helpers treat as
+//     "unset" via isEnvTruthy.
+func (s *Session) UpdateEnvironmentVariables(variables map[string]string) error {
+	if len(variables) == 0 {
+		return fmt.Errorf("no environment variables to update")
+	}
+	for k := range variables {
+		if k == "" {
+			return fmt.Errorf("environment variable name cannot be empty")
+		}
+	}
+
+	s.mu.RLock()
+	interactive := s.interactive
+	initialized := s.initialized
+	running := s.Status == "running"
+	stdin := s.stdin
+	s.mu.RUnlock()
+	if !interactive {
+		return fmt.Errorf("session is not in interactive mode")
+	}
+	if !initialized {
+		return fmt.Errorf("session is not yet initialized")
+	}
+	if !running {
+		return fmt.Errorf("session is not running")
+	}
+	if stdin == nil {
+		return fmt.Errorf("session stdin is not available")
+	}
+
+	envelope := map[string]interface{}{
+		"type":      "update_environment_variables",
+		"variables": variables,
+	}
+
+	jsonBytes, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("failed to marshal update_environment_variables: %w", err)
+	}
+	jsonBytes = append(jsonBytes, '\n')
+
+	if _, err := stdin.Write(jsonBytes); err != nil {
+		return fmt.Errorf("failed to write update_environment_variables to stdin: %w", err)
+	}
+
+	keys := make([]string, 0, len(variables))
+	for k := range variables {
+		keys = append(keys, k)
+	}
+	log.Printf("[Session] Pushed update_environment_variables to session %s: keys=%v", s.ID, keys)
+	return nil
+}
+
 // WaitForInit blocks until the interactive session is initialized or timeout/error occurs
 func (s *Session) WaitForInit(timeout time.Duration) error {
 	if !s.interactive {
@@ -620,6 +832,21 @@ func (s *Session) processOutputLine(lineBytes []byte, outputType string, emitter
 
 func (s *Session) handleControlResponse(msg map[string]interface{}) bool {
 	requestID, _ := msg["request_id"].(string)
+
+	if requestID != "" {
+		s.mu.Lock()
+		ch, ok := s.pendingControlRequests[requestID]
+		if ok {
+			delete(s.pendingControlRequests, requestID)
+		}
+		s.mu.Unlock()
+		if ok {
+			ch <- controlResponseResult{response: msg, err: extractControlResponseError(msg)}
+			log.Printf("[Session] Delivered control_response to pending waiter: request_id=%s", requestID)
+			return true
+		}
+	}
+
 	if requestID == "init_1" || s.shouldTreatControlResponseAsInitFallback(requestID) {
 		s.markInitialized()
 		log.Printf("[Session] Interactive session initialized (control_response received, request_id=%q)", requestID)
@@ -634,6 +861,31 @@ func (s *Session) handleControlResponse(msg map[string]interface{}) bool {
 
 	log.Printf("[Session] Unknown control_response request_id=%s", requestID)
 	return true
+}
+
+// extractControlResponseError extracts an error from a control_response, if any.
+// The Claude CLI envelope is:
+//
+//	{ "type": "control_response",
+//	  "response": { "subtype": "success" | "error",
+//	                "request_id": "...",
+//	                "error": "..." } }
+//
+// Some payloads also carry inner errors at top level.
+func extractControlResponseError(msg map[string]interface{}) error {
+	if response, ok := msg["response"].(map[string]interface{}); ok {
+		subtype, _ := response["subtype"].(string)
+		if subtype == "error" {
+			if errText, _ := response["error"].(string); errText != "" {
+				return fmt.Errorf("%s", errText)
+			}
+			return fmt.Errorf("control_request failed")
+		}
+	}
+	if errText, _ := msg["error"].(string); errText != "" {
+		return fmt.Errorf("%s", errText)
+	}
+	return nil
 }
 
 func (s *Session) shouldTreatControlResponseAsInitFallback(requestID string) bool {

@@ -2049,6 +2049,96 @@ func (a *App) SendClaudeMessage(projectPath, sessionID, prompt string) error {
 	return a.claudeManager.SendMessage(sessionID, prompt)
 }
 
+// SetClaudeSessionModel switches the model on a running interactive Claude
+// session without restarting the process. Pass an empty string or "default" to
+// reset to the CLI's default model.
+func (a *App) SetClaudeSessionModel(sessionID, model string) error {
+	if a.claudeManager == nil {
+		return fmt.Errorf("claude manager not initialized")
+	}
+	return a.claudeManager.SetSessionModel(sessionID, model)
+}
+
+// SetClaudeSessionPermissionMode switches the permission mode on a running
+// interactive Claude session. Mode must be one of: default, acceptEdits,
+// bypassPermissions, plan, dontAsk.
+func (a *App) SetClaudeSessionPermissionMode(sessionID, mode string) error {
+	if a.claudeManager == nil {
+		return fmt.Errorf("claude manager not initialized")
+	}
+	return a.claudeManager.SetSessionPermissionMode(sessionID, mode)
+}
+
+// InterruptClaudeSession asks the Claude CLI to abort the current turn
+// without terminating the process. The session remains usable afterward.
+func (a *App) InterruptClaudeSession(sessionID string) error {
+	if a.claudeManager == nil {
+		return fmt.Errorf("claude manager not initialized")
+	}
+	return a.claudeManager.InterruptSession(sessionID)
+}
+
+// UpdateClaudeSessionEnvironment pushes a {key:value} map into the Claude CLI
+// process. Use it to refresh credentials, switch base URL, or toggle backend
+// providers without restarting the session.
+//
+// Caveats:
+//   - The Claude CLI re-reads ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN /
+//     ANTHROPIC_API_KEY / CLAUDE_CODE_USE_BEDROCK|VERTEX|FOUNDRY on each API
+//     call, so the next turn picks up the new values. Other env vars that are
+//     read once at startup (e.g. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)
+//     will NOT take effect mid-session.
+//   - This does not interrupt the current turn. Call InterruptClaudeSession
+//     first if you want the new env to apply immediately.
+func (a *App) UpdateClaudeSessionEnvironment(sessionID string, variables map[string]string) error {
+	if a.claudeManager == nil {
+		return fmt.Errorf("claude manager not initialized")
+	}
+	return a.claudeManager.UpdateSessionEnvironment(sessionID, variables)
+}
+
+// SwitchClaudeSessionProviderApi swaps the active ProviderApiConfig for a
+// running interactive Claude session. It loads the target ProviderApiConfig
+// from the database (or clears it if providerApiID is empty), translates the
+// base_url / auth_token into Claude CLI environment variables, and pushes
+// them via update_environment_variables.
+//
+// We deliberately do NOT interrupt the current turn. The CLI re-reads these
+// env vars on each API call, so the in-flight turn finishes on the old
+// endpoint and the next turn picks up the new one. Callers that want
+// immediate cutover should call InterruptClaudeSession themselves first.
+//
+// Pass providerApiID="" to clear the override and let the CLI fall back to
+// whatever it inherited at process start (typically the default Anthropic
+// API endpoint).
+func (a *App) SwitchClaudeSessionProviderApi(sessionID, providerApiID string) error {
+	if a.claudeManager == nil {
+		return fmt.Errorf("claude manager not initialized")
+	}
+
+	variables := map[string]string{
+		"ANTHROPIC_BASE_URL":   "",
+		"ANTHROPIC_AUTH_TOKEN": "",
+	}
+
+	if providerApiID != "" {
+		if a.dbManager == nil {
+			return fmt.Errorf("database manager not initialized")
+		}
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err != nil {
+			return fmt.Errorf("failed to load provider api config %q: %w", providerApiID, err)
+		}
+		if apiConfig == nil {
+			return fmt.Errorf("provider api config not found: %s", providerApiID)
+		}
+		variables["ANTHROPIC_BASE_URL"] = apiConfig.BaseURL
+		variables["ANTHROPIC_AUTH_TOKEN"] = apiConfig.AuthToken
+	}
+
+	return a.claudeManager.UpdateSessionEnvironment(sessionID, variables)
+}
+
 // IsClaudeSessionRunning checks if a session is running
 func (a *App) IsClaudeSessionRunning(sessionID string) bool {
 	if a.claudeManager == nil {
