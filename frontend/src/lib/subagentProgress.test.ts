@@ -16,8 +16,7 @@ test('subagent progress treats task_started as a grouped runtime bookend', async
   const source = await readSource();
 
   assert.match(source, /if \(message\.type !== "system" \|\| !message\.task_id \|\| \(message\.subtype !== "task_progress" && message\.subtype !== "task_started"\)\) \{[\s\S]*return false;[\s\S]*\}/);
-  assert.match(source, /if \(message\.type === "system" && \(message\.subtype === "task_progress" \|\| message\.subtype === "task_started"\)\) return true;/);
-  assert.match(source, /if \(shouldHideGroupedMessage\(message\)\) subagentMessageIndexes\.add\(index\);/);
+  assert.match(source, /if \(isTaskLifecycleSystemMessage\(message\)\) subagentMessageIndexes\.add\(index\);/);
 });
 
 test('subagent progress still groups transcripts through the canonical merge path', async () => {
@@ -38,7 +37,7 @@ test('subagent envelope predicate hides explicit sidechain and parent tool messa
   assert.equal(isSubagentEnvelopeMessage({ agent_id: 'agent-1' }), false);
 });
 
-test('subagent progress hides explicit envelopes but not agentId-only root messages', () => {
+test('subagent progress keeps launcher and sidechain messages visible in the root stream while still routing them to the panel', () => {
   const messages = [
     {
       type: 'assistant',
@@ -55,11 +54,42 @@ test('subagent progress hides explicit envelopes but not agentId-only root messa
 
   const summary = buildSubagentProgress(messages as any);
 
-  assert.equal(summary.subagentMessageIndexes.has(1), true);
-  assert.equal(summary.subagentMessageIndexes.has(2), true);
-  assert.equal(summary.subagentMessageIndexes.has(3), true);
-  assert.equal(summary.subagentMessageIndexes.has(4), true);
-  assert.equal(summary.subagentMessageIndexes.has(5), false);
+  // No envelope hiding: launcher (0), sidechains (2,3,4) and agentId-only (5) all stay visible.
+  for (const idx of [0, 2, 3, 4, 5]) {
+    assert.equal(summary.subagentMessageIndexes.has(idx), false, `index ${idx} must remain visible in main stream`);
+  }
+  // Orphan sidechain (no matching launcher) — index 1 has isSidechain but no parent_tool_use_id — stays visible too.
+  assert.equal(summary.subagentMessageIndexes.has(1), false);
+
+  // Depth map: launcher launches subagent at depth 1; its sidechain replies inherit depth 1.
+  for (const idx of [2, 3, 4, 5]) {
+    assert.equal(summary.messageDepthByIndex.get(idx), 1, `index ${idx} should be tagged depth 1`);
+  }
+  // Root-level launcher message itself stays at depth 0 (rendered with TaskWidget on the root indent).
+  assert.equal(summary.messageDepthByIndex.get(0) ?? 0, 0);
+});
+
+test('subagent progress hides only task_progress noise and the launcher tool_result, never the sidechain content itself', () => {
+  const messages = [
+    {
+      type: 'assistant',
+      message: {
+        content: [{ type: 'tool_use', id: 'toolu_launcher', name: 'Task', input: { description: 'Explore', prompt: 'Run task' } }],
+      },
+    },
+    { type: 'system', subtype: 'task_started', task_id: 'task-1', tool_use_id: 'toolu_launcher', description: 'starting' },
+    { type: 'assistant', parent_tool_use_id: 'toolu_launcher', message: { content: [{ type: 'text', text: 'doing' }] } },
+    { type: 'system', subtype: 'task_progress', task_id: 'task-1', tool_use_id: 'toolu_launcher', description: 'progress' },
+    { type: 'user', message: { content: [{ tool_use_id: 'toolu_launcher', type: 'tool_result', content: 'result' }] } },
+  ];
+
+  const summary = buildSubagentProgress(messages as any);
+
+  assert.equal(summary.subagentMessageIndexes.has(1), true, 'task_started suppressed (TaskWidget badge covers it)');
+  assert.equal(summary.subagentMessageIndexes.has(3), true, 'task_progress suppressed');
+  assert.equal(summary.subagentMessageIndexes.has(4), true, 'launcher tool_result hidden — it is rendered inside TaskWidget');
+  assert.equal(summary.subagentMessageIndexes.has(0), false, 'launcher message stays so TaskWidget renders');
+  assert.equal(summary.subagentMessageIndexes.has(2), false, 'sidechain content stays visible');
 });
 
 test('subagent progress routes parent_tool_use_id sidechain messages into the matching subagent panel', () => {
@@ -149,7 +179,7 @@ test('parent_tool_use_id with toolUseResult.agents fallback still merges live me
   assert.equal(summary.subagents[0].messageCount, 2, 'disk transcript replaces in-memory list once available');
 });
 
-test('replays a real Claude CLI stream-json capture: subagent panel sees every sidechain message', async () => {
+test('replays a real Claude CLI stream-json capture: subagent panel sees every sidechain message AND keeps them visible in the root stream', async () => {
   const fixturePath = path.resolve(currentDir, './__fixtures__/claude-real-subagent-stream.jsonl');
   const raw = await readFile(fixturePath, 'utf8');
   const messages = raw.split('\n').filter(Boolean).map((line) => JSON.parse(line));
@@ -168,7 +198,8 @@ test('replays a real Claude CLI stream-json capture: subagent panel sees every s
   const sidechainIndexes = sanityHits.map((m) => messages.indexOf(m));
   for (const idx of sidechainIndexes) {
     assert.ok(subagent.messageIndexes.has(idx), `sidechain row ${idx} must land in the panel`);
-    assert.ok(summary.subagentMessageIndexes.has(idx), `sidechain row ${idx} must be hidden from main stream`);
+    assert.equal(summary.subagentMessageIndexes.has(idx), false, `sidechain row ${idx} must remain visible in main stream`);
+    assert.equal(summary.messageDepthByIndex.get(idx), 1, `sidechain row ${idx} should be tagged as depth-1 for indent`);
   }
 
   const finalAssistantIdx = messages.findIndex(

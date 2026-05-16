@@ -40,15 +40,14 @@ test('filters assistant messages that only contain hidden or empty content', asy
   assert.match(source, /return isNonEmptyText\(content\.text\);/);
 });
 
-test('uses the shared subagent envelope predicate for root stream filtering', async () => {
+test('display filter no longer drops sidechain messages — they render in main stream with depth styling at the call site', async () => {
   const source = await readSource();
 
-  assert.match(source, /import \{ isSubagentEnvelopeMessage \} from "@\/lib\/subagentProgress";/);
-  assert.match(source, /if \(isSubagentEnvelopeMessage\(message\)\) \{[\s\S]*return false;/);
-  assert.doesNotMatch(source, /runtimeMessage\.isSidechain === true \|\|\s*runtimeMessage\.parent_tool_use_id != null/);
+  assert.doesNotMatch(source, /isSubagentEnvelopeMessage/);
+  assert.doesNotMatch(source, /import.*subagentProgress/);
 });
 
-test('display filter hides explicit subagent envelopes while preserving agentId-only root messages', () => {
+test('display filter still honors hidden indexes for caller-supplied subagent message routing', () => {
   const messages = [
     { type: 'system', subtype: 'init' },
     { type: 'assistant', agentId: 'agent-1', message: { content: [{ type: 'text', text: 'visible correlated root text' }] } },
@@ -59,10 +58,14 @@ test('display filter hides explicit subagent envelopes while preserving agentId-
     { type: 'assistant', message: { content: [{ type: 'text', text: 'normal root text' }] } },
   ];
 
-  const displayable = getDisplayableMessages(messages as any);
+  // Without hiddenIndexes, every renderable message including sidechains stays visible.
+  const allDisplayable = getDisplayableMessages(messages as any);
+  assert.deepEqual(allDisplayable.indexes, [0, 1, 2, 3, 4, 5, 6]);
 
-  assert.deepEqual(displayable.indexes, [0, 1, 6]);
-  assert.equal(displayable.messages[1], messages[1]);
+  // The caller can still hide specific indexes (e.g. task lifecycle noise from buildSubagentProgress).
+  const hidden = new Set([2, 5]);
+  const filtered = getDisplayableMessages(messages as any, hidden);
+  assert.deepEqual(filtered.indexes, [0, 1, 3, 4, 6]);
 });
 
 test('display filter honors hidden indexes before envelope fallback', () => {
