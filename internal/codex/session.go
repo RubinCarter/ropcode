@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -19,12 +20,15 @@ import (
 )
 
 type SessionConfig struct {
-	ProjectPath   string `json:"project_path"`
-	Prompt        string `json:"prompt"`
-	Model         string `json:"model"`
-	ProviderApiID string `json:"provider_api_id,omitempty"`
-	SessionID     string `json:"session_id,omitempty"`
-	Resume        bool   `json:"resume,omitempty"`
+	ProjectPath     string `json:"project_path"`
+	Prompt          string `json:"prompt"`
+	Model           string `json:"model"`
+	ProviderApiID   string `json:"provider_api_id,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	Resume          bool   `json:"resume,omitempty"`
+	AuthToken       string `json:"auth_token,omitempty"`
+	BaseURL         string `json:"base_url,omitempty"`
 }
 
 type SessionStatus struct {
@@ -102,38 +106,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// Store processEmitter for later use
 	s.processEmitter = processEmitter
 
-	// Build command arguments for Codex CLI
-	// Codex uses 'exec' subcommand for non-interactive execution
-	args := []string{
-		"exec",
-		"--sandbox", "danger-full-access", // 完全访问权限（已去除工作空间限制）
-	}
-
-	// Set approval policy to never (no user interaction)
-	args = append(args, "-c", "approval_policy=\"never\"")
-
-	// Enable network access for commands like pip, npm, curl, wget, etc.
-	args = append(args, "-c", "sandbox_danger_full_access.network_access=true")
-
-	// Add model parameter
-	if s.Config.Model != "" {
-		args = append(args, "-m", s.Config.Model)
-	}
-
-	// Set working directory
-	if s.Config.ProjectPath != "" {
-		args = append(args, "-C", s.Config.ProjectPath)
-	}
-
-	// Enable JSON output (JSONL format)
-	args = append(args, "--json")
-
-	// Disable color output to avoid ANSI codes in JSON
-	args = append(args, "--color", "never")
-
-	// Add prompt as the last argument with separator
-	args = append(args, "--")
-	args = append(args, s.Config.Prompt)
+	args := s.Config.buildArgs()
 
 	log.Printf("[Codex Session] Starting Codex with args: %v", args)
 
@@ -152,7 +125,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	// This is critical for production (.app) builds where PATH is very limited
 	// when launched via double-click (vs `open -a` from terminal)
 	// Codex gets API key (CRS_OAI_KEY) from ~/.claude/settings.json env section
-	s.cmd.Env = enhanceEnvForProduction()
+	s.cmd.Env = s.Config.applyProviderApiEnv(enhanceEnvForProduction())
 
 	// Setup pipes
 	var err error
@@ -211,6 +184,44 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 	go s.waitForCompletion(emitter)
 
 	return nil
+}
+
+func (c SessionConfig) buildArgs() []string {
+	args := []string{
+		"exec",
+		"--sandbox", "danger-full-access", // 完全访问权限（已去除工作空间限制）
+	}
+
+	// Set approval policy to never (no user interaction)
+	args = append(args, "-c", "approval_policy=\"never\"")
+
+	// Enable network access for commands like pip, npm, curl, wget, etc.
+	args = append(args, "-c", "sandbox_danger_full_access.network_access=true")
+
+	// Add model parameter
+	if c.Model != "" {
+		args = append(args, "-m", c.Model)
+	}
+
+	if c.ReasoningEffort != "" {
+		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", c.ReasoningEffort))
+	}
+
+	// Set working directory
+	if c.ProjectPath != "" {
+		args = append(args, "-C", c.ProjectPath)
+	}
+
+	// Enable JSON output (JSONL format)
+	args = append(args, "--json")
+
+	// Disable color output to avoid ANSI codes in JSON
+	args = append(args, "--color", "never")
+
+	// Add prompt as the last argument with separator
+	args = append(args, "--")
+	args = append(args, c.Prompt)
+	return args
 }
 
 // readOutput reads output from stdout or stderr
@@ -709,7 +720,7 @@ func enhanceEnvForProduction() []string {
 	env := os.Environ()
 
 	// Additional paths to add for production builds
-	// These are common locations for CLI tools on macOS
+	// These are common locations for CLI tools in GUI-launched builds.
 	additionalPaths := []string{
 		"/opt/homebrew/bin",
 		"/opt/homebrew/sbin",
@@ -722,6 +733,7 @@ func enhanceEnvForProduction() []string {
 		"/opt/homebrew/opt/node/bin",
 		"/opt/homebrew/opt/python/bin",
 	}
+	additionalPaths = append(additionalPaths, windowsNodePaths()...)
 
 	// Find existing PATH and enhance it
 	var existingPath string
@@ -736,18 +748,23 @@ func enhanceEnvForProduction() []string {
 
 	// Build enhanced PATH by prepending additional paths
 	var newPath string
+	separator := string(os.PathListSeparator)
 	for _, p := range additionalPaths {
 		if _, err := os.Stat(p); err == nil {
 			if newPath == "" {
 				newPath = p
 			} else {
-				newPath = newPath + ":" + p
+				newPath = newPath + separator + p
 			}
 		}
 	}
 
 	if existingPath != "" {
-		newPath = newPath + ":" + existingPath
+		if newPath != "" {
+			newPath = newPath + separator + existingPath
+		} else {
+			newPath = existingPath
+		}
 	}
 
 	// Update or append PATH
@@ -771,6 +788,61 @@ func enhanceEnvForProduction() []string {
 	})
 
 	return env
+}
+
+func windowsNodePaths() []string {
+	paths := []string{}
+	for _, key := range []string{"ROPCODE_TEST_NODE_DIR", "ROPCODE_TEST_NPM_DIR"} {
+		if value := os.Getenv(key); value != "" {
+			paths = append(paths, value)
+		}
+	}
+
+	if programFiles := os.Getenv("ProgramFiles"); programFiles != "" {
+		paths = append(paths, filepath.Join(programFiles, "nodejs"))
+	}
+	if programFilesX86 := os.Getenv("ProgramFiles(x86)"); programFilesX86 != "" {
+		paths = append(paths, filepath.Join(programFilesX86, "nodejs"))
+	}
+	if programData := os.Getenv("ProgramData"); programData != "" {
+		paths = append(paths, filepath.Join(programData, "npm", "npm"))
+	}
+	if appData := os.Getenv("APPDATA"); appData != "" {
+		paths = append(paths, filepath.Join(appData, "npm"))
+	}
+	if localAppData := os.Getenv("LOCALAPPDATA"); localAppData != "" {
+		paths = append(paths, filepath.Join(localAppData, "Programs", "nodejs"))
+	}
+	paths = append(paths,
+		`E:\nvm4w\nodejs`,
+		`C:\nvm4w\nodejs`,
+		`D:\nvm4w\nodejs`,
+		`C:\Program Files\WindowsApps\OpenAI.Codex_26.513.4821.0_x64__2p2nqsd0c76g0\app\resources`,
+	)
+
+	return paths
+}
+
+func (c SessionConfig) applyProviderApiEnv(env []string) []string {
+	if c.AuthToken != "" {
+		env = setEnvVar(env, "OPENAI_API_KEY", c.AuthToken)
+		env = setEnvVar(env, "CRS_OAI_KEY", c.AuthToken)
+	}
+	if c.BaseURL != "" {
+		env = setEnvVar(env, "OPENAI_BASE_URL", c.BaseURL)
+	}
+	return env
+}
+
+func setEnvVar(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 // loadEnvFromClaudeSettings loads environment variables from ~/.claude/settings.json

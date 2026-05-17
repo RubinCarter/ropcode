@@ -38,8 +38,9 @@ import (
 )
 
 type liveSessionConfig struct {
-	model         string
-	providerApiID string
+	model           string
+	providerApiID   string
+	reasoningEffort string
 }
 
 type claudeCapabilityLayersResult struct {
@@ -134,12 +135,16 @@ func providerSessionConfigFromManager(manager any, sessionID string) liveSession
 
 	modelField := config.FieldByName("Model")
 	providerAPIField := config.FieldByName("ProviderApiID")
+	reasoningEffortField := config.FieldByName("ReasoningEffort")
 	cfg := liveSessionConfig{}
 	if modelField.IsValid() && modelField.Kind() == reflect.String {
 		cfg.model = modelField.String()
 	}
 	if providerAPIField.IsValid() && providerAPIField.Kind() == reflect.String {
 		cfg.providerApiID = providerAPIField.String()
+	}
+	if reasoningEffortField.IsValid() && reasoningEffortField.Kind() == reflect.String {
+		cfg.reasoningEffort = reasoningEffortField.String()
 	}
 	return cfg
 }
@@ -1622,7 +1627,7 @@ func (a *App) ExecuteClaudeCode(projectPath, prompt, model string, sessionID, pr
 }
 
 // StartProviderSession starts a new provider session based on the provider type
-func (a *App) StartProviderSession(provider, projectPath, prompt, model, providerApiID string) (string, error) {
+func (a *App) StartProviderSession(provider, projectPath, prompt, model, providerApiID, reasoningEffort string) (string, error) {
 	switch provider {
 	case "claude":
 		return a.ExecuteClaudeCode(projectPath, prompt, model, "", providerApiID)
@@ -1655,13 +1660,19 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
 		}
-		// Codex gets API key from ~/.claude/settings.json env.CRS_OAI_KEY
-		// It does not use database ProviderApiConfig
 		config := codex.SessionConfig{
-			ProjectPath:   projectPath,
-			Prompt:        prompt,
-			Model:         model,
-			ProviderApiID: providerApiID,
+			ProjectPath:     projectPath,
+			Prompt:          prompt,
+			Model:           model,
+			ProviderApiID:   providerApiID,
+			ReasoningEffort: reasoningEffort,
+		}
+		if providerApiID != "" && a.dbManager != nil {
+			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+			if err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
+			}
 		}
 		sessionID, err := a.codexManager.StartSession(config)
 		if err != nil {
@@ -1676,7 +1687,7 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 }
 
 // ResumeProviderSession resumes an existing provider session based on the provider type
-func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessionID, providerApiID string) (string, error) {
+func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessionID, providerApiID, reasoningEffort string) (string, error) {
 	switch provider {
 	case "claude":
 		return a.ResumeClaudeCode(projectPath, prompt, model, sessionID, providerApiID)
@@ -1707,15 +1718,21 @@ func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessio
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
 		}
-		// Codex gets API key from ~/.claude/settings.json env.CRS_OAI_KEY
-		// It does not use database ProviderApiConfig
 		config := codex.SessionConfig{
-			ProjectPath:   projectPath,
-			Prompt:        prompt,
-			Model:         model,
-			ProviderApiID: providerApiID,
-			SessionID:     sessionID,
-			Resume:        true,
+			ProjectPath:     projectPath,
+			Prompt:          prompt,
+			Model:           model,
+			ProviderApiID:   providerApiID,
+			ReasoningEffort: reasoningEffort,
+			SessionID:       sessionID,
+			Resume:          true,
+		}
+		if providerApiID != "" && a.dbManager != nil {
+			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+			if err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
+			}
 		}
 		return a.codexManager.StartSession(config)
 
@@ -1790,7 +1807,7 @@ func (a *App) SendProviderSessionMessage(provider, projectPath, sessionID, promp
 		if err := a.geminiManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
 			return "", err
 		}
-		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID)
+		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID, cfg.reasoningEffort)
 	case "codex":
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
@@ -1799,7 +1816,7 @@ func (a *App) SendProviderSessionMessage(provider, projectPath, sessionID, promp
 		if err := a.codexManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
 			return "", err
 		}
-		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID)
+		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID, cfg.reasoningEffort)
 	default:
 		if err := a.SendClaudeMessage(projectPath, sessionID, prompt); err != nil {
 			return "", err

@@ -59,7 +59,7 @@ func newCodexTestApp(t *testing.T) *App {
 	return &App{codexManager: mgr}
 }
 
-func runningSessionConfig(t *testing.T, manager any, sessionID string) (string, string) {
+func runningSessionConfig(t *testing.T, manager any, sessionID string) (string, string, string) {
 	t.Helper()
 
 	managerValue := reflect.ValueOf(manager)
@@ -79,14 +79,18 @@ func runningSessionConfig(t *testing.T, manager any, sessionID string) (string, 
 	}
 
 	config := session.Elem().FieldByName("Config")
-	return config.FieldByName("Model").String(), config.FieldByName("ProviderApiID").String()
+	reasoningEffort := ""
+	if field := config.FieldByName("ReasoningEffort"); field.IsValid() {
+		reasoningEffort = field.String()
+	}
+	return config.FieldByName("Model").String(), config.FieldByName("ProviderApiID").String(), reasoningEffort
 }
 
 func TestListRunningProviderSessions_IncludesProviderMetadata(t *testing.T) {
 	app := newGeminiTestApp(t)
 	projectPath := t.TempDir()
 
-	sessionID, err := app.StartProviderSession("gemini", projectPath, "hello", "gemini-test", "")
+	sessionID, err := app.StartProviderSession("gemini", projectPath, "hello", "gemini-test", "", "")
 	if err != nil {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
@@ -114,7 +118,7 @@ func TestListRunningProviderSessions_IncludesProviderMetadata(t *testing.T) {
 
 func TestGetProviderSessionOutputAndStopProviderSession(t *testing.T) {
 	app := newGeminiTestApp(t)
-	sessionID, err := app.StartProviderSession("gemini", t.TempDir(), "hello", "", "")
+	sessionID, err := app.StartProviderSession("gemini", t.TempDir(), "hello", "", "", "")
 	if err != nil {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
@@ -145,7 +149,7 @@ func TestSendProviderSessionMessage_RestartsGeminiSession(t *testing.T) {
 	app := newGeminiTestApp(t)
 	projectPath := t.TempDir()
 
-	firstID, err := app.StartProviderSession("gemini", projectPath, "hello", "", "")
+	firstID, err := app.StartProviderSession("gemini", projectPath, "hello", "", "", "")
 	if err != nil {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
@@ -181,7 +185,7 @@ func TestSendProviderSessionMessage_PreservesGeminiConfigOnRestart(t *testing.T)
 	app := newGeminiTestApp(t)
 	projectPath := t.TempDir()
 
-	firstID, err := app.StartProviderSession("gemini", projectPath, "hello", "gemini-2.5-pro", "gemini-api")
+	firstID, err := app.StartProviderSession("gemini", projectPath, "hello", "gemini-2.5-pro", "gemini-api", "")
 	if err != nil {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
@@ -208,7 +212,7 @@ func TestSendProviderSessionMessage_PreservesGeminiConfigOnRestart(t *testing.T)
 		return len(sessions) == 1 && sessions[0].SessionID == nextID
 	})
 
-	model, providerAPIID := runningSessionConfig(t, app.geminiManager, nextID)
+	model, providerAPIID, _ := runningSessionConfig(t, app.geminiManager, nextID)
 	if model != "gemini-2.5-pro" {
 		t.Fatalf("expected restarted model to be preserved, got %q", model)
 	}
@@ -221,7 +225,7 @@ func TestSendProviderSessionMessage_PreservesCodexConfigOnRestart(t *testing.T) 
 	app := newCodexTestApp(t)
 	projectPath := t.TempDir()
 
-	firstID, err := app.StartProviderSession("codex", projectPath, "hello", "gpt-5-codex", "codex-api")
+	firstID, err := app.StartProviderSession("codex", projectPath, "hello", "gpt-5.5", "codex-api", "medium")
 	if err != nil {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
@@ -248,11 +252,14 @@ func TestSendProviderSessionMessage_PreservesCodexConfigOnRestart(t *testing.T) 
 		return len(sessions) == 1 && sessions[0].SessionID == nextID
 	})
 
-	model, providerAPIID := runningSessionConfig(t, app.codexManager, nextID)
-	if model != "gpt-5-codex" {
+	model, providerAPIID, reasoningEffort := runningSessionConfig(t, app.codexManager, nextID)
+	if model != "gpt-5.5" {
 		t.Fatalf("expected restarted model to be preserved, got %q", model)
 	}
 	if providerAPIID != "codex-api" {
 		t.Fatalf("expected restarted provider api id to be preserved, got %q", providerAPIID)
+	}
+	if reasoningEffort != "medium" {
+		t.Fatalf("expected restarted reasoning effort to be preserved, got %q", reasoningEffort)
 	}
 }
