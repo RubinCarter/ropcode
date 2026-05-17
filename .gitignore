@@ -6,6 +6,7 @@ build/bin/
 !build/darwin/
 
 .ropcode/
+.superpowers/
 node_modules
 frontend/dist
 /ropcode
