@@ -22,3 +22,5 @@ package-lock.json
 # Electron release artifacts
 release/
 electron-builder-tmp.yml
+build-electrobun/
+frontend/wailsjs/
