@@ -66,3 +66,15 @@ test('shows the stop button only during active work or stop feedback', async () 
   assert.match(source, /\{showStopControl && \(/);
   assert.doesNotMatch(source, /\{\(isLoading \|\| interactiveSessionId \|\| stopStatusLabel\) && \(/);
 });
+
+test('Codex model picker only exposes GPT-5.5 and current reasoning efforts', async () => {
+  const source = await readSource();
+  const codexModelsBlock = source.match(/const CODEX_MODELS: Model\[] = \[([\s\S]*?)\];/)?.[1] ?? '';
+  const codexThinkingBlock = source.match(/const CODEX_THINKING_MODES: ThinkingModeConfig\[] = \[([\s\S]*?)\];/)?.[1] ?? '';
+
+  assert.match(codexModelsBlock, /id: "gpt-5\.5"/);
+  assert.doesNotMatch(codexModelsBlock, /gpt-5\.4|gpt-5\.3|gpt-5\.2|gpt-5\.1/);
+  assert.match(codexThinkingBlock, /id: "none"/);
+  assert.match(codexThinkingBlock, /id: "minimal"/);
+  assert.match(codexThinkingBlock, /id: "xhigh"/);
+});

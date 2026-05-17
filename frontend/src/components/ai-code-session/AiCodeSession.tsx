@@ -163,7 +163,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
   // Prompt queue - defined before eventsState
   const queueState = usePromptQueue({
-    onProcessNext: (prompt) => handleSendPrompt(prompt.prompt, prompt.model, prompt.providerApiId, prompt.thinkingMode),
+    onProcessNext: (prompt) => handleSendPrompt(prompt.prompt, prompt.model, prompt.providerApiId, prompt.thinkingMode, prompt.provider),
   });
 
   const refreshSubagentTranscripts = useCallback(async (sessionId?: string | null, projectId?: string | null) => {
@@ -1067,13 +1067,15 @@ ${message ? `**说明**:\n${message}` : ''}`;
     model: string,
     providerApiId?: string | null,
     thinkingMode?: string,
+    provider?: string,
     options?: { forceFreshClaudeSession?: boolean }
   ): Promise<boolean> => {
     console.log('[AiCodeSession] Sending prompt with thinkingMode:', thinkingMode);
+    const activeProvider = provider || defaultProvider;
 
     const classification = classifyPromptSubmit({
       prompt,
-      provider: defaultProvider,
+      provider: activeProvider,
       hasProjectPath: Boolean(sessionState.projectPath),
       isLoading: processState.isLoading,
       hasInteractiveSession: Boolean(processState.interactiveSessionIdRef.current),
@@ -1096,7 +1098,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
     if (classification.action === 'enqueue') {
       console.log('[AiCodeSession] Session busy (batch mode), queueing prompt');
-      queueState.addToQueue(prompt, model, providerApiId, thinkingMode);
+      queueState.addToQueue(prompt, model, providerApiId, thinkingMode, activeProvider);
       return true;
     }
 
@@ -1109,7 +1111,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
       const forceFreshClaudeSession =
         options?.forceFreshClaudeSession === true ||
-        (defaultProvider === 'claude' && pendingFreshClaudeSessionRef.current);
+        (activeProvider === 'claude' && pendingFreshClaudeSessionRef.current);
       pendingFreshClaudeSessionRef.current = false;
 
       if (forceFreshClaudeSession) {
@@ -1124,7 +1126,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         sessionState.setClaudeSessionId(sessionState.effectiveSession.id);
       }
 
-      const shouldWrapPrompt = !(defaultProvider === 'claude' && prompt.trim() === '/clear');
+      const shouldWrapPrompt = !(activeProvider === 'claude' && prompt.trim() === '/clear');
       const wrappedPrompt = shouldWrapPrompt
         ? await maybeWrapFirstMessage(
             sessionState.projectPath,
@@ -1176,18 +1178,18 @@ ${message ? `**说明**:\n${message}` : ''}`;
         trackEvent.sessionResumed(currentInteractiveSessionId);
         trackEvent.modelSelected(model);
 
-        if (defaultProvider === 'claude') {
+        if (activeProvider === 'claude') {
           await api.SendClaudeMessage(sessionState.projectPath, currentInteractiveSessionId, wrappedPrompt);
         } else {
-          await api.resumeProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, currentInteractiveSessionId, providerApiId || undefined);
+          await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentInteractiveSessionId, providerApiId || undefined, thinkingMode);
         }
-      } else if (currentEffectiveSession && !sessionState.isFirstPrompt && defaultProvider !== 'claude') {
+      } else if (currentEffectiveSession && !sessionState.isFirstPrompt && activeProvider !== 'claude') {
         // For non-Claude providers (batch mode), can safely resume from effectiveSession
         console.log('[AiCodeSession] Resuming batch mode session');
         trackEvent.sessionResumed(currentEffectiveSession.id);
         trackEvent.modelSelected(model);
 
-        await api.resumeProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined);
+        await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined, thinkingMode);
       } else {
         // Start new session:
         // - For Claude: always start new if no interactiveSessionId
@@ -1197,7 +1199,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         trackEvent.sessionCreated(model, 'prompt_input');
         trackEvent.modelSelected(model);
 
-        if (defaultProvider === 'claude') {
+        if (activeProvider === 'claude') {
           // Interactive mode: start long-lived process, then send first message.
           // Pass the persisted Claude session ID (from effectiveSession) so the
           // CLI can resume the conversation with --resume <id> after a stop or restart.
@@ -1212,7 +1214,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
           // Send the first message
           await api.SendClaudeMessage(sessionState.projectPath, interactiveSessionId, wrappedPrompt);
         } else {
-          await api.startProviderSession(defaultProvider, sessionState.projectPath, wrappedPrompt, model, providerApiId);
+          await api.startProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, providerApiId, thinkingMode);
         }
       }
 

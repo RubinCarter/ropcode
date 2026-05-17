@@ -805,9 +805,10 @@ export function StartProviderSession(
   projectPath: string,
   prompt: string,
   model: string,
-  providerApiId?: string
+  providerApiId?: string,
+  reasoningEffort?: string
 ): Promise<string> {
-  return wsClient.call('StartProviderSession', provider, projectPath, prompt, model, providerApiId || '');
+  return wsClient.call('StartProviderSession', provider, projectPath, prompt, model, providerApiId || '', reasoningEffort || '');
 }
 
 export function ResumeProviderSession(
@@ -816,9 +817,10 @@ export function ResumeProviderSession(
   prompt: string,
   model: string,
   sessionId: string,
-  providerApiId?: string
+  providerApiId?: string,
+  reasoningEffort?: string
 ): Promise<string> {
-  return wsClient.call('ResumeProviderSession', provider, projectPath, prompt, model, sessionId, providerApiId || '');
+  return wsClient.call('ResumeProviderSession', provider, projectPath, prompt, model, sessionId, providerApiId || '', reasoningEffort || '');
 }
 
 export function UpdateProviderSession(projectPath: string, sessionId: string, thinkingLevel: string): Promise<void> {
@@ -830,7 +832,7 @@ export function ListProviderSessions(projectPath: string, providerName: string):
 }
 
 export function LoadSessionHistory(projectPath: string, sessionId: string): Promise<claude.Message[]> {
-  return wsClient.call('LoadSessionHistory', projectPath, sessionId);
+  return wsClient.call('LoadSessionHistory', sessionId, projectPath);
 }
 
 export function LoadProviderSessionHistory(
@@ -838,7 +840,7 @@ export function LoadProviderSessionHistory(
   sessionId: string,
   providerName: string
 ): Promise<claude.Message[]> {
-  return wsClient.call('LoadProviderSessionHistory', projectPath, sessionId, providerName);
+  return wsClient.call('LoadProviderSessionHistory', sessionId, projectPath, providerName);
 }
 
 export function LoadSubagentTranscripts(

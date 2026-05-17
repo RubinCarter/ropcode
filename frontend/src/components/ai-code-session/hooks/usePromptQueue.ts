@@ -24,7 +24,7 @@ export interface UsePromptQueueReturn {
   setQueuedPromptsCollapsed: (collapsed: boolean) => void;
 
   // Actions
-  addToQueue: (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string) => void;
+  addToQueue: (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string, provider?: string) => void;
   removeFromQueue: (id: string) => void;
   clearQueue: () => void;
   processNextInQueue: () => void;
@@ -79,13 +79,14 @@ export function usePromptQueue(options: UsePromptQueueOptions): UsePromptQueueRe
   }, [setQueuedPrompts]);
 
   // Helper functions
-  const addToQueue = (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string) => {
+  const addToQueue = (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: string, provider?: string) => {
     const newPrompt: QueuedPrompt = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       prompt,
       model,
       providerApiId,
       thinkingMode,
+      provider,
     };
     setQueuedPrompts(prev => {
       const updated = [...prev, newPrompt];
