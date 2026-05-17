@@ -1061,6 +1061,10 @@ export function GetEnabledModelConfigs(): Promise<database.ModelConfig[]> {
   return wsClient.call('GetEnabledModelConfigs');
 }
 
+export function SyncProviderModelsFromAPI(providerId: string, providerApiId = ''): Promise<database.ModelConfig[]> {
+  return wsClient.call('SyncProviderModelsFromAPI', providerId, providerApiId);
+}
+
 export function CreateModelConfig(config: database.ModelConfig): Promise<void> {
   return wsClient.call('CreateModelConfig', config);
 }

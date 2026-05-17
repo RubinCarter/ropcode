@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -2624,6 +2625,101 @@ func (a *App) GetEnabledModelConfigs() ([]*database.ModelConfig, error) {
 		return []*database.ModelConfig{}, nil
 	}
 	return configs, nil
+}
+
+type openAIModelsResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+// SyncProviderModelsFromAPI fetches models from the provider's OpenAI-compatible
+// /models endpoint and stores missing supported models as user-defined configs.
+func (a *App) SyncProviderModelsFromAPI(providerID, providerApiID string) ([]*database.ModelConfig, error) {
+	if a.modelRegistry == nil || a.dbManager == nil {
+		return []*database.ModelConfig{}, nil
+	}
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return []*database.ModelConfig{}, fmt.Errorf("provider_id is required")
+	}
+
+	apiConfig, err := a.resolveProviderAPIConfig(providerID, providerApiID)
+	if err != nil {
+		return []*database.ModelConfig{}, err
+	}
+
+	modelIDs, err := fetchOpenAICompatibleModelIDs(apiConfig)
+	if err != nil {
+		return []*database.ModelConfig{}, err
+	}
+	return a.modelRegistry.SyncProviderModels(providerID, modelIDs)
+}
+
+func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*database.ProviderApiConfig, error) {
+	if strings.TrimSpace(providerApiID) != "" {
+		return a.dbManager.GetProviderApiConfig(providerApiID)
+	}
+	apiConfig, err := a.dbManager.GetDefaultProviderApiConfig(providerID)
+	if err == nil && apiConfig != nil {
+		return apiConfig, nil
+	}
+	if providerID == "codex" {
+		return &database.ProviderApiConfig{
+			ProviderID: providerID,
+			BaseURL:    "https://api.openai.com/v1",
+			AuthToken:  os.Getenv("OPENAI_API_KEY"),
+		}, nil
+	}
+	return nil, fmt.Errorf("no provider API config found for %s", providerID)
+}
+
+func fetchOpenAICompatibleModelIDs(apiConfig *database.ProviderApiConfig) ([]string, error) {
+	if apiConfig == nil {
+		return nil, fmt.Errorf("provider API config is required")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(apiConfig.BaseURL), "/")
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	endpoint := baseURL + "/models"
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(apiConfig.AuthToken) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiConfig.AuthToken))
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("models API returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var parsed openAIModelsResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+
+	modelIDs := make([]string, 0, len(parsed.Data))
+	for _, model := range parsed.Data {
+		if strings.TrimSpace(model.ID) != "" {
+			modelIDs = append(modelIDs, model.ID)
+		}
+	}
+	sort.Strings(modelIDs)
+	return modelIDs, nil
 }
 
 // GetModelConfigsByProvider retrieves all model configurations for a specific provider

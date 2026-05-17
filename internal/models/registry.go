@@ -3,6 +3,7 @@ package models
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"ropcode/internal/database"
@@ -12,6 +13,124 @@ import (
 // Builtin models are returned directly from code, user-defined models are stored in database
 type Registry struct {
 	db *database.Database
+}
+
+// SyncProviderModels creates user-defined model configs for provider model IDs
+// that are not already present as built-in or user-defined models.
+func (r *Registry) SyncProviderModels(providerID string, modelIDs []string) ([]*database.ModelConfig, error) {
+	synced := make([]*database.ModelConfig, 0)
+	seen := make(map[string]bool)
+
+	for _, rawID := range modelIDs {
+		modelID := strings.TrimSpace(rawID)
+		if modelID == "" || seen[modelID] || !isSupportedProviderModel(providerID, modelID) {
+			continue
+		}
+		seen[modelID] = true
+
+		if GetBuiltinModel(modelID) != nil {
+			continue
+		}
+		exists, err := r.db.ModelConfigExists(modelID)
+		if err != nil {
+			return synced, err
+		}
+		if exists {
+			continue
+		}
+
+		config := newSyncedModelConfig(providerID, modelID)
+		if err := r.CreateModel(config); err != nil {
+			return synced, err
+		}
+		synced = append(synced, config)
+	}
+
+	return synced, nil
+}
+
+func isSupportedModelConfig(config *database.ModelConfig) bool {
+	return config == nil || config.ProviderID != "codex" || config.ModelID == "gpt-5.5"
+}
+
+func isSupportedProviderModel(providerID, modelID string) bool {
+	id := strings.ToLower(modelID)
+	switch providerID {
+	case "codex":
+		if id != "gpt-5.5" {
+			return false
+		}
+		if !(strings.HasPrefix(id, "gpt-") || strings.HasPrefix(id, "o")) {
+			return false
+		}
+		excluded := []string{
+			"audio",
+			"dall-e",
+			"embedding",
+			"image",
+			"moderation",
+			"realtime",
+			"search",
+			"speech",
+			"transcribe",
+			"tts",
+			"whisper",
+		}
+		for _, token := range excluded {
+			if strings.Contains(id, token) {
+				return false
+			}
+		}
+		return true
+	default:
+		return providerID != ""
+	}
+}
+
+func newSyncedModelConfig(providerID, modelID string) *database.ModelConfig {
+	return &database.ModelConfig{
+		ModelID:        modelID,
+		ProviderID:     providerID,
+		DisplayName:    displayNameFromModelID(modelID),
+		Description:    "Synced from provider /v1/models",
+		IsEnabled:      true,
+		ThinkingLevels: defaultThinkingLevelsForProvider(providerID, modelID),
+	}
+}
+
+func defaultThinkingLevelsForProvider(providerID, modelID string) []database.ThinkingLevel {
+	if providerID != "codex" {
+		return []database.ThinkingLevel{}
+	}
+	return codexThinkingLevels()
+}
+
+func codexThinkingLevels() []database.ThinkingLevel {
+	return []database.ThinkingLevel{
+		{ID: "none", Name: "None", Budget: "none", IsDefault: false},
+		{ID: "minimal", Name: "Minimal", Budget: "minimal", IsDefault: false},
+		{ID: "low", Name: "Low", Budget: "low", IsDefault: false},
+		{ID: "medium", Name: "Medium", Budget: "medium", IsDefault: true},
+		{ID: "high", Name: "High", Budget: "high", IsDefault: false},
+		{ID: "xhigh", Name: "Extra High", Budget: "xhigh", IsDefault: false},
+	}
+}
+
+func displayNameFromModelID(modelID string) string {
+	parts := strings.FieldsFunc(modelID, func(r rune) bool {
+		return r == '-' || r == '_'
+	})
+	for i, part := range parts {
+		switch strings.ToLower(part) {
+		case "gpt":
+			parts[i] = "GPT"
+		case "o":
+			parts[i] = "O"
+		default:
+			parts[i] = strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // NewRegistry creates a new model registry
@@ -50,6 +169,9 @@ func (r *Registry) GetAllModels() ([]*database.ModelConfig, error) {
 
 	// Update is_default for user models too
 	for _, m := range userModels {
+		if !isSupportedModelConfig(m) {
+			continue
+		}
 		if customDefault, ok := defaultModels[m.ProviderID]; ok {
 			m.IsDefault = (m.ModelID == customDefault)
 		}
@@ -95,6 +217,9 @@ func (r *Registry) GetEnabledModels() ([]*database.ModelConfig, error) {
 	}
 
 	for _, m := range userModels {
+		if !isSupportedModelConfig(m) {
+			continue
+		}
 		if customDefault, ok := defaultModels[m.ProviderID]; ok {
 			m.IsDefault = (m.ModelID == customDefault)
 		}
@@ -128,6 +253,9 @@ func (r *Registry) GetModelsByProvider(providerID string) ([]*database.ModelConf
 	}
 
 	for _, m := range userModels {
+		if !isSupportedModelConfig(m) {
+			continue
+		}
 		if customDefault != "" {
 			m.IsDefault = (m.ModelID == customDefault)
 		}

@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronUp,
   Lock,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +62,7 @@ const PROVIDERS = [
 export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncingProvider, setSyncingProvider] = useState<string | null>(null);
   const [expandedProvider, setExpandedProvider] = useState<string | null>("claude");
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -154,6 +156,24 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
     } catch (err) {
       console.error("Failed to set default:", err);
       setToast?.({ message: "Failed to set default model", type: "error" });
+    }
+  };
+
+  const handleSyncProviderModels = async (providerID: string) => {
+    try {
+      setSyncingProvider(providerID);
+      const synced = await api.syncProviderModelsFromAPI(providerID, "");
+      await loadModels();
+      const count = synced?.length || 0;
+      setToast?.({
+        message: count === 0 ? "No new models found" : `Synced ${count} new model${count === 1 ? "" : "s"}`,
+        type: "success",
+      });
+    } catch (err) {
+      console.error("Failed to sync models:", err);
+      setToast?.({ message: "Failed to sync models from API", type: "error" });
+    } finally {
+      setSyncingProvider(null);
     }
   };
 
@@ -382,22 +402,44 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
 
           return (
             <Card key={provider.id} className="overflow-hidden">
-              <button
-                onClick={() => setExpandedProvider(isExpanded ? null : provider.id)}
-                className="w-full p-4 flex items-center justify-between hover:bg-muted/30 transition-colors"
-              >
+              <div className="w-full p-4 flex items-center justify-between hover:bg-muted/30 transition-colors">
                 <div className="flex items-center gap-3">
-                  <span className="font-medium">{provider.name}</span>
+                  <button
+                    onClick={() => setExpandedProvider(isExpanded ? null : provider.id)}
+                    className="font-medium text-left"
+                  >
+                    {provider.name}
+                  </button>
                   <span className="text-xs text-muted-foreground">
                     {providerModels.length} model{providerModels.length !== 1 ? "s" : ""}
                   </span>
                 </div>
-                {isExpanded ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
+                <div className="flex items-center gap-2">
+                  {provider.id === "codex" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleSyncProviderModels(provider.id)}
+                      disabled={syncingProvider === provider.id}
+                      className="gap-2"
+                    >
+                      <RefreshCw className={cn("h-4 w-4", syncingProvider === provider.id && "animate-spin")} />
+                      Sync
+                    </Button>
+                  )}
+                  <button
+                    onClick={() => setExpandedProvider(isExpanded ? null : provider.id)}
+                    className="p-1 rounded hover:bg-muted"
+                    title={isExpanded ? "Collapse" : "Expand"}
+                  >
+                    {isExpanded ? (
+                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </button>
+                </div>
+              </div>
 
               <AnimatePresence>
                 {isExpanded && (
