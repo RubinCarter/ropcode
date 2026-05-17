@@ -2233,6 +2233,31 @@ func (a *App) StopClaudeActivity(sessionID, activityID string) error {
 	return a.claudeActivity.StopActivity(sessionID, activityID)
 }
 
+func (a *App) ReadClaudeSubagentLog(sessionID, activityID string, since int) (claudeactivity.SubagentLogChunk, error) {
+	if a.claudeActivity == nil {
+		return claudeactivity.SubagentLogChunk{}, fmt.Errorf("claude activity service not initialized")
+	}
+	chunk, err := a.claudeActivity.ReadSubagentLog(sessionID, activityID, since)
+	if err != nil {
+		log.Printf("[ReadClaudeSubagentLog] session=%s activity=%s since=%d error=%v", sessionID, activityID, since, err)
+		return claudeactivity.SubagentLogChunk{}, err
+	}
+	log.Printf(
+		"[ReadClaudeSubagentLog] session=%s activity=%s since=%d resolved_by=%s path=%q lines=%d total_lines=%d next=%d truncated_before=%d file_missing=%v",
+		sessionID,
+		activityID,
+		since,
+		chunk.ResolvedBy,
+		chunk.Path,
+		len(chunk.Lines),
+		chunk.TotalLines,
+		chunk.NextLineIndex,
+		chunk.TruncatedBefore,
+		chunk.FileMissing,
+	)
+	return chunk, nil
+}
+
 // GetClaudeSessionOutput returns the output of a session
 func (a *App) GetClaudeSessionOutput(sessionID string) (string, error) {
 	if a.claudeManager == nil {

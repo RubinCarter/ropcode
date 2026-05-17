@@ -170,6 +170,17 @@ export namespace main {
     requested_lines: number;
     resolved_by?: string;
   }
+  export interface ClaudeSubagentLogChunk {
+    session_id: string;
+    activity_id: string;
+    lines: string[];
+    next_line_index: number;
+    total_lines: number;
+    truncated_before: number;
+    file_missing: boolean;
+    path?: string;
+    resolved_by?: string;
+  }
   export interface HookValidationResult { valid: boolean; error?: string; }
   export interface UsageStats { totalRequests: number; }
   export interface ClaudeAgentEntry { name: string; category: string; }
@@ -888,6 +899,14 @@ export function GetClaudeActivityLogTail(
 
 export function StopClaudeActivity(sessionId: string, activityId: string): Promise<void> {
   return wsClient.call('StopClaudeActivity', sessionId, activityId);
+}
+
+export function ReadClaudeSubagentLog(
+  sessionId: string,
+  activityId: string,
+  since: number
+): Promise<main.ClaudeSubagentLogChunk> {
+  return wsClient.call('ReadClaudeSubagentLog', sessionId, activityId, since);
 }
 
 // ==================== Claude 设置 ====================

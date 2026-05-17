@@ -76,3 +76,15 @@ type LogTail struct {
 	RequestedLines int    `json:"requested_lines"`
 	ResolvedBy     string `json:"resolved_by,omitempty"`
 }
+
+type SubagentLogChunk struct {
+	SessionID       string   `json:"session_id"`
+	ActivityID      string   `json:"activity_id"`
+	Lines           []string `json:"lines"`
+	NextLineIndex   int      `json:"next_line_index"`
+	TotalLines      int      `json:"total_lines"`
+	TruncatedBefore int      `json:"truncated_before"`
+	FileMissing     bool     `json:"file_missing"`
+	Path            string   `json:"path,omitempty"`
+	ResolvedBy      string   `json:"resolved_by,omitempty"`
+}

@@ -89,11 +89,11 @@ function usageTokens(usage?: TokenUsage): number {
   );
 }
 
-function messageTokens(message: ClaudeStreamMessageLike): number {
+export function messageTokens(message: ClaudeStreamMessageLike): number {
   return usageTokens(message.message?.usage) + usageTokens(message.usage);
 }
 
-function assistantToolUses(message: ClaudeStreamMessageLike): any[] {
+export function assistantToolUses(message: ClaudeStreamMessageLike): any[] {
   if (message.type !== "assistant" || !Array.isArray(message.message?.content)) {
     return [];
   }

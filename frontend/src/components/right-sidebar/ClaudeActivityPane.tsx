@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, ChevronDown, ChevronRight, CircleAlert, FileText, Loader2, Square, TerminalSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -9,10 +9,11 @@ import {
   activityStatusLabel,
   canLoadActivityLog,
   findActiveClaudeSessionForProject,
-  getExpandedLogActivities,
   normalizeClaudeActivitySnapshot,
 } from '@/lib/claudeActivity';
+import { emptyTranscript, parseTranscriptLines, type ParsedTranscript } from '@/lib/subagentLog';
 import { usePageVisibilityPolling } from '@/hooks';
+import { SubagentLogView } from './SubagentLogView';
 
 interface ClaudeActivityPaneProps {
   workspacePath?: string;
@@ -27,10 +28,16 @@ interface ActivityListProps {
   sessionId: string;
   expandedLogs: Set<string>;
   logTails: Record<string, main.ClaudeActivityLogTail | undefined>;
+  subagentLogs: Map<string, ParsedTranscript>;
   loadingLogs: Set<string>;
   stoppingIds: Set<string>;
   onToggleLog: (activity: main.ClaudeActivity) => void;
   onStop: (activity: main.ClaudeActivity) => void;
+  onLoadEarlier: (activity: main.ClaudeActivity) => void;
+}
+
+function isLocalAgent(activity: main.ClaudeActivity): boolean {
+  return activity.type === 'local_agent';
 }
 
 export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
@@ -43,47 +50,150 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
   const [logTails, setLogTails] = useState<Record<string, main.ClaudeActivityLogTail | undefined>>({});
+  const [subagentLogs, setSubagentLogs] = useState<Map<string, ParsedTranscript>>(new Map());
   const [loadingLogs, setLoadingLogs] = useState<Set<string>>(new Set());
   const [stoppingIds, setStoppingIds] = useState<Set<string>>(new Set());
 
-  const refreshExpandedLogTails = useCallback(async (
+  const subagentLogsRef = useRef(subagentLogs);
+  useEffect(() => {
+    subagentLogsRef.current = subagentLogs;
+  }, [subagentLogs]);
+
+  const loadingEarlierRef = useRef<Set<string>>(new Set());
+  const expandedLogsRef = useRef(expandedLogs);
+  useEffect(() => {
+    expandedLogsRef.current = expandedLogs;
+  }, [expandedLogs]);
+
+  const previousSessionIdRef = useRef<string | null>(null);
+
+  const applyFileMissing = useCallback((activityId: string) => {
+    setSubagentLogs((prev) => {
+      const existing = prev.get(activityId);
+      if (existing?.fileMissing) return prev;
+      const next = new Map(prev);
+      next.set(activityId, { ...(existing ?? emptyTranscript()), fileMissing: true });
+      return next;
+    });
+  }, []);
+
+  const fetchSubagentChunk = useCallback(async (
     sessionId: string,
-    nextSnapshot: main.ClaudeActivitySnapshot,
+    activityId: string,
+    since: number,
   ) => {
-    const activities = getExpandedLogActivities(nextSnapshot, expandedLogs);
-    if (activities.length === 0) return;
-
-    const tails = await Promise.all(
-      activities.map(async (activity) => {
-        try {
-          const tail = await api.GetClaudeActivityLogTail(sessionId, activity.id, 80);
-          return [activity.id, tail] as const;
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return [activity.id, {
-            session_id: sessionId,
-            activity_id: activity.id,
-            content: '',
-            line_count: 0,
-            truncated_lines: 0,
-            truncated_bytes: 0,
-            error: message,
-            path_exists: false,
-            bytes_read: 0,
-            requested_lines: 80,
-          } satisfies main.ClaudeActivityLogTail] as const;
-        }
-      }),
-    );
-
-    setLogTails((current) => {
-      const next = { ...current };
-      for (const [activityId, tail] of tails) {
-        next[activityId] = tail;
+    const chunk = await api.ReadClaudeSubagentLog(sessionId, activityId, since);
+    setSubagentLogs((prev) => {
+      const existing = prev.get(activityId);
+      const next = new Map(prev);
+      if (chunk.file_missing) {
+        next.set(activityId, { ...(existing ?? emptyTranscript()), fileMissing: true });
+        return next;
+      }
+      const newMessages = parseTranscriptLines(chunk.lines);
+      if (since === -1) {
+        next.set(activityId, {
+          messages: newMessages,
+          lastLineIndex: chunk.next_line_index,
+          truncatedBefore: chunk.truncated_before,
+          fileMissing: false,
+          loadingEarlier: existing?.loadingEarlier ?? false,
+        });
+      } else {
+        const baseMessages = existing?.messages ?? [];
+        next.set(activityId, {
+          ...(existing ?? emptyTranscript()),
+          messages: newMessages.length > 0 ? [...baseMessages, ...newMessages] : baseMessages,
+          lastLineIndex: chunk.next_line_index,
+          fileMissing: false,
+        });
       }
       return next;
     });
-  }, [expandedLogs]);
+  }, []);
+
+  const loadSubagentLogInitial = useCallback(async (sessionId: string, activityId: string) => {
+    setLoadingLogs((current) => new Set(current).add(activityId));
+    try {
+      await fetchSubagentChunk(sessionId, activityId, -1);
+    } catch (err) {
+      console.error('[ClaudeActivityPane] subagent log initial fetch failed', err);
+    } finally {
+      setLoadingLogs((current) => {
+        const next = new Set(current);
+        next.delete(activityId);
+        return next;
+      });
+    }
+  }, [fetchSubagentChunk]);
+
+  const loadSubagentLogIncremental = useCallback(async (sessionId: string, activityId: string) => {
+    if (loadingEarlierRef.current.has(activityId)) return;
+    const existing = subagentLogsRef.current.get(activityId);
+    if (!existing) return;
+    if (existing.fileMissing) return;
+    try {
+      await fetchSubagentChunk(sessionId, activityId, existing.lastLineIndex);
+    } catch (err) {
+      console.error('[ClaudeActivityPane] subagent log incremental fetch failed', err);
+    }
+  }, [fetchSubagentChunk]);
+
+  const loadBashLogTail = useCallback(async (
+    sessionId: string,
+    activityId: string,
+    showSpinner: boolean,
+  ) => {
+    if (showSpinner) {
+      setLoadingLogs((current) => new Set(current).add(activityId));
+    }
+    try {
+      const tail = await api.GetClaudeActivityLogTail(sessionId, activityId, 80);
+      setLogTails((current) => ({ ...current, [activityId]: tail }));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setLogTails((current) => ({
+        ...current,
+        [activityId]: {
+          session_id: sessionId,
+          activity_id: activityId,
+          content: '',
+          line_count: 0,
+          truncated_lines: 0,
+          truncated_bytes: 0,
+          error: message,
+          path_exists: false,
+          bytes_read: 0,
+          requested_lines: 80,
+        } as main.ClaudeActivityLogTail,
+      }));
+    } finally {
+      if (showSpinner) {
+        setLoadingLogs((current) => {
+          const next = new Set(current);
+          next.delete(activityId);
+          return next;
+        });
+      }
+    }
+  }, []);
+
+  const refreshExpandedLogs = useCallback(async (
+    sessionId: string,
+    nextSnapshot: main.ClaudeActivitySnapshot,
+  ) => {
+    const expanded = expandedLogsRef.current;
+    if (expanded.size === 0) return;
+    const activities = nextSnapshot.activities.filter(
+      (a) => expanded.has(a.id) && canLoadActivityLog(a),
+    );
+    await Promise.all(activities.map((activity) => {
+      if (isLocalAgent(activity)) {
+        return loadSubagentLogIncremental(sessionId, activity.id);
+      }
+      return loadBashLogTail(sessionId, activity.id, false);
+    }));
+  }, [loadBashLogTail, loadSubagentLogIncremental]);
 
   const pollActivities = useCallback(async () => {
     if (!workspacePath) {
@@ -103,11 +213,32 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
       return;
     }
 
+    if (previousSessionIdRef.current !== session.session_id) {
+      previousSessionIdRef.current = session.session_id;
+      setSubagentLogs(new Map());
+      setLogTails({});
+      loadingEarlierRef.current = new Set();
+    }
+
     try {
       const next = normalizeClaudeActivitySnapshot(await api.GetClaudeSessionActivities(session.session_id));
       setSnapshot(next);
       onSnapshotChange?.(next);
-      await refreshExpandedLogTails(session.session_id, next);
+
+      const liveIds = new Set(next.activities.map((a) => a.id));
+      setSubagentLogs((prev) => {
+        let changed = false;
+        const map = new Map(prev);
+        for (const id of map.keys()) {
+          if (!liveIds.has(id)) {
+            map.delete(id);
+            changed = true;
+          }
+        }
+        return changed ? map : prev;
+      });
+
+      await refreshExpandedLogs(session.session_id, next);
       setError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -115,7 +246,7 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
       setSnapshot(null);
       onSnapshotChange?.(null);
     }
-  }, [workspacePath, onSnapshotChange, refreshExpandedLogTails]);
+  }, [workspacePath, onSnapshotChange, refreshExpandedLogs]);
 
   usePageVisibilityPolling(pollActivities, {
     interval: 2500,
@@ -123,37 +254,38 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
     immediate: true,
   });
 
-  const loadLogTail = useCallback(async (activity: main.ClaudeActivity) => {
-    if (!activeSession) return;
-
-    setLoadingLogs((current) => new Set(current).add(activity.id));
-    try {
-      const tail = await api.GetClaudeActivityLogTail(activeSession.session_id, activity.id, 80);
-      setLogTails((current) => ({ ...current, [activity.id]: tail }));
-    } finally {
-      setLoadingLogs((current) => {
-        const next = new Set(current);
-        next.delete(activity.id);
-        return next;
-      });
-    }
-  }, [activeSession]);
-
   const handleToggleLog = useCallback((activity: main.ClaudeActivity) => {
+    const willExpand = !expandedLogs.has(activity.id);
+
     setExpandedLogs((current) => {
       const next = new Set(current);
       if (next.has(activity.id)) {
         next.delete(activity.id);
-        return next;
+      } else {
+        next.add(activity.id);
       }
-      next.add(activity.id);
       return next;
     });
 
-    if (!expandedLogs.has(activity.id)) {
-      void loadLogTail(activity);
+    if (!willExpand || !activeSession) return;
+
+    if (isLocalAgent(activity)) {
+      const cached = subagentLogsRef.current.get(activity.id);
+      if (!cached) {
+        void loadSubagentLogInitial(activeSession.session_id, activity.id);
+      } else {
+        void loadSubagentLogIncremental(activeSession.session_id, activity.id);
+      }
+    } else {
+      void loadBashLogTail(activeSession.session_id, activity.id, true);
     }
-  }, [expandedLogs, loadLogTail]);
+  }, [
+    expandedLogs,
+    activeSession,
+    loadSubagentLogInitial,
+    loadSubagentLogIncremental,
+    loadBashLogTail,
+  ]);
 
   const handleStop = useCallback(async (activity: main.ClaudeActivity) => {
     if (!activeSession) return;
@@ -169,6 +301,73 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
       });
     }
   }, [activeSession, pollActivities]);
+
+  const handleLoadEarlier = useCallback(async (activity: main.ClaudeActivity) => {
+    if (!activeSession) return;
+    if (loadingEarlierRef.current.has(activity.id)) return;
+    const existing = subagentLogsRef.current.get(activity.id);
+    if (!existing || existing.truncatedBefore <= 0) return;
+
+    loadingEarlierRef.current.add(activity.id);
+
+    setSubagentLogs((prev) => {
+      const cur = prev.get(activity.id);
+      if (!cur) return prev;
+      const next = new Map(prev);
+      next.set(activity.id, { ...cur, loadingEarlier: true });
+      return next;
+    });
+
+    const targetLine = existing.truncatedBefore;
+    const collected: string[] = [];
+
+    try {
+      let since = 0;
+      while (since < targetLine) {
+        const chunk = await api.ReadClaudeSubagentLog(
+          activeSession.session_id,
+          activity.id,
+          since,
+        );
+        if (chunk.file_missing) {
+          applyFileMissing(activity.id);
+          return;
+        }
+        if (chunk.lines.length === 0) break;
+        const linesToTake = Math.min(chunk.lines.length, targetLine - since);
+        for (let i = 0; i < linesToTake; i++) {
+          collected.push(chunk.lines[i]);
+        }
+        if (chunk.next_line_index <= since) break;
+        since = chunk.next_line_index;
+      }
+
+      const earlierMessages = parseTranscriptLines(collected);
+      setSubagentLogs((prev) => {
+        const cur = prev.get(activity.id);
+        if (!cur) return prev;
+        const next = new Map(prev);
+        next.set(activity.id, {
+          ...cur,
+          messages: [...earlierMessages, ...cur.messages],
+          truncatedBefore: 0,
+          loadingEarlier: false,
+        });
+        return next;
+      });
+    } catch (err) {
+      console.error('[ClaudeActivityPane] load earlier failed', err);
+    } finally {
+      loadingEarlierRef.current.delete(activity.id);
+      setSubagentLogs((prev) => {
+        const cur = prev.get(activity.id);
+        if (!cur || !cur.loadingEarlier) return prev;
+        const next = new Map(prev);
+        next.set(activity.id, { ...cur, loadingEarlier: false });
+        return next;
+      });
+    }
+  }, [activeSession, applyFileMissing]);
 
   const hasActivities = Boolean(snapshot && snapshot.activities.length > 0);
   return (
@@ -214,10 +413,12 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
               sessionId={snapshot.session_id}
               expandedLogs={expandedLogs}
               logTails={logTails}
+              subagentLogs={subagentLogs}
               loadingLogs={loadingLogs}
               stoppingIds={stoppingIds}
               onToggleLog={handleToggleLog}
               onStop={handleStop}
+              onLoadEarlier={handleLoadEarlier}
             />
             <ActivityList
               title="Background Tasks"
@@ -226,10 +427,12 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
               sessionId={snapshot.session_id}
               expandedLogs={expandedLogs}
               logTails={logTails}
+              subagentLogs={subagentLogs}
               loadingLogs={loadingLogs}
               stoppingIds={stoppingIds}
               onToggleLog={handleToggleLog}
               onStop={handleStop}
+              onLoadEarlier={handleLoadEarlier}
             />
             {snapshot.other.length > 0 && (
               <ActivityList
@@ -239,10 +442,12 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
                 sessionId={snapshot.session_id}
                 expandedLogs={expandedLogs}
                 logTails={logTails}
+                subagentLogs={subagentLogs}
                 loadingLogs={loadingLogs}
                 stoppingIds={stoppingIds}
                 onToggleLog={handleToggleLog}
                 onStop={handleStop}
+                onLoadEarlier={handleLoadEarlier}
               />
             )}
           </div>
@@ -258,10 +463,12 @@ const ActivityList: React.FC<ActivityListProps> = ({
   activities,
   expandedLogs,
   logTails,
+  subagentLogs,
   loadingLogs,
   stoppingIds,
   onToggleLog,
   onStop,
+  onLoadEarlier,
 }) => {
   const countLabel = useMemo(() => activities.length.toString(), [activities.length]);
 
@@ -282,8 +489,10 @@ const ActivityList: React.FC<ActivityListProps> = ({
           {activities.map((activity) => {
             const expanded = expandedLogs.has(activity.id);
             const tail = logTails[activity.id];
+            const transcript = subagentLogs.get(activity.id);
             const loadingLog = loadingLogs.has(activity.id);
             const stopping = stoppingIds.has(activity.id) || activity.status === 'stopping';
+            const agent = isLocalAgent(activity);
 
             return (
               <div key={activity.id} className="rounded-md border bg-card text-card-foreground">
@@ -338,7 +547,19 @@ const ActivityList: React.FC<ActivityListProps> = ({
 
                 {expanded && (
                   <div className="border-t bg-muted/20 p-2">
-                    {loadingLog ? (
+                    {agent ? (
+                      transcript ? (
+                        <SubagentLogView
+                          transcript={transcript}
+                          onLoadEarlier={() => onLoadEarlier(activity)}
+                        />
+                      ) : (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Loading transcript
+                        </div>
+                      )
+                    ) : loadingLog ? (
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         Loading log
