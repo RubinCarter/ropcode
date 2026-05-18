@@ -6,7 +6,7 @@
   "frontend:install": "",
   "frontend:build": "",
   "frontend:dev:watcher": "",
-  "frontend:dev:serverUrl": "",
+  "frontend:dev:serverUrl": "http://localhost:5174",
   "build:dir": "build-wails",
   "build:tags": "wails",
   "author": {

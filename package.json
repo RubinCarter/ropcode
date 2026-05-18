@@ -7,10 +7,13 @@
   "main": "electron/dist/main.js",
   "scripts": {
     "dev": "npm run build:go && concurrently \"npm run dev:frontend\" \"npm run dev:electron\" --kill-others",
+    "dev:wails": "npm run build:wails:go && concurrently \"npm run dev:frontend\" \"npm run dev:wails:shell\" --kill-others",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:electron": "cd electron && npm run build && npm run dev",
+    "dev:wails:shell": "mkdir -p frontend/dist && touch frontend/dist/.keep && wails dev -tags wails -skipbindings",
     "build:cli:dev": "go build -o bin/ropcode ./cmd/ropcode",
     "build:go": "go build -tags server -o bin/ropcode-server . && ./scripts/build-cli.sh",
+    "build:wails:go": "./scripts/build-cli.sh",
     "build": "npm run build:go && cd frontend && npm run build && cd ../electron && npm run build",
     "build:release": "./scripts/build-electron.sh"
   },
