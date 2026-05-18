@@ -22,5 +22,10 @@ package-lock.json
 # Electron release artifacts
 release/
 electron-builder-tmp.yml
+
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
 build-electrobun/
 frontend/wailsjs/
