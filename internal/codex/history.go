@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -402,17 +403,36 @@ type SessionInfo struct {
 	FirstMessage     string `json:"first_message,omitempty"`
 }
 
+type ProjectSessionsResult struct {
+	Sessions []SessionInfo
+	HasMore  bool
+}
+
+var maxLimitedProjectSessionScanFiles = 200
+
 // ListProjectSessions lists all sessions for a specific project path
 // It scans the ~/.codex/sessions directory structure and extracts session info
 func ListProjectSessions(codexDir, projectPath string) ([]SessionInfo, error) {
+	result, err := ListProjectSessionsLimit(codexDir, projectPath, 0)
+	if err != nil {
+		return nil, err
+	}
+	return result.Sessions, nil
+}
+
+func ListProjectSessionsLimit(codexDir, projectPath string, limit int) (ProjectSessionsResult, error) {
 	sessionsDir := filepath.Join(codexDir, "sessions")
 
 	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
 		log.Printf("[Codex History] Sessions directory does not exist: %s", sessionsDir)
-		return []SessionInfo{}, nil
+		return ProjectSessionsResult{}, nil
 	}
 
-	var sessions []SessionInfo
+	type candidate struct {
+		path    string
+		modTime time.Time
+	}
+	candidates := make([]candidate, 0)
 
 	// Walk through YYYY/MM/DD directory structure
 	err := filepath.Walk(sessionsDir, func(path string, info os.FileInfo, err error) error {
@@ -427,28 +447,44 @@ func ListProjectSessions(codexDir, projectPath string) ([]SessionInfo, error) {
 		if !strings.HasSuffix(info.Name(), ".jsonl") {
 			return nil
 		}
+		candidates = append(candidates, candidate{path: path, modTime: info.ModTime()})
+		return nil
+	})
 
+	if err != nil {
+		return ProjectSessionsResult{}, fmt.Errorf("error walking sessions directory: %w", err)
+	}
+
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].modTime.After(candidates[j].modTime)
+	})
+
+	var sessions []SessionInfo
+	hasMore := false
+	for index, candidate := range candidates {
+		if limit > 0 && index >= maxLimitedProjectSessionScanFiles {
+			hasMore = index < len(candidates)
+			break
+		}
 		// Extract session info from the file
-		sessionInfo, err := extractSessionInfo(path, projectPath)
+		sessionInfo, err := extractSessionInfo(candidate.path, projectPath)
 		if err != nil {
 			// Skip files that can't be parsed
-			return nil
+			continue
 		}
 
 		// Only include sessions that match the project path
 		if sessionInfo != nil {
 			sessions = append(sessions, *sessionInfo)
+			if limit > 0 && len(sessions) >= limit {
+				hasMore = index+1 < len(candidates)
+				break
+			}
 		}
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, fmt.Errorf("error walking sessions directory: %w", err)
 	}
 
 	log.Printf("[Codex History] Found %d sessions for project: %s", len(sessions), projectPath)
-	return sessions, nil
+	return ProjectSessionsResult{Sessions: sessions, HasMore: hasMore}, nil
 }
 
 // extractSessionInfo extracts session info from a Codex session file
@@ -493,6 +529,9 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 			}
 			sessionID, _ = payload["id"].(string)
 			sessionProjectPath, _ = payload["cwd"].(string)
+			if targetProjectPath != "" && sessionProjectPath != "" && !sameCodexProjectPath(sessionProjectPath, targetProjectPath) {
+				return nil, nil
+			}
 			if ts, ok := payload["timestamp"].(string); ok && ts != "" {
 				if t, err := time.Parse(time.RFC3339, ts); err == nil {
 					createdAt = t.Unix()
@@ -532,7 +571,7 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 	// Check if this session matches the target project path
 	// Only return sessions that explicitly match the target project
 	if targetProjectPath != "" {
-		if sessionProjectPath != targetProjectPath {
+		if !sameCodexProjectPath(sessionProjectPath, targetProjectPath) {
 			// Session belongs to a different project - skip
 			return nil, nil
 		}
@@ -546,6 +585,12 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 		MessageTimestamp: lastTimestamp,
 		FirstMessage:     firstMessage,
 	}, nil
+}
+
+func sameCodexProjectPath(a, b string) bool {
+	a = filepath.Clean(strings.TrimSpace(a))
+	b = filepath.Clean(strings.TrimSpace(b))
+	return strings.EqualFold(a, b)
 }
 
 func firstTextFromCodexContent(content []map[string]interface{}) string {

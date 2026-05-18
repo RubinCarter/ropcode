@@ -44,16 +44,18 @@ func TestListSpaceSessionsFromScannersKeepsSuccessfulProviderResults(t *testing.
 	result, err := listSpaceSessionsFromScanners("E:/repo", 10, []spaceSessionScanner{
 		{
 			provider: "claude",
-			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
-				return []ProviderSessionSummary{
-					{ID: "claude-session", Provider: "claude", ProjectPath: projectPath, LastActivity: 100},
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				return spaceSessionScanResult{
+					sessions: []ProviderSessionSummary{
+						{ID: "claude-session", Provider: "claude", ProjectPath: projectPath, LastActivity: 100},
+					},
 				}, nil
 			},
 		},
 		{
 			provider: "codex",
-			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
-				return nil, errors.New("codex unavailable")
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				return spaceSessionScanResult{}, errors.New("codex unavailable")
 			},
 		},
 	})
@@ -70,19 +72,65 @@ func TestListSpaceSessionsFromScannersErrorsWhenAllProvidersFail(t *testing.T) {
 	_, err := listSpaceSessionsFromScanners("E:/repo", 10, []spaceSessionScanner{
 		{
 			provider: "claude",
-			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
-				return nil, errors.New("claude unavailable")
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				return spaceSessionScanResult{}, errors.New("claude unavailable")
 			},
 		},
 		{
 			provider: "codex",
-			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
-				return nil, errors.New("codex unavailable")
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				return spaceSessionScanResult{}, errors.New("codex unavailable")
 			},
 		},
 	})
 
 	if err == nil {
 		t.Fatal("expected error when every provider scanner fails")
+	}
+}
+
+func TestListSpaceSessionsFromScannersPassesLimitToProviders(t *testing.T) {
+	var gotLimits []int
+
+	_, err := listSpaceSessionsFromScanners("E:/repo", 10, []spaceSessionScanner{
+		{
+			provider: "claude",
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				gotLimits = append(gotLimits, limit)
+				return spaceSessionScanResult{}, nil
+			},
+		},
+		{
+			provider: "codex",
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				gotLimits = append(gotLimits, limit)
+				return spaceSessionScanResult{}, nil
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotLimits) != 2 || gotLimits[0] != 10 || gotLimits[1] != 10 {
+		t.Fatalf("provider limits = %#v, want [10 10]", gotLimits)
+	}
+}
+
+func TestListSpaceSessionsFromScannersPreservesProviderHasMore(t *testing.T) {
+	result, err := listSpaceSessionsFromScanners("E:/repo", 10, []spaceSessionScanner{
+		{
+			provider: "codex",
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				return spaceSessionScanResult{hasMore: true}, nil
+			},
+		},
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.HasMore {
+		t.Fatal("expected HasMore from provider scan budget")
 	}
 }

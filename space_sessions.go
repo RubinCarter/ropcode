@@ -30,7 +30,12 @@ type ProviderSessionSummary struct {
 
 type spaceSessionScanner struct {
 	provider string
-	scan     func(projectPath string) ([]ProviderSessionSummary, error)
+	scan     func(projectPath string, limit int) (spaceSessionScanResult, error)
+}
+
+type spaceSessionScanResult struct {
+	sessions []ProviderSessionSummary
+	hasMore  bool
 }
 
 func buildSpaceSessions(sessions []ProviderSessionSummary, limit int) SpaceSessionsResult {
@@ -56,22 +61,26 @@ func buildSpaceSessions(sessions []ProviderSessionSummary, limit int) SpaceSessi
 func listSpaceSessionsFromScanners(projectPath string, limit int, scanners []spaceSessionScanner) (SpaceSessionsResult, error) {
 	sessions := make([]ProviderSessionSummary, 0)
 	failures := 0
+	providerHasMore := false
 
 	for _, scanner := range scanners {
-		providerSessions, err := scanner.scan(projectPath)
+		providerResult, err := scanner.scan(projectPath, limit)
 		if err != nil {
 			failures++
 			log.Printf("[ListSpaceSessions] Failed to list %s sessions for %s: %v", scanner.provider, projectPath, err)
 			continue
 		}
-		sessions = append(sessions, providerSessions...)
+		sessions = append(sessions, providerResult.sessions...)
+		providerHasMore = providerHasMore || providerResult.hasMore
 	}
 
 	if failures == len(scanners) && len(scanners) > 0 {
 		return SpaceSessionsResult{}, fmt.Errorf("failed to list sessions from all providers")
 	}
 
-	return buildSpaceSessions(sessions, limit), nil
+	result := buildSpaceSessions(sessions, limit)
+	result.HasMore = result.HasMore || providerHasMore
+	return result, nil
 }
 
 func newClaudeSpaceSessionSummary(s claude.SessionInfo, isRunning bool) ProviderSessionSummary {

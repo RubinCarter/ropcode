@@ -731,45 +731,45 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 	scanners := []spaceSessionScanner{
 		{
 			provider: "claude",
-			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
 				if a.config == nil {
-					return []ProviderSessionSummary{}, nil
+					return spaceSessionScanResult{}, nil
 				}
-				claudeSessions, err := claude.ListProjectSessions(a.config.ClaudeDir, projectPath)
+				claudeResult, err := claude.ListProjectSessionsLimit(a.config.ClaudeDir, projectPath, limit)
 				if err != nil {
-					return nil, err
+					return spaceSessionScanResult{}, err
 				}
-				sessions := make([]ProviderSessionSummary, 0, len(claudeSessions))
-				for _, s := range claudeSessions {
+				sessions := make([]ProviderSessionSummary, 0, len(claudeResult.Sessions))
+				for _, s := range claudeResult.Sessions {
 					isRunning := a.claudeManager != nil && a.claudeManager.IsRunning(s.ID)
 					sessions = append(sessions, newClaudeSpaceSessionSummary(s, isRunning))
 				}
-				return sessions, nil
+				return spaceSessionScanResult{sessions: sessions, hasMore: claudeResult.HasMore}, nil
 			},
 		},
 		{
 			provider: "codex",
-			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
 				codexDir, err := codex.CodexDir()
 				if err != nil {
-					return nil, err
+					return spaceSessionScanResult{}, err
 				}
-				codexSessions, err := codex.ListProjectSessions(codexDir, projectPath)
+				codexResult, err := codex.ListProjectSessionsLimit(codexDir, projectPath, limit)
 				if err != nil {
-					return nil, err
+					return spaceSessionScanResult{}, err
 				}
-				sessions := make([]ProviderSessionSummary, 0, len(codexSessions))
-				for _, s := range codexSessions {
+				sessions := make([]ProviderSessionSummary, 0, len(codexResult.Sessions))
+				for _, s := range codexResult.Sessions {
 					isRunning := a.codexManager != nil && a.codexManager.IsRunning(s.ID)
 					sessions = append(sessions, newCodexSpaceSessionSummary(s, isRunning))
 				}
-				return sessions, nil
+				return spaceSessionScanResult{sessions: sessions, hasMore: codexResult.HasMore}, nil
 			},
 		},
 		{
 			provider: "gemini",
-			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
-				return []ProviderSessionSummary{}, nil
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				return spaceSessionScanResult{}, nil
 			},
 		},
 	}

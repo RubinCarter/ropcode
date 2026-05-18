@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -431,35 +432,61 @@ type SessionInfo struct {
 	FirstMessage     string `json:"first_message,omitempty"`
 }
 
+type ProjectSessionsResult struct {
+	Sessions []SessionInfo
+	HasMore  bool
+}
+
 // ListProjectSessions scans ~/.claude/projects/{projectHash}/ for JSONL session files
 // and returns metadata for each session found
 func ListProjectSessions(claudeDir, projectPath string) ([]SessionInfo, error) {
+	result, err := ListProjectSessionsLimit(claudeDir, projectPath, 0)
+	if err != nil {
+		return nil, err
+	}
+	return result.Sessions, nil
+}
+
+func ListProjectSessionsLimit(claudeDir, projectPath string, limit int) (ProjectSessionsResult, error) {
 	projectHash := GetProjectHash(projectPath)
 	projectDir := filepath.Join(claudeDir, "projects", projectHash)
 
 	if _, err := os.Stat(projectDir); os.IsNotExist(err) {
-		return []SessionInfo{}, nil
+		return ProjectSessionsResult{}, nil
 	}
 
 	entries, err := os.ReadDir(projectDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read project directory: %w", err)
+		return ProjectSessionsResult{}, fmt.Errorf("failed to read project directory: %w", err)
 	}
 
-	var sessions []SessionInfo
+	type candidate struct {
+		name    string
+		modTime time.Time
+	}
+	candidates := make([]candidate, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".jsonl") {
+		if !strings.HasSuffix(name, ".jsonl") || strings.HasPrefix(name, "agent-") {
 			continue
 		}
-		// Skip agent session files
-		if strings.HasPrefix(name, "agent-") {
+		info, err := entry.Info()
+		if err != nil {
 			continue
 		}
+		candidates = append(candidates, candidate{name: name, modTime: info.ModTime()})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return candidates[i].modTime.After(candidates[j].modTime)
+	})
 
+	var sessions []SessionInfo
+	hasMore := false
+	for index, candidate := range candidates {
+		name := candidate.name
 		sessionID := strings.TrimSuffix(name, ".jsonl")
 		filePath := filepath.Join(projectDir, name)
 
@@ -469,9 +496,13 @@ func ListProjectSessions(claudeDir, projectPath string) ([]SessionInfo, error) {
 			continue
 		}
 		sessions = append(sessions, *info)
+		if limit > 0 && len(sessions) >= limit {
+			hasMore = index+1 < len(candidates)
+			break
+		}
 	}
 
-	return sessions, nil
+	return ProjectSessionsResult{Sessions: sessions, HasMore: hasMore}, nil
 }
 
 // extractClaudeSessionInfo reads a JSONL file to extract session metadata

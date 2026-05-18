@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestListProjectSessionsReadsSessionMetaPayload(t *testing.T) {
@@ -75,6 +76,94 @@ func TestListProjectSessionsSkipsInjectedUserContextForFirstMessage(t *testing.T
 	}
 	if sessions[0].FirstMessage != "修复会话标题" {
 		t.Fatalf("first message = %q, want real user prompt", sessions[0].FirstMessage)
+	}
+}
+
+func TestListProjectSessionsMatchesWindowsPathCaseInsensitively(t *testing.T) {
+	codexDir := t.TempDir()
+	sessionDir := filepath.Join(codexDir, "sessions", "2026", "05", "18")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	storedProjectPath := `e:\bit_master\ropcode`
+	targetProjectPath := `E:\bit_master\ropcode`
+	sessionID := "case-insensitive-path"
+	sessionPath := filepath.Join(sessionDir, "rollout-2026-05-18T15-00-00-"+sessionID+".jsonl")
+	content := `{"timestamp":"2026-05-18T07:00:00.000Z","type":"session_meta","payload":{"id":"` + sessionID + `","timestamp":"2026-05-18T07:00:00.000Z","cwd":"` + escapeWindowsPath(storedProjectPath) + `","originator":"Codex Desktop"}}
+{"timestamp":"2026-05-18T07:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}
+`
+	if err := os.WriteFile(sessionPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := ListProjectSessions(codexDir, targetProjectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(sessions))
+	}
+}
+
+func TestListProjectSessionsLimitStopsAfterRecentScanBudget(t *testing.T) {
+	oldBudget := maxLimitedProjectSessionScanFiles
+	maxLimitedProjectSessionScanFiles = 2
+	t.Cleanup(func() {
+		maxLimitedProjectSessionScanFiles = oldBudget
+	})
+
+	codexDir := t.TempDir()
+	sessionDir := filepath.Join(codexDir, "sessions", "2026", "05", "18")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	targetProject := filepath.Join("E:", "bit_master", "ropcode")
+	otherProject := filepath.Join("E:", "other")
+	files := []struct {
+		id      string
+		project string
+		modTime int64
+	}{
+		{"recent-other-1", otherProject, 300},
+		{"recent-other-2", otherProject, 200},
+		{"old-target", targetProject, 100},
+	}
+	for i, file := range files {
+		path := filepath.Join(sessionDir, "rollout-2026-05-18T14-00-0"+string(rune('0'+i))+"-"+file.id+".jsonl")
+		content := `{"timestamp":"2026-05-18T06:00:00.000Z","type":"session_meta","payload":{"id":"` + file.id + `","timestamp":"2026-05-18T06:00:00.000Z","cwd":"` + escapeWindowsPath(file.project) + `","originator":"Codex Desktop"}}
+{"timestamp":"2026-05-18T06:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}
+`
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		modTime := time.Unix(file.modTime, 0)
+		if err := os.Chtimes(path, modTime, modTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, err := ListProjectSessionsLimit(codexDir, targetProject, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Sessions) != 0 {
+		t.Fatalf("got %d sessions after scan budget, want 0", len(result.Sessions))
+	}
+	if !result.HasMore {
+		t.Fatal("expected HasMore when limited scan budget stops before all files")
+	}
+
+	result, err = ListProjectSessionsLimit(codexDir, targetProject, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Sessions) != 1 || result.Sessions[0].ID != "old-target" {
+		t.Fatalf("full scan sessions = %#v, want old-target", result.Sessions)
+	}
+	if result.HasMore {
+		t.Fatal("expected full scan HasMore false")
 	}
 }
 
