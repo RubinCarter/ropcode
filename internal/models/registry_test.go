@@ -313,15 +313,19 @@ func TestGetModelsByProviderHidesBuiltinAliasesAfterUserSync(t *testing.T) {
 	if !gotIDs["claude-opus-4-7"] || !gotIDs["claude-sonnet-4-6"] {
 		t.Fatalf("expected synced models to remain visible, got %v", gotIDs)
 	}
+	// [1m] variants should be auto-generated as user-defined models.
+	if !gotIDs["claude-opus-4-7[1m]"] || !gotIDs["claude-sonnet-4-6[1m]"] {
+		t.Fatalf("expected auto-generated [1m] variants, got %v", gotIDs)
+	}
 }
 
 func TestSyncPromotesDefaultOffBuiltinOntoFirstUserModel(t *testing.T) {
-	// User's default was a builtin alias (opus[1m]); after sync we hide the
-	// alias entirely, so the default has to migrate. Pick the first
-	// user-defined model — the user can change it manually afterward.
+	// User's default was a builtin alias (opus); after sync we hide the
+	// alias, so the default has to migrate. Pick the first user-defined
+	// model — the user can change it manually afterward.
 	registry := newTestRegistry(t)
 
-	if err := registry.SetDefaultModel("opus[1m]"); err != nil {
+	if err := registry.SetDefaultModel("opus"); err != nil {
 		t.Fatalf("SetDefaultModel: %v", err)
 	}
 	if _, err := registry.SyncProviderModels("claude", []string{
@@ -349,6 +353,39 @@ func TestSyncPromotesDefaultOffBuiltinOntoFirstUserModel(t *testing.T) {
 		if m.IsBuiltin {
 			t.Fatalf("expected all builtins hidden after sync, saw %#v", m)
 		}
+	}
+}
+
+func TestSyncAutoGenerates1MVariantsForSonnetAndOpus(t *testing.T) {
+	registry := newTestRegistry(t)
+
+	synced, err := registry.SyncProviderModels("claude", []string{
+		"claude-opus-4-7",
+		"claude-sonnet-4-6",
+		"claude-haiku-4-5-20251001",
+	})
+	if err != nil {
+		t.Fatalf("SyncProviderModels: %v", err)
+	}
+
+	got := map[string]*database.ModelConfig{}
+	for _, m := range synced {
+		got[m.ModelID] = m
+	}
+
+	// Opus and Sonnet should have [1m] variants.
+	for _, want := range []string{"claude-opus-4-7[1m]", "claude-sonnet-4-6[1m]"} {
+		if got[want] == nil {
+			t.Fatalf("expected %q to be auto-generated, got %v", want, keys(got))
+		}
+		if !strings.HasSuffix(got[want].DisplayName, "[1M]") {
+			t.Fatalf("expected [1M] in display name, got %q", got[want].DisplayName)
+		}
+	}
+
+	// Haiku should NOT have a [1m] variant.
+	if got["claude-haiku-4-5-20251001[1m]"] != nil {
+		t.Fatal("expected haiku to NOT get a [1m] variant")
 	}
 }
 
@@ -415,11 +452,13 @@ func TestGetAllModelsRestoresBuiltinsAfterAllUserModelsRemoved(t *testing.T) {
 	registry := newTestRegistry(t)
 
 	synced, err := registry.SyncProviderModels("claude", []string{"claude-opus-4-7"})
-	if err != nil || len(synced) != 1 {
+	if err != nil || len(synced) != 2 {
 		t.Fatalf("unexpected sync result: %d %v", len(synced), err)
 	}
-	if err := registry.DeleteModel(synced[0].ID); err != nil {
-		t.Fatalf("DeleteModel: %v", err)
+	for _, m := range synced {
+		if err := registry.DeleteModel(m.ID); err != nil {
+			t.Fatalf("DeleteModel(%s): %v", m.ModelID, err)
+		}
 	}
 
 	all, err := registry.GetModelsByProvider("claude")
