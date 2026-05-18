@@ -724,6 +724,59 @@ func (a *App) ListProviderSessions(projectPath, provider string) ([]ProviderSess
 	}
 }
 
+// ListSpaceSessions lists mixed provider sessions for one project or workspace path.
+func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsResult, error) {
+	log.Printf("[ListSpaceSessions] Listing sessions for project=%s limit=%d", projectPath, limit)
+
+	scanners := []spaceSessionScanner{
+		{
+			provider: "claude",
+			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
+				if a.config == nil {
+					return []ProviderSessionSummary{}, nil
+				}
+				claudeSessions, err := claude.ListProjectSessions(a.config.ClaudeDir, projectPath)
+				if err != nil {
+					return nil, err
+				}
+				sessions := make([]ProviderSessionSummary, 0, len(claudeSessions))
+				for _, s := range claudeSessions {
+					isRunning := a.claudeManager != nil && a.claudeManager.IsRunning(s.ID)
+					sessions = append(sessions, newClaudeSpaceSessionSummary(s, isRunning))
+				}
+				return sessions, nil
+			},
+		},
+		{
+			provider: "codex",
+			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
+				codexDir, err := codex.CodexDir()
+				if err != nil {
+					return nil, err
+				}
+				codexSessions, err := codex.ListProjectSessions(codexDir, projectPath)
+				if err != nil {
+					return nil, err
+				}
+				sessions := make([]ProviderSessionSummary, 0, len(codexSessions))
+				for _, s := range codexSessions {
+					isRunning := a.codexManager != nil && a.codexManager.IsRunning(s.ID)
+					sessions = append(sessions, newCodexSpaceSessionSummary(s, isRunning))
+				}
+				return sessions, nil
+			},
+		},
+		{
+			provider: "gemini",
+			scan: func(projectPath string) ([]ProviderSessionSummary, error) {
+				return []ProviderSessionSummary{}, nil
+			},
+		},
+	}
+
+	return listSpaceSessionsFromScanners(projectPath, limit, scanners)
+}
+
 // ===== Utility Bindings =====
 
 // GetConfig returns the application config

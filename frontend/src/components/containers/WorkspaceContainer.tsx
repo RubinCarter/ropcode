@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { providers } from '@/lib/providers';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { WorkspaceTabManager } from './WorkspaceTabManager';
+import type { ProviderSessionSummary } from '@/lib/api';
 
 // Lazy load heavy components
 const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
@@ -22,10 +23,22 @@ interface WorkspaceContainerProps {
   visible: boolean;
 }
 
+type OpenProviderSessionEvent = CustomEvent<{
+  spacePath: string;
+  session: ProviderSessionSummary;
+}>;
+
+const getHistoricalSessionTitle = (session: ProviderSessionSummary) => {
+  const title = session.title || session.first_message;
+  if (title?.trim()) return title.trim();
+  return `${session.provider} session`;
+};
+
 const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
-  const { tabs, activeTabId, addTab, updateTab, removeTab, getTabById } = useWorkspaceTabContext();
+  const { tabs, activeTabId, addTab, updateTab, removeTab, getTabById, setActiveTab } = useWorkspaceTabContext();
   const activeTabIdRef = React.useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
+  const openedHistoricalSessionRef = React.useRef(false);
 
   // Track initialization to prevent double-init in StrictMode
   const initializingRef = React.useRef(false);
@@ -50,6 +63,25 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   }, []);
 
   const initializeWorkspace = async () => {
+    const pending = (window as any).__ROPCODE_PENDING_PROVIDER_SESSION__;
+    if (pending?.spacePath === workspaceId && pending.session) {
+      const session = pending.session as ProviderSessionSummary;
+      openedHistoricalSessionRef.current = true;
+      delete (window as any).__ROPCODE_PENDING_PROVIDER_SESSION__;
+      addTab({
+        type: 'chat',
+        title: getHistoricalSessionTitle(session),
+        sessionId: session.id,
+        sessionData: session,
+        projectPath: workspaceId,
+        providerId: session.provider,
+        status: session.is_running ? 'running' : 'idle',
+        hasUnsavedChanges: false,
+        icon: 'message-square',
+      });
+      return;
+    }
+
     // Step 1: Immediately add an empty chat tab (non-blocking)
     // This allows the UI to render immediately without waiting for session list
     const newTabId = addTab({
@@ -82,6 +114,10 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             const timeB = b.message_timestamp ? new Date(b.message_timestamp).getTime() : b.created_at * 1000;
             return timeB - timeA;
           });
+
+          if (openedHistoricalSessionRef.current) {
+            return;
+          }
 
           // Update the tab with session data
           if (tabIdRef.current) {
@@ -205,6 +241,51 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   const handleBack = useCallback(() => {
     // Chat tab doesn't have a back button, this is a no-op
   }, []);
+
+  useEffect(() => {
+    const handleOpenProviderSession = (event: Event) => {
+      const { spacePath, session } = (event as OpenProviderSessionEvent).detail ?? {};
+      if (spacePath !== workspaceId || !session) return;
+      openedHistoricalSessionRef.current = true;
+      const pending = (window as any).__ROPCODE_PENDING_PROVIDER_SESSION__;
+      if (pending?.spacePath === workspaceId && pending.session?.id === session.id) {
+        delete (window as any).__ROPCODE_PENDING_PROVIDER_SESSION__;
+      }
+
+      const existingTab = tabs.find(tab =>
+        tab.type === 'chat' &&
+        tab.sessionId === session.id &&
+        tab.providerId === session.provider
+      );
+      if (existingTab) {
+        setActiveTab(existingTab.id);
+        return;
+      }
+
+      addTab({
+        type: 'chat',
+        title: getHistoricalSessionTitle(session),
+        sessionId: session.id,
+        sessionData: session,
+        projectPath: spacePath,
+        providerId: session.provider,
+        status: session.is_running ? 'running' : 'idle',
+        hasUnsavedChanges: false,
+        icon: 'message-square',
+      });
+    };
+
+    window.addEventListener('open-provider-session', handleOpenProviderSession);
+    const pending = (window as any).__ROPCODE_PENDING_PROVIDER_SESSION__;
+    if (pending?.spacePath === workspaceId && pending.session) {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('open-provider-session', {
+          detail: pending,
+        }));
+      }, 0);
+    }
+    return () => window.removeEventListener('open-provider-session', handleOpenProviderSession);
+  }, [addTab, setActiveTab, tabs, workspaceId]);
 
   // 判断 tab 是否需要保持挂载状态（有状态的 tab）
   const shouldKeepTabMounted = (tabType: string): boolean => {

@@ -119,6 +119,21 @@ export namespace main {
     message_timestamp?: string;
     first_message?: string;
   }
+  export interface ProviderSessionSummary {
+    id: string;
+    provider: string;
+    project_path: string;
+    project_id?: string;
+    created_at: number;
+    last_activity: number;
+    title?: string;
+    first_message?: string;
+    is_running: boolean;
+  }
+  export interface SpaceSessionsResult {
+    sessions: ProviderSessionSummary[];
+    has_more: boolean;
+  }
   export interface ClaudeActivityUsage {
     input_tokens?: number;
     output_tokens?: number;
@@ -658,6 +673,10 @@ export function OpenNewSession(projectPath: string): Promise<string> {
 
 export function GetProjectSessions(projectPath: string): Promise<string[]> {
   return wsClient.call('GetProjectSessions', projectPath);
+}
+
+export function ListSpaceSessions(projectPath: string, limit: number): Promise<main.SpaceSessionsResult> {
+  return wsClient.call('ListSpaceSessions', projectPath, limit);
 }
 
 export function GetActions(projectPath: string, workspaceId: string): Promise<main.ActionsResult> {

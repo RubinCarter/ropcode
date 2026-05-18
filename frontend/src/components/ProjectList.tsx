@@ -1,9 +1,9 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo } from "react";
-import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw, X } from "lucide-react";
+import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw, X, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { Project, AutoSyncStatus } from "@/lib/api";
+import type { Project, AutoSyncStatus, ProviderSessionSummary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { api, listen } from "@/lib/api";
 import { useTabContext } from "@/contexts/TabContext";
@@ -84,6 +84,33 @@ const formatTimeAgo = (timestamp: number): string => {
   return `${Math.floor(diff / 31536000)}y ago`;
 };
 
+type SpaceSessionCache = {
+  sessions: ProviderSessionSummary[];
+  hasMore: boolean;
+  loading: boolean;
+  loadedAll: boolean;
+  error?: string;
+};
+
+const getWorkspaceProvider = (workspace: NonNullable<Project['workspaces']>[number]) => {
+  return workspace.providers?.find(p => p.provider_id === 'claude')
+    ?? workspace.providers?.find(p => p.provider_id === 'codex')
+    ?? workspace.providers?.[0];
+};
+
+const getSessionTitle = (session: ProviderSessionSummary): string => {
+  const title = session.title || session.first_message;
+  if (title?.trim()) return title.trim();
+  return `${session.provider} session`;
+};
+
+const getProviderLabel = (provider: string): string => {
+  if (provider === 'claude') return 'Claude';
+  if (provider === 'codex') return 'Codex';
+  if (provider === 'gemini') return 'Gemini';
+  return provider;
+};
+
 /**
  * ProjectList component - Displays recent projects in a Cursor-like interface
  * 
@@ -103,9 +130,9 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   activeProjectPath,
   className,
 }) => {
-  const { tabs, removeTab } = useTabContext();
+  const { tabs, setActiveTab, removeTab } = useTabContext();
   const { getInProgressTodos, getWorkspaceStatus, setWorkspaceStatus, markAsRead, clearWorkspace } = useWorkspaceTodo();
-  const { closeWorkspace, isWorkspaceOpen } = useContainerContext();
+  const { closeWorkspace, isWorkspaceOpen, switchToWorkspace } = useContainerContext();
   const [showAll, setShowAll] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
@@ -123,6 +150,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   // Local cache of workspace branch names (path -> branch name)
   const [workspaceBranches, setWorkspaceBranches] = useState<Record<string, string>>({});
+  const [spaceSessions, setSpaceSessions] = useState<Record<string, SpaceSessionCache>>({});
 
   // Listen SSH sync progress to show up/down in list
   useEffect(() => {
@@ -267,6 +295,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       }
       return newStates;
     });
+
+    if (event.cwd) {
+      setSpaceSessions(prev => {
+        if (!prev[event.cwd]) return prev;
+        const next = { ...prev };
+        delete next[event.cwd];
+        return next;
+      });
+      loadSpaceSessions(event.cwd, 10);
+    }
   });
 
   // Sync WorkspaceTodoContext status based on actual process state
@@ -324,10 +362,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     for (const project of projects) {
       if (!project.workspaces?.length) continue;
       byProjectId.set(
-        project.id,
-        [...project.workspaces]
+          project.id,
+          [...project.workspaces]
           .sort((a, b) => b.added_at - a.added_at)
-          .filter((workspace) => workspace.providers?.some(p => p.provider_id === 'claude'))
+          .filter((workspace) => Boolean(getWorkspaceProvider(workspace)))
       );
     }
     return byProjectId;
@@ -346,6 +384,113 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     setCurrentPage(1);
   };
 
+  const loadSpaceSessions = async (spacePath: string, limit: number) => {
+    if (!spacePath) return;
+    setSpaceSessions(prev => ({
+      ...prev,
+      [spacePath]: {
+        sessions: prev[spacePath]?.sessions ?? [],
+        hasMore: prev[spacePath]?.hasMore ?? false,
+        loadedAll: limit <= 0,
+        loading: true,
+      },
+    }));
+
+    try {
+      const result = limit > 0
+        ? await api.listSpaceSessions(spacePath, 10)
+        : await api.listSpaceSessions(spacePath, 0);
+      setSpaceSessions(prev => ({
+        ...prev,
+        [spacePath]: {
+          sessions: result.sessions ?? [],
+          hasMore: result.has_more ?? false,
+          loadedAll: limit <= 0,
+          loading: false,
+        },
+      }));
+    } catch (error) {
+      setSpaceSessions(prev => ({
+        ...prev,
+        [spacePath]: {
+          sessions: prev[spacePath]?.sessions ?? [],
+          hasMore: false,
+          loadedAll: limit <= 0,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Failed to load sessions',
+        },
+      }));
+    }
+  };
+
+  const ensureSpaceSessionsLoaded = (spacePath: string) => {
+    if (!spacePath || spaceSessions[spacePath]) return;
+    loadSpaceSessions(spacePath, 10);
+  };
+
+  const openSessionTab = (spacePath: string, session: ProviderSessionSummary) => {
+    const existingTab = tabs.find(tab =>
+      tab.type === 'chat' &&
+      tab.initialProjectPath === spacePath &&
+      tab.sessionId === session.id &&
+      tab.providerId === session.provider
+    );
+    if (existingTab) {
+      setActiveTab(existingTab.id);
+      return;
+    }
+
+    switchToWorkspace(spacePath);
+    (window as any).__ROPCODE_PENDING_PROVIDER_SESSION__ = { spacePath, session };
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('open-provider-session', {
+        detail: { spacePath, session },
+      }));
+    }, 0);
+  };
+
+  const renderSpaceSessions = (spacePath: string, className = '') => {
+    const cache = spaceSessions[spacePath];
+    if (!cache) return null;
+
+    return (
+      <div className={cn("space-y-0.5", className)}>
+        {cache.loading && cache.sessions.length === 0 && (
+          <div className="px-3 py-1.5 text-xs text-muted-foreground">Loading sessions...</div>
+        )}
+        {cache.error && (
+          <div className="px-3 py-1.5 text-xs text-destructive truncate" title={cache.error}>
+            Failed to load sessions
+          </div>
+        )}
+        {cache.sessions.map((session) => (
+          <button
+            key={`${session.provider}:${session.id}`}
+            onClick={() => openSessionTab(spacePath, session)}
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md"
+            title={getSessionTitle(session)}
+          >
+            <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="flex-shrink-0 font-medium">{getProviderLabel(session.provider)}</span>
+            <span className="min-w-0 flex-1 truncate">{getSessionTitle(session)}</span>
+            {session.is_running && (
+              <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-purple-500" />
+            )}
+            <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity)}</span>
+          </button>
+        ))}
+        {cache.hasMore && !cache.loadedAll && (
+          <button
+            onClick={() => loadSpaceSessions(spacePath, 0)}
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md"
+          >
+            <span className="ml-5">More</span>
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const toggleExpanded = (projectId: string) => {
     setExpandedProjects(prev => {
       const newSet = new Set(prev);
@@ -353,6 +498,16 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         newSet.delete(projectId);
       } else {
         newSet.add(projectId);
+        const project = projects.find(p => p.id === projectId);
+        if (project?.path) {
+          ensureSpaceSessionsLoaded(project.path);
+        }
+        project?.workspaces?.forEach(workspace => {
+          const provider = getWorkspaceProvider(workspace);
+          if (provider?.path) {
+            ensureSpaceSessionsLoaded(provider.path);
+          }
+        });
       }
       return newSet;
     });
@@ -542,12 +697,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                 const projectWorkspaces = workspacesByProjectId.get(project.id) ?? [];
                 const hasWorkspaces = projectWorkspaces.length > 0;
                 const hasGitSupport = project.has_git_support ?? false;
+                const canExpandProject = Boolean(project.path);
 
                 // Check if project is directly active OR if any of its workspaces are active
                 const isProjectDirectlyActive = activeProjectPath === project.path;
                 const isProjectActiveViaWorkspace = hasWorkspaces && projectWorkspaces.some(ws => {
-                  const claudeProvider = ws.providers.find(p => p.provider_id === 'claude');
-                  return claudeProvider && activeProjectPath === claudeProvider.path;
+                  const provider = getWorkspaceProvider(ws);
+                  return provider && activeProjectPath === provider.path;
                 });
                 const isProjectActive = isProjectDirectlyActive || isProjectActiveViaWorkspace;
 
@@ -562,7 +718,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
                 // Aggregate workspace statuses for line 2
                 const workspaceAggStatuses = hasGitSupport ? projectWorkspaces.map(ws => {
-                  const cp = ws.providers.find(p => p.provider_id === 'claude');
+                  const cp = getWorkspaceProvider(ws);
                   if (!cp) return 'idle';
                   const isRunning = workspaceRunningStates.get(cp.path) ?? false;
                   const ctxStatus = getWorkspaceStatus(cp.path);
@@ -664,8 +820,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
                       </div>
                     )}
-                    {/* Workspace 折叠按钮 - 只在有 Git 支持时显示 */}
-                    {hasGitSupport && (
+                    {/* Project tree expand button */}
+                    {canExpandProject && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -683,18 +839,21 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                     )}
                   </div>
 
-                  {/* Workspaces List - 只在有 Git 支持时显示 */}
-                  {hasGitSupport && isExpanded && (
+                  {/* Project sessions and workspaces */}
+                  {canExpandProject && isExpanded && (
                     <div className="overflow-hidden">
                         <div className="py-0.5 ml-2">
-                          {/* New Workspace Button - First in list */}
-                          <button
-                            onClick={() => handleCreateWorkspace(project)}
-                            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md mb-0.5"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            <span>New workspace</span>
-                          </button>
+                          {renderSpaceSessions(project.path, "ml-2 mb-0.5")}
+
+                          {hasGitSupport && (
+                            <button
+                              onClick={() => handleCreateWorkspace(project)}
+                              className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md mb-0.5"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              <span>New workspace</span>
+                            </button>
+                          )}
 
                           {/* Creating Workspaces - Show at the top */}
                           {Array.from(creatingWorkspaces.entries())
@@ -721,8 +880,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                             ))}
 
                           {hasWorkspaces && projectWorkspaces.map((workspace) => {
-                            // Get Claude provider info from workspace
-                            const claudeProvider = workspace.providers.find(p => p.provider_id === 'claude');
+                            const claudeProvider = getWorkspaceProvider(workspace);
+                            if (!claudeProvider) return null;
 
                             const isActive = activeProjectPath === claudeProvider.path;
                             const isRemoving = removingWorkspaces.has(claudeProvider.id);
@@ -752,8 +911,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                             // This allows proper transition to 'unread' after completion
 
                             return (
+                            <React.Fragment key={workspace.id}>
                             <div
-                              key={workspace.id}
                               className={cn(
                                 "group/workspace hover:bg-accent/50 transition-colors flex items-center rounded-md",
                                 isActive && "bg-accent border-l-2 border-primary",
@@ -848,6 +1007,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                 </button>
                               )}
                             </div>
+                            {renderSpaceSessions(claudeProvider.path, "ml-4")}
+                            </React.Fragment>
                             );
                           })}
                         </div>
