@@ -307,6 +307,31 @@ export function getDisplayableMessages(
   const displayableMessages: ClaudeStreamMessage[] = [];
   const toolUseNamesById = buildToolUseNamesById(messages);
 
+  // Deduplicate incremental stream messages: Claude CLI emits progressive
+  // updates for the same assistant turn as separate messages sharing one
+  // message.id. When the final message of a turn is hidden (e.g. a subagent
+  // launcher in hiddenIndexes), earlier intermediate messages with the same ID
+  // are superseded so they don't flash in the main stream before disappearing.
+  // Normal turns (where the last message is visible) are NOT deduped — the user
+  // expects to see text + tool_use together in history.
+  const lastIndexByMessageId = new Map<string, number>();
+  for (let i = 0; i < messages.length; i++) {
+    const msgId = (messages[i] as any).message?.id;
+    if (msgId && messages[i].type === 'assistant') {
+      lastIndexByMessageId.set(msgId, i);
+    }
+  }
+  const supersededByMessageId = new Set<number>();
+  for (let i = 0; i < messages.length; i++) {
+    const msgId = (messages[i] as any).message?.id;
+    if (!msgId || messages[i].type !== 'assistant') continue;
+    const lastIdx = lastIndexByMessageId.get(msgId);
+    if (lastIdx === i) continue;
+    if (lastIdx !== undefined && hiddenIndexes?.has(lastIdx)) {
+      supersededByMessageId.add(i);
+    }
+  }
+
   // First pass: collapse consecutive transient runtime events (api_retry,
   // server_error, rate_limit_event, raw) into a single "latest" card so
   // long retry/error storms don't pile up as a tall list of duplicates.
@@ -315,6 +340,7 @@ export function getDisplayableMessages(
   const supersededTransientIndexes = new Set<number>();
   let lastTransientIndex: number | null = null;
   for (let i = 0; i < messages.length; i++) {
+    if (supersededByMessageId.has(i)) continue;
     if (!isDisplayableMessage(messages[i], i, hiddenIndexes, toolUseNamesById)) continue;
     if (isCollapsibleTransientMessage(messages[i])) {
       if (lastTransientIndex !== null) supersededTransientIndexes.add(lastTransientIndex);
@@ -325,6 +351,7 @@ export function getDisplayableMessages(
   }
 
   messages.forEach((message, index) => {
+    if (supersededByMessageId.has(index)) return;
     if (supersededTransientIndexes.has(index)) return;
     if (isDisplayableMessage(message, index, hiddenIndexes, toolUseNamesById)) {
       indexes.push(index);

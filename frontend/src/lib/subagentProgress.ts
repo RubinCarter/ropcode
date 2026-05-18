@@ -385,14 +385,26 @@ export function buildSubagentProgress(
     messageDepthByIndex.set(index, depth);
   };
 
+  const launcherMessageIds = new Set<string>();
+  const messageIdToIndexes = new Map<string, number[]>();
+
   messages.forEach((message, index) => {
+    const msgId = (message as any).message?.id;
+    if (msgId) {
+      const existing = messageIdToIndexes.get(msgId);
+      if (existing) existing.push(index);
+      else messageIdToIndexes.set(msgId, [index]);
+    }
+
     if (applyTaskProgressEvent(subagentsById, message, index, toolUseToSubagentId)) {
       if (isTaskLifecycleSystemMessage(message)) subagentMessageIndexes.add(index);
       return;
     }
 
+    let hasLauncher = false;
     for (const toolUse of assistantToolUses(message)) {
       if (!isSubagentLauncher(toolUse)) continue;
+      hasLauncher = true;
 
       const id = String(toolUse.id || toolUse.input?.agentId || toolUse.input?.agent_id || `subagent-${index}`);
       const isNew = !subagentsById.has(id);
@@ -409,14 +421,17 @@ export function buildSubagentProgress(
 
       if (toolUse.id) toolUseToSubagentId.set(toolUse.id, id);
 
-      // Depth of the subagent itself = parent depth + 1; parent depth comes from the
-      // launcher message's own depth (if it's a sidechain message of another subagent).
       if (isNew) {
         const launcherDepth = messageDepthByIndex.get(index) ?? 0;
         subagentDepth.set(id, launcherDepth + 1);
       }
 
       addMessageToSubagent(subagent, message, index, { countMessage: false });
+    }
+    if (hasLauncher) {
+      subagentMessageIndexes.add(index);
+      const msgId = (message as any).message?.id;
+      if (msgId) launcherMessageIds.add(msgId);
     }
 
     for (const resultBlock of getToolResultBlocks(message)) {
@@ -467,12 +482,9 @@ export function buildSubagentProgress(
           const subagent = subagentsById.get(subagentId)!;
           addMessageToSubagent(subagent, message, index);
           assignToSubagent(subagentId, index);
-        } else {
-          // Unknown launcher — keep the message-filter envelope fallback active by
-          // hiding it. Once the launcher arrives the user can re-run / scroll to see it.
-          subagentMessageIndexes.add(index);
         }
       }
+      subagentMessageIndexes.add(index);
     }
 
     const agentId = normalizeAgentId(String(message.agentId || message.agent_id || ""));
@@ -481,8 +493,18 @@ export function buildSubagentProgress(
       const subagent = subagentsById.get(subagentId)!;
       addMessageToSubagent(subagent, message, index);
       assignToSubagent(subagentId, index);
+      subagentMessageIndexes.add(index);
     }
   });
+
+  // Hide incremental stream messages that share a message ID with a launcher.
+  // Claude CLI emits thinking/text/tool_use as separate lines with the same ID.
+  for (const msgId of launcherMessageIds) {
+    const indexes = messageIdToIndexes.get(msgId);
+    if (indexes) {
+      for (const idx of indexes) subagentMessageIndexes.add(idx);
+    }
+  }
 
   for (const [rawAgentId, transcript] of Object.entries(subagentTranscripts)) {
     const agentId = normalizeAgentId(rawAgentId);
