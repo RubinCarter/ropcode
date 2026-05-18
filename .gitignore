@@ -26,3 +26,6 @@ electron-builder-tmp.yml
 # macOS metadata
 .DS_Store
 **/.DS_Store
+
+build-electrobun/
+frontend/wailsjs/

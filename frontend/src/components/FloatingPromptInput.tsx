@@ -79,7 +79,7 @@ interface FloatingPromptInputProps {
   /**
    * Callback when prompt is sent
    */
-  onSend: (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: ThinkingMode) => void | boolean | Promise<void | boolean>;
+  onSend: (prompt: string, model: string, providerApiId?: string | null, thinkingMode?: ThinkingMode, provider?: string) => void | boolean | Promise<void | boolean>;
   /**
    * Whether the input is loading
    */
@@ -156,7 +156,7 @@ export interface FloatingPromptInputRef {
  * Thinking mode types for different providers
  */
 type ClaudeThinkingMode = "auto" | "think" | "think_hard" | "think_harder" | "ultrathink";
-type CodexThinkingMode = "medium" | "minimal" | "low" | "high" | "xhigh";
+type CodexThinkingMode = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type ThinkingMode = ClaudeThinkingMode | CodexThinkingMode;
 
 /**
@@ -230,53 +230,29 @@ const CLAUDE_THINKING_MODES: ThinkingModeConfig[] = [
 // Codex thinking modes - uses native reasoning_effort parameter
 const CODEX_THINKING_MODES: ThinkingModeConfig[] = [
   {
-    id: "medium",
-    name: "Medium",
-    description: "Default reasoning level",
+    id: "none",
+    name: "None",
+    description: "No reasoning",
     level: 0,
-    value: "medium",
+    value: "none",
     icon: <Sparkles className="h-3.5 w-3.5" />,
     color: "text-muted-foreground",
-    shortName: "M"
+    shortName: "N"
   },
   {
     id: "minimal",
     name: "Minimal",
-    description: "Fastest, minimal reasoning",
+    description: "Minimal reasoning",
     level: 1,
     value: "minimal",
     icon: <Lightbulb className="h-3.5 w-3.5" />,
-    color: "text-green-500",
+    color: "text-muted-foreground",
     shortName: "Min"
   },
   {
     id: "low",
     name: "Low",
-    description: "Light reasoning",
-    level: 2,
-    value: "low",
-    icon: <Brain className="h-3.5 w-3.5" />,
-    color: "text-blue-500",
-    shortName: "L"
-  },
-  {
-    id: "high",
-    name: "High",
-    description: "Maximum reasoning depth",
-    level: 3,
-    value: "high",
-    icon: <Rocket className="h-3.5 w-3.5" />,
-    color: "text-primary",
-    shortName: "H"
-  }
-];
-
-// GPT-5.1 Codex Max thinking modes - different levels than standard Codex
-const CODEX_MAX_THINKING_MODES: ThinkingModeConfig[] = [
-  {
-    id: "low",
-    name: "Low",
-    description: "Light reasoning",
+    description: "Fast responses with lighter reasoning",
     level: 1,
     value: "low",
     icon: <Lightbulb className="h-3.5 w-3.5" />,
@@ -286,7 +262,7 @@ const CODEX_MAX_THINKING_MODES: ThinkingModeConfig[] = [
   {
     id: "medium",
     name: "Medium",
-    description: "Default reasoning level",
+    description: "Balanced speed and reasoning depth",
     level: 2,
     value: "medium",
     icon: <Sparkles className="h-3.5 w-3.5" />,
@@ -296,7 +272,7 @@ const CODEX_MAX_THINKING_MODES: ThinkingModeConfig[] = [
   {
     id: "high",
     name: "High",
-    description: "Maximizes reasoning depth",
+    description: "Greater reasoning depth",
     level: 3,
     value: "high",
     icon: <Brain className="h-3.5 w-3.5" />,
@@ -316,9 +292,7 @@ const CODEX_MAX_THINKING_MODES: ThinkingModeConfig[] = [
 ];
 
 // Model-specific thinking modes (takes precedence over provider-level)
-const MODEL_THINKING_MODES: Record<string, ThinkingModeConfig[]> = {
-  "gpt-5.1-codex-max": CODEX_MAX_THINKING_MODES,
-};
+const MODEL_THINKING_MODES: Record<string, ThinkingModeConfig[]> = {};
 
 // Provider-specific thinking modes
 const PROVIDER_THINKING_MODES: Record<string, ThinkingModeConfig[]> = {
@@ -403,39 +377,12 @@ const CLAUDE_MODELS: Model[] = [
 
 const CODEX_MODELS: Model[] = [
   {
-    id: "gpt-5.1-codex-max",
-    name: "GPT-5.1 Codex Max",
-    description: "Maximum reasoning model with deepest analysis",
+    id: "gpt-5.5",
+    name: "GPT-5.5",
+    description: "Recommended Codex model for most coding tasks",
     icon: <Rocket className="h-3.5 w-3.5" />,
-    shortName: "CM",
+    shortName: "5.5",
     color: "text-primary",
-    provider: "codex"
-  },
-  {
-    id: "gpt-5.1-codex",
-    name: "GPT-5.1 Codex",
-    description: "Latest coding model with enhanced reasoning",
-    icon: <Code2 className="h-3.5 w-3.5" />,
-    shortName: "C+",
-    color: "text-primary",
-    provider: "codex"
-  },
-  {
-    id: "gpt-5.1-codex-mini",
-    name: "GPT-5.1 Codex Mini",
-    description: "Faster variant of GPT-5.1 Codex",
-    icon: <Zap className="h-3.5 w-3.5" />,
-    shortName: "Cm",
-    color: "text-blue-500",
-    provider: "codex"
-  },
-  {
-    id: "gpt-5.1",
-    name: "GPT-5.1",
-    description: "Latest general purpose model",
-    icon: <Sparkles className="h-3.5 w-3.5" />,
-    shortName: "G+",
-    color: "text-purple-500",
     provider: "codex"
   }
 ];
@@ -643,12 +590,13 @@ const FloatingPromptInputInner = (
   const getThinkingModeIcon = (modeId: string): React.ReactNode => {
     switch (modeId) {
       case 'auto':
+      case 'none':
         return <Sparkles className="h-3.5 w-3.5" />;
       case 'think':
       case 'minimal':
+      case 'low':
         return <Lightbulb className="h-3.5 w-3.5" />;
       case 'think_hard':
-      case 'low':
         return <Brain className="h-3.5 w-3.5" />;
       case 'think_harder':
       case 'medium':
@@ -1488,7 +1436,7 @@ const FloatingPromptInputInner = (
       // The reasoning_effort will be extracted from selectedThinkingMode in the backend
 
       try {
-        const consumed = await onSend(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode);
+        const consumed = await onSend(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode, selectedProvider);
         if (consumed === false) {
           setPrompt((currentPrompt: string) => currentPrompt ? currentPrompt : promptToSend);
           setEmbeddedImages((currentImages: string[]) => currentImages.length > 0 ? currentImages : imagesToRestore);

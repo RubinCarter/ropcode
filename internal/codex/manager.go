@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 )
 
@@ -69,6 +70,14 @@ func (m *SessionManager) discoverBinary() (string, error) {
 		filepath.Join(os.Getenv("HOME"), ".cargo/bin/codex"),
 		filepath.Join(os.Getenv("HOME"), ".npm-global/bin/codex"),
 	}
+	if runtime.GOOS == "windows" {
+		commonPaths = append(windowsCodexBinaryCandidates(
+			os.Getenv("USERPROFILE"),
+			os.Getenv("LOCALAPPDATA"),
+			os.Getenv("APPDATA"),
+			os.Getenv("ProgramData"),
+		), commonPaths...)
+	}
 
 	for _, path := range commonPaths {
 		if _, err := os.Stat(path); err == nil {
@@ -82,6 +91,53 @@ func (m *SessionManager) discoverBinary() (string, error) {
 	}
 
 	return "", fmt.Errorf("codex binary not found in PATH or common locations")
+}
+
+func windowsCodexBinaryCandidates(userProfile, localAppData, appData, programData string) []string {
+	var candidates []string
+
+	if localAppData != "" {
+		candidates = append(candidates,
+			filepath.Join(localAppData, "OpenAI", "Codex", "bin", "*", "codex.exe"),
+		)
+	}
+	candidates = append(candidates,
+		filepath.Join(`C:\Program Files\WindowsApps`, "OpenAI.Codex_*", "app", "resources", "codex.exe"),
+		filepath.Join(`C:\Program Files\WindowsApps`, "OpenAI.Codex_*", "app", "resources", "codex"),
+	)
+	if programData != "" {
+		candidates = append(candidates,
+			filepath.Join(programData, "npm", "npm", "codex.cmd"),
+			filepath.Join(programData, "npm", "npm", "codex"),
+		)
+	}
+	if appData != "" {
+		candidates = append(candidates,
+			filepath.Join(appData, "npm", "codex.cmd"),
+			filepath.Join(appData, "npm", "codex"),
+		)
+	}
+	if userProfile != "" {
+		candidates = append(candidates,
+			filepath.Join(userProfile, "AppData", "Roaming", "npm", "codex.cmd"),
+			filepath.Join(userProfile, "AppData", "Roaming", "npm", "codex"),
+		)
+	}
+
+	return expandGlobCandidates(candidates)
+}
+
+func expandGlobCandidates(candidates []string) []string {
+	var expanded []string
+	for _, candidate := range candidates {
+		matches, err := filepath.Glob(candidate)
+		if err == nil && len(matches) > 0 {
+			expanded = append(expanded, matches...)
+			continue
+		}
+		expanded = append(expanded, filepath.Clean(candidate))
+	}
+	return expanded
 }
 
 // StartSession starts a new Codex session

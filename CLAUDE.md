@@ -18,10 +18,12 @@ All npm scripts run from the repo root unless stated. The shell is bash (Git Bas
 
 | Purpose | Command |
 |---|---|
-| Dev (frontend + electron + go) | `make dev` or `npm run dev` |
-| Full production build | `make build` or `npm run build` |
+| Full dev stack (Go + frontend + Electron) | `npm run dev` |
+| Electron-only dev (assumes Go + frontend already built) | `make dev` |
+| Full production build | `npm run build` |
+| Electron-only build | `make build` |
 | Packaged Electron release | `npm run build:release` (runs `scripts/build-electron.sh`) |
-| Go server only | `npm run build:go` (builds `bin/ropcode-server` + CLI via `scripts/build-cli.sh`) |
+| Go server + platform/arch CLI | `npm run build:go` (builds `bin/ropcode-server` + CLI via `scripts/build-cli.sh`) |
 | Go CLI only (flat path) | `npm run build:cli:dev` → `bin/ropcode` |
 | Go tests | `go test ./...` (or target a package, e.g. `go test ./internal/claude`) |
 | Single Go test | `go test -run TestName ./path/to/pkg` |
@@ -29,7 +31,11 @@ All npm scripts run from the repo root unless stated. The shell is bash (Git Bas
 | Frontend typecheck | `cd frontend && npm run build:typecheck` |
 | Clean | `make clean` |
 
+The `Makefile` is a thin shim — its `dev` and `build` targets only run `cd electron && npm run dev|build`. They do **not** rebuild the Go binaries or start Vite. Use the `npm run dev` / `npm run build` scripts when you need the full stack.
+
 Build note: `scripts/build-cli.sh` drops the CLI into `bin/<platform>/<arch>/ropcode[.exe]`; `npm run build:cli:dev` drops it at `bin/ropcode` (flat). Electron's `getCliBinaryPath()` expects the platform/arch layout in dev.
+
+For Windows release work, `npm run build:release` may fail under `cmd.exe` because it shells into `./scripts/build-electron.sh` — run it from Git Bash or invoke `bash ./scripts/build-electron.sh` directly.
 
 ## Architecture
 
@@ -82,8 +88,22 @@ Multiple Ropcode instances are tracked in the SQLite DB via `internal/runtime/re
 - **`bindings.go` is huge (~4k lines) and reflection-exposed**: renaming methods or changing signatures is a breaking frontend change. Grep `frontend/src/lib/rpc-client.ts` and `frontend/src/lib/ws-rpc-client.ts` before touching a public `App` method.
 - **CLI lives in a separate module entry** but shares the same `internal/*` code — changes to RPC types must compile both the server and CLI targets.
 - **Agents / external tools**: the app is a GUI wrapper and expects `claude`, `gemini`, and `codex` to be installed and on PATH; agent templates live in `internal/agents/examples/`.
+- **Platform-split convention**: when behavior diverges between Windows and Unix, keep the Unix/default implementation in the original filename and put the Windows variant in a sibling `*_win` file (Go: build tags with `feature.go` / `feature_win.go`; TS: `feature.ts` / `feature.win.ts`). Avoid the longer `windows` suffix.
+
+## Packaged Electron repros (Windows)
+
+When reproducing a bug against `release\win-unpacked\Ropcode.exe`, Electron does **not** use root `bin\` or `frontend\dist`. It runs:
+
+- `release\win-unpacked\resources\bin\ropcode-server.exe`
+- `release\win-unpacked\resources\frontend\`
+
+After a backend or frontend change, either rebuild the full release or copy fresh artifacts (`bin\ropcode-server.exe`, `bin\ropcode.exe`, `frontend\dist\*`) into the matching `resources\` paths and restart the app. Verify the running process actually picked them up — `Get-Process ropcode-server | Select Path`, `Get-FileHash`, or a fresh log marker — before judging a fix. For one-off test builds, the portable target produces `release\Ropcode 0.x.x.exe` but still depends on the unpacked `resources\` tree.
 
 ## Design docs
 
 Historical/in-progress design notes live in `docs/plans/` (dated filenames). When implementing a feature that has a design doc, read the doc first — the code often refers back to names defined there.
+
+## Related files
+
+`AGENTS.md` (used by Codex) covers much of the same ground. Keep the two in sync when updating cross-cutting facts (build commands, packaged-app paths, platform-split convention).
 

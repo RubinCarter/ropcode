@@ -46,16 +46,26 @@ test('AiCodeSession routes prompt submission through the classifier', async () =
   const source = await readAiCodeSessionSource();
 
   assert.match(source, /import \{ classifyPromptSubmit \} from "\.\/utils\/promptSubmitClassification";/);
-  assert.match(source, /const classification = classifyPromptSubmit\(\{[\s\S]*prompt,[\s\S]*provider: defaultProvider,[\s\S]*hasProjectPath: Boolean\(sessionState\.projectPath\),[\s\S]*isLoading: processState\.isLoading,[\s\S]*hasInteractiveSession: Boolean\(processState\.interactiveSessionIdRef\.current\),[\s\S]*forceFreshSession: options\?\.forceFreshClaudeSession,[\s\S]*\}\);/);
+  assert.match(source, /const activeProvider = provider \|\| defaultProvider;/);
+  assert.match(source, /const classification = classifyPromptSubmit\(\{[\s\S]*prompt,[\s\S]*provider: activeProvider,[\s\S]*hasProjectPath: Boolean\(sessionState\.projectPath\),[\s\S]*isLoading: processState\.isLoading,[\s\S]*hasInteractiveSession: Boolean\(processState\.interactiveSessionIdRef\.current\),[\s\S]*forceFreshSession: options\?\.forceFreshClaudeSession,[\s\S]*\}\);/);
   assert.match(source, /if \(classification\.action === 'local-clear'\) \{[\s\S]*await handleLocalClearFallback\(\);[\s\S]*return true;[\s\S]*\}/);
-  assert.match(source, /if \(classification\.action === 'enqueue'\) \{[\s\S]*queueState\.addToQueue\(prompt, model, providerApiId, thinkingMode\);[\s\S]*return true;[\s\S]*\}/);
+  assert.match(source, /if \(classification\.action === 'enqueue'\) \{[\s\S]*queueState\.addToQueue\(prompt, model, providerApiId, thinkingMode, activeProvider\);[\s\S]*return true;[\s\S]*\}/);
+});
+
+test('AiCodeSession uses selected prompt provider when starting provider sessions', async () => {
+  const source = await readAiCodeSessionSource();
+
+  assert.match(source, /provider\?: string,/);
+  assert.match(source, /activeProvider === 'claude'/);
+  assert.match(source, /api\.resumeProviderSession\(activeProvider,/);
+  assert.match(source, /api\.startProviderSession\(activeProvider,/);
 });
 
 test('FloatingPromptInput only clears drafts when the session consumes the prompt', async () => {
   const source = await readFloatingPromptInputSource();
 
-  assert.match(source, /onSend: \(prompt: string, model: string, providerApiId\?: string \| null, thinkingMode\?: ThinkingMode\) => void \| boolean \| Promise<void \| boolean>;/);
-  assert.match(source, /const consumed = await onSend\(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode\);[\s\S]*if \(consumed === false\) \{[\s\S]*return;[\s\S]*\}[\s\S]*setPrompt\(""\);/);
+  assert.match(source, /onSend: \(prompt: string, model: string, providerApiId\?: string \| null, thinkingMode\?: ThinkingMode, provider\?: string\) => void \| boolean \| Promise<void \| boolean>;/);
+  assert.match(source, /const consumed = await onSend\(finalPrompt, selectedModel, selectedProviderApiId, selectedThinkingMode, selectedProvider\);[\s\S]*if \(consumed === false\) \{[\s\S]*return;[\s\S]*\}[\s\S]*setPrompt\(""\);/);
   assert.match(source, /!isExactClearCommand\(prompt\) &&[\s\S]*!shouldForwardClearToProvider\(prompt, selectedProvider\)/);
   assert.doesNotMatch(source, /shouldUseLocalClearFallback/);
 });

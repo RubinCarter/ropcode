@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,8 +39,9 @@ import (
 )
 
 type liveSessionConfig struct {
-	model         string
-	providerApiID string
+	model           string
+	providerApiID   string
+	reasoningEffort string
 }
 
 type claudeCapabilityLayersResult struct {
@@ -134,12 +136,16 @@ func providerSessionConfigFromManager(manager any, sessionID string) liveSession
 
 	modelField := config.FieldByName("Model")
 	providerAPIField := config.FieldByName("ProviderApiID")
+	reasoningEffortField := config.FieldByName("ReasoningEffort")
 	cfg := liveSessionConfig{}
 	if modelField.IsValid() && modelField.Kind() == reflect.String {
 		cfg.model = modelField.String()
 	}
 	if providerAPIField.IsValid() && providerAPIField.Kind() == reflect.String {
 		cfg.providerApiID = providerAPIField.String()
+	}
+	if reasoningEffortField.IsValid() && reasoningEffortField.Kind() == reflect.String {
+		cfg.reasoningEffort = reasoningEffortField.String()
 	}
 	return cfg
 }
@@ -1622,7 +1628,7 @@ func (a *App) ExecuteClaudeCode(projectPath, prompt, model string, sessionID, pr
 }
 
 // StartProviderSession starts a new provider session based on the provider type
-func (a *App) StartProviderSession(provider, projectPath, prompt, model, providerApiID string) (string, error) {
+func (a *App) StartProviderSession(provider, projectPath, prompt, model, providerApiID, reasoningEffort string) (string, error) {
 	switch provider {
 	case "claude":
 		return a.ExecuteClaudeCode(projectPath, prompt, model, "", providerApiID)
@@ -1655,13 +1661,19 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
 		}
-		// Codex gets API key from ~/.claude/settings.json env.CRS_OAI_KEY
-		// It does not use database ProviderApiConfig
 		config := codex.SessionConfig{
-			ProjectPath:   projectPath,
-			Prompt:        prompt,
-			Model:         model,
-			ProviderApiID: providerApiID,
+			ProjectPath:     projectPath,
+			Prompt:          prompt,
+			Model:           model,
+			ProviderApiID:   providerApiID,
+			ReasoningEffort: reasoningEffort,
+		}
+		if providerApiID != "" && a.dbManager != nil {
+			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+			if err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
+			}
 		}
 		sessionID, err := a.codexManager.StartSession(config)
 		if err != nil {
@@ -1676,7 +1688,7 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 }
 
 // ResumeProviderSession resumes an existing provider session based on the provider type
-func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessionID, providerApiID string) (string, error) {
+func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessionID, providerApiID, reasoningEffort string) (string, error) {
 	switch provider {
 	case "claude":
 		return a.ResumeClaudeCode(projectPath, prompt, model, sessionID, providerApiID)
@@ -1707,15 +1719,21 @@ func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessio
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
 		}
-		// Codex gets API key from ~/.claude/settings.json env.CRS_OAI_KEY
-		// It does not use database ProviderApiConfig
 		config := codex.SessionConfig{
-			ProjectPath:   projectPath,
-			Prompt:        prompt,
-			Model:         model,
-			ProviderApiID: providerApiID,
-			SessionID:     sessionID,
-			Resume:        true,
+			ProjectPath:     projectPath,
+			Prompt:          prompt,
+			Model:           model,
+			ProviderApiID:   providerApiID,
+			ReasoningEffort: reasoningEffort,
+			SessionID:       sessionID,
+			Resume:          true,
+		}
+		if providerApiID != "" && a.dbManager != nil {
+			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+			if err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
+			}
 		}
 		return a.codexManager.StartSession(config)
 
@@ -1790,7 +1808,7 @@ func (a *App) SendProviderSessionMessage(provider, projectPath, sessionID, promp
 		if err := a.geminiManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
 			return "", err
 		}
-		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID)
+		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID, cfg.reasoningEffort)
 	case "codex":
 		if a.codexManager == nil {
 			return "", fmt.Errorf("codex manager not initialized")
@@ -1799,7 +1817,7 @@ func (a *App) SendProviderSessionMessage(provider, projectPath, sessionID, promp
 		if err := a.codexManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
 			return "", err
 		}
-		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID)
+		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID, cfg.reasoningEffort)
 	default:
 		if err := a.SendClaudeMessage(projectPath, sessionID, prompt); err != nil {
 			return "", err
@@ -2607,6 +2625,101 @@ func (a *App) GetEnabledModelConfigs() ([]*database.ModelConfig, error) {
 		return []*database.ModelConfig{}, nil
 	}
 	return configs, nil
+}
+
+type openAIModelsResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+// SyncProviderModelsFromAPI fetches models from the provider's OpenAI-compatible
+// /models endpoint and stores missing supported models as user-defined configs.
+func (a *App) SyncProviderModelsFromAPI(providerID, providerApiID string) ([]*database.ModelConfig, error) {
+	if a.modelRegistry == nil || a.dbManager == nil {
+		return []*database.ModelConfig{}, nil
+	}
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return []*database.ModelConfig{}, fmt.Errorf("provider_id is required")
+	}
+
+	apiConfig, err := a.resolveProviderAPIConfig(providerID, providerApiID)
+	if err != nil {
+		return []*database.ModelConfig{}, err
+	}
+
+	modelIDs, err := fetchOpenAICompatibleModelIDs(apiConfig)
+	if err != nil {
+		return []*database.ModelConfig{}, err
+	}
+	return a.modelRegistry.SyncProviderModels(providerID, modelIDs)
+}
+
+func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*database.ProviderApiConfig, error) {
+	if strings.TrimSpace(providerApiID) != "" {
+		return a.dbManager.GetProviderApiConfig(providerApiID)
+	}
+	apiConfig, err := a.dbManager.GetDefaultProviderApiConfig(providerID)
+	if err == nil && apiConfig != nil {
+		return apiConfig, nil
+	}
+	if providerID == "codex" {
+		return &database.ProviderApiConfig{
+			ProviderID: providerID,
+			BaseURL:    "https://api.openai.com/v1",
+			AuthToken:  os.Getenv("OPENAI_API_KEY"),
+		}, nil
+	}
+	return nil, fmt.Errorf("no provider API config found for %s", providerID)
+}
+
+func fetchOpenAICompatibleModelIDs(apiConfig *database.ProviderApiConfig) ([]string, error) {
+	if apiConfig == nil {
+		return nil, fmt.Errorf("provider API config is required")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(apiConfig.BaseURL), "/")
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	endpoint := baseURL + "/models"
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(apiConfig.AuthToken) != "" {
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiConfig.AuthToken))
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("models API returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var parsed openAIModelsResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, err
+	}
+
+	modelIDs := make([]string, 0, len(parsed.Data))
+	for _, model := range parsed.Data {
+		if strings.TrimSpace(model.ID) != "" {
+			modelIDs = append(modelIDs, model.ID)
+		}
+	}
+	sort.Strings(modelIDs)
+	return modelIDs, nil
 }
 
 // GetModelConfigsByProvider retrieves all model configurations for a specific provider

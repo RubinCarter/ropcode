@@ -148,6 +148,17 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 	return s.port, nil
 }
 
+// ServeHTTP exposes the server mux for embedded shells that host the frontend
+// through their own asset server while still reusing the WebSocket/API routes.
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/health", s.handleHealth)
+	mux.HandleFunc("/api/upload-attachment", s.handleUploadAttachment)
+	mux.HandleFunc("/local-file/", s.handleLocalFile)
+	mux.ServeHTTP(w, r)
+}
+
 // Stop 停止服务器
 func (s *Server) Stop(ctx context.Context) error {
 	s.stopOnce.Do(func() {
@@ -371,6 +382,12 @@ func (s *Server) GetPort() int {
 // GetAuthKey returns the auth key configured for this server instance.
 func (s *Server) GetAuthKey() string {
 	return s.authKey
+}
+
+// SetAuthKey overrides the WebSocket auth key. Embedded shells that proxy
+// localhost-only WebSocket traffic can clear this to avoid preload timing issues.
+func (s *Server) SetAuthKey(authKey string) {
+	s.authKey = authKey
 }
 
 // GetInstanceID returns the registry instance ID for this server instance.

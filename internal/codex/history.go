@@ -294,36 +294,6 @@ func codexEventToClaudeHistory(event map[string]interface{}, projectID string) [
 			messages = append(messages, msg)
 		}
 
-	case "thread.started":
-		// Session init
-		threadID, _ := event["thread_id"].(string)
-		msg := claude.Message{
-			Type:      "system",
-			SessionID: threadID,
-			Cwd:       projectID,
-			Timestamp: timestamp,
-		}
-		messages = append(messages, msg)
-
-	case "turn.completed":
-		msg := claude.Message{
-			Type:      "result",
-			Cwd:       projectID,
-			Timestamp: timestamp,
-		}
-		messages = append(messages, msg)
-
-	case "thread.completed", "thread.cancelled", "thread.error":
-		success := eventType == "thread.completed"
-		msg := claude.Message{
-			Type:      "result",
-			Cwd:       projectID,
-			Timestamp: timestamp,
-			Message: map[string]interface{}{
-				"success": success,
-			},
-		}
-		messages = append(messages, msg)
 	}
 
 	return messages
@@ -509,35 +479,18 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 
 		eventType, _ := event["type"].(string)
 
-		// Extract session ID from thread.started event
-		if eventType == "thread.started" {
-			if threadID, ok := event["thread_id"].(string); ok {
-				sessionID = threadID
+		if eventType == "session_meta" {
+			payload, ok := event["payload"].(map[string]interface{})
+			if !ok {
+				continue
 			}
-			// Try to get timestamp
-			if ts, ok := event["timestamp"].(string); ok {
-				lastTimestamp = ts
+			sessionID, _ = payload["id"].(string)
+			sessionProjectPath, _ = payload["cwd"].(string)
+			if ts, ok := payload["timestamp"].(string); ok && ts != "" {
 				if t, err := time.Parse(time.RFC3339, ts); err == nil {
 					createdAt = t.Unix()
 				}
 			}
-		}
-
-		// Extract project path from response_item with user message
-		if eventType == "response_item" {
-			if payload, ok := event["payload"].(map[string]interface{}); ok {
-				if role, _ := payload["role"].(string); role == "user" {
-					// Try to get cwd from the event
-					if cwd, ok := event["cwd"].(string); ok && cwd != "" {
-						sessionProjectPath = cwd
-					}
-				}
-			}
-		}
-
-		// Also check for cwd in top-level event
-		if cwd, ok := event["cwd"].(string); ok && cwd != "" && sessionProjectPath == "" {
-			sessionProjectPath = cwd
 		}
 
 		// Update last timestamp
@@ -546,22 +499,8 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 		}
 	}
 
-	// If we couldn't find the session ID from thread.started, extract from filename
-	// Filename format: rollout-YYYY-MM-DDTHH-MM-SS-{session_id}.jsonl
 	if sessionID == "" {
-		baseName := filepath.Base(filePath)
-		// Try to extract session ID from filename
-		parts := strings.Split(baseName, "-")
-		if len(parts) >= 7 {
-			// Last part before .jsonl is the session ID
-			lastPart := parts[len(parts)-1]
-			sessionID = strings.TrimSuffix(lastPart, ".jsonl")
-		}
-	}
-
-	// If we still don't have a session ID, use file modification time as fallback
-	if sessionID == "" {
-		return nil, fmt.Errorf("could not extract session ID from file: %s", filePath)
+		return nil, fmt.Errorf("could not extract session_meta payload id from file: %s", filePath)
 	}
 
 	// Get file modification time as fallback for createdAt
@@ -574,11 +513,6 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 	// Check if this session matches the target project path
 	// Only return sessions that explicitly match the target project
 	if targetProjectPath != "" {
-		if sessionProjectPath == "" {
-			// Cannot determine project path from session file - skip to avoid mixing sessions
-			log.Printf("[Codex History] Skipping session %s: cannot determine project path", sessionID)
-			return nil, nil
-		}
 		if sessionProjectPath != targetProjectPath {
 			// Session belongs to a different project - skip
 			return nil, nil

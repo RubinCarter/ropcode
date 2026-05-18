@@ -15,6 +15,8 @@ const DiffViewer = lazy(() => import('@/components/right-sidebar/DiffViewer').th
 const FileViewer = lazy(() => import('@/components/FileViewer').then(m => ({ default: m.FileViewer })));
 const WebViewWidget = lazy(() => import('@/components/WebViewWidget').then(m => ({ default: m.WebViewWidget })));
 
+const CHAT_PROVIDERS = ['claude', 'codex'] as const;
+
 interface WorkspaceContainerProps {
   workspaceId: string;
   visible: boolean;
@@ -67,20 +69,26 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     // Use setTimeout to yield to the browser and allow initial render
     setTimeout(async () => {
       try {
-        const sessionList = await providers.listSessions(workspaceId, 'claude');
+        const providerSessions = await Promise.all(
+          CHAT_PROVIDERS.map(async (providerId) => {
+            const sessionList = await providers.listSessions(workspaceId, providerId);
+            return sessionList.map(session => ({ ...session, provider: providerId }));
+          })
+        );
+        const sessionList = providerSessions.flat();
         if (sessionList.length > 0) {
-          const sortedSessions = [...sessionList].sort((a, b) => {
+          const [selectedSession] = [...sessionList].sort((a, b) => {
             const timeA = a.message_timestamp ? new Date(a.message_timestamp).getTime() : a.created_at * 1000;
             const timeB = b.message_timestamp ? new Date(b.message_timestamp).getTime() : b.created_at * 1000;
             return timeB - timeA;
           });
-          const selectedSession = sortedSessions[0];
 
           // Update the tab with session data
           if (tabIdRef.current) {
             updateTab(tabIdRef.current, {
+              providerId: selectedSession.provider,
               sessionId: selectedSession.id,
-              sessionData: { ...selectedSession, provider: 'claude' },
+              sessionData: selectedSession,
             });
           }
         }

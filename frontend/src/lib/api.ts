@@ -216,6 +216,7 @@ const api = new Proxy({ ...rpcMethods }, {
       getPluginContents: 'GetPluginContents',
       // Model
       getAllModelConfigs: 'GetAllModelConfigs',
+      syncProviderModelsFromAPI: 'SyncProviderModelsFromAPI',
       createModelConfig: 'CreateModelConfig',
       deleteModelConfig: 'DeleteModelConfig',
       setModelConfigEnabled: 'SetModelConfigEnabled',
