@@ -555,9 +555,26 @@ func firstTextFromCodexContent(content []map[string]interface{}) string {
 		if text == "" {
 			continue
 		}
+		if isInjectedCodexUserContext(text) {
+			continue
+		}
 		return text
 	}
 	return ""
+}
+
+func isInjectedCodexUserContext(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "<environment_context>") {
+		return true
+	}
+	if strings.Contains(trimmed, " instructions for ") && strings.Contains(trimmed, "<INSTRUCTIONS>") {
+		return true
+	}
+	return false
 }
 
 // generateActiveForm generates activeForm from a task description
