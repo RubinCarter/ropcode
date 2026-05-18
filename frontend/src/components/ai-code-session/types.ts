@@ -36,6 +36,10 @@ export interface AiCodeSessionProps {
    */
   onStreamingChange?: (isStreaming: boolean, sessionId: string | null) => void;
   /**
+   * Callback when the provider process/session liveness changes.
+   */
+  onProcessAliveChange?: (isAlive: boolean) => void;
+  /**
    * Callback when project path changes
    */
   onProjectPathChange?: (path: string) => void;
@@ -44,9 +48,21 @@ export interface AiCodeSessionProps {
    */
   defaultProvider?: string;
   /**
+   * Skip restoring the most recent saved session for explicit new chats.
+   */
+  skipSessionRestore?: boolean;
+  /**
    * Callback when provider changes
    */
   onProviderChange?: (providerId: string) => void;
+  /**
+   * Callback when the first prompt receives a generated session title
+   */
+  onSessionTitleGenerated?: (title: string) => void;
+  /**
+   * Callback when a turn or process completes and history may have changed.
+   */
+  onSessionActivityComplete?: () => void;
 }
 
 /**

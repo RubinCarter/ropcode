@@ -134,6 +134,15 @@ export namespace main {
     sessions: ProviderSessionSummary[];
     has_more: boolean;
   }
+  export interface LiveProviderSession {
+    session_id: string;
+    project_path: string;
+    model: string;
+    status: string;
+    started_at: string;
+    pid?: number;
+    provider: string;
+  }
   export interface ClaudeActivityUsage {
     input_tokens?: number;
     output_tokens?: number;
@@ -571,6 +580,14 @@ export function GetSetting(key: string): Promise<string> {
   return wsClient.call('GetSetting', key);
 }
 
+export function GenerateSessionTitle(prompt: string): Promise<string> {
+  return wsClient.call('GenerateSessionTitle', prompt);
+}
+
+export function SaveGeneratedSessionTitle(provider: string, sessionId: string, title: string): Promise<void> {
+  return wsClient.call('SaveGeneratedSessionTitle', provider, sessionId, title);
+}
+
 export function GetConfig(): Promise<Record<string, string>> {
   return wsClient.call('GetConfig');
 }
@@ -677,6 +694,10 @@ export function GetProjectSessions(projectPath: string): Promise<string[]> {
 
 export function ListSpaceSessions(projectPath: string, limit: number): Promise<main.SpaceSessionsResult> {
   return wsClient.call('ListSpaceSessions', projectPath, limit);
+}
+
+export function ListRunningProviderSessions(): Promise<main.LiveProviderSession[]> {
+  return wsClient.call('ListRunningProviderSessions');
 }
 
 export function GetActions(projectPath: string, workspaceId: string): Promise<main.ActionsResult> {

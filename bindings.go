@@ -742,7 +742,7 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 				sessions := make([]ProviderSessionSummary, 0, len(claudeResult.Sessions))
 				for _, s := range claudeResult.Sessions {
 					isRunning := a.claudeManager != nil && a.claudeManager.IsRunning(s.ID)
-					sessions = append(sessions, newClaudeSpaceSessionSummary(s, isRunning))
+					sessions = append(sessions, applyStoredSessionTitle(newClaudeSpaceSessionSummary(s, isRunning), a.sessionTitles))
 				}
 				return spaceSessionScanResult{sessions: sessions, hasMore: claudeResult.HasMore}, nil
 			},
@@ -761,7 +761,7 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 				sessions := make([]ProviderSessionSummary, 0, len(codexResult.Sessions))
 				for _, s := range codexResult.Sessions {
 					isRunning := a.codexManager != nil && a.codexManager.IsRunning(s.ID)
-					sessions = append(sessions, newCodexSpaceSessionSummary(s, isRunning))
+					sessions = append(sessions, applyStoredSessionTitle(newCodexSpaceSessionSummary(s, isRunning), a.sessionTitles))
 				}
 				return spaceSessionScanResult{sessions: sessions, hasMore: codexResult.HasMore}, nil
 			},

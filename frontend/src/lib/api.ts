@@ -213,6 +213,7 @@ const api = new Proxy({ ...rpcMethods }, {
       switchClaudeSessionProviderApi: 'SwitchClaudeSessionProviderApi',
       isClaudeSessionRunningForProject: 'IsClaudeSessionRunningForProject',
       getSetting: 'GetSetting',
+      generateSessionTitle: 'GenerateSessionTitle',
       // Plugin
       listInstalledPlugins: 'ListInstalledPlugins',
       getPluginContents: 'GetPluginContents',

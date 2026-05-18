@@ -28,6 +28,10 @@ type OpenProviderSessionEvent = CustomEvent<{
   session: ProviderSessionSummary;
 }>;
 
+type OpenNewSessionEvent = CustomEvent<{
+  spacePath: string;
+}>;
+
 const getHistoricalSessionTitle = (session: ProviderSessionSummary) => {
   const title = session.title || session.first_message;
   if (title?.trim()) return title.trim();
@@ -136,14 +140,22 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   };
 
   // Stable callbacks to prevent infinite re-renders
-  const handleStreamingChange = useCallback((isStreaming: boolean, sessionId?: string) => {
-    const tabId = activeTabIdRef.current;
-    if (tabId) {
-      updateTab(tabId, {
-        status: isStreaming ? 'running' : 'idle',
-        sessionId: sessionId,
-      });
+  const handleStreamingChange = useCallback((tabId: string, isStreaming: boolean, sessionId?: string | null) => {
+    updateTab(tabId, {
+      status: isStreaming ? 'running' : 'idle',
+      sessionId: sessionId || undefined,
+    });
+  }, [getTabById, updateTab]);
+
+  const handleProcessAliveChange = useCallback((tabId: string, isAlive: boolean) => {
+    const tab = getTabById(tabId);
+    if (!tab || tab.type !== 'chat' || tab.status === 'running') {
+      return;
     }
+
+    updateTab(tabId, {
+      status: isAlive ? 'idle' : 'closed',
+    });
   }, [updateTab]);
 
   const handleProjectPathChange = useCallback((path: string) => {
@@ -242,6 +254,12 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     // Chat tab doesn't have a back button, this is a no-op
   }, []);
 
+  const notifySpaceSessionsRefresh = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('ropcode-space-sessions-refresh', {
+      detail: { spacePath: workspaceId },
+    }));
+  }, [workspaceId]);
+
   useEffect(() => {
     const handleOpenProviderSession = (event: Event) => {
       const { spacePath, session } = (event as OpenProviderSessionEvent).detail ?? {};
@@ -287,6 +305,54 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     return () => window.removeEventListener('open-provider-session', handleOpenProviderSession);
   }, [addTab, setActiveTab, tabs, workspaceId]);
 
+  useEffect(() => {
+    const handleOpenNewSession = (event: Event) => {
+      const { spacePath } = (event as OpenNewSessionEvent).detail ?? {};
+      if (spacePath !== workspaceId) return;
+
+      const pending = (window as any).__ROPCODE_PENDING_NEW_SESSION__;
+      if (pending?.spacePath === workspaceId) {
+        delete (window as any).__ROPCODE_PENDING_NEW_SESSION__;
+      }
+
+      const existingNewSessionTab = tabs.find(tab =>
+        tab.type === 'chat' &&
+        tab.projectPath === spacePath &&
+        tab.skipSessionRestore === true &&
+        !tab.sessionId &&
+        !tab.sessionData
+      );
+      if (existingNewSessionTab) {
+        setActiveTab(existingNewSessionTab.id);
+        return;
+      }
+
+      addTab({
+        type: 'chat',
+        title: 'New chat',
+        sessionId: undefined,
+        sessionData: undefined,
+        projectPath: spacePath,
+        providerId: 'claude',
+        status: 'idle',
+        hasUnsavedChanges: false,
+        icon: 'message-square',
+        skipSessionRestore: true,
+      });
+    };
+
+    window.addEventListener('open-new-session', handleOpenNewSession);
+    const pending = (window as any).__ROPCODE_PENDING_NEW_SESSION__;
+    if (pending?.spacePath === workspaceId) {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('open-new-session', {
+          detail: pending,
+        }));
+      }, 0);
+    }
+    return () => window.removeEventListener('open-new-session', handleOpenNewSession);
+  }, [addTab, setActiveTab, tabs, workspaceId]);
+
   // 判断 tab 是否需要保持挂载状态（有状态的 tab）
   const shouldKeepTabMounted = (tabType: string): boolean => {
     const STATEFUL_TAB_TYPES = new Set(['chat', 'agent-execution', 'claude-file', 'diff', 'file', 'webview']);
@@ -304,10 +370,14 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             session={tab.sessionData}
             initialProjectPath={tab.projectPath}
             defaultProvider={tab.providerId}
+            skipSessionRestore={tab.skipSessionRestore}
             onBack={handleBack}
-            onStreamingChange={handleStreamingChange}
+            onStreamingChange={(isStreaming, sessionId) => handleStreamingChange(tab.id, isStreaming, sessionId)}
+            onProcessAliveChange={(isAlive) => handleProcessAliveChange(tab.id, isAlive)}
             onProjectPathChange={handleProjectPathChange}
             onProviderChange={handleProviderChange}
+            onSessionTitleGenerated={(title) => updateTab(tab.id, { title })}
+            onSessionActivityComplete={notifySpaceSessionsRefresh}
           />
         );
 

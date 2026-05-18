@@ -101,9 +101,13 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   initialProjectPath = "",
   className,
   onStreamingChange,
+  onProcessAliveChange,
   onProjectPathChange,
   defaultProvider = "claude",
+  skipSessionRestore = false,
   onProviderChange,
+  onSessionTitleGenerated,
+  onSessionActivityComplete,
 }) => {
   // ==================================================================
   // REFS (Must be declared before hooks that use them)
@@ -115,6 +119,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const isMountedRef = useRef(true);
   const skipRecoveryUntilRef = useRef(0);
   const pendingFreshClaudeSessionRef = useRef(false);
+  const generatedSessionTitleRef = useRef<string | null>(null);
   const sessionRef = useRef(session);
   sessionRef.current = session;
   // ==================================================================
@@ -159,6 +164,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // few seconds, or when the next turn finishes.
   const [providerApiSwitchNotice, setProviderApiSwitchNotice] = useState<string | null>(null);
   const providerApiSwitchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [generatedSessionTitle, setGeneratedSessionTitle] = useState<string | null>(null);
   const { getInProgressTodos } = useWorkspaceTodo();
 
   // Prompt queue - defined before eventsState
@@ -231,7 +237,10 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     hasActiveSessionRef: processState.hasActiveSessionRef,
     addMessage: messagesState.addMessage,
     syncProcessState: processState.syncProcessState,
-    onComplete: (payload) => refreshCurrentSubagentTranscripts(payload.session_id),
+    onComplete: (payload) => {
+      onSessionActivityComplete?.();
+      return refreshCurrentSubagentTranscripts(payload.session_id);
+    },
     processNextInQueue: queueState.processNextInQueue,
     trackToolExecution: metricsState.trackToolExecution,
     trackToolFailure: metricsState.trackToolFailure,
@@ -302,6 +311,26 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     onStreamingChange?.(processState.isLoading, sessionState.claudeSessionId);
   }, [processState.isLoading, sessionState.claudeSessionId, onStreamingChange]);
 
+  useEffect(() => {
+    onProcessAliveChange?.(processState.hasActiveSessionRef.current);
+  }, [processState.isLoading, processState.interactiveSessionId, onProcessAliveChange]);
+
+  useEffect(() => {
+    const title = generatedSessionTitle?.trim();
+    const sessionId = sessionState.extractedSessionInfo?.sessionId || sessionState.effectiveSession?.id || sessionState.claudeSessionId;
+    if (!title || !sessionId || !sessionState.projectPath) return;
+
+    void api.SaveGeneratedSessionTitle(defaultProvider, sessionId, title)
+      .then(() => {
+        window.dispatchEvent(new CustomEvent('ropcode-space-sessions-refresh', {
+          detail: { spacePath: sessionState.projectPath },
+        }));
+      })
+      .catch((err: unknown) => {
+        console.warn('[AiCodeSession] Failed to save generated session title:', err);
+      });
+  }, [defaultProvider, generatedSessionTitle, sessionState.extractedSessionInfo?.sessionId, sessionState.effectiveSession?.id, sessionState.claudeSessionId, sessionState.projectPath]);
+
   // Helper function to scroll to bottom (for manual scroll buttons and history loading)
   const scrollToBottom = useCallback((behavior: 'auto' | 'smooth' = 'smooth') => {
     virtuosoRef.current?.scrollToIndex({
@@ -356,6 +385,11 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
   // Session restoration from localStorage - deferred to avoid blocking initial render
   useEffect(() => {
+    if (skipSessionRestore) {
+      console.log('[AiCodeSession] Skipping session restore for explicit new session');
+      return;
+    }
+
     if (loadedSessionIdRef.current) {
       console.log('[AiCodeSession] Already loaded session, skipping:', loadedSessionIdRef.current);
       return;
@@ -407,7 +441,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         }
       });
     }
-  }, [sessionState.projectPath, defaultProvider]);
+  }, [sessionState.projectPath, defaultProvider, skipSessionRestore]);
 
   // Load session history if resuming - deferred to avoid blocking initial render
   useEffect(() => {
@@ -1072,6 +1106,15 @@ ${message ? `**说明**:\n${message}` : ''}`;
   ): Promise<boolean> => {
     console.log('[AiCodeSession] Sending prompt with thinkingMode:', thinkingMode);
     const activeProvider = provider || defaultProvider;
+    const shouldGenerateSessionTitle = sessionState.isFirstPrompt && prompt.trim().length > 0;
+    if (!shouldGenerateSessionTitle) {
+      console.log('[AiCodeSession] Skipping session title generation:', {
+        isFirstPrompt: sessionState.isFirstPrompt,
+        hasPrompt: prompt.trim().length > 0,
+        provider: activeProvider,
+        sessionId: sessionState.effectiveSession?.id || sessionState.claudeSessionId,
+      });
+    }
 
     const classification = classifyPromptSubmit({
       prompt,
@@ -1223,6 +1266,21 @@ ${message ? `**说明**:\n${message}` : ''}`;
         processState.setIsPendingSend(false);
         console.log('[AiCodeSession] isPendingSend cleared');
       }, 500);
+
+      if (shouldGenerateSessionTitle && onSessionTitleGenerated) {
+        void api.GenerateSessionTitle(prompt)
+          .then((title: string) => {
+            const cleanedTitle = title?.trim();
+            if (cleanedTitle) {
+              generatedSessionTitleRef.current = cleanedTitle;
+              setGeneratedSessionTitle(cleanedTitle);
+              onSessionTitleGenerated(cleanedTitle);
+            }
+          })
+          .catch((err: unknown) => {
+            console.warn('[AiCodeSession] Failed to generate session title:', err);
+          });
+      }
 
       return true;
     } catch (err) {

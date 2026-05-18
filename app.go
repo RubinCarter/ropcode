@@ -46,11 +46,14 @@ type App struct {
 	gitWatcher          *git.GitWatcher
 	modelRegistry       *models.Registry
 	capabilityDiscovery claudeCapabilityDiscovery
+	sessionTitles       *sessionTitleStore
 }
 
 // NewApp creates a new App application struct
 func NewApp() *App {
-	return &App{}
+	return &App{
+		sessionTitles: newSessionTitleStore(),
+	}
 }
 
 // startup is called when the app starts
@@ -77,6 +80,8 @@ func (a *App) startup(ctx context.Context) {
 		if err := a.modelRegistry.Initialize(); err != nil {
 			log.Printf("Failed to initialize model registry: %v", err)
 		}
+
+		a.loadGeneratedSessionTitles()
 	}
 
 	// Initialize EventHub (before managers that need it)
