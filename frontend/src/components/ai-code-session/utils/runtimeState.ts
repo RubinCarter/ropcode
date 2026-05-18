@@ -104,7 +104,11 @@ export function reduceRuntimeTracker(
     next.lastResultAt = now;
   }
 
-  if ((message.type === 'system' && message.subtype === 'error') || message.type === 'error' || message.error || message.is_error) {
+  if (
+    (message.type === 'system' && message.subtype === 'error') ||
+    message.type === 'error' ||
+    (message.subtype !== 'api_retry' && (message.error || message.is_error))
+  ) {
     next.lastErrorAt = now;
   }
 

@@ -204,6 +204,7 @@ function wouldStreamMessageRender(
 function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
   const runtimeMessage = message as unknown as {
     type?: string;
+    subtype?: string;
     hidden_by_default?: boolean;
     debug_meta?: { hidden_by_default?: boolean };
     isSidechain?: boolean;
@@ -212,6 +213,8 @@ function isHiddenByDefault(message: ClaudeStreamMessage): boolean {
   return (
     runtimeMessage.type === 'queue-operation' ||
     runtimeMessage.type === 'progress' ||
+    (runtimeMessage.type === 'system' && runtimeMessage.subtype === 'api_retry') ||
+    runtimeMessage.type === 'rate_limit_event' ||
     runtimeMessage.hidden_by_default === true ||
     runtimeMessage.debug_meta?.hidden_by_default === true
   );

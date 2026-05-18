@@ -89,6 +89,18 @@ test('builds retry and rate-limit runtime copy', async () => {
   assert.match(status.secondary || '', /8s/);
   assert.deepEqual(status.chips, ['Rate limited', 'Retry 2/5']);
 
+  const retrySummary = summarizeRuntimeMessage({
+    type: 'system',
+    subtype: 'api_retry',
+    attempt: 2,
+    max_retries: 5,
+    retry_delay_ms: 8000,
+    error_status: 429,
+    error: 'rate_limit',
+  });
+
+  assert.equal(retrySummary, 'Runtime: retrying · attempt 2/5 · next retry in 8s');
+
   const summary = summarizeRuntimeMessage({
     type: 'result',
     subtype: 'success',
