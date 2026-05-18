@@ -239,13 +239,40 @@ func codexThinkingLevels() []database.ThinkingLevel {
 }
 
 // supports1MContext reports whether a Claude model ID supports the 1M context
-// window variant. Sonnet and Opus class models support it; Haiku does not.
+// window variant. Only sonnet/opus 4-6 and above support it; older versions
+// (4-5, dated snapshots) and haiku do not.
 func supports1MContext(modelID string) bool {
 	id := strings.ToLower(modelID)
 	if strings.Contains(id, "haiku") {
 		return false
 	}
-	return strings.Contains(id, "sonnet") || strings.Contains(id, "opus")
+
+	// Match claude-sonnet-4-N or claude-opus-4-N where N >= 6.
+	for _, family := range []string{"sonnet", "opus"} {
+		prefix := "claude-" + family + "-4-"
+		if !strings.Contains(id, prefix) {
+			continue
+		}
+		// Extract the minor version digit after the prefix.
+		idx := strings.Index(id, prefix)
+		rest := id[idx+len(prefix):]
+		if len(rest) == 0 {
+			continue
+		}
+		// Parse leading digits as minor version.
+		minor := 0
+		for _, ch := range rest {
+			if ch >= '0' && ch <= '9' {
+				minor = minor*10 + int(ch-'0')
+			} else {
+				break
+			}
+		}
+		if minor >= 6 {
+			return true
+		}
+	}
+	return false
 }
 
 func displayNameFromModelID(modelID string) string {
