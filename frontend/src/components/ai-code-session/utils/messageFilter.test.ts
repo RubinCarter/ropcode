@@ -78,21 +78,31 @@ test('display filter honors hidden indexes before envelope fallback', () => {
   assert.deepEqual(getDisplayableMessages(messages as any, new Set([1])).indexes, [0, 2]);
 });
 
-test('display filter collapses consecutive transient runtime events into the latest one', () => {
+test('display filter hides rate-limit retry events consumed by runtime status', () => {
   const messages = [
     { type: 'system', subtype: 'init' },
-    { type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 5 },
-    { type: 'error', error: 'server_error 1' },
-    { type: 'system', subtype: 'api_retry', attempt: 2, max_retries: 5 },
-    { type: 'error', error: 'server_error 2' },
-    { type: 'system', subtype: 'api_retry', attempt: 3, max_retries: 5 },
+    { type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 5, error: 'rate_limit' },
+    { type: 'rate_limit_event', rate_limit_info: { status: 'rejected', message: 'too many requests' } },
     { type: 'assistant', message: { content: [{ type: 'text', text: 'reply' }] } },
-    { type: 'system', subtype: 'api_retry', attempt: 1, max_retries: 5 },
+    { type: 'system', subtype: 'api_retry', attempt: 2, max_retries: 5, error: 'rate_limit' },
   ];
 
   const displayable = getDisplayableMessages(messages as any);
 
-  // Keep init, the latest transient before the assistant reply, the assistant reply,
-  // and the standalone trailing transient.
-  assert.deepEqual(displayable.indexes, [0, 5, 6, 7]);
+  assert.deepEqual(displayable.indexes, [0, 3]);
+});
+
+test('display filter collapses consecutive transient runtime errors into the latest one', () => {
+  const messages = [
+    { type: 'system', subtype: 'init' },
+    { type: 'error', error: 'server_error 1' },
+    { type: 'system', subtype: 'error', error: 'server_error 2' },
+    { type: 'raw', content: 'raw diagnostic' },
+    { type: 'assistant', message: { content: [{ type: 'text', text: 'reply' }] } },
+    { type: 'error', error: 'server_error 3' },
+  ];
+
+  const displayable = getDisplayableMessages(messages as any);
+
+  assert.deepEqual(displayable.indexes, [0, 3, 4, 5]);
 });

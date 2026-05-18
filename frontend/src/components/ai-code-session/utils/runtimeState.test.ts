@@ -368,3 +368,53 @@ test('reduces runtime tracker across init to tool to result sequence', async () 
   assert.equal(tracker.snapshot?.last_event_type, 'result');
   assert.equal(tracker.snapshot?.active_tool, '');
 });
+
+test('does not treat api retry error detail as a failed runtime state', async () => {
+  const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
+
+  const tracker = reduceRuntimeTracker(createInitialRuntimeTracker(), {
+    type: 'system',
+    subtype: 'api_retry',
+    error: 'rate_limit',
+    debug_meta: {
+      runtime_state: {
+        processing: true,
+        retrying: true,
+        rate_limited: true,
+        active_tool: '',
+        active_tool_progress: null,
+        last_api_retry: {
+          reason: 'rate_limit',
+          attempt: 2,
+          max_attempts: 5,
+          retry_after_ms: 8_000,
+          error_status: 429,
+        },
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'system',
+        last_event_subtype: 'api_retry',
+      },
+    },
+  }, 10_000);
+
+  assert.equal(tracker.lastErrorAt, null);
+
+  const state = deriveRuntimeViewState({
+    now: 10_000,
+    tracker,
+    local: {
+      isLoading: true,
+      interactiveSessionId: 'interactive-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+    },
+  });
+
+  assert.equal(state.phase, 'rate_limited');
+  assert.equal(state.severity, 'warning');
+});
