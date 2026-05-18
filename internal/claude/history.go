@@ -552,8 +552,9 @@ func extractClaudeSessionInfo(filePath, sessionID, projectHash, projectPath stri
 			}
 		}
 
-		// Stop scanning after enough lines to get metadata
-		if lineCount >= maxLinesToScan && firstMessage != "" {
+		// Stop scanning after the preview window; title extraction must not read
+		// through the whole transcript when early lines contain no user message.
+		if lineCount >= maxLinesToScan {
 			break
 		}
 	}

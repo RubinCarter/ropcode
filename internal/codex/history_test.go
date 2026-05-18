@@ -79,6 +79,41 @@ func TestListProjectSessionsSkipsInjectedUserContextForFirstMessage(t *testing.T
 	}
 }
 
+func TestListProjectSessionsDoesNotReadPastPreviewWindowForFirstMessage(t *testing.T) {
+	codexDir := t.TempDir()
+	sessionDir := filepath.Join(codexDir, "sessions", "2026", "05", "18")
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	projectPath := filepath.Join("E:", "bit_master", "ropcode")
+	sessionID := "late-title-window"
+	sessionPath := filepath.Join(sessionDir, "rollout-2026-05-18T14-10-00-"+sessionID+".jsonl")
+	content := `{"timestamp":"2026-05-18T06:10:00.000Z","type":"session_meta","payload":{"id":"` + sessionID + `","timestamp":"2026-05-18T06:10:00.000Z","cwd":"` + escapeWindowsPath(projectPath) + `","originator":"Codex Desktop"}}
+`
+	const previewWindow = 20
+	for i := 0; i < previewWindow; i++ {
+		content += `{"timestamp":"2026-05-18T06:10:01.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"working"}]}}
+`
+	}
+	content += `{"timestamp":"2026-05-18T06:10:02.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"late title should not be read"}]}}
+`
+	if err := os.WriteFile(sessionPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sessions, err := ListProjectSessions(codexDir, projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(sessions))
+	}
+	if sessions[0].FirstMessage != "" {
+		t.Fatalf("first message = %q, want empty title preview after scan limit", sessions[0].FirstMessage)
+	}
+}
+
 func TestListProjectSessionsMatchesWindowsPathCaseInsensitively(t *testing.T) {
 	codexDir := t.TempDir()
 	sessionDir := filepath.Join(codexDir, "sessions", "2026", "05", "18")

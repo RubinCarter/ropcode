@@ -410,6 +410,8 @@ type ProjectSessionsResult struct {
 
 var maxLimitedProjectSessionScanFiles = 200
 
+const maxSessionTitleScanLines = 20
+
 // ListProjectSessions lists all sessions for a specific project path
 // It scans the ~/.codex/sessions directory structure and extracts session info
 func ListProjectSessions(codexDir, projectPath string) ([]SessionInfo, error) {
@@ -508,7 +510,7 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 
 	// Read only enough lines to extract session metadata
 	lineCount := 0
-	for scanner.Scan() && lineCount < 100 { // Limit to first 100 lines for performance
+	for scanner.Scan() && lineCount < maxSessionTitleScanLines {
 		line := scanner.Text()
 		if line == "" {
 			continue
