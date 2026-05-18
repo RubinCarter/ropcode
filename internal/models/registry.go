@@ -108,8 +108,14 @@ func (r *Registry) promoteDefaultIfBuiltin(providerID string) {
 }
 
 // nonChatModelTokens lists substrings that mark a model as non-chat (audio, image,
-// embedding, moderation, etc.). Models containing any of these tokens are skipped
-// during /v1/models sync regardless of provider.
+// embedding, moderation, etc.) or as a redundant variant we don't want users
+// picking. Models containing any of these tokens are skipped during
+// /v1/models sync regardless of provider.
+//
+// "thinking" is excluded because some Anthropic-compatible gateways expose a
+// separate "<id>-thinking" variant alongside the regular id. The regular
+// model already supports extended thinking through Claude Code's prompt-based
+// thinking levels, so the "-thinking" copy is duplicate noise.
 var nonChatModelTokens = []string{
 	"audio",
 	"dall-e",
@@ -119,6 +125,7 @@ var nonChatModelTokens = []string{
 	"realtime",
 	"search",
 	"speech",
+	"thinking",
 	"transcribe",
 	"tts",
 	"whisper",

@@ -231,6 +231,39 @@ func TestSyncProviderModelsAcceptsGatewayModelIDsForClaude(t *testing.T) {
 	}
 }
 
+func TestSyncFiltersThinkingVariantsForClaudeGateways(t *testing.T) {
+	// Some Anthropic-compatible gateways expose redundant "<id>-thinking"
+	// variants alongside the base id. Claude Code already drives thinking
+	// through its prompt-based thinking levels, so these duplicates are
+	// pure noise and must be filtered out at sync time.
+	registry := newTestRegistry(t)
+
+	synced, err := registry.SyncProviderModels("claude", []string{
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-5-20251101-thinking",
+		"claude-sonnet-4-6-20251020",
+		"claude-sonnet-4-6-20251020-thinking",
+	})
+	if err != nil {
+		t.Fatalf("SyncProviderModels: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, m := range synced {
+		got[m.ModelID] = true
+	}
+	for _, want := range []string{"claude-opus-4-5-20251101", "claude-sonnet-4-6-20251020"} {
+		if !got[want] {
+			t.Fatalf("expected %q to be synced, got %v", want, got)
+		}
+	}
+	for _, blocked := range []string{"claude-opus-4-5-20251101-thinking", "claude-sonnet-4-6-20251020-thinking"} {
+		if got[blocked] {
+			t.Fatalf("expected %q to be filtered out", blocked)
+		}
+	}
+}
+
 func keys(m map[string]*database.ModelConfig) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
