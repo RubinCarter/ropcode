@@ -68,6 +68,36 @@ func (r *Registry) SyncProviderModels(providerID string, modelIDs []string) ([]*
 		synced = append(synced, config)
 	}
 
+	// For Claude provider, auto-generate [1m] variants for sonnet/opus models.
+	if providerID == "claude" {
+		for _, m := range synced {
+			if !supports1MContext(m.ModelID) {
+				continue
+			}
+			oneM := m.ModelID + "[1m]"
+			if seen[oneM] {
+				continue
+			}
+			seen[oneM] = true
+			exists, err := r.db.ModelConfigExists(oneM)
+			if err != nil || exists {
+				continue
+			}
+			variant := &database.ModelConfig{
+				ModelID:        oneM,
+				ProviderID:     providerID,
+				DisplayName:    m.DisplayName + " [1M]",
+				Description:    m.Description + " (1M context window)",
+				IsEnabled:      true,
+				ThinkingLevels: m.ThinkingLevels,
+			}
+			if err := r.CreateModel(variant); err != nil {
+				continue
+			}
+			synced = append(synced, variant)
+		}
+	}
+
 	r.promoteDefaultIfBuiltin(providerID)
 	return synced, nil
 }
@@ -208,6 +238,16 @@ func codexThinkingLevels() []database.ThinkingLevel {
 	}
 }
 
+// supports1MContext reports whether a Claude model ID supports the 1M context
+// window variant. Sonnet and Opus class models support it; Haiku does not.
+func supports1MContext(modelID string) bool {
+	id := strings.ToLower(modelID)
+	if strings.Contains(id, "haiku") {
+		return false
+	}
+	return strings.Contains(id, "sonnet") || strings.Contains(id, "opus")
+}
+
 func displayNameFromModelID(modelID string) string {
 	parts := strings.FieldsFunc(modelID, func(r rune) bool {
 		return r == '-' || r == '_'
@@ -294,8 +334,8 @@ func providersWithUserModels(models []*database.ModelConfig) map[string]bool {
 // shouldHideBuiltin reports whether a builtin entry should be filtered out
 // of list responses. Builtins are hidden once the user has any user-defined
 // model for that provider — the precise IDs replace the convenience aliases.
-// SyncProviderModels takes care of moving the default off any builtin that
-// would otherwise be hidden, so list views don't need to keep one around.
+// SyncProviderModels auto-generates [1m] variants for synced sonnet/opus
+// models, so the builtin [1m] aliases are hidden along with everything else.
 func shouldHideBuiltin(builtin *database.ModelConfig, hasUserModels map[string]bool, _ map[string]string) bool {
 	return hasUserModels[builtin.ProviderID]
 }

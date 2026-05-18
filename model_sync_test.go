@@ -152,8 +152,8 @@ func TestSyncProviderModelsFromAPIClaudeUsesAnthropicHeaders(t *testing.T) {
 				t.Fatalf("expected anthropic-version header, got %q", gotVersion)
 			}
 
-			if len(synced) != 3 {
-				t.Fatalf("expected 3 synced claude models, got %d: %#v", len(synced), synced)
+			if len(synced) != 5 {
+				t.Fatalf("expected 5 synced claude models (3 + 2 [1m] variants), got %d: %#v", len(synced), synced)
 			}
 
 			// Sanity-check thinking-level wiring: opus gets the 5-step prompt ladder,
