@@ -14,8 +14,13 @@ import (
 	"ropcode/internal/claude"
 )
 
-// CodexDir returns the default Codex config directory
+// CodexDir returns the Codex config directory. Honours $CODEX_HOME (set by
+// the Codex CLI itself for Windows/Mac/Linux users who want a non-default
+// location); otherwise falls back to ~/.codex on every platform.
 func CodexDir() (string, error) {
+	if env := strings.TrimSpace(os.Getenv("CODEX_HOME")); env != "" {
+		return env, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

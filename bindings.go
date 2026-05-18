@@ -2633,8 +2633,14 @@ type openAIModelsResponse struct {
 	} `json:"data"`
 }
 
-// SyncProviderModelsFromAPI fetches models from the provider's OpenAI-compatible
-// /models endpoint and stores missing supported models as user-defined configs.
+// anthropicVersion is the Anthropic API version pinned for /v1/models requests.
+// Required by api.anthropic.com; most Anthropic-compatible gateways also accept
+// it (or ignore the header outright).
+const anthropicVersion = "2023-06-01"
+
+// SyncProviderModelsFromAPI fetches models from the provider's /models endpoint
+// (OpenAI- or Anthropic-shaped) and stores missing supported models as
+// user-defined configs.
 func (a *App) SyncProviderModelsFromAPI(providerID, providerApiID string) ([]*database.ModelConfig, error) {
 	if a.modelRegistry == nil || a.dbManager == nil {
 		return []*database.ModelConfig{}, nil
@@ -2649,7 +2655,7 @@ func (a *App) SyncProviderModelsFromAPI(providerID, providerApiID string) ([]*da
 		return []*database.ModelConfig{}, err
 	}
 
-	modelIDs, err := fetchOpenAICompatibleModelIDs(apiConfig)
+	modelIDs, err := fetchProviderModelIDs(providerID, apiConfig)
 	if err != nil {
 		return []*database.ModelConfig{}, err
 	}
@@ -2658,20 +2664,91 @@ func (a *App) SyncProviderModelsFromAPI(providerID, providerApiID string) ([]*da
 
 func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*database.ProviderApiConfig, error) {
 	if strings.TrimSpace(providerApiID) != "" {
-		return a.dbManager.GetProviderApiConfig(providerApiID)
+		cfg, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && cfg != nil {
+			log.Printf("[ModelsSync] %s using explicit api config id=%s base=%q", providerID, cfg.ID, cfg.BaseURL)
+		}
+		return cfg, err
 	}
-	apiConfig, err := a.dbManager.GetDefaultProviderApiConfig(providerID)
-	if err == nil && apiConfig != nil {
-		return apiConfig, nil
+	if cfg, err := a.dbManager.GetDefaultProviderApiConfig(providerID); err == nil && cfg != nil {
+		log.Printf("[ModelsSync] %s using default api config id=%s base=%q", providerID, cfg.ID, cfg.BaseURL)
+		return cfg, nil
 	}
+	// For codex, the user's actual source of truth lives in ~/.codex/config.toml
+	// (the file the Codex CLI itself reads). Honour it before any further
+	// fallback so Sync points at the same gateway as the running CLI.
 	if providerID == "codex" {
+		if cfg := codexConfigToProviderAPI(); cfg != nil {
+			log.Printf("[ModelsSync] codex using ~/.codex/config.toml provider=%q base=%q", cfg.Name, cfg.BaseURL)
+			return cfg, nil
+		}
+	}
+	// No default flagged — fall back to any configured entry for this provider
+	// before reaching for env-var defaults. Most users wire up a single
+	// gateway config and never bother to mark it "default", so we'd rather
+	// pick that than silently route to api.openai.com.
+	if all, err := a.dbManager.GetAllProviderApiConfigs(); err == nil {
+		for _, cfg := range all {
+			if cfg != nil && cfg.ProviderID == providerID {
+				log.Printf("[ModelsSync] %s using first api config id=%s base=%q (no default flagged)", providerID, cfg.ID, cfg.BaseURL)
+				return cfg, nil
+			}
+		}
+	}
+	switch providerID {
+	case "codex":
+		log.Printf("[ModelsSync] codex no api config saved; falling back to OPENAI_API_KEY env")
 		return &database.ProviderApiConfig{
 			ProviderID: providerID,
-			BaseURL:    "https://api.openai.com/v1",
+			BaseURL:    "https://api.openai.com",
 			AuthToken:  os.Getenv("OPENAI_API_KEY"),
+		}, nil
+	case "claude":
+		token := os.Getenv("ANTHROPIC_API_KEY")
+		if token == "" {
+			token = os.Getenv("ANTHROPIC_AUTH_TOKEN")
+		}
+		log.Printf("[ModelsSync] claude no api config saved; falling back to ANTHROPIC env vars")
+		return &database.ProviderApiConfig{
+			ProviderID: providerID,
+			BaseURL:    "https://api.anthropic.com",
+			AuthToken:  token,
 		}, nil
 	}
 	return nil, fmt.Errorf("no provider API config found for %s", providerID)
+}
+
+// codexConfigToProviderAPI tries to translate the user's ~/.codex/config.toml
+// into a ProviderApiConfig usable by the sync flow. Returns nil when the
+// file is absent or the active provider entry has no base_url — letting
+// the caller fall through to the next source.
+func codexConfigToProviderAPI() *database.ProviderApiConfig {
+	provider, err := codex.LoadActiveProvider()
+	if err != nil {
+		log.Printf("[ModelsSync] codex config load failed: %v", err)
+		return nil
+	}
+	if provider == nil || strings.TrimSpace(provider.BaseURL) == "" {
+		return nil
+	}
+	return &database.ProviderApiConfig{
+		ProviderID: "codex",
+		Name:       "codex config (" + provider.Name + ")",
+		BaseURL:    provider.BaseURL,
+		AuthToken:  provider.AuthToken,
+	}
+}
+
+// fetchProviderModelIDs dispatches to the right fetcher based on provider.
+// Anthropic-compatible gateways that don't implement /v1/models surface a
+// friendly error pointing the user at the manual "Add Model" flow.
+func fetchProviderModelIDs(providerID string, apiConfig *database.ProviderApiConfig) ([]string, error) {
+	switch providerID {
+	case "claude":
+		return fetchAnthropicModelIDs(apiConfig)
+	default:
+		return fetchOpenAICompatibleModelIDs(apiConfig)
+	}
 }
 
 func fetchOpenAICompatibleModelIDs(apiConfig *database.ProviderApiConfig) ([]string, error) {
@@ -2680,9 +2757,14 @@ func fetchOpenAICompatibleModelIDs(apiConfig *database.ProviderApiConfig) ([]str
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(apiConfig.BaseURL), "/")
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+		baseURL = "https://api.openai.com"
 	}
-	endpoint := baseURL + "/models"
+	// Accept both conventions: bare host ("https://api.openai.com") and the
+	// /v1-suffixed form ("https://api.openai.com/v1"). Normalise to
+	// "/v1/models" either way so a misconfigured base URL still hits the
+	// right path.
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+	endpoint := baseURL + "/v1/models"
 
 	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -2692,9 +2774,56 @@ func fetchOpenAICompatibleModelIDs(apiConfig *database.ProviderApiConfig) ([]str
 		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiConfig.AuthToken))
 	}
 
+	return doModelsListRequest(req, "OpenAI")
+}
+
+// fetchAnthropicModelIDs hits Anthropic's /v1/models with x-api-key +
+// anthropic-version. Works against api.anthropic.com and Anthropic-compatible
+// gateways that mirror the endpoint; gateways that don't implement /v1/models
+// return 404 (or HTML) and the caller surfaces a friendly hint.
+//
+// Anthropic's BaseURL convention is the host root (e.g. https://api.anthropic.com
+// or https://gateway.example/anthropic) — the SDK appends "/v1/..." itself.
+// Accept either form: a trailing "/v1" is stripped, then "/v1/models" is
+// appended, so users who picked up the OpenAI convention still work.
+func fetchAnthropicModelIDs(apiConfig *database.ProviderApiConfig) ([]string, error) {
+	if apiConfig == nil {
+		return nil, fmt.Errorf("provider API config is required")
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(apiConfig.BaseURL), "/")
+	if baseURL == "" {
+		baseURL = "https://api.anthropic.com"
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+	endpoint := baseURL + "/v1/models"
+
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token := strings.TrimSpace(apiConfig.AuthToken); token != "" {
+		req.Header.Set("x-api-key", token)
+		// Anthropic accepts either x-api-key or Authorization. Compatible
+		// gateways sometimes only honour Authorization, so set both.
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("anthropic-version", anthropicVersion)
+
+	return doModelsListRequest(req, "Anthropic")
+}
+
+// doModelsListRequest performs the HTTP call shared by both fetchers. On a 404
+// or an HTML-shaped response it returns a friendly error pointing at the
+// manual model-add flow, since many Anthropic-compatible gateways either
+// don't implement /v1/models at all (404) or front it with a login/landing
+// page that returns 200 + text/html.
+func doModelsListRequest(req *http.Request, label string) ([]string, error) {
+	log.Printf("[ModelsSync] %s GET %s", label, req.URL.String())
+
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("[ModelsSync] %s request error: %v", label, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -2703,13 +2832,21 @@ func fetchOpenAICompatibleModelIDs(apiConfig *database.ProviderApiConfig) ([]str
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("[ModelsSync] %s status=%d content-type=%q body=%dB", label, resp.StatusCode, resp.Header.Get("Content-Type"), len(body))
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, missingModelsEndpointError(label)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("models API returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("%s models API returned %s: %s", label, resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	if looksLikeHTML(resp.Header.Get("Content-Type"), body) {
+		return nil, missingModelsEndpointError(label)
 	}
 
 	var parsed openAIModelsResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s models API returned unrecognised body: %w", label, err)
 	}
 
 	modelIDs := make([]string, 0, len(parsed.Data))
@@ -2720,6 +2857,24 @@ func fetchOpenAICompatibleModelIDs(apiConfig *database.ProviderApiConfig) ([]str
 	}
 	sort.Strings(modelIDs)
 	return modelIDs, nil
+}
+
+func missingModelsEndpointError(label string) error {
+	return fmt.Errorf("%s endpoint does not expose /v1/models. Add models manually via \"Add Model\".", label)
+}
+
+// looksLikeHTML reports whether the response is HTML rather than JSON. Many
+// Anthropic-compatible gateways front non-existent paths with their own
+// landing/login page (200 OK + text/html), so we sniff both the Content-Type
+// header and the first non-whitespace byte of the body.
+func looksLikeHTML(contentType string, body []byte) bool {
+	if ct := strings.ToLower(strings.TrimSpace(contentType)); ct != "" {
+		if strings.HasPrefix(ct, "text/html") || strings.HasPrefix(ct, "application/xhtml") {
+			return true
+		}
+	}
+	trimmed := strings.TrimLeft(string(body), " \t\r\n\ufeff")
+	return strings.HasPrefix(trimmed, "<")
 }
 
 // GetModelConfigsByProvider retrieves all model configurations for a specific provider

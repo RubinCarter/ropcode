@@ -171,7 +171,8 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
       });
     } catch (err) {
       console.error("Failed to sync models:", err);
-      setToast?.({ message: "Failed to sync models from API", type: "error" });
+      const message = err instanceof Error && err.message ? err.message : "Failed to sync models from API";
+      setToast?.({ message, type: "error" });
     } finally {
       setSyncingProvider(null);
     }
@@ -415,7 +416,7 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {provider.id === "codex" && (
+                  {(provider.id === "codex" || provider.id === "claude") && (
                     <Button
                       variant="ghost"
                       size="sm"
