@@ -1,14 +1,14 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"sort"
 	"strings"
-	"sync"
 	"time"
+
+	"ropcode/internal/database"
 )
 
 type liveProviderSession struct {
@@ -31,223 +31,430 @@ type sessionCommandOptions struct {
 	follow        bool
 	fresh         bool
 	wait          bool
+	create        bool
 }
 
-type sessionEventStream struct {
-	stdout    io.Writer
-	stderr    io.Writer
-	mu        sync.Mutex
-	sessionID string
-	cwd       string
-	doneCh    chan error
-	doneOnce  sync.Once
-}
-
-func newSessionEventStream(stdout io.Writer, stderr io.Writer, sessionID string, cwd string) *sessionEventStream {
-	return &sessionEventStream{
-		stdout:    stdout,
-		stderr:    stderr,
-		sessionID: sessionID,
-		cwd:       cwd,
-		doneCh:    make(chan error, 1),
-	}
-}
-
-func (s *sessionEventStream) setSessionID(sessionID string) {
-	s.mu.Lock()
-	s.sessionID = sessionID
-	s.mu.Unlock()
-}
-
-func (s *sessionEventStream) complete(err error) {
-	s.doneOnce.Do(func() {
-		s.doneCh <- err
-	})
-}
-
-func (s *sessionEventStream) handleOutput(payload json.RawMessage) {
-	if !s.eventMatches(payload) {
-		return
-	}
-	decoded, ok := decodePayloadValue(payload)
-	if !ok {
-		return
-	}
-	m, isMap := decoded.(map[string]interface{})
-	if !isMap {
-		return
-	}
-	msgType, _ := m["type"].(string)
-	// In interactive mode, claude-complete is never fired per-turn.
-	// The "result" message in claude-output signals turn completion.
-	if msgType == "result" {
-		subtype, _ := m["subtype"].(string)
-		if subtype == "error" {
-			errText, _ := m["error"].(string)
-			if errText == "" {
-				errText = "session error"
-			}
-			s.complete(fmt.Errorf("%s", errText))
-		} else {
-			s.complete(nil)
-		}
-		return
-	}
-	// Only print assistant messages; ignore system, user, result, etc.
-	if msgType != "assistant" {
-		return
-	}
-	lines := extractPayloadLines(payload)
-	if len(lines) == 0 {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, line := range lines {
-		fmt.Fprintln(s.stdout, line)
-	}
-}
-
-func (s *sessionEventStream) handleError(payload json.RawMessage) {
-	if !s.eventMatches(payload) {
-		return
-	}
-	lines := extractPayloadLines(payload)
-	if len(lines) == 0 {
-		lines = []string{"session failed"}
-	}
-	s.mu.Lock()
-	for _, line := range lines {
-		fmt.Fprintln(s.stderr, line)
-	}
-	s.mu.Unlock()
-	// Don't complete here: the session may retry and succeed.
-	// handleComplete will signal done with the final status.
-}
-
-func (s *sessionEventStream) handleComplete(payload json.RawMessage) {
-	if !s.eventMatches(payload) {
-		return
-	}
-	decoded, _ := decodePayloadValue(payload)
-	if m, ok := decoded.(map[string]interface{}); ok {
-		if success, _ := m["success"].(bool); !success {
-			if status, _ := m["status"].(string); status != "" && status != "completed" {
-				s.complete(fmt.Errorf("session %s", status))
-				return
-			}
-		}
-	}
-	s.complete(nil)
-}
-
-func (s *sessionEventStream) wait() error {
-	err := <-s.doneCh
-	time.Sleep(50 * time.Millisecond)
-	return err
-}
-
-func runRuntimeWorkspaceCommand(state cliState, args []string) error {
-	if len(args) == 0 {
-		writeSessionUsage(state.stderr)
-		return errors.New("session subcommand required")
-	}
-	if isHelpArg(args[0]) {
-		writeSessionUsage(state.stdout)
+func runSendCommand(state cliState, args []string) error {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		writeSendUsage(state.stdout)
 		return nil
 	}
+	state, args, err := adoptPositionalArg(state, args)
+	if err != nil {
+		return err
+	}
+	opts, err := parseSessionSendArgs(args, "")
+	if err != nil {
+		return err
+	}
+	if opts.create {
+		created, err := createWorkspaceForSend(state, opts)
+		if err != nil {
+			return err
+		}
+		opts.cwd = created
+	} else {
+		cwd, err := resolveActionCWD(state)
+		if err != nil {
+			return err
+		}
+		if cwd == "" {
+			if cwd, err = actionCWDOrError(state, "send"); err != nil {
+				return err
+			}
+		}
+		opts.cwd = cwd
+	}
+	client, err := dialResolvedInstance(state)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	return runSessionSend(state, client, opts)
+}
 
-	var opts sessionCommandOptions
-	switch args[0] {
-	case "send":
-		parsed, err := parseSessionSendArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
-		opts = parsed
-	case "status", "list":
-		parsed, err := parseSessionListArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
-		opts = parsed
-	case "logs":
-		parsed, err := parseSessionLogsArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
-		opts = parsed
-	case "stop":
-		parsed, err := parseSessionStopArgs(args[1:], state.cwdFlag)
-		if err != nil {
-			return err
-		}
-		opts = parsed
-	default:
-		return fmt.Errorf("unknown workspace subcommand %q", strings.Join(args, " "))
+// createWorkspaceForSend handles the --create path: validates inputs, picks a
+// parent project, calls the server's CreateWorkspace RPC, and returns the path
+// of the newly-created workspace so runSessionSend can target it.
+func createWorkspaceForSend(state cliState, opts sessionCommandOptions) (string, error) {
+	if state.cwdFlag != "" {
+		return "", errors.New("--create cannot be combined with --cwd; pass a workspace name instead (e.g. `ropcode send feat-x --create --prompt ...`)")
+	}
+	if state.workspaceFlag == "" {
+		return "", errors.New("--create needs a workspace name (e.g. `ropcode send feat-x --create --prompt \"...\"`)")
+	}
+
+	parent, err := resolveCreateParent(state)
+	if err != nil {
+		return "", err
+	}
+	if existing := findWorkspaceByName(parent.Workspaces, state.workspaceFlag); existing != nil {
+		return "", fmt.Errorf("workspace %q already exists in project %q; drop --create to send to it", state.workspaceFlag, parent.Name)
+	}
+
+	client, err := dialResolvedInstance(state)
+	if err != nil {
+		return "", fmt.Errorf("create workspace: %w", err)
+	}
+	defer client.Close()
+
+	// branch == name: ropcode treats sub-workspace name and its git branch as one identifier.
+	if err := client.Call("CreateWorkspace", []any{projectPrimaryPath(parent), state.workspaceFlag, state.workspaceFlag}, nil); err != nil {
+		return "", fmt.Errorf("create workspace: %w", err)
 	}
 
 	cfg, err := state.deps.loadConfig()
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return "", fmt.Errorf("load config: %w", err)
 	}
+	projects, err := listProjects(state.deps, cfg)
+	if err != nil {
+		return "", err
+	}
+	for i := range projects {
+		if projects[i].Name != parent.Name {
+			continue
+		}
+		if ws := findWorkspaceByName(projects[i].Workspaces, state.workspaceFlag); ws != nil {
+			fmt.Fprintf(state.stdout, "created\t%s\t%s\n", ws.Name, workspacePrimaryPath(ws))
+			return workspacePrimaryPath(ws), nil
+		}
+	}
+	return "", fmt.Errorf("workspace %q created but not yet indexed; retry in a moment", state.workspaceFlag)
+}
 
-	record, _, err := resolveInstance(state.deps, cfg, state.instanceFlag)
+// resolveCreateParent returns the project the new workspace will live under.
+// Priority: pwd-resolved project → --project flag → error.
+func resolveCreateParent(state cliState) (*database.ProjectIndex, error) {
+	if state.pwdProj != nil {
+		return state.pwdProj, nil
+	}
+	if state.projectFlag == "" {
+		return nil, errors.New("--create needs a parent project: cd into one or pass --project <name>")
+	}
+	cfg, err := state.deps.loadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	proj, _, err := resolveProject(state.deps, cfg, projectResolutionOptions{explicitProject: state.projectFlag})
+	return proj, err
+}
+
+func runStatusCommand(state cliState, args []string) error {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		writeStatusUsage(state.stdout)
+		return nil
+	}
+	state, args, err := adoptPositionalArg(state, args)
 	if err != nil {
 		return err
 	}
-
-	client, err := state.deps.dialRPC(instanceWSURL(record), record.AuthKey)
+	opts, err := parseSessionListArgs(args, "")
 	if err != nil {
-		return fmt.Errorf("attach to instance %s: %w", record.ID, err)
+		return err
+	}
+	cwd, err := resolveActionCWD(state)
+	if err != nil {
+		return err
+	}
+	opts.cwd = cwd
+	if state.allFlag {
+		opts.cwd = ""
+	} else if opts.cwd == "" && state.pwdRole == pwdRoleProjectRoot {
+		client, err := dialResolvedInstance(state)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+		return runProjectStatus(state, client, opts)
+	} else if opts.cwd == "" {
+		if opts.cwd, err = actionCWDOrError(state, "status"); err != nil {
+			return err
+		}
+	}
+	client, err := dialResolvedInstance(state)
+	if err != nil {
+		return err
 	}
 	defer client.Close()
+	return runSessionList(state, client, opts, "idle")
+}
 
-	switch args[0] {
-	case "send":
-		return runSessionSend(state, client, opts)
-	case "status":
-		return runWorkspaceStatus(state, client, opts)
-	case "list":
-		return runSessionList(state, client, opts)
-	case "logs":
-		return runSessionLogs(state, client, opts)
-	case "stop":
-		return runSessionStop(state, client, opts)
+func runLogsCommand(state cliState, args []string) error {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		writeLogsUsage(state.stdout)
+		return nil
+	}
+	state, args, err := adoptPositionalArg(state, args)
+	if err != nil {
+		return err
+	}
+	opts, err := parseSessionLogsArgs(args, "")
+	if err != nil {
+		return err
+	}
+	if opts.sessionID == "" {
+		cwd, err := resolveActionCWD(state)
+		if err != nil {
+			return err
+		}
+		if cwd == "" {
+			if cwd, err = actionCWDOrError(state, "logs"); err != nil {
+				return err
+			}
+		}
+		opts.cwd = cwd
+	}
+	client, err := dialResolvedInstance(state)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	return runSessionLogs(state, client, opts)
+}
+
+func runStopCommand(state cliState, args []string) error {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		writeStopUsage(state.stdout)
+		return nil
+	}
+	state, args, err := adoptPositionalArg(state, args)
+	if err != nil {
+		return err
+	}
+	opts, err := parseSessionStopArgs(args, "")
+	if err != nil {
+		return err
+	}
+	if opts.sessionID == "" {
+		cwd, err := resolveActionCWD(state)
+		if err != nil {
+			return err
+		}
+		if cwd == "" {
+			if cwd, err = actionCWDOrError(state, "stop"); err != nil {
+				return err
+			}
+		}
+		opts.cwd = cwd
+	}
+	client, err := dialResolvedInstance(state)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	return runSessionStop(state, client, opts)
+}
+
+// adoptPositionalArg pulls a single non-flag positional into state.workspaceFlag.
+// Errors if the user gave both a positional and -w with different names.
+func adoptPositionalArg(state cliState, args []string) (cliState, []string, error) {
+	args, posWS, err := extractPositionalWorkspace(args)
+	if err != nil {
+		return state, nil, err
+	}
+	state, err = adoptPositionalWorkspace(state, posWS)
+	return state, args, err
+}
+
+// extractPositionalWorkspace pulls a single non-flag arg out of args. Treats the
+// known value-bearing action-local flags (--prompt, --provider, --model,
+// --provider-api-id, --session) as consuming their value. Global flags are
+// already gone by the time we get here. More than one positional → error.
+func extractPositionalWorkspace(args []string) ([]string, string, error) {
+	valueFlags := map[string]bool{
+		"--provider":        true,
+		"--prompt":          true,
+		"--model":           true,
+		"--provider-api-id": true,
+		"--session":         true,
+	}
+	cleaned := make([]string, 0, len(args))
+	ws := ""
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "-") {
+			cleaned = append(cleaned, a)
+			if valueFlags[a] && i+1 < len(args) {
+				cleaned = append(cleaned, args[i+1])
+				i++
+			}
+			continue
+		}
+		if ws != "" {
+			return nil, "", fmt.Errorf("unexpected extra argument %q (workspace already %q)", a, ws)
+		}
+		ws = a
+	}
+	return cleaned, ws, nil
+}
+
+// adoptPositionalWorkspace merges a positional workspace name into state.
+// Conflicts with -w/--workspace if the names differ.
+func adoptPositionalWorkspace(state cliState, posWS string) (cliState, error) {
+	if posWS == "" {
+		return state, nil
+	}
+	if state.workspaceFlag != "" && state.workspaceFlag != posWS {
+		return state, fmt.Errorf("workspace given twice: -w %q and positional %q", state.workspaceFlag, posWS)
+	}
+	state.workspaceFlag = posWS
+	return state, nil
+}
+
+// resolveActionCWD picks the cwd that an action command should target.
+// Priority: --cwd flag > -w/positional (pwd's project, then global search) > pwd-resolved workspace.
+// Returns ("", nil) when nothing resolves; the caller decides if that's an error.
+func resolveActionCWD(state cliState) (string, error) {
+	if state.cwdFlag != "" {
+		return state.cwdFlag, nil
+	}
+	if state.workspaceFlag != "" {
+		if state.pwdProj != nil {
+			if ws := findWorkspaceByName(state.pwdProj.Workspaces, state.workspaceFlag); ws != nil {
+				return workspacePrimaryPath(ws), nil
+			}
+		}
+		return findWorkspacePathByName(state, state.workspaceFlag, state.projectFlag)
+	}
+	return state.effectiveCWD(), nil
+}
+
+// findWorkspacePathByName scans every project (or those matching projectFilter
+// by name/path) for a workspace whose Name == wsName. Errors clearly when not
+// found or ambiguous.
+func findWorkspacePathByName(state cliState, wsName, projectFilter string) (string, error) {
+	cfg, err := state.deps.loadConfig()
+	if err != nil {
+		return "", fmt.Errorf("load config: %w", err)
+	}
+	projects, err := listProjects(state.deps, cfg)
+	if err != nil {
+		return "", err
+	}
+	type hit struct {
+		project string
+		path    string
+	}
+	var matches []hit
+	for i := range projects {
+		p := projects[i]
+		if projectFilter != "" && p.Name != projectFilter && projectPrimaryPath(p) != projectFilter {
+			continue
+		}
+		for j := range p.Workspaces {
+			if p.Workspaces[j].Name == wsName {
+				matches = append(matches, hit{p.Name, workspacePrimaryPath(&p.Workspaces[j])})
+			}
+		}
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("workspace %q not found; pass --create to make it, or run `ropcode list workspaces`", wsName)
+	}
+	if len(matches) > 1 {
+		names := make([]string, 0, len(matches))
+		for _, m := range matches {
+			names = append(names, m.project)
+		}
+		return "", fmt.Errorf("workspace %q exists in multiple projects (%s); pass --project <name>", wsName, strings.Join(names, ", "))
+	}
+	return matches[0].path, nil
+}
+
+// actionCWDOrError builds a friendly error when no target workspace was given
+// and no pwd-resolved workspace exists. Called only after resolveActionCWD
+// returned ("", nil).
+func actionCWDOrError(state cliState, command string) (string, error) {
+	switch state.pwdRole {
+	case pwdRoleProjectRoot:
+		return "", fmt.Errorf("`ropcode %s` from a project root needs a workspace name (e.g. `ropcode %s ws-a` or `-w ws-a`); see `ropcode list workspaces`", command, command)
+	case pwdRoleOutside:
+		return "", fmt.Errorf("`ropcode %s` needs a workspace name or --cwd (e.g. `ropcode %s ws-a`); see `ropcode list workspaces`", command, command)
 	default:
-		return fmt.Errorf("unknown workspace subcommand %q", strings.Join(args, " "))
+		return "", fmt.Errorf("`ropcode %s` needs a workspace name, --cwd, or to be run from a workspace dir", command)
 	}
 }
 
-func writeSessionUsage(w io.Writer) {
+// runProjectStatus lists sessions filtered to workspaces of the pwd-resolved project.
+func runProjectStatus(state cliState, client rpcSession, opts sessionCommandOptions) error {
+	var all []liveProviderSession
+	if err := client.Call("ListRunningProviderSessions", nil, &all); err != nil {
+		return err
+	}
+	wsPaths := map[string]string{}
+	for i := range state.pwdProj.Workspaces {
+		ws := &state.pwdProj.Workspaces[i]
+		if p := workspacePrimaryPath(ws); p != "" {
+			wsPaths[p] = ws.Name
+		}
+	}
+	filtered := make([]liveProviderSession, 0, len(all))
+	for _, s := range all {
+		if _, ok := wsPaths[s.ProjectPath]; !ok {
+			continue
+		}
+		if opts.provider != "" && s.Provider != opts.provider {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].StartedAt.After(filtered[j].StartedAt)
+	})
+	if len(filtered) == 0 {
+		fmt.Fprintln(state.stdout, "idle")
+		return nil
+	}
+	fmt.Fprintln(state.stdout, "WORKSPACE\tSESSION\tPROVIDER\tSTATUS\tMODEL")
+	for _, s := range filtered {
+		fmt.Fprintf(state.stdout, "%s\t%s\t%s\t%s\t%s\n", wsPaths[s.ProjectPath], s.SessionID, s.Provider, s.Status, s.Model)
+	}
+	return nil
+}
+
+func writeSendUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  ropcode workspace send --cwd <path> --prompt <text> [--provider <name>] [--model <model>] [--fresh] [--wait]")
-	fmt.Fprintln(w, "  ropcode workspace status [--cwd <path>] [--provider <name>]")
-	fmt.Fprintln(w, "  ropcode workspace list [--cwd <path>] [--provider <name>]")
-	fmt.Fprintln(w, "  ropcode workspace logs --cwd <path> [--follow]")
-	fmt.Fprintln(w, "  ropcode workspace stop --cwd <path>")
+	fmt.Fprintln(w, "  ropcode send [<workspace>] --prompt <text> [--model <m>] [--session <id>] [--fresh] [--wait]")
+	fmt.Fprintln(w, "  ropcode send <workspace> --create --prompt <text> [...]")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Flags:")
-	fmt.Fprintln(w, "  --cwd <path>       Workspace directory path (identifies which workspace to act on)")
-	fmt.Fprintln(w, "  --prompt <text>    Message to send to the AI")
-	fmt.Fprintln(w, "  --provider <name>  AI provider: claude (default), gemini, codex")
-	fmt.Fprintln(w, "  --model <model>    Model name override (optional, uses provider default)")
-	fmt.Fprintln(w, "  --fresh            Stop any running session in this workspace and start a new one")
-	fmt.Fprintln(w, "  --wait             Block until the AI finishes and print the full response")
-	fmt.Fprintln(w, "  --follow           Stream logs in real time (for logs subcommand)")
+	fmt.Fprintln(w, "Continues an existing running session in the workspace, or starts a new one if none is running.")
+	fmt.Fprintln(w, "Workspace target precedence: --cwd > <workspace>|-w > $PWD-resolved workspace.")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Notes:")
-	fmt.Fprintln(w, "  'send' automatically continues an existing running session in the workspace,")
-	fmt.Fprintln(w, "  or starts a new session if none is running. Use --fresh to force a new session.")
-	fmt.Fprintln(w, "  'status' shows running sessions; prints 'idle' if none are active.")
+	fmt.Fprintln(w, "--create   create the workspace before sending; <workspace> is also the git branch")
+	fmt.Fprintln(w, "           parent project = $PWD project, or --project <name>")
+	fmt.Fprintln(w, "--fresh    force a new session (stop the current one)")
+	fmt.Fprintln(w, "--wait     block until the AI finishes the turn")
+}
+
+func writeStatusUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode status [<workspace>] [--all]")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "From a workspace dir: shows that workspace's sessions ('idle' if none).")
+	fmt.Fprintln(w, "From a project root:  shows running sessions in every sub-workspace.")
+	fmt.Fprintln(w, "--all bypasses pwd filtering and lists every session on the instance.")
+}
+
+func writeLogsUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode logs [<workspace>] [--follow]")
+	fmt.Fprintln(w, "  ropcode logs --session <id> [--follow]")
+}
+
+func writeStopUsage(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  ropcode stop [<workspace>]")
+	fmt.Fprintln(w, "  ropcode stop --session <id>")
 }
 
 func runSessionSend(state cliState, client rpcSession, opts sessionCommandOptions) error {
-	// Use the interactive session API: reuses existing session for the workspace,
-	// or starts a new one if none exists. --fresh terminates any existing session first.
 	resumeSessionID := ""
 	if opts.fresh {
 		resumeSessionID = "__ROP_FRESH_SESSION__"
+	}
+
+	if opts.providerAPIID == "" {
+		opts.providerAPIID = resolveProviderAPIID(state, client, opts.cwd, opts.provider)
 	}
 
 	var stream *sessionEventStream
@@ -255,13 +462,11 @@ func runSessionSend(state cliState, client rpcSession, opts sessionCommandOption
 		stream = subscribeSessionEvents(client, state.stdout, state.stderr, "", opts.cwd)
 	}
 
-	// Start or reuse interactive session
 	var sessionID string
 	if err := client.Call("StartInteractiveClaudeSession", []any{opts.cwd, opts.model, opts.providerAPIID, resumeSessionID}, &sessionID); err != nil {
 		return fmt.Errorf("start interactive session: %w", err)
 	}
 
-	// Send the message to the interactive session
 	if err := client.Call("SendClaudeMessage", []any{opts.cwd, sessionID, opts.prompt}, nil); err != nil {
 		return fmt.Errorf("send message: %w", err)
 	}
@@ -271,13 +476,29 @@ func runSessionSend(state cliState, client rpcSession, opts sessionCommandOption
 		return nil
 	}
 	stream.setSessionID(sessionID)
-	if err := stream.wait(); err != nil {
-		return err
-	}
-	return nil
+	return stream.wait()
 }
 
-func runSessionList(state cliState, client rpcSession, opts sessionCommandOptions) error {
+// resolveProviderAPIID asks the server for the API config the GUI would have
+// used: project-scoped if set, otherwise the provider's default. Returns "" on
+// failure or when no config is registered — the server treats that as "use the
+// CLI's built-in default", which is the right behavior for users who never set
+// up a custom endpoint.
+func resolveProviderAPIID(state cliState, client rpcSession, cwd, provider string) string {
+	if cwd == "" || provider == "" {
+		return ""
+	}
+	var cfg struct {
+		ID string `json:"id"`
+	}
+	if err := client.Call("GetProjectProviderApiConfig", []any{cwd, provider}, &cfg); err != nil {
+		fmt.Fprintf(state.stderr, "warning: could not resolve provider api config (%v); using server default\n", err)
+		return ""
+	}
+	return cfg.ID
+}
+
+func runSessionList(state cliState, client rpcSession, opts sessionCommandOptions, emptyMessage string) error {
 	var sessions []liveProviderSession
 	if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
 		return err
@@ -299,7 +520,7 @@ func runSessionList(state cliState, client rpcSession, opts sessionCommandOption
 	})
 
 	if len(filtered) == 0 {
-		fmt.Fprintln(state.stdout, "no running sessions found")
+		fmt.Fprintln(state.stdout, emptyMessage)
 		return nil
 	}
 
@@ -312,22 +533,11 @@ func runSessionList(state cliState, client rpcSession, opts sessionCommandOption
 
 func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOptions) error {
 	if opts.sessionID == "" && opts.cwd != "" {
-		var sessions []liveProviderSession
-		if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
+		resolved, err := latestSessionForCWD(client, opts.cwd)
+		if err != nil {
 			return err
 		}
-		sort.Slice(sessions, func(i, j int) bool {
-			return sessions[i].StartedAt.After(sessions[j].StartedAt)
-		})
-		for _, s := range sessions {
-			if s.ProjectPath == opts.cwd {
-				opts.sessionID = s.SessionID
-				break
-			}
-		}
-		if opts.sessionID == "" {
-			return fmt.Errorf("no running session found for --cwd %s", opts.cwd)
-		}
+		opts.sessionID = resolved
 	}
 	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID, opts.cwd)
 
@@ -355,72 +565,40 @@ func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOption
 		return err
 	}
 	if latest != output {
-		renderOutputBuffer(state.stdout, strings.TrimPrefix(latest, output))
-	}
-	return nil
-}
-
-func subscribeSessionEvents(client rpcSession, stdout io.Writer, stderr io.Writer, sessionID string, cwd string) *sessionEventStream {
-	stream := newSessionEventStream(stdout, stderr, sessionID, cwd)
-	client.OnEvent("claude-output", stream.handleOutput)
-	client.OnEvent("claude-error", stream.handleError)
-	client.OnEvent("claude-complete", stream.handleComplete)
-	return stream
-}
-
-func runWorkspaceStatus(state cliState, client rpcSession, opts sessionCommandOptions) error {
-	var sessions []liveProviderSession
-	if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
-		return err
-	}
-	var filtered []liveProviderSession
-	for _, s := range sessions {
-		if opts.cwd != "" && s.ProjectPath != opts.cwd {
-			continue
-		}
-		if opts.provider != "" && s.Provider != opts.provider {
-			continue
-		}
-		filtered = append(filtered, s)
-	}
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].StartedAt.After(filtered[j].StartedAt)
-	})
-	if len(filtered) == 0 {
-		fmt.Fprintln(state.stdout, "idle")
-		return nil
-	}
-	fmt.Fprintln(state.stdout, "SESSION\tPROVIDER\tSTATUS\tCWD\tMODEL")
-	for _, s := range filtered {
-		fmt.Fprintf(state.stdout, "%s\t%s\t%s\t%s\t%s\n", s.SessionID, s.Provider, s.Status, s.ProjectPath, s.Model)
+		renderOutputBuffer(state.stdout, latest[len(output):])
 	}
 	return nil
 }
 
 func runSessionStop(state cliState, client rpcSession, opts sessionCommandOptions) error {
 	if opts.sessionID == "" && opts.cwd != "" {
-		var sessions []liveProviderSession
-		if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
+		resolved, err := latestSessionForCWD(client, opts.cwd)
+		if err != nil {
 			return err
 		}
-		sort.Slice(sessions, func(i, j int) bool {
-			return sessions[i].StartedAt.After(sessions[j].StartedAt)
-		})
-		for _, s := range sessions {
-			if s.ProjectPath == opts.cwd {
-				opts.sessionID = s.SessionID
-				break
-			}
-		}
-		if opts.sessionID == "" {
-			return fmt.Errorf("no running session found for --cwd %s", opts.cwd)
-		}
+		opts.sessionID = resolved
 	}
 	if err := client.Call("StopProviderSession", []any{opts.sessionID}, nil); err != nil {
 		return err
 	}
 	fmt.Fprintf(state.stdout, "stopped\t%s\n", opts.sessionID)
 	return nil
+}
+
+func latestSessionForCWD(client rpcSession, cwd string) (string, error) {
+	var sessions []liveProviderSession
+	if err := client.Call("ListRunningProviderSessions", nil, &sessions); err != nil {
+		return "", err
+	}
+	sort.Slice(sessions, func(i, j int) bool {
+		return sessions[i].StartedAt.After(sessions[j].StartedAt)
+	})
+	for _, s := range sessions {
+		if s.ProjectPath == cwd {
+			return s.SessionID, nil
+		}
+	}
+	return "", fmt.Errorf("no running session found for --cwd %s", cwd)
 }
 
 func parseSessionSendArgs(args []string, fallbackCWD string) (sessionCommandOptions, error) {
@@ -434,8 +612,8 @@ func parseSessionSendArgs(args []string, fallbackCWD string) (sessionCommandOpti
 	if opts.provider == "" {
 		opts.provider = "claude"
 	}
-	if opts.cwd == "" || opts.prompt == "" {
-		return sessionCommandOptions{}, errors.New("usage: ropcode workspace send --cwd <path> --prompt <text> [--provider <provider>] [--fresh]")
+	if opts.prompt == "" {
+		return sessionCommandOptions{}, errors.New("usage: ropcode send [-w <name>] --prompt <text>")
 	}
 	return opts, nil
 }
@@ -459,9 +637,6 @@ func parseSessionLogsArgs(args []string, fallbackCWD string) (sessionCommandOpti
 	if opts.cwd == "" {
 		opts.cwd = fallbackCWD
 	}
-	if opts.sessionID == "" && opts.cwd == "" {
-		return sessionCommandOptions{}, errors.New("usage: ropcode runtime session logs --session <id> [--follow] | --cwd <path> [--follow]")
-	}
 	return opts, nil
 }
 
@@ -472,9 +647,6 @@ func parseSessionStopArgs(args []string, fallbackCWD string) (sessionCommandOpti
 	}
 	if opts.cwd == "" {
 		opts.cwd = fallbackCWD
-	}
-	if opts.sessionID == "" && opts.cwd == "" {
-		return sessionCommandOptions{}, errors.New("usage: ropcode runtime session stop --session <id> | --cwd <path>")
 	}
 	return opts, nil
 }
@@ -531,6 +703,8 @@ func parseSessionFlagPairs(args []string) (sessionCommandOptions, error) {
 			opts.fresh = true
 		case "--wait":
 			opts.wait = true
+		case "--create":
+			opts.create = true
 		default:
 			return sessionCommandOptions{}, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -543,181 +717,4 @@ func requireFlagValue(args []string, index int) (string, int, error) {
 		return "", index, fmt.Errorf("%s requires a value", args[index])
 	}
 	return args[index+1], index + 1, nil
-}
-
-func renderOutputBuffer(w io.Writer, output string) {
-	for _, line := range strings.Split(output, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		// Only render assistant messages from JSONL output
-		var msg map[string]json.RawMessage
-		if err := json.Unmarshal([]byte(trimmed), &msg); err == nil {
-			var msgType string
-			_ = json.Unmarshal(msg["type"], &msgType)
-			if msgType != "assistant" {
-				continue
-			}
-		}
-		for _, rendered := range extractStringLines(trimmed) {
-			fmt.Fprintln(w, rendered)
-		}
-	}
-}
-
-func (s *sessionEventStream) eventMatches(payload json.RawMessage) bool {
-	s.mu.Lock()
-	sessionID := s.sessionID
-	cwd := s.cwd
-	s.mu.Unlock()
-	decoded, ok := decodePayloadValue(payload)
-	if !ok {
-		return false
-	}
-	if sessionID != "" && payloadSessionID(decoded) == sessionID {
-		return true
-	}
-	if cwd != "" && payloadCWD(decoded) == cwd {
-		return true
-	}
-	return false
-}
-
-func extractPayloadLines(payload json.RawMessage) []string {
-	decoded, ok := decodePayloadValue(payload)
-	if !ok {
-		return nil
-	}
-	return payloadLines(decoded)
-}
-
-func decodePayloadValue(raw []byte) (interface{}, bool) {
-	var decoded interface{}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return string(raw), true
-	}
-	return normalizePayloadValue(decoded)
-}
-
-func normalizePayloadValue(value interface{}) (interface{}, bool) {
-	if str, ok := value.(string); ok {
-		trimmed := strings.TrimSpace(str)
-		if trimmed != "" && (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "\"")) {
-			var nested interface{}
-			if err := json.Unmarshal([]byte(trimmed), &nested); err == nil {
-				return normalizePayloadValue(nested)
-			}
-		}
-		return str, true
-	}
-	return value, true
-}
-
-func payloadCWD(value interface{}) string {
-	if m, ok := value.(map[string]interface{}); ok {
-		if cwd, ok := m["cwd"].(string); ok {
-			return cwd
-		}
-	}
-	return ""
-}
-
-func payloadSessionID(value interface{}) string {
-	switch v := value.(type) {
-	case map[string]interface{}:
-		if sessionID, ok := v["session_id"].(string); ok {
-			return sessionID
-		}
-		for _, key := range []string{"output", "result", "error", "message"} {
-			if nested, ok := v[key]; ok {
-				if sessionID := payloadSessionID(nested); sessionID != "" {
-					return sessionID
-				}
-			}
-		}
-	case []interface{}:
-		for _, item := range v {
-			if sessionID := payloadSessionID(item); sessionID != "" {
-				return sessionID
-			}
-		}
-	case string:
-		if nested, ok := normalizePayloadValue(v); ok && nested != v {
-			return payloadSessionID(nested)
-		}
-	}
-	return ""
-}
-
-func payloadLines(value interface{}) []string {
-	switch v := value.(type) {
-	case string:
-		return extractStringLines(v)
-	case map[string]interface{}:
-		var lines []string
-		if message, ok := v["message"].(map[string]interface{}); ok {
-			if content, ok := message["content"].([]interface{}); ok {
-				for _, item := range content {
-					if msg, ok := item.(map[string]interface{}); ok {
-						if text, ok := msg["text"].(string); ok {
-							lines = append(lines, splitNonEmptyLines(text)...)
-						}
-					}
-				}
-			}
-		}
-		for _, key := range []string{"output", "error", "result", "content", "text"} {
-			if nested, ok := v[key]; ok {
-				lines = append(lines, payloadLines(nested)...)
-			}
-		}
-		return dedupePreserveOrder(lines)
-	case []interface{}:
-		var lines []string
-		for _, item := range v {
-			lines = append(lines, payloadLines(item)...)
-		}
-		return dedupePreserveOrder(lines)
-	default:
-		return nil
-	}
-}
-
-func extractStringLines(value string) []string {
-	if nested, ok := normalizePayloadValue(value); ok {
-		if nestedString, same := nested.(string); !same || nestedString != value {
-			return payloadLines(nested)
-		}
-	}
-	return splitNonEmptyLines(value)
-}
-
-func splitNonEmptyLines(value string) []string {
-	parts := strings.Split(value, "\n")
-	lines := make([]string, 0, len(parts))
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
-		}
-		lines = append(lines, trimmed)
-	}
-	return lines
-}
-
-func dedupePreserveOrder(lines []string) []string {
-	seen := make(map[string]struct{}, len(lines))
-	result := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		if _, ok := seen[line]; ok {
-			continue
-		}
-		seen[line] = struct{}{}
-		result = append(result, line)
-	}
-	return result
 }

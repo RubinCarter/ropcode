@@ -50,9 +50,13 @@ type tuiView struct {
 }
 
 func runTUICommand(state cliState, args []string) error {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		writeTUIUsage(state.stdout)
+		return nil
+	}
 	if len(args) != 0 {
 		writeTUIUsage(state.stderr)
-		return errors.New("usage: ropcode runtime tui")
+		return errors.New("usage: ropcode tui")
 	}
 
 	cfg, err := state.deps.loadConfig()
@@ -94,7 +98,7 @@ func runTUICommand(state cliState, args []string) error {
 
 func writeTUIUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  ropcode runtime tui")
+	fmt.Fprintln(w, "  ropcode tui [--instance <id>] [--project <name-or-path>] [--workspace <name>] [--cwd <path>]")
 }
 
 func resolveTUIContextSummary(state cliState, cfg *config.Config) tuiContextSummary {
@@ -205,7 +209,7 @@ func (v *tuiView) render(sessions []liveProviderSession, output string) error {
 		screen.WriteString("\x1b[H\x1b[2J")
 	}
 
-	screen.WriteString("ropcode runtime tui\n\n")
+	screen.WriteString("ropcode tui\n\n")
 	screen.WriteString("Instance\n")
 	fmt.Fprintf(&screen, "  id: %s\n", v.instanceID)
 	fmt.Fprintf(&screen, "  source: %s\n", v.instanceSource)
