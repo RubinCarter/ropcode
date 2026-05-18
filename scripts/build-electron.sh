@@ -46,7 +46,7 @@ echo "Go server built."
 echo "Building frontend..."
 cd frontend
 npm ci
-npm run build
+NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=4096}" npm run build
 cd ..
 echo "Frontend built."
 
