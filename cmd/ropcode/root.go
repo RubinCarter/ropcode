@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -24,7 +25,17 @@ type cliDeps struct {
 	openDB     func(path string) (*database.Database, error)
 	dialRPC    func(wsURL string, authKey string) (rpcSession, error)
 	now        func() time.Time
+	getwd      func() (string, error)
 }
+
+type pwdRole int
+
+const (
+	pwdRoleUnset pwdRole = iota
+	pwdRoleInsideWorkspace
+	pwdRoleProjectRoot
+	pwdRoleOutside
+)
 
 type cliState struct {
 	stdout        io.Writer
@@ -34,6 +45,12 @@ type cliState struct {
 	projectFlag   string
 	workspaceFlag string
 	cwdFlag       string
+	allFlag       bool
+
+	pwd       string
+	pwdRole   pwdRole
+	pwdProj   *database.ProjectIndex
+	pwdWS     *database.WorkspaceIndex
 }
 
 func defaultCLIDeps() cliDeps {
@@ -43,7 +60,8 @@ func defaultCLIDeps() cliDeps {
 		dialRPC: func(wsURL string, authKey string) (rpcSession, error) {
 			return rpc.Dial(wsURL, authKey)
 		},
-		now: time.Now,
+		now:   time.Now,
+		getwd: os.Getwd,
 	}
 }
 
@@ -61,23 +79,30 @@ func runCLIArgs(args []string, stdout io.Writer, stderr io.Writer, deps cliDeps)
 		projectFlag:   globalFlags.project,
 		workspaceFlag: globalFlags.workspace,
 		cwdFlag:       globalFlags.cwd,
+		allFlag:       globalFlags.all,
 	}
+	resolvePWDContext(&state)
 
 	if len(args) == 0 {
-		writeUsage(stderr)
-		return errors.New("command required")
+		return runOverviewCommand(state)
 	}
 
 	switch args[0] {
 	case "help", "-h", "--help":
 		writeUsage(stdout)
 		return nil
-	case "catalog":
-		return runCatalogCommand(state, args[1:])
-	case "workspace":
-		return runRuntimeWorkspaceCommand(state, args[1:])
-	case "runtime":
-		return runRuntimeCommand(state, args[1:])
+	case "list":
+		return runListCommand(state, args[1:])
+	case "send":
+		return runSendCommand(state, args[1:])
+	case "status":
+		return runStatusCommand(state, args[1:])
+	case "logs":
+		return runLogsCommand(state, args[1:])
+	case "stop":
+		return runStopCommand(state, args[1:])
+	case "tui":
+		return runTUICommand(state, args[1:])
 	default:
 		writeUsage(stderr)
 		return fmt.Errorf("unknown command %q", strings.Join(args, " "))
@@ -89,6 +114,7 @@ type globalFlags struct {
 	project   string
 	workspace string
 	cwd       string
+	all       bool
 }
 
 func stripGlobalFlags(args []string) ([]string, globalFlags, error) {
@@ -114,7 +140,7 @@ func stripGlobalFlags(args []string) ([]string, globalFlags, error) {
 			i++
 		case strings.HasPrefix(arg, "--project="):
 			flags.project = strings.TrimPrefix(arg, "--project=")
-		case arg == "--workspace":
+		case arg == "--workspace" || arg == "-w":
 			if i+1 >= len(args) {
 				return nil, globalFlags{}, errors.New("--workspace requires a value")
 			}
@@ -130,6 +156,8 @@ func stripGlobalFlags(args []string) ([]string, globalFlags, error) {
 			i++
 		case strings.HasPrefix(arg, "--cwd="):
 			flags.cwd = strings.TrimPrefix(arg, "--cwd=")
+		case arg == "--all":
+			flags.all = true
 		default:
 			cleaned = append(cleaned, arg)
 		}
@@ -144,48 +172,29 @@ func isHelpArg(arg string) bool {
 
 func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  ropcode workspace send --cwd <path> --prompt <text> [--provider <name>] [--model <model>] [--fresh]")
-	fmt.Fprintln(w, "  ropcode workspace status [--cwd <path>] [--provider <name>]")
-	fmt.Fprintln(w, "  ropcode workspace list [--cwd <path>] [--provider <name>]")
-	fmt.Fprintln(w, "  ropcode workspace logs --cwd <path> [--follow]")
-	fmt.Fprintln(w, "  ropcode workspace stop --cwd <path>")
-	fmt.Fprintln(w, "  ropcode catalog [--instance <id>] [--project <name-or-path>] [--workspace <name>] [--cwd <path>]")
+	fmt.Fprintln(w, "  ropcode                              overview of the project / workspace at $PWD")
+	fmt.Fprintln(w, "  ropcode send [<workspace>] --prompt <text> [--model <m>] [--fresh] [--wait]")
+	fmt.Fprintln(w, "  ropcode status [<workspace>] [--all]")
+	fmt.Fprintln(w, "  ropcode logs   [<workspace>] [--follow]")
+	fmt.Fprintln(w, "  ropcode stop   [<workspace>]")
+	fmt.Fprintln(w, "  ropcode list   <instances|projects|workspaces|sessions>")
+	fmt.Fprintln(w, "  ropcode tui")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Global flags (optional):")
-	fmt.Fprintln(w, "  --instance <id>    Target a specific ropcode instance (auto-detected if omitted)")
-	fmt.Fprintln(w, "  --cwd <path>       Workspace directory (can also be passed as subcommand flag)")
-}
-
-func runRuntimeCommand(state cliState, args []string) error {
-	if len(args) == 0 {
-		writeRuntimeUsage(state.stderr)
-		return errors.New("runtime subcommand required")
-	}
-	if isHelpArg(args[0]) {
-		writeRuntimeUsage(state.stdout)
-		return nil
-	}
-
-	switch args[0] {
-	case "context":
-		return runContextCommand(state, args[1:])
-	case "workspace":
-		return runRuntimeWorkspaceCommand(state, args[1:])
-	case "tui":
-		return runTUICommand(state, args[1:])
-	default:
-		writeRuntimeUsage(state.stderr)
-		return fmt.Errorf("unknown runtime subcommand %q", strings.Join(args, " "))
-	}
-}
-
-func writeRuntimeUsage(w io.Writer) {
-	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  ropcode runtime context show --instance <id> [--project <name-or-path>] [--workspace <name>] [--cwd <path>]")
-	fmt.Fprintln(w, "  ropcode runtime workspace start --instance <id> --cwd <path> [--provider <provider>] --prompt <text>")
-	fmt.Fprintln(w, "  ropcode runtime workspace send --instance <id> --session <id> --cwd <path> [--provider <provider>] --prompt <text>")
-	fmt.Fprintln(w, "  ropcode runtime workspace list --instance <id> [--cwd <path>] [--provider <provider>]")
-	fmt.Fprintln(w, "  ropcode runtime workspace logs --instance <id> [--session <id>] [--cwd <path>] [--follow]")
-	fmt.Fprintln(w, "  ropcode runtime workspace stop --instance <id> --session <id>")
-	fmt.Fprintln(w, "  ropcode runtime tui --instance <id>")
+	fmt.Fprintln(w, "Workspace target precedence (highest first):")
+	fmt.Fprintln(w, "  1. --cwd <path>")
+	fmt.Fprintln(w, "  2. <workspace> positional / -w <name>")
+	fmt.Fprintln(w, "  3. $PWD inside a registered workspace dir")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "$PWD roles:")
+	fmt.Fprintln(w, "  inside a workspace dir   → bare commands target that workspace")
+	fmt.Fprintln(w, "  inside the project root  → bare `ropcode` lists every sub-workspace;")
+	fmt.Fprintln(w, "                              action commands need <workspace> or --all where applicable")
+	fmt.Fprintln(w, "  outside any project      → pass --cwd <path> or run from a project dir")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "Global flags:")
+	fmt.Fprintln(w, "  --instance <id>     pick a specific ropcode instance (auto if only one alive)")
+	fmt.Fprintln(w, "  --project <name>    project name or path (disambiguate workspace lookup)")
+	fmt.Fprintln(w, "  -w, --workspace <name>")
+	fmt.Fprintln(w, "  --cwd <path>        explicit workspace path (overrides $PWD)")
+	fmt.Fprintln(w, "  --all               in project root, act on every sub-workspace")
 }

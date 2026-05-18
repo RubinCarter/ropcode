@@ -52,12 +52,13 @@ type sessionSendCall struct {
 }
 
 type sessionRPCTestApp struct {
-	db          *database.Database
-	mu          sync.Mutex
-	sessions    map[string]*rpcLiveSession
-	sends       []sessionSendCall
-	broadcaster func(string, interface{})
-	nextID      int
+	db                   *database.Database
+	mu                   sync.Mutex
+	sessions             map[string]*rpcLiveSession
+	sends                []sessionSendCall
+	broadcaster          func(string, interface{})
+	nextID               int
+	lastInteractiveAPIID string
 }
 
 func newSessionRPCTestApp(db *database.Database) *sessionRPCTestApp {
@@ -144,6 +145,7 @@ func (a *sessionRPCTestApp) GetProviderSessionOutput(sessionID string) (string, 
 
 func (a *sessionRPCTestApp) StartInteractiveClaudeSession(projectPath, model, providerApiID, resumeSessionID string) (string, error) {
 	a.mu.Lock()
+	a.lastInteractiveAPIID = providerApiID
 	// Find existing running session for this project
 	var existingID string
 	for id, s := range a.sessions {
@@ -237,6 +239,65 @@ func (a *sessionRPCTestApp) StopProviderSession(sessionID string) error {
 	return nil
 }
 
+// CreateWorkspace mimics bindings.go: registers a new workspace under the
+// parent project (looked up by basename) without actually invoking git.
+func (a *sessionRPCTestApp) CreateWorkspace(parent, branch, name string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	parentName := filepathBase(parent)
+	project, err := a.db.GetProjectIndex(parentName)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		name = branch
+	}
+	for _, w := range project.Workspaces {
+		if w.Name == name {
+			return fmt.Errorf("workspace %q already exists", name)
+		}
+	}
+	workspacePath := parent + "/.ropcode/" + name
+	project.Workspaces = append(project.Workspaces, database.WorkspaceIndex{
+		Name:    name,
+		AddedAt: time.Now().Unix(),
+		Branch:  branch,
+		Providers: []database.ProviderInfo{{
+			ID:         name,
+			ProviderID: "claude",
+			Path:       workspacePath,
+		}},
+		LastProvider: "claude",
+	})
+	return a.db.SaveProjectIndex(project)
+}
+
+// GetProjectProviderApiConfig mirrors bindings.go: returns the project-scoped
+// API config when set, otherwise the provider's default config, otherwise nil.
+func (a *sessionRPCTestApp) GetProjectProviderApiConfig(projectPath, providerName string) (*database.ProviderApiConfig, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	name := filepathBase(projectPath)
+	project, err := a.db.GetProjectIndex(name)
+	if err == nil {
+		for _, p := range project.Providers {
+			if p.ProviderID == providerName && p.ProviderApiID != "" {
+				return a.db.GetProviderApiConfig(p.ProviderApiID)
+			}
+		}
+	}
+	return a.db.GetDefaultProviderApiConfig(providerName)
+}
+
+func filepathBase(p string) string {
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		return p[i+1:]
+	}
+	return p
+}
+
 func (a *sessionRPCTestApp) emitOutput(sessionID, cwd, provider, text string) {
 	payload, _ := json.Marshal(map[string]any{
 		"type":       "assistant",
@@ -312,9 +373,9 @@ func TestSessionStartUsesGlobalCWDFlag(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
 
 	// 'start' removed; 'send' auto-starts when no running session exists
-	_, stderr, err := runCLI(t, "workspace", "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "hello")
+	_, stderr, err := runCLI(t, "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "hello")
 	if err != nil {
-		t.Fatalf("workspace send (auto-start) failed: %v\n%s", err, stderr)
+		t.Fatalf("send (auto-start) failed: %v\n%s", err, stderr)
 	}
 }
 
@@ -325,14 +386,14 @@ func TestSessionSendUsesGlobalCWDFlag(t *testing.T) {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
 
-	_, stderr, err := runCLI(t, "runtime", "workspace", "send", "--session", sessionID, "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "follow up", "--wait")
+	_, stderr, err := runCLI(t, "send", "--session", sessionID, "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "follow up", "--wait")
 	if err != nil {
 		t.Fatalf("session send failed: %v\n%s", err, stderr)
 	}
 	var stdout string
-	stdout, stderr, err = runCLI(t, "workspace", "logs", "--cwd", inst.projectPath)
+	stdout, stderr, err = runCLI(t, "logs", "--cwd", inst.projectPath)
 	if err != nil {
-		t.Fatalf("workspace logs failed: %v\n%s", err, stderr)
+		t.Fatalf("logs failed: %v\n%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "assistant follow-up") {
 		t.Fatalf("expected follow-up output in logs, got %q", stdout)
@@ -431,7 +492,7 @@ func TestSessionLogsWithCWDAttachesLatestSession(t *testing.T) {
 	}
 
 	// logs with --cwd (no --session) should attach to the running session
-	stdout, stderr, err := runCLI(t, "runtime", "workspace", "logs", "--cwd", inst.projectPath)
+	stdout, stderr, err := runCLI(t, "logs", "--cwd", inst.projectPath)
 	if err != nil {
 		t.Fatalf("session logs with --cwd failed: %v\n%s", err, stderr)
 	}
@@ -441,7 +502,7 @@ func TestSessionLogsWithCWDAttachesLatestSession(t *testing.T) {
 }
 
 func TestSessionLogsRequiresSessionOrCWD(t *testing.T) {
-	_, _, err := runCLI(t, "runtime", "workspace", "logs")
+	_, _, err := runCLI(t, "logs")
 	if err == nil || (!strings.Contains(err.Error(), "--session") && !strings.Contains(err.Error(), "--cwd")) {
 		t.Fatalf("expected error requiring --session or --cwd, got %v", err)
 	}
@@ -502,7 +563,7 @@ func TestSessionStopAgainstLiveInstance(t *testing.T) {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
 
-	stdout, stderr, err := runCLI(t, "runtime", "workspace", "stop", "--session", sessionID)
+	stdout, stderr, err := runCLI(t, "stop", "--session", sessionID)
 	if err != nil {
 		t.Fatalf("session stop failed: %v\n%s", err, stderr)
 	}
@@ -510,9 +571,9 @@ func TestSessionStopAgainstLiveInstance(t *testing.T) {
 		t.Fatalf("expected stopped session id in output, got %q", stdout)
 	}
 
-	stdout, stderr, err = runCLI(t, "runtime", "workspace", "list")
+	stdout, stderr, err = runCLI(t, "list", "sessions")
 	if err != nil {
-		t.Fatalf("session list after stop failed: %v\n%s", err, stderr)
+		t.Fatalf("list sessions after stop failed: %v\n%s", err, stderr)
 	}
 	if strings.Contains(stdout, sessionID) {
 		t.Fatalf("expected stopped session to be absent from list, got %q", stdout)
@@ -527,14 +588,14 @@ func TestSessionSendWithCWDAutoResolvesSession(t *testing.T) {
 	}
 
 	// send without --session, only --cwd
-	_, stderr, err := runCLI(t, "runtime", "workspace", "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "follow up", "--wait")
+	_, stderr, err := runCLI(t, "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "follow up", "--wait")
 	if err != nil {
 		t.Fatalf("session send with --cwd failed: %v\n%s", err, stderr)
 	}
 	var stdout string
-	stdout, stderr, err = runCLI(t, "workspace", "logs", "--cwd", inst.projectPath)
+	stdout, stderr, err = runCLI(t, "logs", "--cwd", inst.projectPath)
 	if err != nil {
-		t.Fatalf("workspace logs failed: %v\n%s", err, stderr)
+		t.Fatalf("logs failed: %v\n%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "assistant follow-up") {
 		t.Fatalf("expected follow-up output in logs, got %q", stdout)
@@ -549,7 +610,7 @@ func TestSessionStopWithCWDAutoResolvesSession(t *testing.T) {
 	}
 
 	// stop without --session, only --cwd
-	stdout, stderr, err := runCLI(t, "runtime", "workspace", "stop", "--cwd", inst.projectPath)
+	stdout, stderr, err := runCLI(t, "stop", "--cwd", inst.projectPath)
 	if err != nil {
 		t.Fatalf("session stop with --cwd failed: %v\n%s", err, stderr)
 	}
@@ -566,18 +627,18 @@ func TestWorkspaceSendFreshStopsAndRestarts(t *testing.T) {
 	}
 
 	// --fresh should stop old session and start a new one
-	stdout, stderr, err := runCLI(t, "workspace", "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "fresh start", "--fresh")
+	stdout, stderr, err := runCLI(t, "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "fresh start", "--fresh")
 	if err != nil {
-		t.Fatalf("workspace send --fresh failed: %v\n%s", err, stderr)
+		t.Fatalf("send --fresh failed: %v\n%s", err, stderr)
 	}
 	// old session should no longer be running
 	if strings.Contains(stdout, oldSessionID) {
 		t.Fatalf("expected old session to be gone, but found %q in output %q", oldSessionID, stdout)
 	}
 	// verify a new session is now running
-	statusOut, statusErr, err2 := runCLI(t, "workspace", "status", "--cwd", inst.projectPath)
+	statusOut, statusErr, err2 := runCLI(t, "status", "--cwd", inst.projectPath)
 	if err2 != nil {
-		t.Fatalf("workspace status failed: %v\n%s", err2, statusErr)
+		t.Fatalf("status failed: %v\n%s", err2, statusErr)
 	}
 	if !strings.Contains(statusOut, "running") {
 		t.Fatalf("expected new session running after --fresh, got %q", statusOut)
@@ -588,9 +649,9 @@ func TestWorkspaceStatus(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
 
 	// idle when no sessions
-	stdout, stderr, err := runCLI(t, "workspace", "status", "--cwd", inst.projectPath)
+	stdout, stderr, err := runCLI(t, "status", "--cwd", inst.projectPath)
 	if err != nil {
-		t.Fatalf("workspace status failed: %v\n%s", err, stderr)
+		t.Fatalf("status failed: %v\n%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "idle") {
 		t.Fatalf("expected 'idle' when no sessions, got %q", stdout)
@@ -601,11 +662,225 @@ func TestWorkspaceStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartProviderSession failed: %v", err)
 	}
-	stdout, stderr, err = runCLI(t, "workspace", "status", "--cwd", inst.projectPath)
+	stdout, stderr, err = runCLI(t, "status", "--cwd", inst.projectPath)
 	if err != nil {
-		t.Fatalf("workspace status with session failed: %v\n%s", err, stderr)
+		t.Fatalf("status with session failed: %v\n%s", err, stderr)
 	}
 	if !strings.Contains(stdout, "running") {
 		t.Fatalf("expected 'running' session in status, got %q", stdout)
+	}
+}
+
+// seedProjectAtPath registers the project at projectPath so that the
+// pwd-aware CLI sees it as a project root.
+func seedProjectAtPath(t *testing.T, db *database.Database, name, path string) {
+	t.Helper()
+	seedProjectIndex(t, db, &database.ProjectIndex{
+		Name:      name,
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: path, ID: name, ProviderID: "claude"}},
+	})
+}
+
+func TestSendCreateRegistersWorkspaceAndChainsPrompt(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	seedProjectAtPath(t, inst.app.db, filepathBase(inst.projectPath), inst.projectPath)
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return inst.projectPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "feat-login", "--create", "--prompt", "scaffold", "--wait"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("send --create failed: %v\n%s", err, stderr.String())
+	}
+
+	if !strings.Contains(stdout.String(), "created\tfeat-login") {
+		t.Fatalf("expected 'created' acknowledgement, got %q", stdout.String())
+	}
+
+	// The new workspace must now appear in the project index, with name == branch.
+	project, err := inst.app.db.GetProjectIndex(filepathBase(inst.projectPath))
+	if err != nil {
+		t.Fatalf("GetProjectIndex failed: %v", err)
+	}
+	var found *database.WorkspaceIndex
+	for i := range project.Workspaces {
+		if project.Workspaces[i].Name == "feat-login" {
+			found = &project.Workspaces[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("workspace feat-login not registered: %+v", project.Workspaces)
+	}
+	if found.Branch != "feat-login" {
+		t.Fatalf("expected branch == name (\"feat-login\"), got %q", found.Branch)
+	}
+
+	// The chained send should have hit the new workspace's path.
+	wsPath := workspacePrimaryPath(found)
+	inst.app.mu.Lock()
+	defer inst.app.mu.Unlock()
+	hit := false
+	for _, s := range inst.app.sessions {
+		if s.ProjectPath == wsPath {
+			hit = true
+			break
+		}
+	}
+	if !hit {
+		t.Fatalf("expected a session for new workspace path %q, sessions=%+v", wsPath, inst.app.sessions)
+	}
+}
+
+func TestSendCreateRefusesExistingWorkspace(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	projName := filepathBase(inst.projectPath)
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      projName,
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: inst.projectPath, ID: projName, ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "feat-login",
+			Branch:    "feat-login",
+			Providers: []database.ProviderInfo{{Path: inst.projectPath + "/.ropcode/feat-login"}},
+		}},
+	})
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return inst.projectPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "feat-login", "--create", "--prompt", "x"}, &stdout, &stderr, deps)
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected already-exists error, got %v", err)
+	}
+}
+
+func TestSendCreateRejectsCWDFlag(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	seedProjectAtPath(t, inst.app.db, filepathBase(inst.projectPath), inst.projectPath)
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return inst.projectPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "feat-login", "--create", "--cwd", "/tmp/x", "--prompt", "x"}, &stdout, &stderr, deps)
+	if err == nil || !strings.Contains(err.Error(), "--cwd") {
+		t.Fatalf("expected --cwd conflict error, got %v", err)
+	}
+}
+
+func TestSendCreateNeedsName(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	seedProjectAtPath(t, inst.app.db, filepathBase(inst.projectPath), inst.projectPath)
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return inst.projectPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "--create", "--prompt", "x"}, &stdout, &stderr, deps)
+	if err == nil || !strings.Contains(err.Error(), "workspace name") {
+		t.Fatalf("expected name-required error, got %v", err)
+	}
+}
+
+func TestSendCreateNeedsParent(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	seedProjectAtPath(t, inst.app.db, filepathBase(inst.projectPath), inst.projectPath)
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return "/var/empty/no-such-place", nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "feat-login", "--create", "--prompt", "x"}, &stdout, &stderr, deps)
+	if err == nil || !strings.Contains(err.Error(), "parent project") {
+		t.Fatalf("expected missing-parent error, got %v", err)
+	}
+}
+
+func TestSendForwardsResolvedProviderApiID(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	projName := filepathBase(inst.projectPath)
+	wsPath := inst.projectPath + "/.ropcode/ws-a"
+
+	apiCfg := &database.ProviderApiConfig{
+		ID:         "claude-default-cfg",
+		Name:       "claude default",
+		ProviderID: "claude",
+		BaseURL:    "https://api.example.test/v1",
+		AuthToken:  "tok-xyz",
+		IsDefault:  true,
+	}
+	if err := inst.app.db.SaveProviderApiConfig(apiCfg); err != nil {
+		t.Fatalf("SaveProviderApiConfig failed: %v", err)
+	}
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      projName,
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: inst.projectPath, ID: projName, ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "ws-a",
+			Branch:    "ws-a",
+			Providers: []database.ProviderInfo{{Path: wsPath, ID: "ws-a", ProviderID: "claude"}},
+		}},
+	})
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return wsPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "--prompt", "hi"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("send failed: %v\n%s", err, stderr.String())
+	}
+
+	inst.app.mu.Lock()
+	got := inst.app.lastInteractiveAPIID
+	inst.app.mu.Unlock()
+	if got != apiCfg.ID {
+		t.Fatalf("expected CLI to forward providerApiID %q, got %q", apiCfg.ID, got)
+	}
+}
+
+func TestSendRespectsExplicitProviderApiID(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	projName := filepathBase(inst.projectPath)
+	wsPath := inst.projectPath + "/.ropcode/ws-a"
+
+	if err := inst.app.db.SaveProviderApiConfig(&database.ProviderApiConfig{
+		ID:         "default-cfg",
+		Name:       "default",
+		ProviderID: "claude",
+		IsDefault:  true,
+	}); err != nil {
+		t.Fatalf("SaveProviderApiConfig failed: %v", err)
+	}
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      projName,
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: inst.projectPath, ID: projName, ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "ws-a",
+			Branch:    "ws-a",
+			Providers: []database.ProviderInfo{{Path: wsPath, ID: "ws-a", ProviderID: "claude"}},
+		}},
+	})
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return wsPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "--provider-api-id", "explicit-cfg", "--prompt", "hi"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("send failed: %v\n%s", err, stderr.String())
+	}
+
+	inst.app.mu.Lock()
+	got := inst.app.lastInteractiveAPIID
+	inst.app.mu.Unlock()
+	if got != "explicit-cfg" {
+		t.Fatalf("expected explicit providerApiID forwarded verbatim, got %q", got)
 	}
 }

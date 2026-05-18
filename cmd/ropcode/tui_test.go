@@ -112,12 +112,12 @@ func TestTUICommand_AttachesAndRendersLiveInstance(t *testing.T) {
 	}
 	time.Sleep(40 * time.Millisecond)
 
-	stdout, stderr, err := runCLI(t, "runtime", "tui", "--instance", inst.server.GetInstanceID(), "--project", "alpha", "--workspace", "ws-a", "--cwd", inst.projectPath)
+	stdout, stderr, err := runCLI(t, "tui", "--instance", inst.server.GetInstanceID(), "--project", "alpha", "--workspace", "ws-a", "--cwd", inst.projectPath)
 	if err != nil {
 		t.Fatalf("tui failed: %v\n%s", err, stderr)
 	}
 	for _, want := range []string{
-		"ropcode runtime tui",
+		"ropcode tui",
 		inst.server.GetInstanceID(),
 		"alpha",
 		"ws-a",
