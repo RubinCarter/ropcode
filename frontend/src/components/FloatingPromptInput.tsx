@@ -1715,7 +1715,7 @@ const FloatingPromptInputInner = (
                         </Button>
                       }
                       content={
-                        <div className="w-[300px] p-1">
+                        <div className="w-[300px] p-1 max-h-[60vh] overflow-y-auto">
                           {currentProviderModels.map((model) => (
                             <button
                               key={model.id}
@@ -1983,7 +1983,7 @@ const FloatingPromptInputInner = (
                             </Tooltip>
                         }
                       content={
-                        <div className="w-[300px] p-1">
+                        <div className="w-[300px] p-1 max-h-[60vh] overflow-y-auto">
                           {currentProviderModels.map((model) => (
                             <button
                               key={model.id}
