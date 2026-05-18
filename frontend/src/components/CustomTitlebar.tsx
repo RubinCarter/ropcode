@@ -31,12 +31,14 @@ import {
 
 interface CustomTitlebarProps {
   sidebarCollapsed?: boolean;
+  sidebarWidth?: number; // 左侧栏像素宽度
   rightSidebarOpen?: boolean;
   rightSidebarWidthPercent?: number; // 右侧栏宽度百分比
 }
 
 export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   sidebarCollapsed = false,
+  sidebarWidth = 360,
   rightSidebarOpen: rightSidebarOpenProp = true,
   rightSidebarWidthPercent = 35
 }) => {
@@ -480,11 +482,11 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onDoubleClick={handleDoubleClick}
     >
-      {/* 左侧区域 - 对应左侧边栏 (20% / 3%) */}
+      {/* 左侧区域 - 对应左侧边栏 */}
       <motion.div
         initial={false}
         animate={{
-          width: sidebarCollapsed ? '3%' : '20%'
+          width: sidebarCollapsed ? 48 : sidebarWidth
         }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
         className="flex items-center border-r border-border/50 window-drag min-w-[48px]"
@@ -610,13 +612,8 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       <div
         className={`transition-none flex items-center justify-end window-drag overflow-hidden ${shouldShowRightSidebar ? 'border-l border-border/50' : ''}`}
         style={{
-          // 计算相对于整个标题栏的百分比
-          // 下方: WorkspaceContainer宽度 = (100% - Sidebar%)
-          // RightSidebar占WorkspaceContainer的35%
-          // 所以实际占窗口: (100% - Sidebar%) × 35%
-          // 标题栏右侧应该占: (100% - Sidebar%) × (currentWidthPercent / 100)
           width: shouldShowRightSidebar
-            ? `${(100 - (sidebarCollapsed ? 3 : 20)) * currentWidthPercent / 100}%`
+            ? `calc((100% - ${sidebarCollapsed ? 48 : sidebarWidth}px) * ${currentWidthPercent / 100})`
             : 0,
           flexShrink: 0
         }}

@@ -102,6 +102,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const nextWidth = Math.min(640, Math.max(240, startWidth + moveEvent.clientX - startX));
       setSidebarWidth(nextWidth);
+      window.dispatchEvent(new CustomEvent('sidebar-width-changed', {
+        detail: { width: nextWidth }
+      }));
     };
 
     const handleMouseUp = (upEvent: MouseEvent) => {
@@ -116,6 +119,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       } catch (err) {
         console.warn('Failed to save sidebar width:', err);
       }
+      window.dispatchEvent(new CustomEvent('sidebar-width-changed', {
+        detail: { width: finalWidth }
+      }));
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -248,6 +254,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }
     }
   }, [externalCollapsed]);
+
+  // Broadcast initial sidebar width on mount
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('sidebar-width-changed', {
+      detail: { width: sidebarWidth }
+    }));
+  }, []);
 
   // Listen for toggle sidebar event
   useEffect(() => {

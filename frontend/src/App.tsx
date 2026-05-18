@@ -60,6 +60,14 @@ function AppContent() {
   const [showClaudeBinaryDialog, setShowClaudeBinaryDialog] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_width_px');
+      const parsed = saved ? Number(saved) : NaN;
+      if (Number.isFinite(parsed)) return Math.min(640, Math.max(240, parsed));
+    } catch {}
+    return 360;
+  });
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [rightSidebarWidthPercent, setRightSidebarWidthPercent] = useState(35);
 
@@ -82,6 +90,11 @@ function AppContent() {
       setSidebarCollapsed(customEvent.detail.collapsed);
     };
 
+    const handleSidebarWidthChange = (event: Event) => {
+      const customEvent = event as CustomEvent<{ width: number }>;
+      setSidebarWidth(customEvent.detail.width);
+    };
+
     const handleRightSidebarStateChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ isOpen: boolean; shouldShow?: boolean }>;
       // 使用 shouldShow（如果有），否则回退到 isOpen
@@ -99,12 +112,14 @@ function AppContent() {
     };
 
     window.addEventListener('sidebar-collapsed', handleSidebarCollapse);
+    window.addEventListener('sidebar-width-changed', handleSidebarWidthChange);
     window.addEventListener('right-sidebar-state-changed', handleRightSidebarStateChange);
     window.addEventListener('right-sidebar-width-changed', handleRightSidebarWidthChange);
     window.addEventListener('show-toast', handleShowToast);
 
     return () => {
       window.removeEventListener('sidebar-collapsed', handleSidebarCollapse);
+      window.removeEventListener('sidebar-width-changed', handleSidebarWidthChange);
       window.removeEventListener('right-sidebar-state-changed', handleRightSidebarStateChange);
       window.removeEventListener('right-sidebar-width-changed', handleRightSidebarWidthChange);
       window.removeEventListener('show-toast', handleShowToast);
@@ -295,6 +310,7 @@ function AppContent() {
       {/* Custom Titlebar with integrated TabManager */}
       <CustomTitlebar
         sidebarCollapsed={sidebarCollapsed}
+        sidebarWidth={sidebarWidth}
         rightSidebarOpen={rightSidebarOpen}
         rightSidebarWidthPercent={rightSidebarWidthPercent}
       />
