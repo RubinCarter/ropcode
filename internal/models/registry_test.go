@@ -361,7 +361,9 @@ func TestSyncAutoGenerates1MVariantsForSonnetAndOpus(t *testing.T) {
 
 	synced, err := registry.SyncProviderModels("claude", []string{
 		"claude-opus-4-7",
+		"claude-opus-4-6",
 		"claude-sonnet-4-6",
+		"claude-sonnet-4-5-20250929",
 		"claude-haiku-4-5-20251001",
 	})
 	if err != nil {
@@ -373,8 +375,8 @@ func TestSyncAutoGenerates1MVariantsForSonnetAndOpus(t *testing.T) {
 		got[m.ModelID] = m
 	}
 
-	// Opus and Sonnet should have [1m] variants.
-	for _, want := range []string{"claude-opus-4-7[1m]", "claude-sonnet-4-6[1m]"} {
+	// Opus 4-6+ and Sonnet 4-6+ should have [1m] variants.
+	for _, want := range []string{"claude-opus-4-7[1m]", "claude-opus-4-6[1m]", "claude-sonnet-4-6[1m]"} {
 		if got[want] == nil {
 			t.Fatalf("expected %q to be auto-generated, got %v", want, keys(got))
 		}
@@ -383,9 +385,11 @@ func TestSyncAutoGenerates1MVariantsForSonnetAndOpus(t *testing.T) {
 		}
 	}
 
-	// Haiku should NOT have a [1m] variant.
-	if got["claude-haiku-4-5-20251001[1m]"] != nil {
-		t.Fatal("expected haiku to NOT get a [1m] variant")
+	// Older sonnet (4-5) and haiku should NOT have [1m] variants.
+	for _, blocked := range []string{"claude-sonnet-4-5-20250929[1m]", "claude-haiku-4-5-20251001[1m]"} {
+		if got[blocked] != nil {
+			t.Fatalf("expected %q to NOT be generated", blocked)
+		}
 	}
 }
 
