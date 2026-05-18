@@ -55,6 +55,12 @@ test('prefers electron auth key over stale injected html auth key on initial con
   assert.equal(config.authKey, 'fresh-electron-key');
 });
 
+test('uses localhost for websocket host when page is served from wails.localhost', async () => {
+  const { getWebSocketHost } = await loadWsConfigModule();
+
+  assert.equal(getWebSocketHost({ hostname: 'wails.localhost' } as Location), '127.0.0.1');
+});
+
 
 test('refreshes auth key before reconnecting after auth failure', async () => {
   const { wsClient } = await loadModule();

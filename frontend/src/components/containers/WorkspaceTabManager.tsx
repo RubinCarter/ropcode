@@ -1,17 +1,31 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MessageSquare, Bot, AlertCircle, Loader2, FileText, Globe, FileDiff, File } from 'lucide-react';
+import { X, MessageSquare, Bot, AlertCircle, FileText, Globe, FileDiff, File, MoreHorizontal } from 'lucide-react';
 import { useWorkspaceTabContext, WorkspaceTab } from '@/contexts/WorkspaceTabContext';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 interface TabItemProps {
   tab: WorkspaceTab;
   isActive: boolean;
   onClose: (id: string) => void;
+  onCloseOthers: (id: string) => void;
+  onCloseRight: (id: string) => void;
   onClick: (id: string) => void;
+  canCloseRight: boolean;
+  canCloseOthers: boolean;
 }
 
-const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClose, onClick }) => {
+const TabItem: React.FC<TabItemProps> = ({
+  tab,
+  isActive,
+  onClose,
+  onCloseOthers,
+  onCloseRight,
+  onClick,
+  canCloseRight,
+  canCloseOthers,
+}) => {
   const [isHovered, setIsHovered] = useState(false);
 
   const getIcon = () => {
@@ -34,9 +48,13 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClose, onClick }) =>
   };
 
   const getStatusIcon = () => {
+    if (tab.type === 'chat') {
+      return null;
+    }
+
     switch (tab.status) {
       case 'running':
-        return <Loader2 className="w-3 h-3 animate-spin" />;
+        return <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Task running" />;
       case 'error':
         return <AlertCircle className="w-3 h-3 text-red-500" />;
       default:
@@ -56,28 +74,28 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClose, onClick }) =>
         isActive
           ? "bg-card text-card-foreground"
           : "bg-transparent text-muted-foreground hover:bg-muted/40 hover:text-foreground",
-        tab.type === 'chat' ? "min-w-[70px] max-w-[160px]" : "min-w-[90px] max-w-[200px]",
+        tab.type === 'chat' ? "min-w-[70px] max-w-[170px]" : "min-w-[90px] max-w-[210px]",
         "h-full px-2 pr-2"
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onClick={() => onClick(tab.id)}
     >
-      {/* Tab Icon */}
       <div className="flex-shrink-0">
         <Icon className="w-4 h-4" />
       </div>
 
-      {/* Tab Title */}
       <span className="truncate text-xs font-medium">
         {tab.title}
       </span>
 
-      {/* Status Indicators - only show when needed */}
       {(statusIcon || tab.hasUnsavedChanges) && (
         <div className="flex items-center gap-1 flex-shrink-0">
           {statusIcon && (
-            <span className="flex items-center justify-center">
+            <span
+              className="flex items-center justify-center"
+              title={tab.status === 'running' ? 'Task running' : undefined}
+            >
               {statusIcon}
             </span>
           )}
@@ -91,25 +109,53 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClose, onClick }) =>
         </div>
       )}
 
-      {/* Close Button - Hidden for Chat tabs, always reserves space for others */}
-      {tab.type !== 'chat' && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose(tab.id);
-          }}
-          className={cn(
-            "flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded-sm",
-            "transition-all duration-100 hover:bg-destructive/20 hover:text-destructive",
-            "focus:outline-none focus:ring-1 focus:ring-destructive/50 ml-0.5",
-            (isHovered || isActive) ? "opacity-100" : "opacity-0"
-          )}
-          title={`Close ${tab.title}`}
-          tabIndex={-1}
-        >
-          <X className="w-2.5 h-2.5" />
-        </button>
-      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose(tab.id);
+        }}
+        className={cn(
+          "flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded-sm",
+          "transition-all duration-100 hover:bg-destructive/20 hover:text-destructive",
+          "focus:outline-none focus:ring-1 focus:ring-destructive/50 ml-0.5",
+          (isHovered || isActive) ? "opacity-100" : "opacity-0"
+        )}
+        title={`Close ${tab.title}`}
+        tabIndex={-1}
+      >
+        <X className="w-2.5 h-2.5" />
+      </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+            className={cn(
+              "flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded-sm",
+              "transition-all duration-100 hover:bg-muted hover:text-foreground",
+              "focus:outline-none focus:ring-1 focus:ring-ring/50",
+              (isHovered || isActive) ? "opacity-100" : "opacity-0"
+            )}
+            title={`Tab actions for ${tab.title}`}
+            tabIndex={-1}
+          >
+            <MoreHorizontal className="w-2.5 h-2.5" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-44 window-no-drag">
+          <DropdownMenuItem onClick={() => onClose(tab.id)}>
+            Close tab
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onCloseOthers(tab.id)} disabled={!canCloseOthers}>
+            Close other tabs
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onCloseRight(tab.id)} disabled={!canCloseRight}>
+            Close tabs to the right
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 };
@@ -119,7 +165,7 @@ interface WorkspaceTabManagerProps {
 }
 
 export const WorkspaceTabManager: React.FC<WorkspaceTabManagerProps> = ({ className }) => {
-  const { tabs, activeTabId, removeTab, setActiveTab } = useWorkspaceTabContext();
+  const { tabs, activeTabId, removeTab, closeOtherTabs, closeTabsToRight, setActiveTab } = useWorkspaceTabContext();
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showLeftScroll, setShowLeftScroll] = useState(false);
@@ -176,11 +222,7 @@ export const WorkspaceTabManager: React.FC<WorkspaceTabManagerProps> = ({ classN
   useEffect(() => {
     const handleCloseTab = () => {
       if (activeTabId) {
-        const tab = tabs.find(t => t.id === activeTabId);
-        // Don't close chat tabs via keyboard
-        if (tab && tab.type !== 'chat') {
-          removeTab(activeTabId);
-        }
+        removeTab(activeTabId);
       }
     };
 
@@ -222,6 +264,14 @@ export const WorkspaceTabManager: React.FC<WorkspaceTabManagerProps> = ({ classN
 
   const handleCloseTab = (id: string) => {
     removeTab(id);
+  };
+
+  const handleCloseOtherTabs = (id: string) => {
+    closeOtherTabs(id);
+  };
+
+  const handleCloseTabsToRight = (id: string) => {
+    closeTabsToRight(id, sortedTabs.map((item) => item.id));
   };
 
   const handleTabClick = (id: string) => {
@@ -291,7 +341,11 @@ export const WorkspaceTabManager: React.FC<WorkspaceTabManagerProps> = ({ classN
                 tab={tab}
                 isActive={tab.id === activeTabId}
                 onClose={handleCloseTab}
+                onCloseOthers={handleCloseOtherTabs}
+                onCloseRight={handleCloseTabsToRight}
                 onClick={handleTabClick}
+                canCloseOthers={sortedTabs.length > 1}
+                canCloseRight={sortedTabs.findIndex((item) => item.id === tab.id) < sortedTabs.length - 1}
               />
             ))}
           </div>

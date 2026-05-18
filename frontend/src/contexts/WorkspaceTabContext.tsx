@@ -20,7 +20,8 @@ export interface WorkspaceTab {
   projectPath?: string;
   providerId?: string;
   providerSessions?: Record<string, { sessionId: string; sessionData: any }>;
-  status: 'active' | 'idle' | 'running' | 'complete' | 'error';
+  skipSessionRestore?: boolean;
+  status: 'active' | 'idle' | 'running' | 'closed' | 'complete' | 'error';
   hasUnsavedChanges: boolean;
   icon?: string;
   createdAt: Date;
@@ -33,6 +34,8 @@ interface WorkspaceTabContextType {
   activeTabId: string | null;
   addTab: (tab: Omit<WorkspaceTab, 'id' | 'createdAt' | 'updatedAt'>) => string;
   removeTab: (id: string) => void;
+  closeOtherTabs: (id: string) => void;
+  closeTabsToRight: (id: string, orderedTabIds: string[]) => void;
   updateTab: (id: string, updates: Partial<WorkspaceTab>) => void;
   setActiveTab: (id: string) => void;
   getTabById: (id: string) => WorkspaceTab | undefined;
@@ -54,17 +57,55 @@ export const WorkspaceTabProvider: React.FC<WorkspaceTabProviderProps> = ({ work
     return `wstab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   };
 
+  const findEquivalentTab = (
+    existingTabs: WorkspaceTab[],
+    tabData: Omit<WorkspaceTab, 'id' | 'createdAt' | 'updatedAt'>
+  ): WorkspaceTab | undefined => {
+    if (tabData.type === 'chat') {
+      if (tabData.sessionId && tabData.providerId) {
+        return existingTabs.find(tab =>
+          tab.type === 'chat' &&
+          tab.sessionId === tabData.sessionId &&
+          tab.providerId === tabData.providerId
+        );
+      }
+
+      if (tabData.skipSessionRestore && tabData.projectPath) {
+        return existingTabs.find(tab =>
+          tab.type === 'chat' &&
+          tab.projectPath === tabData.projectPath &&
+          tab.skipSessionRestore === true &&
+          !tab.sessionId &&
+          !tab.sessionData
+        );
+      }
+    }
+
+    return undefined;
+  };
+
   const addTab = useCallback((tabData: Omit<WorkspaceTab, 'id' | 'createdAt' | 'updatedAt'>): string => {
+    const provisionalTabId = generateTabId();
     const newTab: WorkspaceTab = {
       ...tabData,
-      id: generateTabId(),
+      id: provisionalTabId,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    setTabs(prev => [...prev, newTab]);
-    setActiveTabId(newTab.id);
-    return newTab.id;
+    let selectedTabId = provisionalTabId;
+    setTabs(prev => {
+      const existingTab = findEquivalentTab(prev, tabData);
+      if (existingTab) {
+        selectedTabId = existingTab.id;
+        setActiveTabId(existingTab.id);
+        return prev;
+      }
+
+      setActiveTabId(provisionalTabId);
+      return [...prev, newTab];
+    });
+    return selectedTabId;
   }, []);
 
   const removeTab = useCallback((id: string) => {
@@ -78,6 +119,31 @@ export const WorkspaceTabProvider: React.FC<WorkspaceTabProviderProps> = ({ work
         setActiveTabId(null);
       }
 
+      return filtered;
+    });
+  }, [activeTabId]);
+
+  const closeOtherTabs = useCallback((id: string) => {
+    setTabs(prev => {
+      const targetTab = prev.find(tab => tab.id === id);
+      if (!targetTab) return prev;
+      setActiveTabId(id);
+      return [targetTab];
+    });
+  }, []);
+
+  const closeTabsToRight = useCallback((id: string, orderedTabIds: string[]) => {
+    setTabs(prev => {
+      const targetIndex = orderedTabIds.indexOf(id);
+      if (targetIndex < 0) return prev;
+
+      const idsToClose = new Set(orderedTabIds.slice(targetIndex + 1));
+      if (idsToClose.size === 0) return prev;
+
+      const filtered = prev.filter(tab => !idsToClose.has(tab.id));
+      if (activeTabId && idsToClose.has(activeTabId)) {
+        setActiveTabId(id);
+      }
       return filtered;
     });
   }, [activeTabId]);
@@ -115,6 +181,8 @@ export const WorkspaceTabProvider: React.FC<WorkspaceTabProviderProps> = ({ work
     activeTabId,
     addTab,
     removeTab,
+    closeOtherTabs,
+    closeTabsToRight,
     updateTab,
     setActiveTab,
     getTabById,

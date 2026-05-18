@@ -101,25 +101,22 @@ const TabItem: React.FC<TabItemProps> = ({ tab, isActive, onClose, onClick }) =>
         </div>
       )}
 
-      {/* Close Button - Hidden for Chat tabs, always reserves space for others */}
-      {tab.type !== 'chat' && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose(tab.id);
-          }}
-          className={cn(
-            "flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded-sm",
-            "transition-all duration-100 hover:bg-destructive/20 hover:text-destructive",
-            "focus:outline-none focus:ring-1 focus:ring-destructive/50 ml-0.5",
-            (isHovered || isActive) ? "opacity-100" : "opacity-0"
-          )}
-          title={`Close ${tab.title}`}
-          tabIndex={-1}
-        >
-          <X className="w-2.5 h-2.5" />
-        </button>
-      )}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onClose(tab.id);
+        }}
+        className={cn(
+          "flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded-sm",
+          "transition-all duration-100 hover:bg-destructive/20 hover:text-destructive",
+          "focus:outline-none focus:ring-1 focus:ring-destructive/50 ml-0.5",
+          (isHovered || isActive) ? "opacity-100" : "opacity-0"
+        )}
+        title={`Close ${tab.title}`}
+        tabIndex={-1}
+      >
+        <X className="w-2.5 h-2.5" />
+      </button>
 
     </div>
   );

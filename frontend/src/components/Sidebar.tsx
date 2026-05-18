@@ -59,6 +59,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onInfoClick
 }) => {
   const [internalCollapsed, setInternalCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_width_px');
+      const parsed = saved ? Number(saved) : NaN;
+      if (Number.isFinite(parsed)) {
+        return Math.min(640, Math.max(240, parsed));
+      }
+    } catch {
+      // Ignore storage failures and use the default width.
+    }
+    return 360;
+  });
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +89,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   // Use external collapsed state if provided, otherwise use internal
   const isCollapsed = externalCollapsed !== undefined ? externalCollapsed : internalCollapsed;
+
+  const startSidebarResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (isCollapsed) return;
+
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const nextWidth = Math.min(640, Math.max(240, startWidth + moveEvent.clientX - startX));
+      setSidebarWidth(nextWidth);
+    };
+
+    const handleMouseUp = (upEvent: MouseEvent) => {
+      const finalWidth = Math.min(640, Math.max(240, startWidth + upEvent.clientX - startX));
+      setSidebarWidth(finalWidth);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      try {
+        localStorage.setItem('sidebar_width_px', String(finalWidth));
+      } catch (err) {
+        console.warn('Failed to save sidebar width:', err);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  }, [isCollapsed, sidebarWidth]);
 
   // Load projects on mount and on WebSocket reconnect
   useEffect(() => {
@@ -222,14 +266,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <motion.div
       initial={false}
       animate={{
-        width: isCollapsed ? '3%' : '20%'
+        width: isCollapsed ? 48 : sidebarWidth
       }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
       className={cn(
+        'relative',
         'h-full bg-background border-r border-border/50 flex flex-col min-w-[48px]',
         className
       )}
-      style={{ flexShrink: 0 }}
+      style={{ flexShrink: 0, width: sidebarWidth }}
     >
       {/* Sidebar Header */}
       <TooltipProvider>
@@ -524,6 +569,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           handleProjectClick(project);
         }}
       />
+
+      {!isCollapsed && (
+        <div
+          className="absolute right-0 top-0 bottom-0 z-30 w-1 cursor-col-resize hover:bg-primary/40 transition-colors"
+          onMouseDown={startSidebarResize}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+        />
+      )}
     </motion.div>
   );
 };
