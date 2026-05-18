@@ -23,6 +23,12 @@ test('ProjectList lazily loads mixed space sessions and opens historical chat ta
   assert.match(source, /More/);
 });
 
+test('ProjectList does not fan out session scans to all child workspaces when expanding a project', async () => {
+  const source = await readSource(projectListPath);
+
+  assert.doesNotMatch(source, /project\?\.workspaces\?\.forEach\(workspace => \{\s*const provider = getWorkspaceProvider\(workspace\);\s*if \(provider\?\.path\) \{\s*ensureSpaceSessionsLoaded\(provider\.path\);/s);
+});
+
 test('rpc client exposes ListSpaceSessions result types and wrapper', async () => {
   const source = await readSource(rpcClientPath);
 

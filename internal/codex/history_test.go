@@ -42,6 +42,9 @@ func TestListProjectSessionsReadsSessionMetaPayload(t *testing.T) {
 	if sessions[0].MessageTimestamp != "2026-05-17T13:22:00.000Z" {
 		t.Fatalf("message timestamp = %q", sessions[0].MessageTimestamp)
 	}
+	if sessions[0].FirstMessage != "hello" {
+		t.Fatalf("first message = %q, want hello", sessions[0].FirstMessage)
+	}
 }
 
 func TestListProjectSessionsIgnoresLegacyThreadStartedRecords(t *testing.T) {

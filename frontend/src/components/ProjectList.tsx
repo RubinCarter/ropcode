@@ -502,12 +502,6 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         if (project?.path) {
           ensureSpaceSessionsLoaded(project.path);
         }
-        project?.workspaces?.forEach(workspace => {
-          const provider = getWorkspaceProvider(workspace);
-          if (provider?.path) {
-            ensureSpaceSessionsLoaded(provider.path);
-          }
-        });
       }
       return newSet;
     });

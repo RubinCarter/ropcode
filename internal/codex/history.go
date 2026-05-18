@@ -399,6 +399,7 @@ type SessionInfo struct {
 	ProjectPath      string `json:"project_path"`
 	CreatedAt        int64  `json:"created_at"`
 	MessageTimestamp string `json:"message_timestamp,omitempty"`
+	FirstMessage     string `json:"first_message,omitempty"`
 }
 
 // ListProjectSessions lists all sessions for a specific project path
@@ -467,6 +468,7 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 	var sessionProjectPath string
 	var createdAt int64
 	var lastTimestamp string
+	var firstMessage string
 
 	// Read only enough lines to extract session metadata
 	lineCount := 0
@@ -495,6 +497,18 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 				if t, err := time.Parse(time.RFC3339, ts); err == nil {
 					createdAt = t.Unix()
 				}
+			}
+		}
+
+		if eventType == "response_item" && firstMessage == "" {
+			payload, ok := event["payload"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			payloadType, _ := payload["type"].(string)
+			role, _ := payload["role"].(string)
+			if payloadType == "message" && role == "user" {
+				firstMessage = firstTextFromCodexContent(normalizeCodexContent(payload, true))
 			}
 		}
 
@@ -530,7 +544,20 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 		ProjectPath:      sessionProjectPath,
 		CreatedAt:        createdAt,
 		MessageTimestamp: lastTimestamp,
+		FirstMessage:     firstMessage,
 	}, nil
+}
+
+func firstTextFromCodexContent(content []map[string]interface{}) string {
+	for _, item := range content {
+		text, _ := item["text"].(string)
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		return text
+	}
+	return ""
 }
 
 // generateActiveForm generates activeForm from a task description

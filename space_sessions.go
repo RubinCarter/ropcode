@@ -91,6 +91,7 @@ func newClaudeSpaceSessionSummary(s claude.SessionInfo, isRunning bool) Provider
 }
 
 func newCodexSpaceSessionSummary(s codex.SessionInfo, isRunning bool) ProviderSessionSummary {
+	title := strings.TrimSpace(s.FirstMessage)
 	return ProviderSessionSummary{
 		ID:           s.ID,
 		Provider:     "codex",
@@ -98,6 +99,8 @@ func newCodexSpaceSessionSummary(s codex.SessionInfo, isRunning bool) ProviderSe
 		ProjectID:    s.ProjectID,
 		CreatedAt:    s.CreatedAt,
 		LastActivity: parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
+		Title:        title,
+		FirstMessage: title,
 		IsRunning:    isRunning,
 	}
 }

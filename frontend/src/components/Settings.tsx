@@ -102,6 +102,8 @@ export const Settings: React.FC<SettingsProps> = ({
   const [tabPersistenceEnabled, setTabPersistenceEnabled] = useState(true);
   // Startup intro preference
   const [startupIntroEnabled, setStartupIntroEnabled] = useState(true);
+  const [sessionTitleProvider, setSessionTitleProvider] = useState("");
+  const [sessionTitleModel, setSessionTitleModel] = useState("");
 
   // Load settings on mount
   useEffect(() => {
@@ -114,6 +116,14 @@ export const Settings: React.FC<SettingsProps> = ({
     (async () => {
       const pref = await api.getSetting('startup_intro_enabled');
       setStartupIntroEnabled(pref === null ? true : pref === 'true');
+    })();
+    (async () => {
+      const [provider, model] = await Promise.all([
+        api.getSetting('session_title_provider'),
+        api.getSetting('session_title_model'),
+      ]);
+      setSessionTitleProvider(provider || "");
+      setSessionTitleModel(model || "");
     })();
   }, []);
 
@@ -258,6 +268,25 @@ export const Settings: React.FC<SettingsProps> = ({
    */
   const updateSetting = (key: string, value: any) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const saveSessionTitleSettings = async (provider: string, model: string) => {
+    setSessionTitleProvider(provider);
+    setSessionTitleModel(model);
+    try {
+      await Promise.all([
+        api.saveSetting('session_title_provider', provider),
+        api.saveSetting('session_title_model', model),
+      ]);
+      setToast({
+        message: provider && model
+          ? "Session title generation model saved"
+          : "Session title generation disabled",
+        type: "success",
+      });
+    } catch (e) {
+      setToast({ message: "Failed to update session title settings", type: "error" });
+    }
   };
 
   /**
@@ -736,6 +765,52 @@ export const Settings: React.FC<SettingsProps> = ({
                       </div>
                     )}
                     
+                    {/* Session Title Generation */}
+                    <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="space-y-1">
+                          <Label>Session Title Generation</Label>
+                          <p className="text-caption text-muted-foreground">
+                            Choose a separate low-cost model for generated session titles. Leave either field empty to use metadata and first-message fallback only.
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => saveSessionTitleSettings('claude', 'claude-3-5-haiku-20241022')}
+                        >
+                          Use Claude Haiku
+                        </Button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="session-title-provider">Provider</Label>
+                          <select
+                            id="session-title-provider"
+                            value={sessionTitleProvider}
+                            onChange={(e) => saveSessionTitleSettings(e.target.value, sessionTitleModel)}
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          >
+                            <option value="">Disabled</option>
+                            <option value="claude">Claude</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="gemini">Gemini</option>
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="session-title-model">Model</Label>
+                          <Input
+                            id="session-title-model"
+                            value={sessionTitleModel}
+                            onChange={(e) => saveSessionTitleSettings(sessionTitleProvider, e.target.value.trim())}
+                            placeholder="claude-3-5-haiku-20241022"
+                            className="font-mono text-sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Tab Persistence Toggle */}
                     <div className="flex items-center justify-between">
                       <div className="space-y-1">
