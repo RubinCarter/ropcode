@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.2.3] - 2026-05-16
+
+### Added
+
+- **Claude activity panel**: structured subagent transcript view in the right sidebar, backed by transcript log tailing and async activity output tracking
+- **Subagent message routing**: sidechain messages now render inline in the main stream when appropriate, and route into the panel via `parent_tool_use_id`
+- **Claude session task monitor**: backend service that tracks Claude session control state, exposes runtime model/permission/interrupt switches, and supports provider API hot-swap
+- **Windows desktop support**: single-exe Windows shell, Windows release packaging, native path handling, and platform-aware backend
+- **Codex provider sync**: pull supported Codex models directly from the provider API; preserve session config across reconnects on Windows
+- **CLI command tree**: flatter command structure with pwd-aware project/workspace targeting and `send --create` for ad-hoc sessions
+- **Timestamped runtime logs**: per-startup server log files under `~/.ropcode/logs/`
+- **Repository agent guidance**: `AGENTS.md` and refreshed README centered on workspace + multi-CLI workflows
+
+### Fixed
+
+- **Subagent visibility**: hide root-stream messages with `parent_tool_use_id`, restore main-session visibility for messages incorrectly captured by the panel, and unify root stream filtering
+- **Message filter**: collapse consecutive transient runtime cards (api_retry, status updates) into one, and show api_retry with a "retrying" label instead of "Failed"
+- **Thinking timer**: preserve elapsed time across transport reconnects and visibility changes
+- **Prompt input**: keep the selected provider stable through queued sends and provider switches
+- **Claude activity panel**: refresh logic on session lifecycle changes
+- **Claude on Windows**: fix interactive session startup that previously failed on Windows
+- **Refactor follow-ups**: restore `App.ExecuteCommand` and `App.ReadGitFileAtHead` Wails RPC methods that were dropped during the internal-package refactor
+
+### Changed
+
+- **Refactor**: move `logging`, `pathutil`, `gitcontent`, and `command` into `internal/` packages; root now only contains `app.go`, `bindings.go`, `server_main.go`, `dependencies.go` and their tests
+- **CI**: add Windows EXE build job to the release workflow alongside macOS DMG and Linux AppImage/deb
+
 ## [0.2.2] - 2026-05-13
 
 ### Added

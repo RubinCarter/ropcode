@@ -1,6 +1,6 @@
 {
   "name": "ropcode",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "license": "AGPL-3.0",
   "description": "GUI app and Toolkit for Claude Code",
