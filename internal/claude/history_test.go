@@ -30,3 +30,11 @@ func TestExtractClaudeSessionInfoDoesNotReadPastPreviewWindowForTitle(t *testing
 		t.Fatalf("first message = %q, want empty title preview after scan limit", info.FirstMessage)
 	}
 }
+
+func TestGetProjectHashNormalizesWindowsPathsForClaudeProjectDirs(t *testing.T) {
+	got := GetProjectHash(`E:\bit_master\ropcode`)
+	want := "E--bit-master-ropcode"
+	if got != want {
+		t.Fatalf("GetProjectHash() = %q, want %q", got, want)
+	}
+}

@@ -44,9 +44,12 @@ type MessageIndex struct {
 
 // GetProjectHash computes the hash used by Claude for project directory names
 func GetProjectHash(projectPath string) string {
-	// Claude replaces both "/" and "." with "-" in the path
+	// Claude stores Windows paths with separators and drive colons flattened.
 	normalized := strings.ReplaceAll(projectPath, "/", "-")
+	normalized = strings.ReplaceAll(normalized, "\\", "-")
+	normalized = strings.ReplaceAll(normalized, ":", "-")
 	normalized = strings.ReplaceAll(normalized, ".", "-")
+	normalized = strings.ReplaceAll(normalized, "_", "-")
 	return normalized
 }
 
