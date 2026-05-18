@@ -1,9 +1,10 @@
 // @ts-nocheck
 import React, { useState, useEffect, useMemo } from "react";
-import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw, X, MessageSquare } from "lucide-react";
+import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw, X, MessageSquare, MessageSquarePlus, Bot, Sparkles, TerminalSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Project, AutoSyncStatus, ProviderSessionSummary } from "@/lib/api";
+import type { main } from "@/lib/rpc-client";
 import { cn } from "@/lib/utils";
 import { api, listen } from "@/lib/api";
 import { useTabContext } from "@/contexts/TabContext";
@@ -111,6 +112,13 @@ const getProviderLabel = (provider: string): string => {
   return provider;
 };
 
+const getProviderIcon = (provider: string) => {
+  if (provider === 'claude') return Sparkles;
+  if (provider === 'codex') return TerminalSquare;
+  if (provider === 'gemini') return Bot;
+  return MessageSquare;
+};
+
 /**
  * ProjectList component - Displays recent projects in a Cursor-like interface
  * 
@@ -151,6 +159,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   // Local cache of workspace branch names (path -> branch name)
   const [workspaceBranches, setWorkspaceBranches] = useState<Record<string, string>>({});
   const [spaceSessions, setSpaceSessions] = useState<Record<string, SpaceSessionCache>>({});
+  const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(new Set());
 
   // Listen SSH sync progress to show up/down in list
   useEffect(() => {
@@ -239,7 +248,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         project.workspaces.forEach(ws => {
           // Find any AI provider (claude, codex, etc.)
           const aiProvider = ws.providers?.find(p =>
-            p.provider_id === 'claude' || p.provider_id === 'codex'
+            p.provider_id === 'claude' || p.provider_id === 'codex' || p.provider_id === 'gemini'
           );
           if (aiProvider) {
             paths.push(aiProvider.path);
@@ -281,6 +290,39 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
     // Load initial states once
     loadInitialStates();
+  }, [allWorkspacePathsKey]);
+
+  useEffect(() => {
+    const loadRunningProviderSessions = async () => {
+      try {
+        const sessions = await api.listRunningProviderSessions() as main.LiveProviderSession[];
+        const workspaceStates = new Map<string, boolean>();
+        const sessionIds = new Set<string>();
+
+        for (const session of sessions ?? []) {
+          if (session.project_path) {
+            workspaceStates.set(session.project_path, true);
+          }
+          if (session.provider && session.session_id) {
+            sessionIds.add(`${session.provider}:${session.session_id}`);
+          }
+        }
+
+        setRunningSessionIds(sessionIds);
+        setWorkspaceRunningStates(prev => {
+          const next = new Map(prev);
+          allWorkspacePaths.forEach(path => next.set(path, workspaceStates.get(path) ?? false));
+          workspaceStates.forEach((running, path) => next.set(path, running));
+          return next;
+        });
+      } catch (err) {
+        console.error('[ProjectList] Failed to list running provider sessions:', err);
+      }
+    };
+
+    loadRunningProviderSessions();
+    const interval = setInterval(loadRunningProviderSessions, 5000);
+    return () => clearInterval(interval);
   }, [allWorkspacePathsKey]);
 
   // Subscribe to process change events (replaces 200ms polling)
@@ -428,6 +470,24 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     loadSpaceSessions(spacePath, 10);
   };
 
+  useEffect(() => {
+    const handleSpaceSessionsRefresh = (event: Event) => {
+      const spacePath = (event as CustomEvent<{ spacePath?: string }>).detail?.spacePath;
+      if (!spacePath) return;
+
+      setSpaceSessions(prev => {
+        if (!prev[spacePath]) return prev;
+        setTimeout(() => {
+          loadSpaceSessions(spacePath, prev[spacePath]?.loadedAll ? 0 : 10);
+        }, 250);
+        return prev;
+      });
+    };
+
+    window.addEventListener('ropcode-space-sessions-refresh', handleSpaceSessionsRefresh);
+    return () => window.removeEventListener('ropcode-space-sessions-refresh', handleSpaceSessionsRefresh);
+  }, []);
+
   const openSessionTab = (spacePath: string, session: ProviderSessionSummary) => {
     const existingTab = tabs.find(tab =>
       tab.type === 'chat' &&
@@ -449,6 +509,18 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     }, 0);
   };
 
+  const openNewSessionTab = (spacePath: string) => {
+    if (!spacePath) return;
+
+    switchToWorkspace(spacePath);
+    (window as any).__ROPCODE_PENDING_NEW_SESSION__ = { spacePath };
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('open-new-session', {
+        detail: { spacePath },
+      }));
+    }, 0);
+  };
+
   const renderSpaceSessions = (spacePath: string, className = '') => {
     const cache = spaceSessions[spacePath];
     if (!cache) return null;
@@ -463,22 +535,28 @@ export const ProjectList: React.FC<ProjectListProps> = ({
             Failed to load sessions
           </div>
         )}
-        {cache.sessions.map((session) => (
-          <button
-            key={`${session.provider}:${session.id}`}
-            onClick={() => openSessionTab(spacePath, session)}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md"
-            title={getSessionTitle(session)}
-          >
-            <MessageSquare className="h-3.5 w-3.5 flex-shrink-0" />
-            <span className="flex-shrink-0 font-medium">{getProviderLabel(session.provider)}</span>
-            <span className="min-w-0 flex-1 truncate">{getSessionTitle(session)}</span>
-            {session.is_running && (
-              <span className="flex-shrink-0 h-1.5 w-1.5 rounded-full bg-purple-500" />
-            )}
-            <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity)}</span>
-          </button>
-        ))}
+        {cache.sessions.map((session) => {
+          const ProviderIcon = getProviderIcon(session.provider);
+          const isRunning = session.is_running || runningSessionIds.has(`${session.provider}:${session.id}`);
+
+          return (
+            <button
+              key={`${session.provider}:${session.id}`}
+              onClick={() => openSessionTab(spacePath, session)}
+              className="w-full px-3 py-1.5 flex items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md"
+              title={`${getProviderLabel(session.provider)} · ${getSessionTitle(session)}`}
+            >
+              <span className="relative flex-shrink-0 inline-flex h-4 w-4 items-center justify-center">
+                <ProviderIcon className="h-3.5 w-3.5" />
+                {isRunning && (
+                  <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-purple-500 ring-1 ring-background" />
+                )}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{getSessionTitle(session)}</span>
+              <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity)}</span>
+            </button>
+          );
+        })}
         {cache.hasMore && !cache.loadedAll && (
           <button
             onClick={() => loadSpaceSessions(spacePath, 0)}
@@ -796,6 +874,19 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         </div>
                       </div>
                     </button>
+                    {project.path && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openNewSessionTab(project.path);
+                        }}
+                        className="flex-shrink-0 transition-all p-1 rounded opacity-0 group-hover/project:opacity-100 hover:bg-accent"
+                        title="New session"
+                        aria-label={`New session in ${getProjectName(project.path)}`}
+                      >
+                        <MessageSquarePlus className="h-3 w-3 text-muted-foreground" />
+                      </button>
+                    )}
                     {/* Delete button - only show on hover */}
                     {!removingProjects.has(project.id) && (
                       <button
@@ -967,6 +1058,19 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                   </div>
                                 </div>
                               </button>
+                              {!isRemoving && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openNewSessionTab(claudeProvider.path);
+                                  }}
+                                  className="flex-shrink-0 transition-all p-1 rounded opacity-0 group-hover/workspace:opacity-100 hover:bg-accent"
+                                  title="New session"
+                                  aria-label={`New session in ${workspaceBranches[claudeProvider.path] || workspace.branch || workspace.name}`}
+                                >
+                                  <MessageSquarePlus className="h-3 w-3 text-muted-foreground" />
+                                </button>
+                              )}
                               {/* Close workspace button - only show when workspace is open */}
                               {!isRemoving && isWorkspaceOpen(claudeProvider.path) && (
                                 <button
