@@ -1018,13 +1018,22 @@ ${message ? `**说明**:\n${message}` : ''}`;
     completeStopStatusBubble();
   }, [processState.isLoading, processState.interactiveSessionId, completeStopStatusBubble]);
 
+  // 1Hz tick that drives "thinking for Xs" / "running for Xs" displays.
+  // Gated on isLoading so an idle (or completed) session doesn't re-render
+  // this 1700-line component once a second for nothing — that re-render
+  // cascades through MessageStreamView + Virtuoso and showed up as steady
+  // background CPU when the user wasn't actively talking to the model.
+  // The displayed thinking duration is captured at the moment streaming
+  // ends (`durationMs` in setThinkingStatus), so we don't lose the readout.
   useEffect(() => {
+    if (!processState.isLoading) return;
+    setRuntimeNow(Date.now());
     const interval = setInterval(() => {
       setRuntimeNow(Date.now());
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [processState.isLoading]);
 
   const runtimeViewState = deriveRuntimeViewState({
     tracker: runtimeTracker,
