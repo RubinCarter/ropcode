@@ -28,7 +28,7 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
   className
 }) => {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef);
+  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef, !isStreaming);
   const [atBottom, setAtBottom] = useState(true);
   const streamMessageContext = useMemo(() => buildStreamMessageContext(messages), [messages]);
   const messageIndexByObject = useMemo(() => {

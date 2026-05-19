@@ -135,6 +135,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     projectPath: sessionState.projectPath,
     provider: defaultProvider,
   });
+  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef, !processState.isLoading);
 
   // Session metrics
   const metricsState = useSessionMetrics({

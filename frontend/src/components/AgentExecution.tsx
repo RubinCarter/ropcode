@@ -134,7 +134,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const fullscreenVirtuosoRef = useRef<VirtuosoHandle>(null);
-  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef);
+  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef, !isRunning);
   const [atBottom, setAtBottom] = useState(true);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const executionStartTimeRef = useRef<number | null>(null);
