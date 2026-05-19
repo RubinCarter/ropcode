@@ -47,6 +47,7 @@ export interface UseMessagesReturn {
   subagentTranscripts: Record<string, ClaudeStreamMessage[]>;
   agentOutputMap: Map<string, any>;
   streamMessageContext: StreamMessageContext;
+  renderTick: number;
 
   // Setters
   setMessages: React.Dispatch<React.SetStateAction<ClaudeStreamMessage[]>>;
@@ -301,6 +302,7 @@ export function useMessages(): UseMessagesReturn {
   const messagesRef = useRef<ClaudeStreamMessage[]>([]);
   const derivedRef = useRef<MessageDerivedState>(createEmptyDerivedMessagesState());
   const [version, setVersion] = useState(0);
+  const [structuralVersion, setStructuralVersion] = useState(0);
   const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
 
   const messages = messagesRef.current;
@@ -314,21 +316,38 @@ export function useMessages(): UseMessagesReturn {
     messagesRef.current = nextMessages;
     derivedRef.current = buildDerivedMessagesState(nextMessages);
     setVersion(v => v + 1);
+    setStructuralVersion(v => v + 1);
   };
 
   const messagesLengthRef = useRef(messages.length);
   messagesLengthRef.current = messages.length;
 
+  const prevSubagentIndexesRef = useRef<Set<number>>(new Set());
+
   const subagentProgress = useMemo(
     () => buildSubagentProgress(messages, subagentTranscripts),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [version, subagentTranscripts]
+    [structuralVersion, subagentTranscripts]
   );
 
+  const stableSubagentIndexes = useMemo(() => {
+    const next = subagentProgress.subagentMessageIndexes;
+    const prev = prevSubagentIndexesRef.current;
+    if (next.size === prev.size) {
+      let same = true;
+      for (const idx of next) {
+        if (!prev.has(idx)) { same = false; break; }
+      }
+      if (same) return prev;
+    }
+    prevSubagentIndexesRef.current = next;
+    return next;
+  }, [subagentProgress.subagentMessageIndexes]);
+
   const displayable = useMemo(
-    () => getDisplayableMessages(messages, subagentProgress.subagentMessageIndexes),
+    () => getDisplayableMessages(messages, stableSubagentIndexes),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [version, subagentProgress.subagentMessageIndexes]
+    [structuralVersion, stableSubagentIndexes]
   );
   const displayableMessageIndexes = displayable.indexes;
   const displayableMessages = displayable.messages;
@@ -353,6 +372,7 @@ export function useMessages(): UseMessagesReturn {
     const msgs = messagesRef.current;
     let derived = derivedRef.current;
     let changed = false;
+    let structural = false;
 
     // Apply buffered delta text
     if (bufferedText) {
@@ -390,6 +410,7 @@ export function useMessages(): UseMessagesReturn {
         msgs.push(newMsg);
         derived = applyMessageToDerivedState(derived, newMsg);
         changed = true;
+        structural = true;
       }
     }
 
@@ -398,11 +419,13 @@ export function useMessages(): UseMessagesReturn {
       msgs.push(msg);
       derived = applyMessageToDerivedState(derived, msg);
       changed = true;
+      structural = true;
     }
 
     if (changed) {
       derivedRef.current = derived;
       setVersion(v => v + 1);
+      if (structural) setStructuralVersion(v => v + 1);
     }
   };
 
@@ -453,6 +476,7 @@ export function useMessages(): UseMessagesReturn {
     messagesRef.current = [];
     derivedRef.current = createEmptyDerivedMessagesState();
     setVersion(v => v + 1);
+    setStructuralVersion(v => v + 1);
     setSubagentTranscripts({});
   };
 
@@ -466,6 +490,7 @@ export function useMessages(): UseMessagesReturn {
     subagentTranscripts,
     agentOutputMap: derivedRef.current.agentOutputMap,
     streamMessageContext: derivedRef.current.streamMessageContext,
+    renderTick: version,
     setMessages,
     setSubagentTranscripts,
     addMessage,

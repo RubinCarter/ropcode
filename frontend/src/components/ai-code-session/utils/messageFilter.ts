@@ -314,21 +314,24 @@ export function getDisplayableMessages(
   // are superseded so they don't flash in the main stream before disappearing.
   // Normal turns (where the last message is visible) are NOT deduped — the user
   // expects to see text + tool_use together in history.
-  const lastIndexByMessageId = new Map<string, number>();
-  for (let i = 0; i < messages.length; i++) {
-    const msgId = (messages[i] as any).message?.id;
-    if (msgId && messages[i].type === 'assistant') {
-      lastIndexByMessageId.set(msgId, i);
+  let supersededByMessageId: Set<number> | undefined;
+  if (hiddenIndexes && hiddenIndexes.size > 0) {
+    const lastIndexByMessageId = new Map<string, number>();
+    for (let i = 0; i < messages.length; i++) {
+      const msgId = (messages[i] as any).message?.id;
+      if (msgId && messages[i].type === 'assistant') {
+        lastIndexByMessageId.set(msgId, i);
+      }
     }
-  }
-  const supersededByMessageId = new Set<number>();
-  for (let i = 0; i < messages.length; i++) {
-    const msgId = (messages[i] as any).message?.id;
-    if (!msgId || messages[i].type !== 'assistant') continue;
-    const lastIdx = lastIndexByMessageId.get(msgId);
-    if (lastIdx === i) continue;
-    if (lastIdx !== undefined && hiddenIndexes?.has(lastIdx)) {
-      supersededByMessageId.add(i);
+    supersededByMessageId = new Set<number>();
+    for (let i = 0; i < messages.length; i++) {
+      const msgId = (messages[i] as any).message?.id;
+      if (!msgId || messages[i].type !== 'assistant') continue;
+      const lastIdx = lastIndexByMessageId.get(msgId);
+      if (lastIdx === i) continue;
+      if (lastIdx !== undefined && hiddenIndexes.has(lastIdx)) {
+        supersededByMessageId.add(i);
+      }
     }
   }
 
@@ -340,7 +343,7 @@ export function getDisplayableMessages(
   const supersededTransientIndexes = new Set<number>();
   let lastTransientIndex: number | null = null;
   for (let i = 0; i < messages.length; i++) {
-    if (supersededByMessageId.has(i)) continue;
+    if (supersededByMessageId?.has(i)) continue;
     if (!isDisplayableMessage(messages[i], i, hiddenIndexes, toolUseNamesById)) continue;
     if (isCollapsibleTransientMessage(messages[i])) {
       if (lastTransientIndex !== null) supersededTransientIndexes.add(lastTransientIndex);
@@ -351,7 +354,7 @@ export function getDisplayableMessages(
   }
 
   messages.forEach((message, index) => {
-    if (supersededByMessageId.has(index)) return;
+    if (supersededByMessageId?.has(index)) return;
     if (supersededTransientIndexes.has(index)) return;
     if (isDisplayableMessage(message, index, hiddenIndexes, toolUseNamesById)) {
       indexes.push(index);

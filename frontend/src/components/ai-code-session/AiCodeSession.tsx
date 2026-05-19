@@ -1725,6 +1725,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
     messagesState.displayableMessageIndexes,
     messagesState.messages,
     messagesState.subagentProgress.subagents,
+    messagesState.renderTick,
     processState.isLoading,
   ]);
 
