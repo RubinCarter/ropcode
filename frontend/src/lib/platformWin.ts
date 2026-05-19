@@ -5,3 +5,7 @@ export function hasNativeWindowControls(): boolean {
 export function usesMetaKeyForAppShortcuts(): boolean {
   return false;
 }
+
+export function fileManagerLabel(): string {
+  return 'Explorer';
+}

@@ -32,6 +32,7 @@ import (
 	"ropcode/internal/gitcontent"
 	"ropcode/internal/github"
 	"ropcode/internal/mcp"
+	"ropcode/internal/openin"
 	"ropcode/internal/pathutil"
 	"ropcode/internal/plugin"
 	"ropcode/internal/ssh"
@@ -3266,24 +3267,25 @@ func (a *App) ExecuteCommandAsync(command string, args []string, cwd string) (st
 	return key, nil
 }
 
-// OpenInTerminal opens a directory in the system terminal
+// OpenInTerminal opens a directory in the platform's default terminal.
 func (a *App) OpenInTerminal(path string) error {
-	// macOS: use 'open -a Terminal' command
-	cmd := exec.Command("open", "-a", "Terminal", path)
-	return cmd.Start()
+	return openin.Open(openin.DefaultTerminal(), path)
 }
 
-// OpenInEditor opens a file in the system editor
+// OpenInEditor opens a file or directory in VS Code.
 func (a *App) OpenInEditor(path string) error {
-	// macOS: try VS Code first, fallback to default editor
-	// Try VS Code
-	cmd := exec.Command("open", "-a", "Visual Studio Code", path)
-	if err := cmd.Start(); err != nil {
-		// Fallback to default editor
-		cmd = exec.Command("open", "-e", path)
-		return cmd.Start()
+	return openin.Open(openin.AppVSCode, path)
+}
+
+// ListOpenInApps returns the AppType identifiers supported on the current OS,
+// in the order they should appear in the menu.
+func (a *App) ListOpenInApps() []string {
+	items := openin.List()
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = string(it)
 	}
-	return nil
+	return out
 }
 
 // OpenUrl opens a URL in the system browser
@@ -4699,103 +4701,10 @@ func (a *App) SavePastedImage(base64Data, filename string) (string, error) {
 	return filePath, nil
 }
 
-// OpenInExternalApp opens a file or path in an external application
+// OpenInExternalApp opens a file or path in an external application identified
+// by appType. See internal/openin for the supported AppType values.
 func (a *App) OpenInExternalApp(appType, path string) error {
-	switch appType {
-	case "pycharm", "idea", "clion", "android-studio", "webstorm", "goland":
-		// JetBrains IDEs: search for app in /Applications and ~/Applications
-		// Support version suffixes like "PyCharm 2024.3.app"
-		homeDir, _ := os.UserHomeDir()
-		searchDirs := []string{"/Applications", filepath.Join(homeDir, "Applications")}
-
-		appPatterns := map[string]string{
-			"pycharm":        "PyCharm",
-			"idea":           "IntelliJ IDEA",
-			"clion":          "CLion",
-			"android-studio": "Android Studio",
-			"webstorm":       "WebStorm",
-			"goland":         "GoLand",
-		}
-
-		pattern := appPatterns[appType]
-		for _, dir := range searchDirs {
-			entries, err := os.ReadDir(dir)
-			if err != nil {
-				continue
-			}
-			for _, entry := range entries {
-				name := entry.Name()
-				if strings.HasPrefix(name, pattern) && strings.HasSuffix(name, ".app") {
-					fullPath := filepath.Join(dir, name)
-					// Use open -na <app> --args <path>
-					cmd := exec.Command("open", "-na", fullPath, "--args", path)
-					return cmd.Start()
-				}
-			}
-		}
-		return fmt.Errorf("%s is not installed or not found in /Applications or ~/Applications", pattern)
-
-	case "sublime":
-		// Sublime Text: use bundle identifier
-		// Try Sublime Text 4 first
-		cmd := exec.Command("open", "-b", "com.sublimetext.4", path)
-		if err := cmd.Start(); err == nil {
-			return nil
-		}
-		// Fall back to Sublime Text 3
-		cmd = exec.Command("open", "-b", "com.sublimetext.3", path)
-		return cmd.Start()
-
-	case "iterm":
-		// iTerm: use AppleScript to open new tab and cd to directory
-		script := fmt.Sprintf(`tell application "iTerm"
-    activate
-    try
-        tell current window
-            create tab with default profile
-            tell current session
-                write text "cd '%s'"
-            end tell
-        end tell
-    on error
-        create window with default profile
-        tell current session of current window
-            write text "cd '%s'"
-        end tell
-    end try
-end tell`, path, path)
-		cmd := exec.Command("osascript", "-e", script)
-		return cmd.Start()
-
-	case "finder":
-		// Finder: just use 'open <path>'
-		cmd := exec.Command("open", path)
-		return cmd.Start()
-
-	case "terminal":
-		// Terminal: use AppleScript
-		script := fmt.Sprintf(`tell application "Terminal"
-    activate
-    do script "cd '%s'"
-end tell`, path)
-		cmd := exec.Command("osascript", "-e", script)
-		return cmd.Start()
-
-	case "vscode":
-		// VS Code: use bundle identifier
-		cmd := exec.Command("open", "-b", "com.microsoft.VSCode", path)
-		return cmd.Start()
-
-	case "cursor":
-		// Cursor: use bundle identifier
-		cmd := exec.Command("open", "-b", "com.todesktop.230313mzl4w4u92", path)
-		return cmd.Start()
-
-	default:
-		// Unknown app type, try using it as app name directly
-		cmd := exec.Command("open", "-a", appType, path)
-		return cmd.Start()
-	}
+	return openin.Open(openin.AppType(appType), path)
 }
 
 // IsPtySessionAlive checks if a PTY session is alive

@@ -584,6 +584,18 @@ export function GenerateSessionTitle(prompt: string): Promise<string> {
   return wsClient.call('GenerateSessionTitle', prompt);
 }
 
+export function GenerateSessionTitleForSession(provider: string, sessionId: string, projectId: string): Promise<string> {
+  return wsClient.call('GenerateSessionTitleForSession', provider, sessionId, projectId);
+}
+
+export function GenerateBranchName(projectPath: string): Promise<string> {
+  return wsClient.call('GenerateBranchName', projectPath);
+}
+
+export function RenameGitBranch(projectPath: string, newBranch: string): Promise<string> {
+  return wsClient.call('RenameGitBranch', projectPath, newBranch);
+}
+
 export function SaveGeneratedSessionTitle(provider: string, sessionId: string, title: string): Promise<void> {
   return wsClient.call('SaveGeneratedSessionTitle', provider, sessionId, title);
 }
@@ -1073,12 +1085,16 @@ export function OpenInEditor(path: string): Promise<void> {
   return wsClient.call('OpenInEditor', path);
 }
 
-export function OpenInExternalApp(path: string, app: string): Promise<void> {
-  return wsClient.call('OpenInExternalApp', path, app);
+export function OpenInExternalApp(appType: string, path: string): Promise<void> {
+  return wsClient.call('OpenInExternalApp', appType, path);
 }
 
 export function OpenInTerminal(path: string): Promise<void> {
   return wsClient.call('OpenInTerminal', path);
+}
+
+export function ListOpenInApps(): Promise<string[]> {
+  return wsClient.call('ListOpenInApps');
 }
 
 export function OpenFileDialog(title: string, defaultPath: string, filters: any[]): Promise<string> {

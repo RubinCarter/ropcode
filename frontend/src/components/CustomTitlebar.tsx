@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { ContainerTabManager } from '@/components/containers';
 import { useContainerContext } from '@/contexts/ContainerContext';
 import { InstanceSwitcher } from '@/components/InstanceSwitcher';
-import { hasNativeWindowControls } from '@/lib/platform';
+import { hasNativeWindowControls, fileManagerLabel } from '@/lib/platform';
 import { basename } from '@/lib/pathUtils';
 import {
   DropdownMenu,
@@ -34,6 +34,30 @@ interface CustomTitlebarProps {
   sidebarWidth?: number; // 左侧栏像素宽度
   rightSidebarOpen?: boolean;
   rightSidebarWidthPercent?: number; // 右侧栏宽度百分比
+}
+
+const OPEN_IN_LABELS: Record<string, string> = {
+  vscode: 'VS Code',
+  cursor: 'Cursor',
+  windsurf: 'Windsurf',
+  pycharm: 'PyCharm',
+  idea: 'IntelliJ IDEA',
+  'android-studio': 'Android Studio',
+  clion: 'CLion',
+  webstorm: 'WebStorm',
+  goland: 'GoLand',
+  sublime: 'Sublime Text',
+  iterm: 'iTerm',
+  terminal: 'Terminal',
+  cmd: 'Command Prompt',
+  powershell: 'PowerShell',
+  gitbash: 'Git Bash',
+  wt: 'Windows Terminal',
+};
+
+function labelForApp(appType: string): string {
+  if (appType === 'filemanager') return fileManagerLabel();
+  return OPEN_IN_LABELS[appType] ?? appType;
 }
 
 export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
@@ -83,6 +107,20 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   // 工作空间清理状态
   const [isCleaning, setIsCleaning] = useState(false);
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
+
+  // Open-in apps menu (resolved from backend on mount, platform-specific)
+  const [openInApps, setOpenInApps] = useState<string[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.listOpenInApps()
+      .then((apps: string[]) => {
+        if (!cancelled) setOpenInApps(apps);
+      })
+      .catch((err: unknown) => {
+        console.error('[CustomTitlebar] Failed to list open-in apps:', err);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Git 支持状态
   const [hasGitSupport, setHasGitSupport] = useState(false);
@@ -458,7 +496,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     window.dispatchEvent(new CustomEvent('toggle-right-sidebar'));
   };
 
-  const handleOpenInApp = async (appType: "pycharm" | "idea" | "clion" | "android-studio" | "iterm" | "finder" | "sublime") => {
+  const handleOpenInApp = async (appType: string) => {
     console.log('[CustomTitlebar] handleOpenInApp called with:', { appType, currentProjectPath });
 
     if (!currentProjectPath) {
@@ -551,15 +589,15 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
           {typeof window !== 'undefined' && window.location.port && (
             <InstanceSwitcher />
           )}
-          {/* Workspace Name - 显示在 Open in 按钮左侧，点击打开 Finder */}
+          {/* Workspace Name - 显示在 Open in 按钮左侧，点击打开文件管理器 */}
           {workspaceInfo && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                handleOpenInApp('finder');
+                handleOpenInApp('filemanager');
               }}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-accent/30 hover:bg-accent/50 text-[11px] text-foreground transition-colors window-no-drag cursor-pointer"
-              title="Click to open in Finder"
+              title={`Click to open in ${fileManagerLabel()}`}
             >
               <Folder className="w-3.5 h-3.5" />
               <span className="font-medium">/{workspaceInfo.workspaceName}</span>
@@ -567,7 +605,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
           )}
 
           {/* Open in External App button */}
-          {currentProjectPath && (
+          {currentProjectPath && openInApps.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -580,27 +618,11 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48 window-no-drag">
-                <DropdownMenuItem onClick={() => handleOpenInApp('finder')}>
-                  <span className="text-sm">Finder</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleOpenInApp('pycharm')}>
-                  <span className="text-sm">PyCharm</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleOpenInApp('idea')}>
-                  <span className="text-sm">IntelliJ IDEA</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleOpenInApp('android-studio')}>
-                  <span className="text-sm">Android Studio</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleOpenInApp('clion')}>
-                  <span className="text-sm">CLion</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleOpenInApp('iterm')}>
-                  <span className="text-sm">iTerm</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleOpenInApp('sublime')}>
-                  <span className="text-sm">Sublime Text</span>
-                </DropdownMenuItem>
+                {openInApps.map((appType) => (
+                  <DropdownMenuItem key={appType} onClick={() => handleOpenInApp(appType)}>
+                    <span className="text-sm">{labelForApp(appType)}</span>
+                  </DropdownMenuItem>
+                ))}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
