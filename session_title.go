@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"ropcode/internal/claude"
+	"ropcode/internal/database"
 	"ropcode/internal/git"
 )
 
@@ -419,8 +420,8 @@ func (a *App) titleCLIWorkDir() string {
 // __MORE3__
 // runCLIForTitle invokes the matching local CLI (claude / codex / gemini) in
 // one-shot exec mode to generate a short title or branch name. If the direct
-// API is configured (session_title_api_url + session_title_api_key), it uses
-// that instead — much faster and avoids CLI argument length limits on Windows.
+// API is configured (session_title_provider_api_id + session_title_model), it
+// uses that instead — much faster and avoids CLI argument length limits on Windows.
 func (a *App) runCLIForTitle(ctx context.Context, provider, projectPath, model, systemPrompt, userPrompt string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -466,39 +467,126 @@ func resolveCLIWorkingDir(projectPath string) string {
 	return ""
 }
 
-// loadTitleAPIConfig reads the direct API settings for title generation.
-// Priority: DB settings > Claude settings.json env fallback.
+// loadTitleAPIConfig resolves the API settings for title generation.
+// Reads session_title_provider_api_id which can be either a DB ProviderApiConfig ID
+// or a synthetic env-detected ID (e.g. "env:claude").
 func (a *App) loadTitleAPIConfig() (apiURL, apiKey, model, apiFormat string, err error) {
 	if a.dbManager == nil {
 		return "", "", "", "", fmt.Errorf("database not initialized")
 	}
-	apiURL, _ = a.dbManager.GetSetting("session_title_api_url")
-	apiKey, _ = a.dbManager.GetSetting("session_title_api_key")
+
 	model, _ = a.dbManager.GetSetting("session_title_model")
-	apiFormat, _ = a.dbManager.GetSetting("session_title_api_format")
-	apiURL = strings.TrimSpace(apiURL)
-	apiKey = strings.TrimSpace(apiKey)
 	model = strings.TrimSpace(model)
-	apiFormat = strings.TrimSpace(strings.ToLower(apiFormat))
-	if apiFormat == "" {
-		apiFormat = "openai"
+
+	providerApiID, _ := a.dbManager.GetSetting("session_title_provider_api_id")
+	providerApiID = strings.TrimSpace(providerApiID)
+	if providerApiID == "" {
+		return "", "", model, "", fmt.Errorf("session title provider not configured")
 	}
 
-	// Fallback: read from ~/.claude/settings.json env block
-	if apiURL == "" || apiKey == "" {
-		fallbackURL, fallbackKey := readClaudeSettingsEnv()
-		if apiURL == "" && fallbackURL != "" {
-			if apiFormat == "anthropic" {
-				apiURL = strings.TrimRight(fallbackURL, "/") + "/v1/messages"
-			} else {
-				apiURL = strings.TrimRight(fallbackURL, "/") + "/v1/chat/completions"
-			}
+	// Resolve the provider config (DB entry or env-detected)
+	resolved := a.resolveTitleProviderConfig(providerApiID)
+	if resolved == nil {
+		return "", "", model, "", fmt.Errorf("provider config %q not found", providerApiID)
+	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(resolved.BaseURL), "/")
+	apiKey = strings.TrimSpace(resolved.AuthToken)
+	if baseURL == "" || apiKey == "" {
+		return "", "", model, "", fmt.Errorf("provider config %q missing base_url or auth_token", providerApiID)
+	}
+
+	if resolved.ProviderID == "claude" {
+		apiFormat = "anthropic"
+		if !strings.Contains(baseURL, "/v1/messages") {
+			apiURL = baseURL + "/v1/messages"
+		} else {
+			apiURL = baseURL
 		}
-		if apiKey == "" && fallbackKey != "" {
-			apiKey = fallbackKey
+	} else {
+		apiFormat = "openai"
+		if !strings.Contains(baseURL, "/v1/chat/completions") {
+			apiURL = baseURL + "/v1/chat/completions"
+		} else {
+			apiURL = baseURL
 		}
 	}
+
 	return apiURL, apiKey, model, apiFormat, nil
+}
+
+// TitleProviderOption represents a provider option for the title generation dropdown.
+type TitleProviderOption struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	ProviderID string `json:"provider_id"`
+	Source     string `json:"source"` // "db" or "env"
+}
+
+// GetSessionTitleProviderOptions returns a unified list of available provider configs
+// combining DB entries and auto-detected env configurations.
+func (a *App) GetSessionTitleProviderOptions() ([]TitleProviderOption, error) {
+	options := make([]TitleProviderOption, 0)
+
+	// 1. DB provider API configs
+	if a.dbManager != nil {
+		configs, err := a.dbManager.GetAllProviderApiConfigs()
+		if err == nil {
+			for _, cfg := range configs {
+				if cfg == nil || cfg.BaseURL == "" || cfg.AuthToken == "" {
+					continue
+				}
+				options = append(options, TitleProviderOption{
+					ID:         cfg.ID,
+					Name:       cfg.Name,
+					ProviderID: cfg.ProviderID,
+					Source:     "db",
+				})
+			}
+		}
+	}
+
+	// 2. Auto-detected from ~/.claude/settings.json
+	if baseURL, authToken := readClaudeSettingsEnv(); baseURL != "" && authToken != "" {
+		options = append(options, TitleProviderOption{
+			ID:         "env:claude",
+			Name:       "Claude (settings.json)",
+			ProviderID: "claude",
+			Source:     "env",
+		})
+	}
+
+	return options, nil
+}
+
+// resolveTitleProviderConfig resolves a provider config by ID.
+// Supports both DB IDs and synthetic env IDs like "env:claude".
+func (a *App) resolveTitleProviderConfig(id string) *database.ProviderApiConfig {
+	if strings.HasPrefix(id, "env:") {
+		switch id {
+		case "env:claude":
+			baseURL, authToken := readClaudeSettingsEnv()
+			if baseURL != "" && authToken != "" {
+				return &database.ProviderApiConfig{
+					ID:         "env:claude",
+					Name:       "Claude (settings.json)",
+					ProviderID: "claude",
+					BaseURL:    baseURL,
+					AuthToken:  authToken,
+				}
+			}
+		}
+		return nil
+	}
+
+	if a.dbManager == nil {
+		return nil
+	}
+	cfg, err := a.dbManager.GetProviderApiConfig(id)
+	if err != nil || cfg == nil {
+		return nil
+	}
+	return cfg
 }
 
 func readClaudeSettingsEnv() (baseURL, authToken string) {
@@ -524,12 +612,77 @@ func readClaudeSettingsEnv() (baseURL, authToken string) {
 	return baseURL, authToken
 }
 
-// runDirectAPIForTitle calls an OpenAI-compatible or Anthropic-compatible
+// GetSessionTitleAvailableModels queries the configured API endpoint's /v1/models
+// and returns the list of available model IDs for the title generation dropdown.
+func (a *App) GetSessionTitleAvailableModels() ([]string, error) {
+	if a.dbManager == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	providerApiID, _ := a.dbManager.GetSetting("session_title_provider_api_id")
+	providerApiID = strings.TrimSpace(providerApiID)
+	if providerApiID == "" {
+		return nil, fmt.Errorf("no provider selected")
+	}
+
+	resolved := a.resolveTitleProviderConfig(providerApiID)
+	if resolved == nil {
+		return nil, fmt.Errorf("provider config %q not found", providerApiID)
+	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(resolved.BaseURL), "/")
+	apiKey := strings.TrimSpace(resolved.AuthToken)
+	if baseURL == "" || apiKey == "" {
+		return nil, fmt.Errorf("provider config missing base_url or auth_token")
+	}
+
+	modelsURL := baseURL + "/v1/models"
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", modelsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("API returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse models response: %w", err)
+	}
+
+	models := make([]string, 0, len(result.Data))
+	for _, m := range result.Data {
+		if m.ID != "" {
+			models = append(models, m.ID)
+		}
+	}
+	return models, nil
+}
 // endpoint directly via HTTP. Bypasses the CLI entirely.
 func (a *App) runDirectAPIForTitle(ctx context.Context, model, systemPrompt, userPrompt string) (string, error) {
 	apiURL, apiKey, _, apiFormat, err := a.loadTitleAPIConfig()
 	if err != nil || apiURL == "" || apiKey == "" {
-		return "", fmt.Errorf("title API not configured (set API URL and Key in Settings)")
+		return "", fmt.Errorf("title API not configured (select a Provider in Settings): %v", err)
 	}
 
 	if apiFormat == "anthropic" {
@@ -809,14 +962,6 @@ func extractCodexAssistantText(stdout string) string {
 	return strings.TrimSpace(lastText)
 }
 
-// __MORE4__
-// loadSessionTitleModel returns the user-configured small CLI provider and
-// model used for titling. Empty strings mean nothing has been configured.
-// loadSessionTitleModel is kept for backward compat but now just reads the model.
-func (a *App) loadSessionTitleModel() (string, string, error) {
-	_, _, model, _, err := a.loadTitleAPIConfig()
-	return "", model, err
-}
 
 // GenerateSessionTitle generates a title for a new session from its first prompt.
 // Falls back to prompt-derived title if API is not configured or fails.
@@ -856,7 +1001,7 @@ func (a *App) GenerateSessionTitleForSession(provider, sessionID, projectID stri
 
 	apiURL, apiKey, model, _, _ := a.loadTitleAPIConfig()
 	if apiURL == "" || apiKey == "" || model == "" {
-		return "", fmt.Errorf("session title API is not configured (set API URL, Key and Model in Settings)")
+		return "", fmt.Errorf("session title not configured (select a Provider and Model in Settings)")
 	}
 
 	messages, err := a.LoadProviderSessionHistory(sessionID, projectID, provider)
@@ -922,7 +1067,7 @@ func (a *App) GenerateBranchName(projectPath string) (string, error) {
 
 	apiURL, apiKey, model, _, _ := a.loadTitleAPIConfig()
 	if apiURL == "" || apiKey == "" || model == "" {
-		return "", fmt.Errorf("session title API is not configured (set API URL, Key and Model in Settings)")
+		return "", fmt.Errorf("session title not configured (select a Provider and Model in Settings)")
 	}
 
 	result, err := a.ListSpaceSessions(projectPath, 4)

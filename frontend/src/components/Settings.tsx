@@ -16,11 +16,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { 
-  api, 
+import {
+  api,
   type ClaudeSettings,
-  type ClaudeInstallation
+  type ClaudeInstallation,
 } from "@/lib/api";
+import type { TitleProviderOption } from "@/lib/rpc-client";
 import { cn } from "@/lib/utils";
 import { Toast, ToastContainer } from "@/components/ui/toast";
 import { ClaudeVersionSelector } from "./ClaudeVersionSelector";
@@ -103,9 +104,9 @@ export const Settings: React.FC<SettingsProps> = ({
   // Startup intro preference
   const [startupIntroEnabled, setStartupIntroEnabled] = useState(true);
   const [sessionTitleModel, setSessionTitleModel] = useState("");
-  const [sessionTitleApiUrl, setSessionTitleApiUrl] = useState("");
-  const [sessionTitleApiKey, setSessionTitleApiKey] = useState("");
-  const [sessionTitleApiFormat, setSessionTitleApiFormat] = useState("openai");
+  const [sessionTitleProviderApiId, setSessionTitleProviderApiId] = useState("");
+  const [titleProviderOptions, setTitleProviderOptions] = useState<TitleProviderOption[]>([]);
+  const [titleAvailableModels, setTitleAvailableModels] = useState<string[]>([]);
 
   // Load settings on mount
   useEffect(() => {
@@ -120,16 +121,20 @@ export const Settings: React.FC<SettingsProps> = ({
       setStartupIntroEnabled(pref === null ? true : pref === 'true');
     })();
     (async () => {
-      const [model, apiUrl, apiKey, apiFormat] = await Promise.all([
+      const [model, providerApiId, providers] = await Promise.all([
         api.getSetting('session_title_model'),
-        api.getSetting('session_title_api_url'),
-        api.getSetting('session_title_api_key'),
-        api.getSetting('session_title_api_format'),
+        api.getSetting('session_title_provider_api_id'),
+        api.GetSessionTitleProviderOptions(),
       ]);
       setSessionTitleModel(model || "");
-      setSessionTitleApiUrl(apiUrl || "");
-      setSessionTitleApiKey(apiKey || "");
-      setSessionTitleApiFormat(apiFormat || "openai");
+      setSessionTitleProviderApiId(providerApiId || "");
+      setTitleProviderOptions(providers || []);
+      // Fetch available models from the configured API endpoint
+      if (providerApiId) {
+        api.GetSessionTitleAvailableModels()
+          .then((models: string[]) => setTitleAvailableModels(models || []))
+          .catch(() => setTitleAvailableModels([]));
+      }
     })();
   }, []);
 
@@ -758,75 +763,58 @@ export const Settings: React.FC<SettingsProps> = ({
                         <div className="space-y-1">
                           <Label>Session Title Generation</Label>
                           <p className="text-caption text-muted-foreground">
-                            Choose a separate low-cost model for generated session titles. Leave either field empty to use metadata and first-message fallback only.
+                            Select a provider and model for auto-generating session titles. Titles are generated after the first round of conversation completes.
                           </p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="space-y-2">
-                          <Label htmlFor="session-title-api-format">API Format</Label>
+                          <Label htmlFor="session-title-provider">Provider</Label>
                           <select
-                            id="session-title-api-format"
-                            value={sessionTitleApiFormat}
+                            id="session-title-provider"
+                            value={sessionTitleProviderApiId}
                             onChange={(e) => {
                               const v = e.target.value;
-                              setSessionTitleApiFormat(v);
-                              api.saveSetting('session_title_api_format', v);
+                              setSessionTitleProviderApiId(v);
+                              api.saveSetting('session_title_provider_api_id', v);
+                              // Refresh model list when provider changes
+                              if (v) {
+                                setTitleAvailableModels([]);
+                                api.GetSessionTitleAvailableModels()
+                                  .then((models: string[]) => setTitleAvailableModels(models || []))
+                                  .catch(() => setTitleAvailableModels([]));
+                              } else {
+                                setTitleAvailableModels([]);
+                              }
                             }}
                             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                           >
-                            <option value="openai">OpenAI Compatible</option>
-                            <option value="anthropic">Anthropic</option>
+                            <option value="">Not configured</option>
+                            {titleProviderOptions.map((opt) => (
+                              <option key={opt.id} value={opt.id}>
+                                {opt.name} ({opt.provider_id})
+                              </option>
+                            ))}
                           </select>
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="session-title-model">Model</Label>
-                          <Input
+                          <select
                             id="session-title-model"
                             value={sessionTitleModel}
-                            onChange={(e) => setSessionTitleModel(e.target.value)}
-                            onBlur={(e) => {
-                              const v = e.target.value.trim();
+                            onChange={(e) => {
+                              const v = e.target.value;
                               setSessionTitleModel(v);
                               api.saveSetting('session_title_model', v);
                             }}
-                            placeholder="gpt-4o-mini / claude-3-5-haiku..."
-                            className="font-mono text-sm"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-                        <div className="space-y-2">
-                          <Label htmlFor="session-title-api-url">API URL</Label>
-                          <Input
-                            id="session-title-api-url"
-                            value={sessionTitleApiUrl}
-                            onBlur={(e) => {
-                              const v = e.target.value.trim();
-                              setSessionTitleApiUrl(v);
-                              api.saveSetting('session_title_api_url', v);
-                            }}
-                            onChange={(e) => setSessionTitleApiUrl(e.target.value)}
-                            placeholder="http://host/v1/chat/completions"
-                            className="font-mono text-sm"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="session-title-api-key">API Key</Label>
-                          <Input
-                            id="session-title-api-key"
-                            type="password"
-                            value={sessionTitleApiKey}
-                            onBlur={(e) => {
-                              const v = e.target.value.trim();
-                              setSessionTitleApiKey(v);
-                              api.saveSetting('session_title_api_key', v);
-                            }}
-                            onChange={(e) => setSessionTitleApiKey(e.target.value)}
-                            placeholder="sk-..."
-                            className="font-mono text-sm"
-                          />
+                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                          >
+                            <option value="">Not selected</option>
+                            {titleAvailableModels.map((m) => (
+                              <option key={m} value={m}>{m}</option>
+                            ))}
+                          </select>
                         </div>
                       </div>
                     </div>

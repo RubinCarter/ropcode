@@ -596,6 +596,21 @@ export function GenerateSessionTitleForSessionAsync(provider: string, sessionId:
   return wsClient.call('GenerateSessionTitleForSessionAsync', provider, sessionId, projectId);
 }
 
+export function GetSessionTitleAvailableModels(): Promise<string[]> {
+  return wsClient.call('GetSessionTitleAvailableModels');
+}
+
+export interface TitleProviderOption {
+  id: string;
+  name: string;
+  provider_id: string;
+  source: string;
+}
+
+export function GetSessionTitleProviderOptions(): Promise<TitleProviderOption[]> {
+  return wsClient.call('GetSessionTitleProviderOptions');
+}
+
 export function GenerateBranchName(projectPath: string): Promise<string> {
   return wsClient.call('GenerateBranchName', projectPath);
 }

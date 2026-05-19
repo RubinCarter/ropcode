@@ -11,12 +11,10 @@ async function readSource(filePath: string) {
   return fs.readFile(filePath, 'utf8');
 }
 
-test('Settings exposes session title API configuration', async () => {
+test('Settings exposes session title provider and model configuration', async () => {
   const source = await readSource(settingsPath);
 
-  assert.match(source, /session_title_api_url/);
-  assert.match(source, /session_title_api_key/);
-  assert.match(source, /session_title_api_format/);
+  assert.match(source, /session_title_provider_api_id/);
   assert.match(source, /session_title_model/);
 });
 
