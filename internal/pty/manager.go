@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 // EventEmitter interface for emitting events to the frontend
@@ -99,9 +100,90 @@ func (m *Manager) CreateSession(id, cwd string, rows, cols int, shell string) (*
 	return session, nil
 }
 
-// readOutput reads from PTY and emits events
+// readOutput reads from a PTY and emits "pty-output" events to the front-end.
+//
+// Output is coalesced over a 16ms window before emission so that bursty
+// programs like `npm run dev` produce roughly one event per frame rather than
+// hundreds. The previous implementation emitted every read directly, which
+// during fast streaming overwhelmed the WebSocket Send queue and starved
+// regular RPC responses on the same connection.
+//
+// Two paths flush the pending buffer:
+//
+//   - Read goroutine: when the read returns and the accumulator has filled
+//     past the high-water mark, OR the flush timer fires for the next 16ms
+//     boundary.
+//   - Session shutdown: residual bytes are flushed before the goroutine
+//     exits so the user sees the final lines.
+const (
+	ptyFlushInterval = 16 * time.Millisecond
+	// Flush eagerly when a single batch exceeds this many bytes so very large
+	// outputs (compiler dumps, log floods) don't pile up unbounded in memory.
+	ptyFlushHighWater = 64 * 1024
+)
+
 func (m *Manager) readOutput(session *Session) {
 	buf := make([]byte, 8192)
+	pending := make([]byte, 0, ptyFlushHighWater)
+
+	flush := func() {
+		if len(pending) == 0 || m.emitter == nil {
+			pending = pending[:0]
+			return
+		}
+		m.emitter.Emit("pty-output", PtyOutput{
+			SessionID:  session.ID,
+			OutputType: "stdout",
+			Content:    string(pending),
+		})
+		pending = pending[:0]
+	}
+
+	// Reads run on this goroutine; the timer fires on the runtime timer
+	// goroutine but only signals via flushReady so we don't race with the
+	// in-flight Read call.
+	flushReady := make(chan struct{}, 1)
+	readDone := make(chan struct{})
+	timer := time.NewTimer(ptyFlushInterval)
+	if !timer.Stop() {
+		<-timer.C
+	}
+	timerArmed := false
+	armTimer := func() {
+		if timerArmed {
+			return
+		}
+		timer.Reset(ptyFlushInterval)
+		timerArmed = true
+	}
+	go func() {
+		for {
+			select {
+			case <-session.Done():
+				return
+			case <-m.ctx.Done():
+				return
+			case <-readDone:
+				return
+			case <-timer.C:
+				select {
+				case flushReady <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+
+	defer func() {
+		close(readDone)
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		flush()
+	}()
 
 	for {
 		select {
@@ -109,18 +191,30 @@ func (m *Manager) readOutput(session *Session) {
 			return
 		case <-m.ctx.Done():
 			return
+		case <-flushReady:
+			timerArmed = false
+			flush()
 		default:
 			n, err := session.Read(buf)
 			if err != nil {
 				return
 			}
-			if n > 0 && m.emitter != nil {
-				m.emitter.Emit("pty-output", PtyOutput{
-					SessionID:  session.ID,
-					OutputType: "stdout",
-					Content:    string(buf[:n]),
-				})
+			if n == 0 {
+				continue
 			}
+			pending = append(pending, buf[:n]...)
+			if len(pending) >= ptyFlushHighWater {
+				flush()
+				timerArmed = false
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				continue
+			}
+			armTimer()
 		}
 	}
 }
