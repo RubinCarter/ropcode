@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -401,10 +403,24 @@ func (a *App) titleClaudeHomeDir() (string, error) {
 	return titleHome, nil
 }
 
+// titleCLIWorkDir returns a bare directory for the Claude CLI to run in.
+// It must NOT contain .claude/ or .git/ — otherwise the CLI treats it as a
+// project root and injects project context into the system prompt.
+func (a *App) titleCLIWorkDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".ropcode-cache", "title-cwd")
+	os.MkdirAll(dir, 0o755)
+	return dir
+}
+
 // __MORE3__
 // runCLIForTitle invokes the matching local CLI (claude / codex / gemini) in
-// one-shot exec mode to generate a short title or branch name. The user has
-// already authenticated those CLIs, so we never need to handle credentials here.
+// one-shot exec mode to generate a short title or branch name. If the direct
+// API is configured (session_title_api_url + session_title_api_key), it uses
+// that instead — much faster and avoids CLI argument length limits on Windows.
 func (a *App) runCLIForTitle(ctx context.Context, provider, projectPath, model, systemPrompt, userPrompt string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -415,13 +431,17 @@ func (a *App) runCLIForTitle(ctx context.Context, provider, projectPath, model, 
 		return "", fmt.Errorf("user prompt is empty")
 	}
 
-	// Merge system prompt into user prompt so the CLI's own system prompt
-	// doesn't conflict with our titling instructions.
+	// Try direct API first (OpenAI-compatible, fast, no CLI overhead).
+	apiURL, apiKey, _, _, _ := a.loadTitleAPIConfig()
+	if apiURL != "" && apiKey != "" {
+		return a.runDirectAPIForTitle(ctx, model, systemPrompt, userPrompt)
+	}
+
+	// Fallback: merge system prompt into user prompt and spawn CLI.
 	if sys := strings.TrimSpace(systemPrompt); sys != "" {
 		userPrompt = sys + "\n\n" + userPrompt
 	}
-
-	systemPrompt, userPrompt = enforceTitleInputBudget("", userPrompt)
+	_, userPrompt = enforceTitleInputBudget("", userPrompt)
 
 	switch provider {
 	case "claude", "anthropic":
@@ -444,6 +464,192 @@ func resolveCLIWorkingDir(projectPath string) string {
 		return projectPath
 	}
 	return ""
+}
+
+// loadTitleAPIConfig reads the direct API settings for title generation.
+// Priority: DB settings > Claude settings.json env fallback.
+func (a *App) loadTitleAPIConfig() (apiURL, apiKey, model, apiFormat string, err error) {
+	if a.dbManager == nil {
+		return "", "", "", "", fmt.Errorf("database not initialized")
+	}
+	apiURL, _ = a.dbManager.GetSetting("session_title_api_url")
+	apiKey, _ = a.dbManager.GetSetting("session_title_api_key")
+	model, _ = a.dbManager.GetSetting("session_title_model")
+	apiFormat, _ = a.dbManager.GetSetting("session_title_api_format")
+	apiURL = strings.TrimSpace(apiURL)
+	apiKey = strings.TrimSpace(apiKey)
+	model = strings.TrimSpace(model)
+	apiFormat = strings.TrimSpace(strings.ToLower(apiFormat))
+	if apiFormat == "" {
+		apiFormat = "openai"
+	}
+
+	// Fallback: read from ~/.claude/settings.json env block
+	if apiURL == "" || apiKey == "" {
+		fallbackURL, fallbackKey := readClaudeSettingsEnv()
+		if apiURL == "" && fallbackURL != "" {
+			if apiFormat == "anthropic" {
+				apiURL = strings.TrimRight(fallbackURL, "/") + "/v1/messages"
+			} else {
+				apiURL = strings.TrimRight(fallbackURL, "/") + "/v1/chat/completions"
+			}
+		}
+		if apiKey == "" && fallbackKey != "" {
+			apiKey = fallbackKey
+		}
+	}
+	return apiURL, apiKey, model, apiFormat, nil
+}
+
+func readClaudeSettingsEnv() (baseURL, authToken string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		return "", ""
+	}
+	var settings struct {
+		Env map[string]string `json:"env"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return "", ""
+	}
+	baseURL = settings.Env["ANTHROPIC_BASE_URL"]
+	authToken = settings.Env["ANTHROPIC_AUTH_TOKEN"]
+	if authToken == "" {
+		authToken = settings.Env["ANTHROPIC_API_KEY"]
+	}
+	return baseURL, authToken
+}
+
+// runDirectAPIForTitle calls an OpenAI-compatible or Anthropic-compatible
+// endpoint directly via HTTP. Bypasses the CLI entirely.
+func (a *App) runDirectAPIForTitle(ctx context.Context, model, systemPrompt, userPrompt string) (string, error) {
+	apiURL, apiKey, _, apiFormat, err := a.loadTitleAPIConfig()
+	if err != nil || apiURL == "" || apiKey == "" {
+		return "", fmt.Errorf("title API not configured (set API URL and Key in Settings)")
+	}
+
+	if apiFormat == "anthropic" {
+		return a.callAnthropicAPI(ctx, apiURL, apiKey, model, systemPrompt, userPrompt)
+	}
+	return a.callOpenAIAPI(ctx, apiURL, apiKey, model, systemPrompt, userPrompt)
+}
+
+func (a *App) callOpenAIAPI(ctx context.Context, apiURL, apiKey, model, systemPrompt, userPrompt string) (string, error) {
+	messages := []map[string]string{}
+	if strings.TrimSpace(systemPrompt) != "" {
+		messages = append(messages, map[string]string{"role": "system", "content": systemPrompt})
+	}
+	messages = append(messages, map[string]string{"role": "user", "content": userPrompt})
+
+	reqBody := map[string]interface{}{
+		"model":      model,
+		"max_tokens": 4096,
+		"messages":   messages,
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("API returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w (body: %.200s)", err, string(respBody))
+	}
+	if len(result.Choices) > 0 {
+		text := strings.TrimSpace(result.Choices[0].Message.Content)
+		if text != "" {
+			return text, nil
+		}
+	}
+	return "", fmt.Errorf("API returned no text content (body: %.500s)", string(respBody))
+}
+
+func (a *App) callAnthropicAPI(ctx context.Context, apiURL, apiKey, model, systemPrompt, userPrompt string) (string, error) {
+	reqBody := map[string]interface{}{
+		"model":      model,
+		"max_tokens": 60,
+		"messages": []map[string]string{
+			{"role": "user", "content": userPrompt},
+		},
+	}
+	if strings.TrimSpace(systemPrompt) != "" {
+		reqBody["system"] = systemPrompt
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("API returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	for _, block := range result.Content {
+		if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+			return strings.TrimSpace(block.Text), nil
+		}
+	}
+	return "", fmt.Errorf("API returned no text content")
 }
 
 func (a *App) runClaudeCLIForTitle(ctx context.Context, projectPath, model, prompt string) (string, error) {
@@ -475,17 +681,11 @@ func (a *App) runClaudeCLIForTitle(ctx context.Context, projectPath, model, prom
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=true")
 
-	// Run from the sanitized title HOME — NOT the project directory. Running
-	// from the project dir causes the CLI to load CLAUDE.md and project
-	// context into its system prompt, adding thousands of irrelevant tokens
-	// that slow inference and confuse the model about what to title.
-	if titleHome, err := a.titleClaudeHomeDir(); err == nil {
-		cmd.Dir = titleHome
-		cmd.Env = append(cmd.Env, "HOME="+titleHome)
-		cmd.Env = append(cmd.Env, "USERPROFILE="+titleHome)
-	} else {
-		log.Printf("[SessionTitle] sanitized HOME unavailable, falling back: %v", err)
-		cmd.Dir = resolveCLIWorkingDir(projectPath)
+	// Run from a bare directory with NO .claude/ or .git/ so the CLI doesn't
+	// inject project context into its system prompt. Keep the real HOME so
+	// the CLI can find credentials and config without hanging.
+	if cwd := a.titleCLIWorkDir(); cwd != "" {
+		cmd.Dir = cwd
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -612,40 +812,26 @@ func extractCodexAssistantText(stdout string) string {
 // __MORE4__
 // loadSessionTitleModel returns the user-configured small CLI provider and
 // model used for titling. Empty strings mean nothing has been configured.
+// loadSessionTitleModel is kept for backward compat but now just reads the model.
 func (a *App) loadSessionTitleModel() (string, string, error) {
-	if a.dbManager == nil {
-		return "", "", fmt.Errorf("database not initialized")
-	}
-	providerID, err := a.dbManager.GetSetting("session_title_provider")
-	if err != nil {
-		return "", "", fmt.Errorf("load session title provider setting: %w", err)
-	}
-	model, err := a.dbManager.GetSetting("session_title_model")
-	if err != nil {
-		return "", "", fmt.Errorf("load session title model setting: %w", err)
-	}
-	return strings.TrimSpace(providerID), strings.TrimSpace(model), nil
+	_, _, model, _, err := a.loadTitleAPIConfig()
+	return "", model, err
 }
 
-// GenerateSessionTitle uses the configured low-cost title CLI to name a new
-// chat session from its first user prompt. Missing config or CLI failure
-// degrades to a fallback derived from the prompt itself.
+// GenerateSessionTitle generates a title for a new session from its first prompt.
+// Falls back to prompt-derived title if API is not configured or fails.
 func (a *App) GenerateSessionTitle(prompt string) (string, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return "", nil
 	}
 
-	provider, model, err := a.loadSessionTitleModel()
-	if err != nil {
-		log.Printf("[SessionTitle] load settings failed: %v", err)
-		return fallbackSessionTitleFromPrompt(prompt), nil
-	}
-	if provider == "" || model == "" {
+	apiURL, apiKey, model, _, _ := a.loadTitleAPIConfig()
+	if apiURL == "" || apiKey == "" || model == "" {
 		return fallbackSessionTitleFromPrompt(prompt), nil
 	}
 
-	title, err := a.runCLIForTitle(a.ctx, provider, "", model, sessionTitleSystemPrompt, prompt)
+	title, err := a.runDirectAPIForTitle(a.ctx, model, sessionTitleSystemPrompt, prompt)
 	if err != nil {
 		log.Printf("[SessionTitle] generation failed: %v", err)
 		return fallbackSessionTitleFromPrompt(prompt), nil
@@ -659,8 +845,7 @@ func (a *App) GenerateSessionTitle(prompt string) (string, error) {
 }
 
 // GenerateSessionTitleForSession reads the recent transcript of an existing
-// session and asks the configured small CLI to summarize the *current* focus
-// of the conversation.
+// session and asks the configured API to summarize the *current* focus.
 func (a *App) GenerateSessionTitleForSession(provider, sessionID, projectID string) (string, error) {
 	provider = strings.TrimSpace(provider)
 	sessionID = strings.TrimSpace(sessionID)
@@ -669,12 +854,9 @@ func (a *App) GenerateSessionTitleForSession(provider, sessionID, projectID stri
 		return "", fmt.Errorf("provider, sessionID and projectID are required")
 	}
 
-	titleProvider, model, err := a.loadSessionTitleModel()
-	if err != nil {
-		return "", err
-	}
-	if titleProvider == "" || model == "" {
-		return "", fmt.Errorf("session title model is not configured (set session_title_provider and session_title_model in Settings)")
+	apiURL, apiKey, model, _, _ := a.loadTitleAPIConfig()
+	if apiURL == "" || apiKey == "" || model == "" {
+		return "", fmt.Errorf("session title API is not configured (set API URL, Key and Model in Settings)")
 	}
 
 	messages, err := a.LoadProviderSessionHistory(sessionID, projectID, provider)
@@ -689,15 +871,8 @@ func (a *App) GenerateSessionTitleForSession(provider, sessionID, projectID stri
 
 	log.Printf("[SessionTitle] regen %s/%s (projectID=%s): transcript %d runes, %d messages loaded", provider, sessionID, projectID, transcriptLen, len(messages))
 
-	projectPath := ""
-	if len(messages) > 0 {
-		projectPath = strings.TrimSpace(messages[0].Cwd)
-	}
-
-	title, err := a.runCLIForTitle(
+	title, err := a.runDirectAPIForTitle(
 		a.ctx,
-		titleProvider,
-		projectPath,
 		model,
 		latestFocusTitleSystemPrompt,
 		wrapTranscriptForTitling(
@@ -737,7 +912,7 @@ func sanitizeBranchName(raw string) string {
 }
 
 // GenerateBranchName picks the most recent session in a workspace and asks the
-// configured CLI for a short kebab-case branch name describing the latest
+// configured API for a short kebab-case branch name describing the latest
 // focus of work.
 func (a *App) GenerateBranchName(projectPath string) (string, error) {
 	projectPath = strings.TrimSpace(projectPath)
@@ -745,12 +920,9 @@ func (a *App) GenerateBranchName(projectPath string) (string, error) {
 		return "", fmt.Errorf("projectPath is required")
 	}
 
-	titleProvider, model, err := a.loadSessionTitleModel()
-	if err != nil {
-		return "", err
-	}
-	if titleProvider == "" || model == "" {
-		return "", fmt.Errorf("session title model is not configured (set session_title_provider and session_title_model in Settings)")
+	apiURL, apiKey, model, _, _ := a.loadTitleAPIConfig()
+	if apiURL == "" || apiKey == "" || model == "" {
+		return "", fmt.Errorf("session title API is not configured (set API URL, Key and Model in Settings)")
 	}
 
 	result, err := a.ListSpaceSessions(projectPath, 4)
@@ -778,10 +950,8 @@ func (a *App) GenerateBranchName(projectPath string) (string, error) {
 		return "", fmt.Errorf("session transcript is empty")
 	}
 
-	raw, err := a.runCLIForTitle(
+	raw, err := a.runDirectAPIForTitle(
 		a.ctx,
-		titleProvider,
-		projectPath,
 		model,
 		branchNameSystemPrompt,
 		wrapTranscriptForTitling(
@@ -794,7 +964,7 @@ func (a *App) GenerateBranchName(projectPath string) (string, error) {
 	}
 	slug := sanitizeBranchName(raw)
 	if slug == "" {
-		return "", fmt.Errorf("CLI returned an unusable branch name: %q", raw)
+		return "", fmt.Errorf("API returned an unusable branch name: %q", raw)
 	}
 	return slug, nil
 }
