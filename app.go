@@ -43,6 +43,7 @@ type App struct {
 	pluginManager       *plugin.Manager
 	sessionManager      *session.HistoryManager
 	eventHub            *eventhub.EventHub
+	aiOutputCoalescer   *eventhub.ClaudeOutputCoalescer
 	gitWatcher          *git.GitWatcher
 	modelRegistry       *models.Registry
 	capabilityDiscovery claudeCapabilityDiscovery
@@ -90,6 +91,13 @@ func (a *App) startup(ctx context.Context) {
 	// Create event emitter that uses EventHub
 	eventEmitter := &eventEmitter{eventHub: a.eventHub}
 
+	// Coalesce high-frequency claude-output events (Claude/Codex/Gemini stream
+	// frames) into 16ms claude-output-batch frames so the WebSocket Send queue
+	// isn't saturated during long streaming runs. Other event types pass
+	// through unchanged after flushing any pending batch.
+	a.aiOutputCoalescer = eventhub.NewClaudeOutputCoalescer(a.eventHub.Emit)
+	aiSessionEmitter := &coalescedEmitter{coalescer: a.aiOutputCoalescer}
+
 	// Initialize PTY manager with event emitter
 	a.ptyManager = pty.NewManager(ctx, eventEmitter)
 
@@ -99,16 +107,16 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize Claude session manager
 	a.claudeActivity = claudeactivity.NewService()
-	a.claudeManager = claude.NewSessionManager(ctx, eventEmitter)
+	a.claudeManager = claude.NewSessionManager(ctx, aiSessionEmitter)
 	a.claudeManager.SetProcessEmitter(&claudeProcessEmitter{eventHub: a.eventHub})
 	a.claudeManager.SetActivityObserver(a.claudeActivity)
 
 	// Initialize Gemini session manager
-	a.geminiManager = gemini.NewSessionManager(ctx, eventEmitter)
+	a.geminiManager = gemini.NewSessionManager(ctx, aiSessionEmitter)
 	a.geminiManager.SetProcessEmitter(&geminiProcessEmitter{eventHub: a.eventHub})
 
 	// Initialize Codex session manager
-	a.codexManager = codex.NewSessionManager(ctx, eventEmitter)
+	a.codexManager = codex.NewSessionManager(ctx, aiSessionEmitter)
 	a.codexManager.SetProcessEmitter(&codexProcessEmitter{eventHub: a.eventHub})
 
 	// Initialize MCP manager
@@ -184,6 +192,12 @@ func (a *App) shutdown(ctx context.Context) {
 		a.codexManager.CleanupCompleted()
 	}
 
+	// Flush any pending claude-output batches so the front-end sees the final
+	// stream lines before the connection drops.
+	if a.aiOutputCoalescer != nil {
+		a.aiOutputCoalescer.Close()
+	}
+
 	// Close database
 	if a.dbManager != nil {
 		a.dbManager.Close()
@@ -199,6 +213,21 @@ type eventEmitter struct {
 
 func (e *eventEmitter) Emit(eventName string, data interface{}) {
 	e.eventHub.Emit(eventName, data)
+}
+
+// coalescedEmitter adapts ClaudeOutputCoalescer to the EventEmitter interface
+// expected by Claude/Codex/Gemini session managers. The coalescer batches
+// "claude-output" frames in 16ms windows; other event names pass through
+// after flushing pending batches so order is preserved.
+type coalescedEmitter struct {
+	coalescer *eventhub.ClaudeOutputCoalescer
+}
+
+func (e *coalescedEmitter) Emit(eventName string, data interface{}) {
+	if e.coalescer == nil {
+		return
+	}
+	e.coalescer.Emit(eventName, data)
 }
 
 // claudeProcessEmitter adapts EventHub to claude.ProcessChangedEmitter

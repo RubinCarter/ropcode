@@ -204,8 +204,11 @@ function AppContent() {
     const setupGlobalListeners = async () => {
       const { EventsOn } = await import('@/lib/rpc-events');
 
-      // Global output listener - routes to specific cwd via browser events
-      const unlistenOutput = EventsOn('claude-output', (payload: string) => {
+      // Shared per-line router used by both legacy single-line claude-output
+      // events and the batched claude-output-batch frames produced by the Go
+      // coalescer. Keeping the parsing logic in one place avoids drift while
+      // we transition.
+      const dispatchClaudeOutputLine = (payload: string) => {
         try {
           const msg = JSON.parse(payload);
           let cwd = msg.cwd;
@@ -219,25 +222,39 @@ function AppContent() {
           // If message has no cwd but has session_id, look up cwd from our mapping
           if (!cwd && msg.session_id) {
             cwd = sessionCwdMap.get(msg.session_id);
-            // Debug log commented to reduce log spam - uncomment if needed for debugging
-            // if (cwd) {
-            //   console.log('[App] Looked up cwd from session_id:', msg.session_id, '->', cwd);
-            // }
           }
 
-          // Debug log commented to reduce log spam - uncomment if needed for debugging
-          // console.log('[App] Routing message:', { cwd, msgType: msg.type, sessionId: msg.session_id });
-
           if (cwd) {
-            // Dispatch to component listening for this cwd
             window.dispatchEvent(new CustomEvent(`claude-output:${cwd}`, {
-              detail: payload
+              detail: payload,
             }));
           } else {
             console.warn('[App] ⚠️  Cannot route message - no cwd:', msg);
           }
         } catch (err) {
           console.error('[App] Failed to parse claude-output:', err);
+        }
+      };
+
+      // Global output listener - legacy single-line emitter path. The Go
+      // coalescer now batches most stream frames into claude-output-batch
+      // events, but a few low-frequency emitters (user-broadcast messages,
+      // raw stderr fallbacks) still come through this channel.
+      const unlistenOutput = EventsOn('claude-output', (payload: string) => {
+        dispatchClaudeOutputLine(payload);
+      });
+
+      // Batched output listener - high-frequency stream frames from
+      // Claude/Codex/Gemini are coalesced into 16ms windows by the backend
+      // and arrive here as { session_id, lines: string[] }. We replay each
+      // line through the same routing logic so downstream listeners
+      // (`claude-output:${cwd}`) need no awareness of batching.
+      const unlistenOutputBatch = EventsOn('claude-output-batch', (payload: { session_id?: string; lines?: string[] }) => {
+        if (!payload || !Array.isArray(payload.lines)) return;
+        for (const line of payload.lines) {
+          if (typeof line === 'string' && line.length > 0) {
+            dispatchClaudeOutputLine(line);
+          }
         }
       });
 
@@ -289,6 +306,7 @@ function AppContent() {
       // Store unlisten functions globally for cleanup
       (window as any).__claudeGlobalUnlisteners = {
         output: unlistenOutput,
+        outputBatch: unlistenOutputBatch,
         error: unlistenError,
         complete: unlistenComplete,
       };
