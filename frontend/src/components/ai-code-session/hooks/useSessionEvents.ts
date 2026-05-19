@@ -10,7 +10,12 @@ import type { ClaudeStreamMessage, Session, SessionInfo, SessionRuntimeTracker }
 import { api } from "@/lib/api";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { useWorkspaceTodo, type TodoItem } from "@/contexts/WorkspaceTodoContext";
-import { createInitialRuntimeTracker, reduceRuntimeTracker } from "../utils/runtimeState";
+import {
+  applyRuntimeMessage,
+  enqueueRuntimeMessage,
+  flushRuntimeMessages,
+  resetRuntimeTracker,
+} from "../state/runtimeTrackerStore";
 import { clearInteractiveSessionIdAfterProcessExit } from "../utils/interactiveSessionState";
 
 export interface UseSessionEventsOptions {
@@ -26,7 +31,12 @@ export interface UseSessionEventsOptions {
   setIsLoading: (loading: boolean) => void;
   setIsPendingSend: (pending: boolean) => void;
   setInteractiveSessionId: (id: string | null) => void;
-  setRuntimeTracker: React.Dispatch<React.SetStateAction<SessionRuntimeTracker>>;
+  /**
+   * @deprecated Runtime tracker now lives in `runtimeTrackerStore`. Pass
+   * undefined to opt into the store-driven path; the parameter is kept for
+   * the old `useState` callsite while the migration finishes.
+   */
+  setRuntimeTracker?: React.Dispatch<React.SetStateAction<SessionRuntimeTracker>>;
 
   // Refs for stable access
   projectPathRef: React.MutableRefObject<string>;
@@ -131,7 +141,9 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     setExtractedSessionInfo,
     setIsLoading,
     setInteractiveSessionId,
-    setRuntimeTracker,
+    // setRuntimeTracker is now ignored — runtime state lives in
+    // runtimeTrackerStore. The option is kept on the interface so the old
+    // useState callsite can be migrated lazily.
     projectPathRef,
     extractedSessionInfoRef,
     messagesLengthRef,
@@ -150,8 +162,10 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
   } = options;
 
   const { updateWorkspaceTodos, setWorkspaceStatus } = useWorkspaceTodo();
-  const pendingRuntimeMessagesRef = useRef<ClaudeStreamMessage[]>([]);
-  const runtimeFlushRafRef = useRef<number | null>(null);
+  // Runtime tracker is now owned by `runtimeTrackerStore`; this hook only
+  // forwards messages and triggers flushes by projectPath. The local
+  // pending/raf state previously held here moved into the store so multiple
+  // listeners share a single coalesce window.
   const pendingSessionSaveRef = useRef<{
     sessionId: string;
     projectId: string;
@@ -162,27 +176,13 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
   const sessionSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flushRuntimeTracker = useCallback(() => {
-    if (runtimeFlushRafRef.current !== null) {
-      cancelAnimationFrame(runtimeFlushRafRef.current);
-      runtimeFlushRafRef.current = null;
-    }
-
-    const pendingMessages = pendingRuntimeMessagesRef.current;
-    if (pendingMessages.length === 0) return;
-    pendingRuntimeMessagesRef.current = [];
-    const now = Date.now();
-    setRuntimeTracker((current) => pendingMessages.reduce(
-      (tracker, runtimeMessage) => reduceRuntimeTracker(tracker, runtimeMessage as any, now),
-      current
-    ));
-  }, [setRuntimeTracker]);
+    flushRuntimeMessages(projectPath);
+  }, [projectPath]);
 
   const enqueueRuntimeTrackerUpdate = useCallback((message: ClaudeStreamMessage) => {
-    pendingRuntimeMessagesRef.current.push(message);
-    if (runtimeFlushRafRef.current === null) {
-      runtimeFlushRafRef.current = requestAnimationFrame(flushRuntimeTracker);
-    }
-  }, [flushRuntimeTracker]);
+    if (!projectPath) return;
+    enqueueRuntimeMessage(projectPath, message);
+  }, [projectPath]);
 
   const flushPendingSessionSave = useCallback(() => {
     if (sessionSaveTimeoutRef.current !== null) {
@@ -220,8 +220,10 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
   }, [extractedSessionInfoRef, flushPendingSessionSave, messagesLengthRef, projectPathRef]);
 
   useEffect(() => {
-    setRuntimeTracker(createInitialRuntimeTracker());
-  }, [projectPath, setRuntimeTracker]);
+    if (projectPath) {
+      resetRuntimeTracker(projectPath);
+    }
+  }, [projectPath]);
 
   useEffect(() => () => {
     flushRuntimeTracker();
@@ -450,7 +452,6 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     workflowTracking,
     updateWorkspaceTodos,
     scheduleSessionSave,
-    setRuntimeTracker,
     // Extract provider from message to add to dependencies
     // Note: Since provider is derived from message itself, we don't need to add it to dependencies
   ]);
@@ -478,7 +479,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
       debug_meta: completePayload.debug_meta || (completePayload.runtime ? { runtime_state: completePayload.runtime } : undefined),
       is_error: completePayload.status === 'failed',
     };
-    setRuntimeTracker((current) => reduceRuntimeTracker(current, terminalMessage as any, Date.now()));
+    applyRuntimeMessage(projectPathRef.current, terminalMessage as any);
     await onComplete?.(completePayload);
 
     // Process next queued prompt if any
@@ -490,7 +491,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     if (currentProjectPath) {
       setWorkspaceStatus(currentProjectPath, 'idle');
     }
-  }, [flushRuntimeTracker, flushPendingSessionSave, setIsLoading, hasActiveSessionRef, setInteractiveSessionId, onComplete, processNextInQueue, projectPathRef, setWorkspaceStatus, setRuntimeTracker, options.provider]);
+  }, [flushRuntimeTracker, flushPendingSessionSave, setIsLoading, hasActiveSessionRef, setInteractiveSessionId, onComplete, processNextInQueue, projectPathRef, setWorkspaceStatus, options.provider]);
 
   // Set up browser event listeners
   useEffect(() => {

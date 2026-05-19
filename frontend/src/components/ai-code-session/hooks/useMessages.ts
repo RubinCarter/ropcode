@@ -8,7 +8,7 @@
  * - Displayable message filtering
  */
 
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ClaudeStreamMessage } from "../types";
 import type { StreamMessageContext } from "../../StreamMessage";
 import { getDisplayableMessages } from "../utils/messageFilter";
@@ -296,7 +296,12 @@ function buildDerivedMessagesState(messages: ClaudeStreamMessage[]): MessageDeri
  *
  * Uses mutable array + version counter to avoid O(n) array copies on every
  * incoming message during streaming. The messages array is mutated in place
- * (push, in-place text append) and a version counter triggers React re-renders.
+ * (push, in-place text append) and a `version` / `structuralVersion`
+ * counter pair triggers React re-renders.
+ *
+ * `version` bumps on every flush (including delta-only text appends); the
+ * memoised derived data (subagentProgress, displayable) only depends on
+ * `structuralVersion`, so unrelated work doesn't re-run during streaming.
  */
 export function useMessages(): UseMessagesReturn {
   const messagesRef = useRef<ClaudeStreamMessage[]>([]);
@@ -307,17 +312,17 @@ export function useMessages(): UseMessagesReturn {
 
   const messages = messagesRef.current;
 
-  const setMessages: React.Dispatch<React.SetStateAction<ClaudeStreamMessage[]>> = (nextMessagesOrUpdater) => {
+  const setMessages: React.Dispatch<React.SetStateAction<ClaudeStreamMessage[]>> = useCallback((nextMessagesOrUpdater) => {
     const nextMessages = typeof nextMessagesOrUpdater === 'function'
-      ? nextMessagesOrUpdater(messagesRef.current)
+      ? (nextMessagesOrUpdater as (prev: ClaudeStreamMessage[]) => ClaudeStreamMessage[])(messagesRef.current)
       : nextMessagesOrUpdater;
 
     if (nextMessages === messagesRef.current) return;
     messagesRef.current = nextMessages;
     derivedRef.current = buildDerivedMessagesState(nextMessages);
-    setVersion(v => v + 1);
-    setStructuralVersion(v => v + 1);
-  };
+    setVersion((v) => v + 1);
+    setStructuralVersion((v) => v + 1);
+  }, []);
 
   const messagesLengthRef = useRef(messages.length);
   messagesLengthRef.current = messages.length;
@@ -424,8 +429,8 @@ export function useMessages(): UseMessagesReturn {
 
     if (changed) {
       derivedRef.current = derived;
-      setVersion(v => v + 1);
-      if (structural) setStructuralVersion(v => v + 1);
+      setVersion((v) => v + 1);
+      if (structural) setStructuralVersion((v) => v + 1);
     }
   };
 
@@ -441,9 +446,11 @@ export function useMessages(): UseMessagesReturn {
       flushRafRef.current = null;
     }
     flushPending();
+    // flushPending notifies listeners itself if anything changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const addMessage = (message: ClaudeStreamMessage) => {
+  const addMessage = useCallback((message: ClaudeStreamMessage) => {
     if (!message.timestamp) {
       message.timestamp = new Date().toISOString();
     }
@@ -470,15 +477,23 @@ export function useMessages(): UseMessagesReturn {
     // Regular messages share the same rAF flush so bursts only trigger one render.
     messageQueueRef.current.push(message);
     scheduleFlush();
-  };
+  }, []);
 
-  const clearMessages = () => {
+  const clearMessages = useCallback(() => {
     messagesRef.current = [];
     derivedRef.current = createEmptyDerivedMessagesState();
-    setVersion(v => v + 1);
-    setStructuralVersion(v => v + 1);
     setSubagentTranscripts({});
-  };
+    setVersion((v) => v + 1);
+    setStructuralVersion((v) => v + 1);
+  }, []);
+
+  // Cancel any pending flush rAF on unmount so we don't leak the callback.
+  useEffect(() => () => {
+    if (flushRafRef.current !== null) {
+      cancelAnimationFrame(flushRafRef.current);
+      flushRafRef.current = null;
+    }
+  }, []);
 
   return {
     messages,

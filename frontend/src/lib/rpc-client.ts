@@ -584,12 +584,24 @@ export function GenerateSessionTitle(prompt: string): Promise<string> {
   return wsClient.call('GenerateSessionTitle', prompt);
 }
 
+export function GenerateSessionTitleAsync(prompt: string): Promise<string> {
+  return wsClient.call('GenerateSessionTitleAsync', prompt);
+}
+
 export function GenerateSessionTitleForSession(provider: string, sessionId: string, projectId: string): Promise<string> {
   return wsClient.call('GenerateSessionTitleForSession', provider, sessionId, projectId);
 }
 
+export function GenerateSessionTitleForSessionAsync(provider: string, sessionId: string, projectId: string): Promise<string> {
+  return wsClient.call('GenerateSessionTitleForSessionAsync', provider, sessionId, projectId);
+}
+
 export function GenerateBranchName(projectPath: string): Promise<string> {
   return wsClient.call('GenerateBranchName', projectPath);
+}
+
+export function GenerateBranchNameAsync(projectPath: string): Promise<string> {
+  return wsClient.call('GenerateBranchNameAsync', projectPath);
 }
 
 export function RenameGitBranch(projectPath: string, newBranch: string): Promise<string> {

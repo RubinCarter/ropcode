@@ -27,8 +27,6 @@ import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws-rpc-client";
 import { providers } from "@/lib/providers";
 import { cn } from "@/lib/utils";
-import { StreamMessage } from "../StreamMessage";
-import { SubagentProgressPanel } from "../SubagentProgressPanel";
 import { FloatingPromptInput, type FloatingPromptInputRef } from "../FloatingPromptInput";
 import { SessionStatusBar } from "./SessionStatusBar";
 import { ErrorBoundary } from "../ErrorBoundary";
@@ -37,22 +35,24 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { TooltipProvider, TooltipSimple } from "@/components/ui/tooltip-modern";
 import { SplitPane } from "@/components/ui/split-pane";
 import { WebviewPreview } from "../WebviewPreview";
-import { MessageScrollSeekPlaceholder } from "../MessageScrollSeekPlaceholder";
-import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { type VirtuosoHandle } from "react-virtuoso";
 import { useScrollSeekConfig } from "@/hooks/useScrollSeekConfig";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking, useSubagentTranscriptSync } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
 import { STOP_STATUS_BUBBLE_DURATION_MS, getStopStatusBubbleState, shouldCompleteStopStatusBubble } from "./utils/stopStatusBubble";
 import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "./utils/clearCommand";
-import { createInitialRuntimeTracker, deriveRuntimeViewState } from "./utils/runtimeState";
+import { deriveRuntimeViewState } from "./utils/runtimeState";
+import { useRuntimeTracker, resetRuntimeTracker } from "./state/runtimeTrackerStore";
 import { describeRuntimeStatus } from "./utils/runtimePresentation";
 import { buildSessionStatusBarModel, type SessionStatusPromptConfig, type SessionThinkingStatus } from "./utils/sessionStatusBarPresentation";
 import { classifyPromptSubmit } from "./utils/promptSubmitClassification";
+import { generateSessionTitleViaEvent } from "@/lib/titleGeneration";
+import { MessageStreamView } from "./MessageStreamView";
 import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
 
 // Import refactored hooks and types
-import type { AiCodeSessionProps, ClaudeStreamMessage, SessionRuntimeTracker } from "./types";
+import type { AiCodeSessionProps, ClaudeStreamMessage } from "./types";
 import {
   useSessionState,
   useMessages,
@@ -66,10 +66,6 @@ const activeRecoveryKeys = new Set<string>();
 
 const streamingViewportIncrease = { top: 100, bottom: 250 };
 const idleViewportIncrease = { top: 300, bottom: 600 };
-
-function ScrollSeekPlaceholder(props: { height: number }) {
-  return <MessageScrollSeekPlaceholder {...props} className="w-full max-w-6xl mx-auto" />;
-}
 
 function formatRecoveryError(err: unknown) {
   if (err instanceof Error) {
@@ -110,7 +106,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // ==================================================================
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
-  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef);
   const floatingPromptRef = useRef<FloatingPromptInputRef>(null);
   const loadedSessionIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
@@ -147,7 +142,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   useComponentMetrics('AiCodeSession');
   const workflowTracking = useWorkflowTracking('ai_session');
 
-  const [runtimeTracker, setRuntimeTracker] = useState<SessionRuntimeTracker>(createInitialRuntimeTracker());
+  const runtimeTracker = useRuntimeTracker(sessionState.projectPath);
   const [promptConfig, setPromptConfig] = useState<SessionStatusPromptConfig>({
     provider: defaultProvider,
     model: 'sonnet',
@@ -227,7 +222,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     setIsLoading: processState.setIsLoading,
     setIsPendingSend: processState.setIsPendingSend,
     setInteractiveSessionId: processState.setInteractiveSessionId,
-    setRuntimeTracker,
     projectPathRef: sessionState.projectPathRef,
     extractedSessionInfoRef: sessionState.extractedSessionInfoRef,
     messagesLengthRef: messagesState.messagesLengthRef,
@@ -1147,7 +1141,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
       processState.setIsLoading(true);
       processState.setIsPendingSend(true);
       setError(null);
-      setRuntimeTracker(createInitialRuntimeTracker());
+      resetRuntimeTracker(sessionState.projectPath);
       processState.hasActiveSessionRef.current = true;
 
       const forceFreshClaudeSession =
@@ -1266,9 +1260,12 @@ ${message ? `**说明**:\n${message}` : ''}`;
       }, 500);
 
       if (shouldGenerateSessionTitle && onSessionTitleGenerated) {
-        void api.GenerateSessionTitle(prompt)
-          .then((title: string) => {
-            const cleanedTitle = title?.trim();
+        // Async path: returns immediately with a request_id, the title arrives
+        // via "session-title:generated" event. Keeps the WebSocket RPC slot
+        // free during the up-to-60s CLI spawn so high-frequency streaming
+        // events don't starve regular button RPC responses.
+        void generateSessionTitleViaEvent(prompt)
+          .then((cleanedTitle: string) => {
             if (cleanedTitle) {
               generatedSessionTitleRef.current = cleanedTitle;
               setGeneratedSessionTitle(cleanedTitle);
@@ -1612,157 +1609,45 @@ ${message ? `**说明**:\n${message}` : ''}`;
     return processState.isLoading ? 'auto' : 'smooth';
   }, [isScrollPaused, processState.isLoading]);
 
-  const computeItemKey = useCallback((_: number, item: { type: 'subagent-panel' } | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number }) => item.type === 'subagent-panel'
-    ? 'subagent-panel'
-    : item.message.uuid || `msg-${item.originalIndex}`, []);
+  // streamItems / itemContent / virtuosoComponents now live inside
+  // <MessageStreamView />. The view subscribes to messagesState's render
+  // tick and recomputes them on every flush, so this parent component stays
+  // still during text-delta storms — keeping FloatingPromptInput and the
+  // status bar responsive while Claude is streaming.
 
-  const itemContent = useCallback((_: number, item: { type: 'subagent-panel' } | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }) => {
-    if (item.type === 'subagent-panel') {
-      return (
-        <div className="w-full max-w-6xl mx-auto px-4 py-2">
-          <SubagentProgressPanel
-            summary={messagesState.subagentProgress}
-            streamMessages={messagesState.messages}
-            agentOutputMap={messagesState.agentOutputMap}
-            expanded={isSubagentPanelExpanded}
-            onExpandedChange={setIsSubagentPanelExpanded}
-            expandedAgents={expandedSubagentIds}
-            onExpandedAgentsChange={setExpandedSubagentIds}
-          />
-        </div>
-      );
-    }
-
-    const depth = messagesState.subagentProgress.messageDepthByIndex.get(item.originalIndex) ?? 0;
-    const indentClass = depth === 0
-      ? ''
-      : depth === 1
-        ? 'pl-4 ml-2 border-l-2 border-purple-400/40'
-        : 'pl-4 ml-6 border-l-2 border-purple-400/30';
-
-    return (
-      <div className="w-full max-w-6xl mx-auto px-4 py-2">
-        <div className={cn(indentClass)}>
-          <StreamMessage
-            message={item.message}
-            streamMessages={messagesState.messages}
-            streamContext={messagesState.streamMessageContext}
-            onLinkDetected={handleLinkDetected}
-            agentOutputMap={messagesState.agentOutputMap}
-            isStreamingText={item.isStreamingTail}
-            expandedCards={expandedMessageCards}
-            onExpandedCardsChange={setExpandedMessageCards}
-            messageKey={item.message.uuid || `msg-${item.originalIndex}`}
-          />
-        </div>
-      </div>
-    );
-  }, [
-    expandedMessageCards,
-    expandedSubagentIds,
-    handleLinkDetected,
-    isSubagentPanelExpanded,
-    messagesState.agentOutputMap,
-    messagesState.messages,
-    messagesState.streamMessageContext,
-    messagesState.subagentProgress,
-  ]);
-
-  const virtuosoComponents = React.useMemo(() => ({
-    ScrollSeekPlaceholder,
-    Header: () => <div className="pt-6" />,
-    Footer: () => (
-      <>
-        {error && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mx-4 max-w-6xl">
-            {error}
-          </div>
-        )}
-        <div className="h-60" />
-      </>
-    ),
-  }), [error]);
-
-  const streamItems = React.useMemo(() => {
-    const subagentIndexes = messagesState.subagentProgress.subagents.flatMap((subagent) =>
-      Array.from(subagent.messageIndexes)
-    );
-    const firstSubagentIndex = Math.min(...subagentIndexes);
-    let insertedSubagentPanel = false;
-    const items: Array<
-      | { type: 'subagent-panel' }
-      | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }
-    > = [];
-
-    messagesState.displayableMessageIndexes.forEach((originalIndex) => {
-      if (
-        messagesState.subagentProgress.subagents.length > 0 &&
-        !insertedSubagentPanel &&
-        Number.isFinite(firstSubagentIndex) &&
-        originalIndex > firstSubagentIndex
-      ) {
-        items.push({ type: 'subagent-panel' });
-        insertedSubagentPanel = true;
-      }
-
-      const message = messagesState.messages[originalIndex];
-      if (!message) return;
-
-      items.push({
-        type: 'message',
-        message,
-        originalIndex,
-        isStreamingTail: processState.isLoading && originalIndex === messagesState.messages.length - 1 && message?.type === 'assistant' && !message.message?.usage,
-      });
-    });
-
-    if (messagesState.subagentProgress.subagents.length > 0 && !insertedSubagentPanel) {
-      items.push({ type: 'subagent-panel' });
-    }
-
-    return items;
-  }, [
-    messagesState.displayableMessageIndexes,
-    messagesState.messages,
-    messagesState.subagentProgress.subagents,
-    messagesState.renderTick,
-    processState.isLoading,
-  ]);
+  const streamItemsCountRef = useRef(0);
+  const [streamItemsCount, setStreamItemsCount] = useState(0);
+  const handleStreamItemsCountChange = useCallback((count: number) => {
+    if (streamItemsCountRef.current === count) return;
+    streamItemsCountRef.current = count;
+    setStreamItemsCount(count);
+  }, []);
 
   const messagesList = (
     <div className="relative flex-1">
-      <Virtuoso
-        ref={virtuosoRef}
-        data={streamItems}
-        className="h-full"
-        increaseViewportBy={processState.isLoading ? streamingViewportIncrease : idleViewportIncrease}
+      <MessageStreamView
+        messagesState={messagesState}
+        isLoading={processState.isLoading}
+        virtuosoRef={virtuosoRef}
+        isScrollPaused={isScrollPaused}
         scrollSeekConfiguration={scrollSeekConfiguration}
-
-        // followOutput handles auto-scrolling during streaming
-        // Returns false to disable, 'auto' for instant scroll, 'smooth' for animated
+        streamingViewportIncrease={streamingViewportIncrease}
+        idleViewportIncrease={idleViewportIncrease}
         followOutput={followOutput}
-
-        // Track when user scrolls away from bottom
-        atBottomStateChange={setAtBottom}
-        atBottomThreshold={100}
-
-        // Start at the bottom (most recent messages)
-        initialTopMostItemIndex={streamItems.length > 0
-          ? streamItems.length - 1
-          : 0}
-
-        // Stable keys preserve message component state when filters or panels shift row positions
-        computeItemKey={computeItemKey}
-
-        // Render each message
-        itemContent={itemContent}
-
-        // Custom components for loading/error states
-        components={virtuosoComponents}
+        setAtBottom={setAtBottom}
+        isSubagentPanelExpanded={isSubagentPanelExpanded}
+        setIsSubagentPanelExpanded={setIsSubagentPanelExpanded}
+        expandedSubagentIds={expandedSubagentIds}
+        setExpandedSubagentIds={setExpandedSubagentIds}
+        expandedMessageCards={expandedMessageCards}
+        setExpandedMessageCards={setExpandedMessageCards}
+        handleLinkDetected={handleLinkDetected}
+        error={error}
+        onStreamItemsCountChange={handleStreamItemsCountChange}
       />
 
       {/* Scroll buttons */}
-      {streamItems.length > 5 && (
+      {streamItemsCount > 5 && (
         <div className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4">
           <div className="max-w-6xl w-full flex justify-end">
           <div className="flex items-center bg-background/95 border rounded-full shadow-sm overflow-hidden pointer-events-auto">

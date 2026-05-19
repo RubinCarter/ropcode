@@ -12,6 +12,7 @@ import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
 import { useContainerContext } from "@/contexts/ContainerContext";
 import { useProcessChanged } from "@/hooks";
 import { basename, homeRelativePath } from "@/lib/pathUtils";
+import { generateSessionTitleForSessionViaEvent, generateBranchNameViaEvent } from "@/lib/titleGeneration";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
@@ -183,7 +184,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     });
 
     try {
-      const title = await api.GenerateSessionTitleForSession(session.provider, session.id, session.project_id);
+      const title = await generateSessionTitleForSessionViaEvent(session.provider, session.id, session.project_id);
       const cleaned = title?.trim();
       if (!cleaned) {
         throw new Error('Model returned an empty title');
@@ -239,7 +240,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       return next;
     });
     try {
-      const proposed = await api.GenerateBranchName(workspacePath);
+      const proposed = await generateBranchNameViaEvent(workspacePath);
       const slug = proposed?.trim();
       if (!slug) {
         throw new Error('Model returned an empty branch name');
@@ -429,7 +430,11 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return () => clearInterval(interval);
   }, [allWorkspacePathsKey]);
 
-  // Subscribe to process change events (replaces 200ms polling)
+  // 临时注释：避免 process:changed → ListSpaceSessions 联动卡死 App
+  // 每次后端 process:changed 事件都会触发 ListSpaceSessions RPC（同步扫描 JSONL），
+  // 与 PTY/Claude 输出共用 256 容量的 WebSocket Send channel，导致按钮 RPC 响应排不进去。
+  // running 状态仍由 listRunningProviderSessions 5 秒轮询维持。
+  /*
   useProcessChanged(undefined, (event) => {
     // Update running state based on event
     setWorkspaceRunningStates(prev => {
@@ -452,6 +457,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       loadSpaceSessions(event.cwd, 10);
     }
   });
+  */
 
   // Sync WorkspaceTodoContext status based on actual process state
   // When process is not running but status shows 'working' or 'active', force it to 'idle'
