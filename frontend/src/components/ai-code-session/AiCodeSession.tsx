@@ -653,7 +653,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
       try {
         setIsRecoveringHistory(true);
-        console.log(`[AiCodeSession] Recovery (${trigger}): syncing, local messages:`, localCount);
 
         // Sync process state — check if task completed while disconnected
         const running = await api.isClaudeSessionRunningForProject(projectPath, defaultProvider);
@@ -661,6 +660,15 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         if (!running) {
           processState.setIsLoading(false);
           processState.hasActiveSessionRef.current = false;
+        }
+
+        // If the backend isn't running this session AND we already have local
+        // messages, the on-disk JSONL can't have grown since our last sync.
+        // Skip the full LoadProviderSessionHistory call — it transfers the
+        // entire transcript over WS and parses it on the renderer thread,
+        // which is the dominant cost when the WS bounces while idle.
+        if (!running && localCount > 0) {
+          return;
         }
 
         // Reload full history from backend JSONL

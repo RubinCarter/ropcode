@@ -309,7 +309,6 @@ export function usePtySession(options: UsePtySessionOptions) {
 
           try {
             if (output_type === 'stdout' || output_type === 'stderr') {
-              console.log('[usePtySession] 收到输出:', content.substring(0, 50));
               terminal.write(content);
             } else if (output_type === 'exit') {
               terminal.writeln('\x1b[1;33m\r\nProcess exited\x1b[0m');

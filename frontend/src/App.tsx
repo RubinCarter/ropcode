@@ -216,7 +216,6 @@ function AppContent() {
           // If this is an init message, store the session_id -> cwd mapping
           if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id && msg.cwd) {
             sessionCwdMap.set(msg.session_id, msg.cwd);
-            console.log('[App] Stored session mapping:', msg.session_id, '->', msg.cwd);
           }
 
           // If message has no cwd but has session_id, look up cwd from our mapping
