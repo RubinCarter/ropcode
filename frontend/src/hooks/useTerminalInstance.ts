@@ -177,8 +177,6 @@ export function useTerminalInstance(
   const key = `${workspaceId}::${terminalId}`;
   const [termWrap, setTermWrap] = useState<TermWrap | null>(null);
 
-  console.log('[useTerminalInstance] Hook 调用:', { workspaceId, terminalId, key });
-
   // 创建/获取实例
   useEffect(() => {
     console.log('[useTerminalInstance] 初始化:', { key });

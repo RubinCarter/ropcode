@@ -455,7 +455,7 @@ const PROVIDERS: Provider[] = [
     id: "codex",
     name: "Codex",
     description: "OpenAI Codex",
-    icon: <OpenAIIcon className="h-3.5 w-3.5" />,  // OpenAI 官方图标
+    icon: <OpenAIIcon className="h-3.5 w-3.5" />,  // OpenAI 官方六边结
     shortName: "X",
     color: "text-emerald-500"  // OpenAI 品牌色系
   },

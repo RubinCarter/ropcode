@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
-Set-Location $Root
+Push-Location $Root
 
 function Write-Step($Message) {
   Write-Host ""
@@ -135,3 +135,5 @@ if ($RunAfterBuild) {
   Write-Step "Running Wails shell"
   & "build-wails/bin/RopcodeWails.exe"
 }
+
+Pop-Location

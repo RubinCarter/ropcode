@@ -269,8 +269,6 @@ export function usePtySession(options: UsePtySessionOptions) {
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const readyUnsubscribeRef = useRef<(() => void) | null>(null);
 
-  console.log('[usePtySession] Hook 调用:', { sessionId, workspaceId, terminalExists: !!terminal, initialized: initializedRef.current });
-
   // 统一的初始化流程：先设置监听器，再创建 PTY 会话
   useEffect(() => {
     console.log('[usePtySession] useEffect 触发:', { sessionId, terminalExists: !!terminal, initialized: initializedRef.current });
