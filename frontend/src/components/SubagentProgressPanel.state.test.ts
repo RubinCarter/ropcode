@@ -120,13 +120,22 @@ test('virtualized stream rows use lightweight placeholders during fast scroll', 
   const claudeMessageListSource = await readSource(claudeMessageListPath);
   const messageScrollSeekPlaceholderSource = await readSource(messageScrollSeekPlaceholderPath);
 
-  for (const source of [aiCodeSessionSource, agentExecutionSource, claudeMessageListSource]) {
+  for (const source of [agentExecutionSource, claudeMessageListSource]) {
     assert.match(source, /useScrollSeekConfig/);
     assert.match(source, /function ScrollSeekPlaceholder\(props: \{ height: number \}\) \{/);
     assert.match(source, /<MessageScrollSeekPlaceholder \{\.\.\.props\}/);
     assert.match(source, /scrollSeekConfiguration=\{scrollSeekConfiguration\}/);
     assert.match(source, /ScrollSeekPlaceholder/);
   }
+
+  // ai-code-session intentionally does NOT use scrollSeek: the AI message list
+  // is the most complex Virtuoso instance in the app and the placeholder
+  // mechanism repeatedly produced stuck-skeleton bugs (09ed0ff, 5533d6c,
+  // d48436b, 60956a2, 75ca156, 603a7c1, 69581d6, 195e161). Row memoisation
+  // plus increaseViewportBy already give us enough headroom; placeholders
+  // bring more bugs than performance.
+  assert.doesNotMatch(aiCodeSessionSource, /useScrollSeekConfig/);
+  assert.doesNotMatch(aiCodeSessionSource, /scrollSeekConfiguration/);
 
   assert.match(messageScrollSeekPlaceholderSource, /export function MessageScrollSeekPlaceholder\(\{ height, className \}: MessageScrollSeekPlaceholderProps\) \{/);
   assert.match(messageScrollSeekPlaceholderSource, /const rowCount = height > 180 \? 3 : height > 96 \? 2 : 1;/);

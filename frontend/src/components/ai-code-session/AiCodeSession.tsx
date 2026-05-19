@@ -36,7 +36,6 @@ import { TooltipProvider, TooltipSimple } from "@/components/ui/tooltip-modern";
 import { SplitPane } from "@/components/ui/split-pane";
 import { WebviewPreview } from "../WebviewPreview";
 import { type VirtuosoHandle } from "react-virtuoso";
-import { useScrollSeekConfig } from "@/hooks/useScrollSeekConfig";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking, useSubagentTranscriptSync } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
@@ -131,7 +130,6 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     projectPath: sessionState.projectPath,
     provider: defaultProvider,
   });
-  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef, !processState.isLoading);
 
   // Session metrics
   const metricsState = useSessionMetrics({
@@ -1625,7 +1623,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
         isLoading={processState.isLoading}
         virtuosoRef={virtuosoRef}
         isScrollPaused={isScrollPaused}
-        scrollSeekConfiguration={scrollSeekConfiguration}
         streamingViewportIncrease={streamingViewportIncrease}
         idleViewportIncrease={idleViewportIncrease}
         followOutput={followOutput}

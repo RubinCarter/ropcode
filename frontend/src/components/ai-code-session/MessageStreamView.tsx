@@ -14,7 +14,6 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/utils";
 import { StreamMessage } from "../StreamMessage";
 import { SubagentProgressPanel } from "../SubagentProgressPanel";
-import { MessageScrollSeekPlaceholder } from "../MessageScrollSeekPlaceholder";
 import type { ClaudeStreamMessage } from "./types";
 import type { UseMessagesReturn } from "./hooks/useMessages";
 
@@ -23,7 +22,6 @@ interface MessageStreamViewProps {
   isLoading: boolean;
   virtuosoRef: React.Ref<VirtuosoHandle>;
   isScrollPaused: boolean;
-  scrollSeekConfiguration: any;
   streamingViewportIncrease: { top: number; bottom: number };
   idleViewportIncrease: { top: number; bottom: number };
   followOutput: (isAtBottom: boolean) => false | 'auto' | 'smooth';
@@ -39,16 +37,11 @@ interface MessageStreamViewProps {
   onStreamItemsCountChange?: (count: number) => void;
 }
 
-function ScrollSeekPlaceholder(props: { height: number }) {
-  return <MessageScrollSeekPlaceholder {...props} className="w-full max-w-6xl mx-auto" />;
-}
-
 export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
   messagesState,
   isLoading,
   virtuosoRef,
   isScrollPaused: _isScrollPaused,
-  scrollSeekConfiguration,
   streamingViewportIncrease,
   idleViewportIncrease,
   followOutput,
@@ -140,7 +133,6 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
   );
 
   const virtuosoComponents = useMemo(() => ({
-    ScrollSeekPlaceholder,
     Header: () => <div className="pt-6" />,
     Footer: () => (
       <>
@@ -213,7 +205,6 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
       data={items}
       className="h-full"
       increaseViewportBy={isLoading ? streamingViewportIncrease : idleViewportIncrease}
-      scrollSeekConfiguration={scrollSeekConfiguration}
       followOutput={followOutput}
       atBottomStateChange={setAtBottom}
       atBottomThreshold={100}
