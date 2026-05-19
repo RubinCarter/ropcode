@@ -95,30 +95,22 @@ class WSRpcClient {
     this.authKey = authKey || '';
 
     // iOS Safari pauses JS execution immediately when backgrounded and kills
-    // the WS connection after ~30s.  When the user returns, frozen timers and
+    // the WS connection after ~30s. When the user returns, frozen timers and
     // stale onclose events can fire in unpredictable order, so we use a
-    // heavy-handed "force reconnect" that tears down ALL state and starts fresh.
-    //
-    // We track the timestamp when the page was hidden.  If the page was
-    // hidden for less than a few seconds (e.g. quick app-switcher peek),
-    // skip the force reconnect — the existing connection is fine.
-    let hiddenAt = 0;
+    // "force reconnect" that tears down ALL state and starts fresh — but
+    // ONLY when the connection is actually dead. On desktop Electron the
+    // socket survives visibility flickers (Cmd+Tab, Spotlight, Mission
+    // Control, app-switcher previews) just fine; reconnecting unconditionally
+    // there created a tight loop where every visibility change closed the
+    // WS, which forced every mounted AiCodeSession to re-fetch its full
+    // session JSONL via LoadProviderSessionHistory, pegging the renderer.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
-        hiddenAt = Date.now();
-        return;
-      }
-      // visibilityState === 'visible'
+      if (document.visibilityState !== 'visible') return;
       if (!this.wsUrl) return;
-
-      const elapsed = Date.now() - hiddenAt;
-      if (elapsed < 3000 && this.isConnected()) {
-        // Quick tab switch — connection is likely still alive
-        console.log(`[WSRpc] Page visible after ${elapsed}ms, connection alive, skipping reconnect`);
-        return;
-      }
-
-      // Either was hidden for a while or connection is already dead
+      // Trust the readyState. If the OS truly froze the connection (iOS
+      // background) readyState will already be CLOSED or CLOSING by the
+      // time we get the visible event.
+      if (this.isConnected()) return;
       this.forceReconnect();
     });
 
