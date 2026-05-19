@@ -11,14 +11,13 @@ async function readSource(filePath: string) {
   return fs.readFile(filePath, 'utf8');
 }
 
-test('Settings exposes independent session title provider and model settings', async () => {
+test('Settings exposes session title API configuration', async () => {
   const source = await readSource(settingsPath);
 
-  assert.match(source, /session_title_provider/);
+  assert.match(source, /session_title_api_url/);
+  assert.match(source, /session_title_api_key/);
+  assert.match(source, /session_title_api_format/);
   assert.match(source, /session_title_model/);
-  assert.match(source, /claude-3-5-haiku/);
-  assert.match(source, /api\.saveSetting\('session_title_provider'/);
-  assert.match(source, /api\.saveSetting\('session_title_model'/);
 });
 
 test('session title settings do not fall back to chat default models', async () => {
