@@ -112,6 +112,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const skipRecoveryUntilRef = useRef(0);
   const pendingFreshClaudeSessionRef = useRef(false);
   const generatedSessionTitleRef = useRef<string | null>(null);
+  const firstPromptForTitleRef = useRef<string | null>(null);
   const sessionRef = useRef(session);
   sessionRef.current = session;
   // ==================================================================
@@ -230,7 +231,24 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     addMessage: messagesState.addMessage,
     syncProcessState: processState.syncProcessState,
     onComplete: (payload) => {
-      onSessionActivityComplete?.();
+      const realProviderSessionId = sessionState.extractedSessionInfoRef.current?.sessionId || payload.session_id || null;
+      onSessionActivityComplete?.(realProviderSessionId);
+      // Trigger title generation after first round completes
+      if (firstPromptForTitleRef.current && onSessionTitleGenerated) {
+        const promptForTitle = firstPromptForTitleRef.current;
+        firstPromptForTitleRef.current = null;
+        void generateSessionTitleViaEvent(promptForTitle)
+          .then((cleanedTitle: string) => {
+            if (cleanedTitle) {
+              generatedSessionTitleRef.current = cleanedTitle;
+              setGeneratedSessionTitle(cleanedTitle);
+              onSessionTitleGenerated(cleanedTitle);
+            }
+          })
+          .catch((err: unknown) => {
+            console.warn('[AiCodeSession] Failed to generate session title:', err);
+          });
+      }
       return refreshCurrentSubagentTranscripts(payload.session_id);
     },
     processNextInQueue: queueState.processNextInQueue,
@@ -309,7 +327,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
 
   useEffect(() => {
     const title = generatedSessionTitle?.trim();
-    const sessionId = sessionState.extractedSessionInfo?.sessionId || sessionState.effectiveSession?.id || sessionState.claudeSessionId;
+    const sessionId = sessionState.extractedSessionInfo?.sessionId || sessionState.effectiveSession?.id;
     if (!title || !sessionId || !sessionState.projectPath) return;
 
     void api.SaveGeneratedSessionTitle(defaultProvider, sessionId, title)
@@ -1098,14 +1116,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
   ): Promise<boolean> => {
     console.log('[AiCodeSession] Sending prompt with thinkingMode:', thinkingMode);
     const activeProvider = provider || defaultProvider;
-    const shouldGenerateSessionTitle = sessionState.isFirstPrompt && prompt.trim().length > 0;
-    if (!shouldGenerateSessionTitle) {
-      console.log('[AiCodeSession] Skipping session title generation:', {
-        isFirstPrompt: sessionState.isFirstPrompt,
-        hasPrompt: prompt.trim().length > 0,
-        provider: activeProvider,
-        sessionId: sessionState.effectiveSession?.id || sessionState.claudeSessionId,
-      });
+    // Store first prompt for title generation after first round completes
+    if (sessionState.isFirstPrompt && prompt.trim().length > 0) {
+      firstPromptForTitleRef.current = prompt;
     }
 
     const classification = classifyPromptSubmit({
@@ -1258,24 +1271,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
         processState.setIsPendingSend(false);
         console.log('[AiCodeSession] isPendingSend cleared');
       }, 500);
-
-      if (shouldGenerateSessionTitle && onSessionTitleGenerated) {
-        // Async path: returns immediately with a request_id, the title arrives
-        // via "session-title:generated" event. Keeps the WebSocket RPC slot
-        // free during the up-to-60s CLI spawn so high-frequency streaming
-        // events don't starve regular button RPC responses.
-        void generateSessionTitleViaEvent(prompt)
-          .then((cleanedTitle: string) => {
-            if (cleanedTitle) {
-              generatedSessionTitleRef.current = cleanedTitle;
-              setGeneratedSessionTitle(cleanedTitle);
-              onSessionTitleGenerated(cleanedTitle);
-            }
-          })
-          .catch((err: unknown) => {
-            console.warn('[AiCodeSession] Failed to generate session title:', err);
-          });
-      }
 
       return true;
     } catch (err) {
