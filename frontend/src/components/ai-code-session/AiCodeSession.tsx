@@ -38,7 +38,8 @@ import { TooltipProvider, TooltipSimple } from "@/components/ui/tooltip-modern";
 import { SplitPane } from "@/components/ui/split-pane";
 import { WebviewPreview } from "../WebviewPreview";
 import { MessageScrollSeekPlaceholder } from "../MessageScrollSeekPlaceholder";
-import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration } from "react-virtuoso";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { useScrollSeekConfig } from "@/hooks/useScrollSeekConfig";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking, useSubagentTranscriptSync } from "@/hooks";
 import { SessionPersistenceService } from "@/services/sessionPersistence";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
@@ -62,11 +63,6 @@ import {
 } from "./hooks";
 
 const activeRecoveryKeys = new Set<string>();
-
-const scrollSeekConfiguration: ScrollSeekConfiguration = {
-  enter: (velocity) => Math.abs(velocity) > 900,
-  exit: (velocity) => Math.abs(velocity) < 300,
-};
 
 const streamingViewportIncrease = { top: 100, bottom: 250 };
 const idleViewportIncrease = { top: 300, bottom: 600 };
@@ -114,6 +110,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   // ==================================================================
 
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef);
   const floatingPromptRef = useRef<FloatingPromptInputRef>(null);
   const loadedSessionIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);

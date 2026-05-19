@@ -36,17 +36,13 @@ import { getDisplayableMessages } from "./ai-code-session/utils/messageFilter";
 
 import { ExecutionControlBar } from "./ExecutionControlBar";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration } from "react-virtuoso";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import { useScrollSeekConfig } from "@/hooks/useScrollSeekConfig";
 import { HooksEditor } from "./HooksEditor";
 import { useTrackEvent, useComponentMetrics, useFeatureAdoptionTracking, useSubagentTranscriptSync } from "@/hooks";
 import { useTabState } from "@/hooks/useTabState";
 
 type UnlistenFn = () => void;
-
-const scrollSeekConfiguration: ScrollSeekConfiguration = {
-  enter: (velocity) => Math.abs(velocity) > 900,
-  exit: (velocity) => Math.abs(velocity) < 300,
-};
 
 function ScrollSeekPlaceholder(props: { height: number }) {
   return <MessageScrollSeekPlaceholder {...props} className="w-full max-w-5xl mx-auto" />;
@@ -138,6 +134,7 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const fullscreenVirtuosoRef = useRef<VirtuosoHandle>(null);
+  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef);
   const [atBottom, setAtBottom] = useState(true);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const executionStartTimeRef = useRef<number | null>(null);

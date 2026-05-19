@@ -1,16 +1,12 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Virtuoso, VirtuosoHandle, type ScrollSeekConfiguration } from 'react-virtuoso';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { StreamMessage, buildStreamMessageContext } from '../StreamMessage';
 import { Terminal } from 'lucide-react';
 import { MessageScrollSeekPlaceholder } from '../MessageScrollSeekPlaceholder';
 import { cn } from '@/lib/utils';
+import { useScrollSeekConfig } from '@/hooks/useScrollSeekConfig';
 import type { ClaudeStreamMessage } from '../AgentExecution';
-
-const scrollSeekConfiguration: ScrollSeekConfiguration = {
-  enter: (velocity) => Math.abs(velocity) > 900,
-  exit: (velocity) => Math.abs(velocity) < 300,
-};
 
 function ScrollSeekPlaceholder(props: { height: number }) {
   return <MessageScrollSeekPlaceholder {...props} />;
@@ -32,6 +28,7 @@ export const MessageList: React.FC<MessageListProps> = React.memo(({
   className
 }) => {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const scrollSeekConfiguration = useScrollSeekConfig(virtuosoRef);
   const [atBottom, setAtBottom] = useState(true);
   const streamMessageContext = useMemo(() => buildStreamMessageContext(messages), [messages]);
   const messageIndexByObject = useMemo(() => {
