@@ -23,10 +23,15 @@ export default defineConfig({
     port: 5174,
     strictPort: false,
     host: '0.0.0.0',
-    hmr: {
-      protocol: 'ws',
-      host: 'localhost',
-    },
+    // ROPCODE_NO_HMR=1 disables HMR — Vite still rebuilds on file changes but
+    // the browser stays put until you manually reload. Useful when you want a
+    // dev server that won't yank the page out from under you mid-test.
+    hmr: process.env.ROPCODE_NO_HMR === '1'
+      ? false
+      : {
+          protocol: 'ws',
+          host: 'localhost',
+        },
   },
   plugins: [
     react(),
