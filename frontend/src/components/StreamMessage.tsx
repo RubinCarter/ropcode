@@ -68,6 +68,13 @@ interface StreamMessageProps {
   expandedCards?: Set<string>;
   onExpandedCardsChange?: React.Dispatch<React.SetStateAction<Set<string>>>;
   messageKey?: string;
+  /**
+   * Revision counter that the streaming-tail wrapper bumps on every text
+   * delta. Read only by the memo comparator: a change here defeats memo so
+   * the in-place mutated `message` object can re-render without us having to
+   * clone it. Static rows leave this undefined and stay memoised.
+   */
+  tailRev?: number;
 }
 
 export function buildStreamMessageContext(streamMessages: ClaudeStreamMessage[]): StreamMessageContext {
@@ -483,6 +490,7 @@ function expandedCardsChangedForMessage(prevCards: Set<string> | undefined, next
 
 function streamMessagePropsAreEqual(prev: StreamMessageProps, next: StreamMessageProps): boolean {
   if (prev.message !== next.message) return false;
+  if (prev.tailRev !== next.tailRev) return false;
   if (prev.className !== next.className) return false;
   if (prev.onLinkDetected !== next.onLinkDetected) return false;
   if (prev.isStreamingText !== next.isStreamingText) return false;

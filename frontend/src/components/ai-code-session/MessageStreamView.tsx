@@ -9,7 +9,7 @@
  * Virtuoso lifecycle here keeps the parent JSX small and gives us a single
  * place to memoise the per-row callbacks.
  */
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/utils";
 import { StreamMessage } from "../StreamMessage";
@@ -36,6 +36,40 @@ interface MessageStreamViewProps {
   error: string | null;
   onStreamItemsCountChange?: (count: number) => void;
 }
+
+/**
+ * Subscribes to useMessages tail-revision updates and re-renders only this
+ * row when streaming text deltas arrive. Bypasses StreamMessage's React.memo
+ * by feeding the revision through a `tailRev` prop that the memo comparator
+ * checks.
+ */
+interface StreamingTailRowProps {
+  message: ClaudeStreamMessage;
+  streamMessages: ClaudeStreamMessage[];
+  streamContext: any;
+  onLinkDetected: ((url: string) => void) | undefined;
+  agentOutputMap: Map<string, any>;
+  expandedCards: Set<string> | undefined;
+  onExpandedCardsChange: React.Dispatch<React.SetStateAction<Set<string>>>;
+  messageKey: string;
+  subscribeTailUpdate: (listener: () => void) => () => void;
+  getTailRevision: () => number;
+}
+
+const StreamingTailRow: React.FC<StreamingTailRowProps> = ({
+  subscribeTailUpdate,
+  getTailRevision,
+  ...streamMessageProps
+}) => {
+  const tailRev = useSyncExternalStore(subscribeTailUpdate, getTailRevision, getTailRevision);
+  return (
+    <StreamMessage
+      {...streamMessageProps}
+      isStreamingText={true}
+      tailRev={tailRev}
+    />
+  );
+};
 
 export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
   messagesState,
@@ -99,6 +133,31 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
           ? 'pl-4 ml-2 border-l-2 border-purple-400/40'
           : 'pl-4 ml-6 border-l-2 border-purple-400/30';
 
+      // The streaming-tail row subscribes to tail updates so its text content
+      // refreshes on every flush WITHOUT triggering a re-render of
+      // MessageStreamView / AiCodeSession. Static rows render through the
+      // memoised StreamMessage path.
+      if (item.isStreamingTail) {
+        return (
+          <div className="w-full max-w-6xl mx-auto px-4 py-2">
+            <div className={cn(indentClass)}>
+              <StreamingTailRow
+                message={item.message}
+                streamMessages={messagesState.messagesRef.current}
+                streamContext={messagesState.streamMessageContext}
+                onLinkDetected={handleLinkDetected}
+                agentOutputMap={messagesState.agentOutputMap}
+                expandedCards={expandedMessageCards}
+                onExpandedCardsChange={setExpandedMessageCards}
+                messageKey={item.message.uuid || `msg-${item.originalIndex}`}
+                subscribeTailUpdate={messagesState.subscribeTailUpdate}
+                getTailRevision={messagesState.getTailRevision}
+              />
+            </div>
+          </div>
+        );
+      }
+
       return (
         <div className="w-full max-w-6xl mx-auto px-4 py-2">
           <div className={cn(indentClass)}>
@@ -108,7 +167,7 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
               streamContext={messagesState.streamMessageContext}
               onLinkDetected={handleLinkDetected}
               agentOutputMap={messagesState.agentOutputMap}
-              isStreamingText={item.isStreamingTail}
+              isStreamingText={false}
               expandedCards={expandedMessageCards}
               onExpandedCardsChange={setExpandedMessageCards}
               messageKey={item.message.uuid || `msg-${item.originalIndex}`}
@@ -122,6 +181,8 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
       messagesState.messagesRef,
       messagesState.streamMessageContext,
       messagesState.subagentProgress,
+      messagesState.subscribeTailUpdate,
+      messagesState.getTailRevision,
       isSubagentPanelExpanded,
       setIsSubagentPanelExpanded,
       expandedSubagentIds,

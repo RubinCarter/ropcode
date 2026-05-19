@@ -47,7 +47,6 @@ export interface UseMessagesReturn {
   subagentTranscripts: Record<string, ClaudeStreamMessage[]>;
   agentOutputMap: Map<string, any>;
   streamMessageContext: StreamMessageContext;
-  renderTick: number;
 
   // Setters
   setMessages: React.Dispatch<React.SetStateAction<ClaudeStreamMessage[]>>;
@@ -57,6 +56,15 @@ export interface UseMessagesReturn {
   addMessage: (message: ClaudeStreamMessage) => void;
   flushPendingMessages: () => void;
   clearMessages: () => void;
+
+  // Tail-only subscription. Pure text deltas bump a revision counter without
+  // triggering React state updates in this hook, so AiCodeSession + the whole
+  // MessageStreamView subtree do NOT re-render on every streaming character.
+  // The streaming-tail row subscribes via useSyncExternalStore and re-renders
+  // in isolation. Structural changes still bump structuralVersion (state) so
+  // ordinary consumers see new messages.
+  subscribeTailUpdate: (listener: () => void) => () => void;
+  getTailRevision: () => number;
 
   // Refs
   messagesLengthRef: React.MutableRefObject<number>;
@@ -299,16 +307,31 @@ function buildDerivedMessagesState(messages: ClaudeStreamMessage[]): MessageDeri
  * (push, in-place text append) and a `version` / `structuralVersion`
  * counter pair triggers React re-renders.
  *
- * `version` bumps on every flush (including delta-only text appends); the
- * memoised derived data (subagentProgress, displayable) only depends on
- * `structuralVersion`, so unrelated work doesn't re-run during streaming.
+ * `structuralVersion` bumps when messages get added/removed/cleared so
+ * components that care about structure (item count, indexes, subagent layout)
+ * re-render. Pure text deltas bump `tailRevisionRef` instead and notify
+ * tail-listeners directly, so AiCodeSession + MessageStreamView stay still
+ * during streaming and only the streaming-tail row re-renders.
  */
 export function useMessages(): UseMessagesReturn {
   const messagesRef = useRef<ClaudeStreamMessage[]>([]);
   const derivedRef = useRef<MessageDerivedState>(createEmptyDerivedMessagesState());
-  const [version, setVersion] = useState(0);
   const [structuralVersion, setStructuralVersion] = useState(0);
   const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
+
+  const tailRevisionRef = useRef(0);
+  const tailListenersRef = useRef<Set<() => void>>(new Set());
+  const notifyTailListeners = () => {
+    tailRevisionRef.current += 1;
+    tailListenersRef.current.forEach((cb) => {
+      try { cb(); } catch (_) { /* ignore */ }
+    });
+  };
+  const subscribeTailUpdate = useCallback((listener: () => void) => {
+    tailListenersRef.current.add(listener);
+    return () => { tailListenersRef.current.delete(listener); };
+  }, []);
+  const getTailRevision = useCallback(() => tailRevisionRef.current, []);
 
   const messages = messagesRef.current;
 
@@ -320,7 +343,7 @@ export function useMessages(): UseMessagesReturn {
     if (nextMessages === messagesRef.current) return;
     messagesRef.current = nextMessages;
     derivedRef.current = buildDerivedMessagesState(nextMessages);
-    setVersion((v) => v + 1);
+    notifyTailListeners();
     setStructuralVersion((v) => v + 1);
   }, []);
 
@@ -429,7 +452,9 @@ export function useMessages(): UseMessagesReturn {
 
     if (changed) {
       derivedRef.current = derived;
-      setVersion((v) => v + 1);
+      // Always notify tail subscribers so the streaming row picks up the
+      // latest text. Only structural changes also bump React state.
+      notifyTailListeners();
       if (structural) setStructuralVersion((v) => v + 1);
     }
   };
@@ -483,7 +508,7 @@ export function useMessages(): UseMessagesReturn {
     messagesRef.current = [];
     derivedRef.current = createEmptyDerivedMessagesState();
     setSubagentTranscripts({});
-    setVersion((v) => v + 1);
+    notifyTailListeners();
     setStructuralVersion((v) => v + 1);
   }, []);
 
@@ -505,12 +530,13 @@ export function useMessages(): UseMessagesReturn {
     subagentTranscripts,
     agentOutputMap: derivedRef.current.agentOutputMap,
     streamMessageContext: derivedRef.current.streamMessageContext,
-    renderTick: version,
     setMessages,
     setSubagentTranscripts,
     addMessage,
     flushPendingMessages,
     clearMessages,
+    subscribeTailUpdate,
+    getTailRevision,
     messagesLengthRef,
     messagesRef,
   };
