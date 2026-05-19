@@ -40,6 +40,7 @@ import {
   isExactClearCommand,
   shouldForwardClearToProvider,
 } from './ai-code-session/utils/clearCommand';
+import { buildPromptWithThinking } from './ai-code-session/utils/promptThinking';
 import {
   getStopStatusControlLayoutClassName,
 } from './ai-code-session/utils/stopStatusBubble';
@@ -62,7 +63,7 @@ type ThinkingLevel = {
   id?: string;
   level?: string;
   name?: string;
-  budget?: string;
+  budget?: string | number;
   is_default?: boolean;
 };
 
@@ -754,7 +755,6 @@ const FloatingPromptInputInner = (
           name: t.name,
           description: t.name,
           level: index,
-          phrase: providerId === 'claude' || providerId === 'gemini' ? (t.budget as string) : undefined,
           value: providerId === 'codex' ? (t.budget as string) : undefined,
           icon: getThinkingModeIcon(t.id),
           color: t.is_default ? "text-muted-foreground" : "text-primary",
@@ -1411,7 +1411,6 @@ const FloatingPromptInputInner = (
 
     const promptToSend = prompt;
     if (promptToSend.trim() && !disabled) {
-      let finalPrompt = promptToSend.trim();
       const imagesToRestore = embeddedImages;
 
       setPrompt("");
@@ -1420,17 +1419,13 @@ const FloatingPromptInputInner = (
 
       // Apply thinking mode based on provider
       const thinkingMode = currentThinkingModes.find(m => m.id === selectedThinkingMode);
-
-      const shouldAppendThinkingPhrase =
-        selectedProvider === 'claude' &&
-        thinkingMode &&
-        thinkingMode.phrase &&
-        !isExactClearCommand(promptToSend) &&
-        !shouldForwardClearToProvider(promptToSend, selectedProvider);
-
-      if (shouldAppendThinkingPhrase) {
-        finalPrompt = `${finalPrompt}.\n\n${thinkingMode.phrase}.`;
-      }
+      const finalPrompt = buildPromptWithThinking({
+        provider: selectedProvider,
+        prompt: promptToSend,
+        phrase: thinkingMode?.phrase,
+        isClearCommand: isExactClearCommand(promptToSend),
+        shouldForwardClear: shouldForwardClearToProvider(promptToSend, selectedProvider),
+      });
 
       // For Codex: thinking mode is passed via reasoning_effort parameter
       // The reasoning_effort will be extracted from selectedThinkingMode in the backend

@@ -78,3 +78,11 @@ test('Codex model picker only exposes GPT-5.5 and current reasoning efforts', as
   assert.match(codexThinkingBlock, /id: "minimal"/);
   assert.match(codexThinkingBlock, /id: "xhigh"/);
 });
+
+test('does not append numeric thinking budgets to Claude prompts', async () => {
+  const source = await readSource();
+
+  assert.doesNotMatch(source, /phrase: providerId === 'claude' \|\| providerId === 'gemini' \? \(t\.budget as string\) : undefined/);
+  assert.match(source, /buildPromptWithThinking/);
+  assert.doesNotMatch(source, /finalPrompt = `\$\{finalPrompt\}\.\\n\\n\$\{thinkingMode\.phrase\}\.`/);
+});
