@@ -254,11 +254,15 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     // Chat tab doesn't have a back button, this is a no-op
   }, []);
 
-  const notifySpaceSessionsRefresh = useCallback(() => {
+  const handleSessionActivityComplete = useCallback((tabId: string, sessionId?: string | null) => {
+    if (sessionId) {
+      updateTab(tabId, { sessionId });
+    }
+
     window.dispatchEvent(new CustomEvent('ropcode-space-sessions-refresh', {
-      detail: { spacePath: workspaceId },
+      detail: { spacePath: workspaceId, sessionId, force: true },
     }));
-  }, [workspaceId]);
+  }, [updateTab, workspaceId]);
 
   useEffect(() => {
     const handleOpenProviderSession = (event: Event) => {
@@ -377,7 +381,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             onProjectPathChange={handleProjectPathChange}
             onProviderChange={handleProviderChange}
             onSessionTitleGenerated={(title) => updateTab(tab.id, { title })}
-            onSessionActivityComplete={notifySpaceSessionsRefresh}
+            onSessionActivityComplete={(sessionId) => handleSessionActivityComplete(tab.id, sessionId)}
           />
         );
 

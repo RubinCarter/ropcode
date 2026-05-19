@@ -94,6 +94,13 @@ test('WorkspaceTabManager does not show chat session liveness badges in tabs', a
   assert.doesNotMatch(source, /Session closed/);
 });
 
+test('ProjectList deduplicates historical workspace chat tabs by projectPath', async () => {
+  const source = await readSource(projectListPath);
+
+  assert.match(source, /tab\.projectPath === spacePath/);
+  assert.doesNotMatch(source, /tab\.initialProjectPath === spacePath/);
+});
+
 test('AiCodeSession can skip automatic session restoration for explicit new tabs', async () => {
   const source = await readSource(path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx'));
   const types = await readSource(path.resolve(currentDir, './ai-code-session/types.ts'));

@@ -582,13 +582,22 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
   useEffect(() => {
     const handleSpaceSessionsRefresh = (event: Event) => {
-      const spacePath = (event as CustomEvent<{ spacePath?: string }>).detail?.spacePath;
+      const detail = (event as CustomEvent<{ spacePath?: string; force?: boolean }>).detail;
+      const spacePath = detail?.spacePath;
       if (!spacePath) return;
 
       setSpaceSessions(prev => {
         if (!prev[spacePath]) return prev;
+        const limit = prev[spacePath]?.loadedAll ? 0 : 10;
+        if (detail?.force) {
+          const next = { ...prev };
+          delete next[spacePath];
+          setTimeout(() => loadSpaceSessions(spacePath, limit), 250);
+          setTimeout(() => loadSpaceSessions(spacePath, limit), 1500);
+          return next;
+        }
         setTimeout(() => {
-          loadSpaceSessions(spacePath, prev[spacePath]?.loadedAll ? 0 : 10);
+          loadSpaceSessions(spacePath, limit);
         }, 250);
         return prev;
       });
@@ -601,7 +610,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const openSessionTab = (spacePath: string, session: ProviderSessionSummary) => {
     const existingTab = tabs.find(tab =>
       tab.type === 'chat' &&
-      tab.initialProjectPath === spacePath &&
+      tab.projectPath === spacePath &&
       tab.sessionId === session.id &&
       tab.providerId === session.provider
     );

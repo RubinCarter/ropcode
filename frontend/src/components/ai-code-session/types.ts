@@ -62,7 +62,7 @@ export interface AiCodeSessionProps {
   /**
    * Callback when a turn or process completes and history may have changed.
    */
-  onSessionActivityComplete?: () => void;
+  onSessionActivityComplete?: (sessionId?: string | null) => void;
 }
 
 /**
