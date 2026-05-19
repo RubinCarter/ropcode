@@ -30,8 +30,14 @@ export function useScrollSeekConfig(
     };
 
     return {
+      // Velocity thresholds tuned for macOS trackpad inertia: a normal flick
+      // reaches ~3000 px/s but a deliberate "throw" goes well past 6000.
+      // Raising the enter threshold + lowering the exit threshold means we
+      // only swap to placeholders during true high-velocity scrolls and
+      // recover sooner once the user lets go, so quick browse flicks don't
+      // flash skeleton rows.
       enter: (velocity) => {
-        const enter = Math.abs(velocity) > 2500;
+        const enter = Math.abs(velocity) > 6000;
         if (enter && !inSeekRef.current) {
           inSeekRef.current = true;
           if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -40,7 +46,7 @@ export function useScrollSeekConfig(
         return enter;
       },
       exit: (velocity) => {
-        const exit = Math.abs(velocity) < 800;
+        const exit = Math.abs(velocity) < 200;
         if (exit) {
           inSeekRef.current = false;
           if (timeoutRef.current) clearTimeout(timeoutRef.current);
