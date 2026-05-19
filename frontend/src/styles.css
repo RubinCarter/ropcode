@@ -1021,6 +1021,17 @@ code::-webkit-scrollbar-thumb:hover {
   contain: layout style paint;
 }
 
+/* Yellow blink for title regeneration in progress */
+@keyframes title-generating {
+  0%, 100% { opacity: 1; color: var(--color-yellow-500, #eab308); }
+  50% { opacity: 0.4; color: var(--color-yellow-500, #eab308); }
+}
+
+.animate-title-generating {
+  animation: title-generating 1.2s ease-in-out infinite;
+  will-change: opacity;
+}
+
 /* Screenshot Shutter Animation */
 @keyframes shutterFlash {
   0% {

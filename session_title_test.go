@@ -2,11 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"ropcode/internal/claude"
 	"ropcode/internal/database"
 )
 
@@ -75,88 +75,143 @@ func TestSaveGeneratedSessionTitlePersistsInSettings(t *testing.T) {
 	}
 }
 
-func TestGenerateSessionTitleWithConfigUsesOpenAICompatibleChatCompletions(t *testing.T) {
-	var requestedPath string
-	var requestedAuth string
-	var requestBody map[string]any
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestedPath = r.URL.Path
-		requestedAuth = r.Header.Get("Authorization")
-		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
-			t.Fatalf("failed to decode request body: %v", err)
+func TestSanitizeBranchName(t *testing.T) {
+	cases := map[string]string{
+		"  Fix Auto Title Bug  ":            "fix-auto-title-bug",
+		"feat/Refactor Session Title Logic": "refactor-session-title-logic",
+		"\"add-rename-button\"":             "add-rename-button",
+		"a / very :: silly !! input":        "a-very-silly-input",
+		"this-is-a-very-long-branch-name-that-should-get-trimmed-eventually": "this-is-a-very-long-branch-nam",
+	}
+	for in, want := range cases {
+		if got := sanitizeBranchName(in); got != want {
+			t.Errorf("sanitizeBranchName(%q) = %q, want %q", in, got, want)
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"\"Wails session tabs\""}}]}`))
-	}))
-	defer server.Close()
-
-	title, err := generateSessionTitleWithConfig(&database.ProviderApiConfig{
-		BaseURL:   server.URL,
-		AuthToken: "test-token",
-	}, "title-model", "点击更多会话报错，顺便给这次会话起个标题")
-	if err != nil {
-		t.Fatalf("generateSessionTitleWithConfig() error = %v", err)
-	}
-	if title != "Wails session tabs" {
-		t.Fatalf("generateSessionTitleWithConfig() = %q", title)
-	}
-	if requestedPath != "/chat/completions" {
-		t.Fatalf("request path = %q, want /chat/completions", requestedPath)
-	}
-	if requestedAuth != "Bearer test-token" {
-		t.Fatalf("Authorization = %q", requestedAuth)
-	}
-	if requestBody["model"] != "title-model" {
-		t.Fatalf("model = %v", requestBody["model"])
-	}
-	messages, ok := requestBody["messages"].([]any)
-	if !ok || len(messages) != 2 {
-		t.Fatalf("messages = %#v", requestBody["messages"])
 	}
 }
 
-func TestGenerateSessionTitleWithConfigUsesAnthropicMessagesForClaude(t *testing.T) {
-	var requestedPath string
-	var requestedKey string
-	var requestedVersion string
-	var requestBody map[string]any
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestedPath = r.URL.Path
-		requestedKey = r.Header.Get("x-api-key")
-		requestedVersion = r.Header.Get("anthropic-version")
-		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
-			t.Fatalf("failed to decode request body: %v", err)
+func TestBuildRecentTranscriptFocusesOnTail(t *testing.T) {
+	mk := func(role, text string, sidechain bool) claude.Message {
+		return claude.Message{
+			Type:        role,
+			IsSidechain: sidechain,
+			Message: map[string]interface{}{
+				"content": []interface{}{
+					map[string]interface{}{"type": "text", "text": text},
+				},
+			},
 		}
+	}
+	msgs := []claude.Message{
+		mk("user", "set up the project", false),
+		mk("assistant", "done", false),
+		mk("user", "ignore me — I am sidechain", true),
+		mk("user", "now please rename the branch button", false),
+		mk("assistant", "sure, I will add a sparkle icon", false),
+	}
 
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"Claude naming service"}]}`))
-	}))
-	defer server.Close()
+	transcript := buildRecentTranscript(msgs)
+	if transcript == "" {
+		t.Fatalf("transcript should not be empty")
+	}
+	if !strings.Contains(transcript, "rename the branch button") {
+		t.Fatalf("transcript missing latest user message: %q", transcript)
+	}
+	if strings.Contains(transcript, "sidechain") {
+		t.Fatalf("sidechain messages should not be included: %q", transcript)
+	}
+}
 
-	title, err := generateSessionTitleWithConfig(&database.ProviderApiConfig{
-		ProviderID: "claude",
-		BaseURL:    server.URL,
-		AuthToken:  "anthropic-token",
-	}, "claude-3-5-haiku-20241022", "上面的会话无法关闭，取名服务没触发")
-	if err != nil {
-		t.Fatalf("generateSessionTitleWithConfig() error = %v", err)
+func TestExtractCodexAssistantTextPicksLastMessage(t *testing.T) {
+	stdout := strings.Join([]string{
+		`{"type":"item.completed","item":{"type":"agent_message","text":"first"}}`,
+		`{"type":"task.started"}`,
+		`not json`,
+		`{"type":"item.completed","item":{"type":"agent_message","text":"second"}}`,
+		``,
+	}, "\n")
+
+	got := extractCodexAssistantText(stdout)
+	if got != "second" {
+		t.Fatalf("extractCodexAssistantText() = %q, want \"second\"", got)
 	}
-	if title != "Claude naming service" {
-		t.Fatalf("generateSessionTitleWithConfig() = %q", title)
+}
+
+func TestEnforceTitleInputBudgetTrimsHead(t *testing.T) {
+	// User prompt many times the budget — should keep the tail intact.
+	huge := strings.Repeat("x", titleInputBudgetRunes*3)
+	tail := "...LATEST_FOCUS_MARKER"
+	user := huge + tail
+
+	gotSys, gotUser := enforceTitleInputBudget("system", user)
+	if gotSys != "system" {
+		t.Fatalf("system prompt mutated: %q", gotSys)
 	}
-	if requestedPath != "/v1/messages" {
-		t.Fatalf("request path = %q, want /v1/messages", requestedPath)
+	if !strings.HasSuffix(gotUser, tail) {
+		t.Fatalf("trimmed user prompt should keep the tail; got suffix %q", gotUser[len(gotUser)-30:])
 	}
-	if requestedKey != "anthropic-token" {
-		t.Fatalf("x-api-key = %q", requestedKey)
+	total := len(gotSys) + len(gotUser)
+	// Allow a small ASCII-vs-rune slack: the cap is on runes, not bytes.
+	if total > (titleInputBudgetRunes + 200) {
+		t.Fatalf("combined prompt %d exceeds budget", total)
 	}
-	if requestedVersion == "" {
-		t.Fatalf("anthropic-version header was empty")
+}
+
+func TestIsGenericTitle(t *testing.T) {
+	generics := []string{
+		"New conversation session setup",
+		"new session",
+		"Chat session started",
+		"Conversation Setup",
+		"New Chat Session",
+		"Getting started with coding",
+		"Hello",
+		"No transcript was provided. Please include the <transcript>",
+		"I cannot generate a title without context",
+		"I'm unable to determine the topic",
+		"Please provide more information",
+		"As an AI, I need more context",
 	}
-	if requestBody["model"] != "claude-3-5-haiku-20241022" {
-		t.Fatalf("model = %v", requestBody["model"])
+	for _, title := range generics {
+		if !isGenericTitle(title) {
+			t.Errorf("isGenericTitle(%q) = false, want true", title)
+		}
+	}
+
+	valid := []string{
+		"Fix auto title generation",
+		"重构会话标题逻辑",
+		"Add yellow blink animation",
+		"Debug WebSocket reconnection",
+	}
+	for _, title := range valid {
+		if isGenericTitle(title) {
+			t.Errorf("isGenericTitle(%q) = true, want false", title)
+		}
+	}
+}
+
+func TestExtractMessageTextHandlesCodexTypedContent(t *testing.T) {
+	// Codex history loader builds messages with []map[string]interface{} content.
+	msg := map[string]interface{}{
+		"role": "user",
+		"content": []map[string]interface{}{
+			{"type": "text", "text": "重命名按钮没有生效"},
+		},
+	}
+	if got := extractMessageText(msg); got != "重命名按钮没有生效" {
+		t.Fatalf("extractMessageText() = %q, want plaintext from typed content", got)
+	}
+
+	// Multiple text parts joined with newlines.
+	multi := map[string]interface{}{
+		"content": []map[string]interface{}{
+			{"type": "text", "text": "first"},
+			{"type": "tool_use", "name": "Bash"}, // ignored
+			{"type": "text", "text": "second"},
+		},
+	}
+	if got := extractMessageText(multi); got != "first\nsecond" {
+		t.Fatalf("multi-part text = %q", got)
 	}
 }

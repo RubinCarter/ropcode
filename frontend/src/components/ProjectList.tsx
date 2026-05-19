@@ -1,6 +1,6 @@
 // @ts-nocheck
-import React, { useState, useEffect, useMemo } from "react";
-import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw, X, MessageSquare, MessageSquarePlus, Bot, Sparkles, TerminalSquare } from "lucide-react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { FolderOpen, ChevronDown, GitBranch, Trash2, Plus, Clock, AlertTriangle, Server, RefreshCw, X, MessageSquare, MessageSquarePlus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { Project, AutoSyncStatus, ProviderSessionSummary } from "@/lib/api";
@@ -12,6 +12,9 @@ import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
 import { useContainerContext } from "@/contexts/ContainerContext";
 import { useProcessChanged } from "@/hooks";
 import { basename, homeRelativePath } from "@/lib/pathUtils";
+import { ClaudeIcon } from "./icons/ClaudeIcon";
+import { OpenAIIcon } from "./icons/OpenAIIcon";
+import { GeminiIcon } from "./icons/GeminiIcon";
 
 interface ProjectListProps {
   /**
@@ -113,9 +116,9 @@ const getProviderLabel = (provider: string): string => {
 };
 
 const getProviderIcon = (provider: string) => {
-  if (provider === 'claude') return Sparkles;
-  if (provider === 'codex') return TerminalSquare;
-  if (provider === 'gemini') return Bot;
+  if (provider === 'claude') return ClaudeIcon;
+  if (provider === 'codex') return OpenAIIcon;
+  if (provider === 'gemini') return GeminiIcon;
   return MessageSquare;
 };
 
@@ -138,7 +141,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   activeProjectPath,
   className,
 }) => {
-  const { tabs, setActiveTab, removeTab } = useTabContext();
+  const { tabs, setActiveTab, removeTab, updateTab } = useTabContext();
   const { getInProgressTodos, getWorkspaceStatus, setWorkspaceStatus, markAsRead, clearWorkspace } = useWorkspaceTodo();
   const { closeWorkspace, isWorkspaceOpen, switchToWorkspace } = useContainerContext();
   const [showAll, setShowAll] = useState(false);
@@ -160,6 +163,107 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   const [workspaceBranches, setWorkspaceBranches] = useState<Record<string, string>>({});
   const [spaceSessions, setSpaceSessions] = useState<Record<string, SpaceSessionCache>>({});
   const [runningSessionIds, setRunningSessionIds] = useState<Set<string>>(new Set());
+  const [renamingBranches, setRenamingBranches] = useState<Set<string>>(new Set());
+  const [regeneratingSessionTitles, setRegeneratingSessionTitles] = useState<Set<string>>(new Set());
+
+  const handleRegenerateSessionTitle = useCallback(async (spacePath: string, session: ProviderSessionSummary) => {
+    const key = `${session.provider}:${session.id}`;
+    if (!session.provider || !session.id || !session.project_id) {
+      window.dispatchEvent(new CustomEvent('show-toast', {
+        detail: { type: 'error', message: 'Session is missing identifiers; cannot regenerate title' },
+      }));
+      return;
+    }
+
+    setRegeneratingSessionTitles(prev => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+
+    try {
+      const title = await api.GenerateSessionTitleForSession(session.provider, session.id, session.project_id);
+      const cleaned = title?.trim();
+      if (!cleaned) {
+        throw new Error('Model returned an empty title');
+      }
+      setSpaceSessions(prev => {
+        const cache = prev[spacePath];
+        if (!cache) return prev;
+        return {
+          ...prev,
+          [spacePath]: {
+            ...cache,
+            sessions: cache.sessions.map(s =>
+              s.provider === session.provider && s.id === session.id
+                ? { ...s, title: cleaned }
+                : s
+            ),
+          },
+        };
+      });
+      // Sync matching tab title
+      const matchingTab = tabs.find(tab =>
+        tab.type === 'chat' &&
+        tab.sessionId === session.id &&
+        (tab.providerId === session.provider || tab.sessionData?.provider === session.provider)
+      );
+      if (matchingTab) {
+        updateTab(matchingTab.id, { title: cleaned });
+      }
+      window.dispatchEvent(new CustomEvent('show-toast', {
+        detail: { type: 'success', message: `Renamed session to "${cleaned}"` },
+      }));
+    } catch (err) {
+      console.error('[ProjectList] Failed to regenerate session title:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      window.dispatchEvent(new CustomEvent('show-toast', {
+        detail: { type: 'error', message: `Title regeneration failed: ${message}` },
+      }));
+    } finally {
+      setRegeneratingSessionTitles(prev => {
+        if (!prev.has(key)) return prev;
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+    }
+  }, [tabs, updateTab]);
+
+  const handleRenameBranch = useCallback(async (workspacePath: string) => {
+    setRenamingBranches(prev => {
+      if (prev.has(workspacePath)) return prev;
+      const next = new Set(prev);
+      next.add(workspacePath);
+      return next;
+    });
+    try {
+      const proposed = await api.GenerateBranchName(workspacePath);
+      const slug = proposed?.trim();
+      if (!slug) {
+        throw new Error('Model returned an empty branch name');
+      }
+      const renamed = await api.RenameGitBranch(workspacePath, slug);
+      setWorkspaceBranches(prev => ({ ...prev, [workspacePath]: renamed }));
+      window.dispatchEvent(new CustomEvent('show-toast', {
+        detail: { type: 'success', message: `Renamed branch to ${renamed}` },
+      }));
+    } catch (err) {
+      console.error('[ProjectList] Failed to rename branch:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      window.dispatchEvent(new CustomEvent('show-toast', {
+        detail: { type: 'error', message: `Branch rename failed: ${message}` },
+      }));
+    } finally {
+      setRenamingBranches(prev => {
+        if (!prev.has(workspacePath)) return prev;
+        const next = new Set(prev);
+        next.delete(workspacePath);
+        return next;
+      });
+    }
+  }, []);
 
   // Listen SSH sync progress to show up/down in list
   useEffect(() => {
@@ -538,23 +642,47 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         {cache.sessions.map((session) => {
           const ProviderIcon = getProviderIcon(session.provider);
           const isRunning = session.is_running || runningSessionIds.has(`${session.provider}:${session.id}`);
+          const sessionKey = `${session.provider}:${session.id}`;
+          const isRegenerating = regeneratingSessionTitles.has(sessionKey);
 
           return (
-            <button
-              key={`${session.provider}:${session.id}`}
-              onClick={() => openSessionTab(spacePath, session)}
-              className="w-full px-3 py-1.5 flex items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md"
-              title={`${getProviderLabel(session.provider)} · ${getSessionTitle(session)}`}
+            <div
+              key={sessionKey}
+              className="group/session relative flex items-center text-xs text-muted-foreground hover:bg-accent/50 transition-colors rounded-md"
             >
-              <span className="relative flex-shrink-0 inline-flex h-4 w-4 items-center justify-center">
-                <ProviderIcon className="h-3.5 w-3.5" />
-                {isRunning && (
-                  <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-purple-500 ring-1 ring-background" />
+              <button
+                onClick={() => openSessionTab(spacePath, session)}
+                className="min-w-0 flex-1 px-3 py-1.5 flex items-center gap-2 text-left hover:text-foreground"
+                title={`${getProviderLabel(session.provider)} · ${getSessionTitle(session)}`}
+              >
+                <span className="relative flex-shrink-0 inline-flex h-4 w-4 items-center justify-center">
+                  <ProviderIcon className="h-3.5 w-3.5" />
+                  {isRunning && (
+                    <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-purple-500 ring-1 ring-background" />
+                  )}
+                </span>
+                <span className={cn("min-w-0 flex-1 truncate", isRegenerating && "animate-title-generating")}>{isRegenerating ? "Generating..." : getSessionTitle(session)}</span>
+                <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity)}</span>
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isRegenerating) return;
+                  handleRegenerateSessionTitle(spacePath, session);
+                }}
+                disabled={isRegenerating}
+                className={cn(
+                  "flex-shrink-0 mr-1 p-1 rounded transition-all hover:bg-accent",
+                  isRegenerating
+                    ? "opacity-100 text-primary"
+                    : "opacity-0 group-hover/session:opacity-100"
                 )}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{getSessionTitle(session)}</span>
-              <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity)}</span>
-            </button>
+                title="Summarize current focus and rename this session"
+                aria-label={`Rename session ${getSessionTitle(session)}`}
+              >
+                <Sparkles className={cn("h-3 w-3", isRegenerating && "animate-pulse text-primary")} />
+              </button>
+            </div>
           );
         })}
         {cache.hasMore && !cache.loadedAll && (
@@ -1058,6 +1186,26 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                   </div>
                                 </div>
                               </button>
+                              {!isRemoving && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (renamingBranches.has(claudeProvider.path)) return;
+                                    handleRenameBranch(claudeProvider.path);
+                                  }}
+                                  disabled={renamingBranches.has(claudeProvider.path)}
+                                  className={cn(
+                                    "flex-shrink-0 transition-all p-1 rounded hover:bg-accent",
+                                    renamingBranches.has(claudeProvider.path)
+                                      ? "opacity-100 text-primary"
+                                      : "opacity-0 group-hover/workspace:opacity-100"
+                                  )}
+                                  title="Summarize current focus and rename this branch"
+                                  aria-label={`Rename branch for ${workspaceBranches[claudeProvider.path] || workspace.branch || workspace.name}`}
+                                >
+                                  <Sparkles className={cn("h-3 w-3 text-muted-foreground", renamingBranches.has(claudeProvider.path) && "animate-pulse text-primary")} />
+                                </button>
+                              )}
                               {!isRemoving && (
                                 <button
                                   onClick={(e) => {
