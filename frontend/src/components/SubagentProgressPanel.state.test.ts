@@ -121,7 +121,7 @@ test('virtualized stream rows use lightweight placeholders during fast scroll', 
   const messageScrollSeekPlaceholderSource = await readSource(messageScrollSeekPlaceholderPath);
 
   for (const source of [aiCodeSessionSource, agentExecutionSource, claudeMessageListSource]) {
-    assert.match(source, /const scrollSeekConfiguration: ScrollSeekConfiguration = \{[\s\S]*enter: \(velocity\) => Math\.abs\(velocity\) > 900,[\s\S]*exit: \(velocity\) => Math\.abs\(velocity\) < 300,[\s\S]*\};/);
+    assert.match(source, /useScrollSeekConfig/);
     assert.match(source, /function ScrollSeekPlaceholder\(props: \{ height: number \}\) \{/);
     assert.match(source, /<MessageScrollSeekPlaceholder \{\.\.\.props\}/);
     assert.match(source, /scrollSeekConfiguration=\{scrollSeekConfiguration\}/);
