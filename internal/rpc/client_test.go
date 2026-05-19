@@ -109,6 +109,17 @@ func TestRPCClient_OnEvent(t *testing.T) {
 	}
 	defer client.Close()
 
+	// Wait for the server to register the client — there's a small window
+	// between the WS handshake completing (Dial returns) and the server
+	// adding the client to its map (handleWebSocket runs in a goroutine).
+	deadline := time.Now().Add(2 * time.Second)
+	for server.ClientCount() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out waiting for server to register client")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
 	events := make(chan json.RawMessage, 1)
 	client.OnEvent("tick", func(payload json.RawMessage) {
 		copyPayload := append(json.RawMessage(nil), payload...)

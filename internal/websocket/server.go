@@ -293,6 +293,15 @@ func (s *Server) BroadcastEvent(eventType string, payload interface{}) {
 	}
 }
 
+// ClientCount returns the number of currently connected WebSocket clients.
+// Exposed for tests that need to wait for a client to register before
+// broadcasting events.
+func (s *Server) ClientCount() int {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+	return len(s.clients)
+}
+
 func (s *Server) registerInstance() error {
 	if s.registry == nil {
 		return nil

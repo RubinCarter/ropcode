@@ -279,7 +279,8 @@ func TestHandleMessage_ReturnsPromptlyForSlowRPC(t *testing.T) {
 	}
 	server := NewServer(app)
 	client := NewClient("test-client", nil)
-	client.Send = make(chan []byte, 10)
+	// NewClient now provisions Responses + Events channels with their own
+	// capacities; tests no longer override the legacy single Send channel.
 
 	message := []byte(`{"kind":"rpc_request","request":{"id":"slow","method":"Slow","params":[]}}`)
 	returned := make(chan struct{})
