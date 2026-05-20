@@ -18,6 +18,13 @@ import { wsClient } from "@/lib/ws-rpc-client";
 import { mergeInstancesFromUrl } from '@/lib/instanceStore';
 import { getInitialWebSocketConfig } from '@/lib/ws-config';
 
+const SIDEBAR_RAIL_WIDTH = 64;
+const SIDEBAR_DEFAULT_WIDTH = 360;
+const SIDEBAR_MIN_WIDTH = 304;
+const SIDEBAR_MAX_WIDTH = 640;
+
+const clampSidebarWidth = (width: number) => Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+
 // WebSocket 连接配置
 // 页面由 Go 后端 serve，location.port 就是 Go 端口
 // 优先级: Electron preload > Go 注入全局变量 > location.port > URL 参数
@@ -64,9 +71,9 @@ function AppContent() {
     try {
       const saved = localStorage.getItem('sidebar_width_px');
       const parsed = saved ? Number(saved) : NaN;
-      if (Number.isFinite(parsed)) return Math.min(640, Math.max(240, parsed));
+      if (Number.isFinite(parsed)) return clampSidebarWidth(parsed);
     } catch {}
-    return 360;
+    return SIDEBAR_DEFAULT_WIDTH;
   });
   const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
   const [rightSidebarWidthPercent, setRightSidebarWidthPercent] = useState(35);
@@ -92,7 +99,9 @@ function AppContent() {
 
     const handleSidebarWidthChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ width: number }>;
-      setSidebarWidth(customEvent.detail.width);
+      setSidebarWidth(customEvent.detail.width <= SIDEBAR_RAIL_WIDTH
+        ? SIDEBAR_RAIL_WIDTH
+        : clampSidebarWidth(customEvent.detail.width));
     };
 
     const handleRightSidebarStateChange = (event: Event) => {

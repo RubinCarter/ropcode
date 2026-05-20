@@ -23,6 +23,16 @@ test('ProjectList lazily loads mixed space sessions and opens historical chat ta
   assert.match(source, /More/);
 });
 
+test('ProjectList exposes tree-only mode for desktop companion sidebar', async () => {
+  const projectListSource = await readSource(projectListPath);
+  const sidebarSource = await readSource(path.resolve(currentDir, './Sidebar.tsx'));
+
+  assert.match(projectListSource, /showInlineSessions\?: boolean/);
+  assert.match(projectListSource, /showInlineSessions\s*=\s*true/);
+  assert.match(projectListSource, /onSelectedSpaceChange\?:/);
+  assert.match(sidebarSource, /showInlineSessions=\{false\}/);
+});
+
 test('ProjectList does not fan out session scans to all child workspaces when expanding a project', async () => {
   const source = await readSource(projectListPath);
 

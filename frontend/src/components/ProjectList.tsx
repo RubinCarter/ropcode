@@ -47,6 +47,19 @@ interface ProjectListProps {
    */
   activeProjectPath?: string;
   /**
+   * Whether to render historical sessions inline under project/workspace rows.
+   */
+  showInlineSessions?: boolean;
+  /**
+   * Callback when the selected project/workspace space changes.
+   */
+  onSelectedSpaceChange?: (space: {
+    path: string;
+    label: string;
+    projectPath: string;
+    projectLabel: string;
+  }) => void;
+  /**
    * Optional className for styling
    */
   className?: string;
@@ -140,6 +153,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   onCreateWorkspace,
   onRefresh,
   activeProjectPath,
+  showInlineSessions = true,
+  onSelectedSpaceChange,
   className,
 }) => {
   const { tabs, setActiveTab, removeTab, updateTab } = useTabContext();
@@ -536,6 +551,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     setCurrentPage(1);
   };
 
+  const notifySelectedSpace = useCallback((space: {
+    path: string;
+    label: string;
+    projectPath: string;
+    projectLabel: string;
+  }) => {
+    onSelectedSpaceChange?.(space);
+  }, [onSelectedSpaceChange]);
+
   const loadSpaceSessions = async (spacePath: string, limit: number) => {
     if (!spacePath) return;
     setSpaceSessions(prev => ({
@@ -588,16 +612,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
 
       setSpaceSessions(prev => {
         if (!prev[spacePath]) return prev;
-        const limit = prev[spacePath]?.loadedAll ? 0 : 10;
         if (detail?.force) {
           const next = { ...prev };
           delete next[spacePath];
-          setTimeout(() => loadSpaceSessions(spacePath, limit), 250);
-          setTimeout(() => loadSpaceSessions(spacePath, limit), 1500);
+          setTimeout(() => loadSpaceSessions(spacePath, prev[spacePath]?.loadedAll ? 0 : 10), 250);
+          setTimeout(() => loadSpaceSessions(spacePath, prev[spacePath]?.loadedAll ? 0 : 10), 1500);
           return next;
         }
         setTimeout(() => {
-          loadSpaceSessions(spacePath, limit);
+          loadSpaceSessions(spacePath, prev[spacePath]?.loadedAll ? 0 : 10);
         }, 250);
         return prev;
       });
@@ -720,7 +743,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       } else {
         newSet.add(projectId);
         const project = projects.find(p => p.id === projectId);
-        if (project?.path) {
+        if (showInlineSessions && project?.path) {
           ensureSpaceSessionsLoaded(project.path);
         }
       }
@@ -955,6 +978,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                         if (projectStatus === 'unread') {
                           markAsRead(project.path);
                         }
+                        notifySelectedSpace({
+                          path: project.path,
+                          label: getProjectName(project.path),
+                          projectPath: project.path,
+                          projectLabel: getProjectName(project.path),
+                        });
                         onProjectClick(project);
                       }}
                       className="flex-1 min-w-0 px-3 py-2 flex items-center gap-2 text-left"
@@ -1071,7 +1100,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                   {canExpandProject && isExpanded && (
                     <div className="overflow-hidden">
                         <div className="py-0.5 ml-2">
-                          {renderSpaceSessions(project.path, "ml-2 mb-0.5")}
+                          {showInlineSessions && renderSpaceSessions(project.path, "ml-2 mb-0.5")}
 
                           {hasGitSupport && (
                             <button
@@ -1163,6 +1192,12 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                     created_at: workspace.added_at,
                                     last_provider: workspace.last_provider,
                                   };
+                                  notifySelectedSpace({
+                                    path: claudeProvider.path,
+                                    label: workspaceBranches[claudeProvider.path] || workspace.branch || workspace.name,
+                                    projectPath: project.path,
+                                    projectLabel: getProjectName(project.path),
+                                  });
                                   onProjectClick(workspaceProject);
                                 }}
                                 disabled={isRemoving}
@@ -1268,7 +1303,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                 </button>
                               )}
                             </div>
-                            {renderSpaceSessions(claudeProvider.path, "ml-4")}
+                            {showInlineSessions && renderSpaceSessions(claudeProvider.path, "ml-4")}
                             </React.Fragment>
                             );
                           })}

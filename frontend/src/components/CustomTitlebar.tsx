@@ -29,6 +29,8 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 
+const SIDEBAR_RAIL_WIDTH = 64;
+
 interface CustomTitlebarProps {
   sidebarCollapsed?: boolean;
   sidebarWidth?: number; // 左侧栏像素宽度
@@ -524,10 +526,10 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       <motion.div
         initial={false}
         animate={{
-          width: sidebarCollapsed ? 48 : sidebarWidth
+          width: sidebarCollapsed ? SIDEBAR_RAIL_WIDTH : sidebarWidth
         }}
         transition={{ duration: 0.2, ease: 'easeInOut' }}
-        className="flex items-center border-r border-border/50 window-drag min-w-[48px]"
+        className="flex items-center border-r border-border/50 window-drag min-w-16"
         style={{ flexShrink: 0 }}
       >
         {/* Traffic light buttons: Electron only provides native controls on selected platforms. */}
@@ -635,7 +637,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         className={`transition-none flex items-center justify-end window-drag overflow-hidden ${shouldShowRightSidebar ? 'border-l border-border/50' : ''}`}
         style={{
           width: shouldShowRightSidebar
-            ? `calc((100% - ${sidebarCollapsed ? 48 : sidebarWidth}px) * ${currentWidthPercent / 100})`
+            ? `calc((100% - ${sidebarCollapsed ? SIDEBAR_RAIL_WIDTH : sidebarWidth}px) * ${currentWidthPercent / 100})`
             : 0,
           flexShrink: 0
         }}

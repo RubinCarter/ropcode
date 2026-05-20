@@ -1,24 +1,26 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { FolderOpen, Plus, Bot, BarChart3, Settings, MoreVertical, FileText, Network, Info, GitBranch, Server, ChevronDown, PanelLeft, PanelRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import React, { useCallback, useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import { ProjectList } from '@/components/ProjectList';
 import { api, type Project } from '@/lib/api';
 import { wsClient } from '@/lib/ws-rpc-client';
 import { cn } from '@/lib/utils';
 import { useTabContext } from '@/contexts/TabContext';
 import { useContainerContext } from '@/contexts/ContainerContext';
-import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 import { SyncFromSSHDialog } from '@/components/SyncFromSSHDialog';
 import { CloneFromURLDialog } from '@/components/CloneFromURLDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
-import { basename } from '@/lib/pathUtils';
+import { SidebarRail, type SidebarPanelMode } from '@/components/sidebar/SidebarRail';
+import { SessionPanel } from '@/components/sidebar/SessionPanel';
+import { findSelectedSpace, selectedSpaceFromProject, type SelectedSpace } from '@/components/sidebar/sidebarSelection';
+
+const SIDEBAR_RAIL_WIDTH = 64;
+const SIDEBAR_DEFAULT_WIDTH = 360;
+const SIDEBAR_MIN_WIDTH = 304;
+const SIDEBAR_MAX_WIDTH = 640;
+
+const clampSidebarWidth = (width: number) => {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
+};
 
 interface SidebarProps {
   /**
@@ -45,7 +47,7 @@ interface SidebarProps {
 }
 
 /**
- * Sidebar component - Left panel showing project list
+ * Sidebar component - compact companion navigation and one fixed left panel.
  */
 export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed: externalCollapsed,
@@ -64,31 +66,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const saved = localStorage.getItem('sidebar_width_px');
       const parsed = saved ? Number(saved) : NaN;
       if (Number.isFinite(parsed)) {
-        return Math.min(640, Math.max(240, parsed));
+        return clampSidebarWidth(parsed);
       }
     } catch {
       // Ignore storage failures and use the default width.
     }
-    return 360;
+    return SIDEBAR_DEFAULT_WIDTH;
+  });
+  const [panelMode, setPanelModeState] = useState<SidebarPanelMode>(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_panel_mode');
+      return saved === 'sessions' ? 'sessions' : 'projects';
+    } catch {
+      return 'projects';
+    }
   });
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [selectedSpace, setSelectedSpace] = useState<SelectedSpace | null>(null);
   const [showSSHDialog, setShowSSHDialog] = useState(false);
   const [showCloneDialog, setShowCloneDialog] = useState(false);
   const [showOpenDialog, setShowOpenDialog] = useState(false);
 
-  // 🔥 关键：使用容器上下文来确定侧边栏高亮的 project
   const { tabs, activeTabId } = useTabContext();
   const { switchToWorkspace, activeWorkspaceId, activeType } = useContainerContext();
   const activeProjectPath = activeType === 'workspace' ? activeWorkspaceId : null;
-
-  // 获取实际当前激活的 Tab（用于按钮高亮）
   const activeTab = tabs.find(tab => tab.id === activeTabId);
-
-  // Use external collapsed state if provided, otherwise use internal
   const isCollapsed = externalCollapsed !== undefined ? externalCollapsed : internalCollapsed;
+
+  const setPanelMode = useCallback((nextMode: SidebarPanelMode) => {
+    setPanelModeState(nextMode);
+    try {
+      localStorage.setItem('sidebar_panel_mode', nextMode);
+    } catch (err) {
+      console.warn('Failed to save sidebar panel mode:', err);
+    }
+  }, []);
 
   const startSidebarResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (isCollapsed) return;
@@ -100,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     document.body.style.userSelect = 'none';
 
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const nextWidth = Math.min(640, Math.max(240, startWidth + moveEvent.clientX - startX));
+      const nextWidth = clampSidebarWidth(startWidth + moveEvent.clientX - startX);
       setSidebarWidth(nextWidth);
       window.dispatchEvent(new CustomEvent('sidebar-width-changed', {
         detail: { width: nextWidth }
@@ -108,7 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     };
 
     const handleMouseUp = (upEvent: MouseEvent) => {
-      const finalWidth = Math.min(640, Math.max(240, startWidth + upEvent.clientX - startX));
+      const finalWidth = clampSidebarWidth(startWidth + upEvent.clientX - startX);
       setSidebarWidth(finalWidth);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
@@ -128,25 +142,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     window.addEventListener('mouseup', handleMouseUp);
   }, [isCollapsed, sidebarWidth]);
 
-  // Load projects on mount and on WebSocket reconnect
-  useEffect(() => {
-    loadProjects();
-    const unsub = wsClient.onConnect(() => {
-      loadProjects();
-    });
-    return unsub;
-  }, []);
-
-  /**
-   * Load all projects
-   */
-  const loadProjects = async () => {
-    // 等待 WebSocket 连接就绪
+  const loadProjects = useCallback(async () => {
     if (!wsClient.isConnected()) {
       try {
         await wsClient.waitForConnection(5000);
       } catch {
-        // 连接超时，跳过加载
         setLoading(false);
         return;
       }
@@ -163,51 +163,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  /**
-   * Handle project click - switch to workspace using container context
-   */
-  const handleProjectClick = async (project: Project) => {
-    // 直接调用容器上下文的 switchToWorkspace
+  useEffect(() => {
+    loadProjects();
+    const unsub = wsClient.onConnect(() => {
+      loadProjects();
+    });
+    return unsub;
+  }, [loadProjects]);
+
+  useEffect(() => {
+    const nextSelectedSpace = findSelectedSpace(projects, activeProjectPath);
+    if (nextSelectedSpace) {
+      setSelectedSpace(prev => prev?.path === nextSelectedSpace.path ? prev : nextSelectedSpace);
+    }
+  }, [activeProjectPath, projects]);
+
+  const handleProjectClick = useCallback((project: Project) => {
+    const nextSpace = selectedSpaceFromProject(project);
+    if (nextSpace) {
+      setSelectedSpace(nextSpace);
+    }
     switchToWorkspace(project.path);
-  };
+  }, [switchToWorkspace]);
 
-  /**
-   * Handle open project folder picker
-   */
-  const handleOpenProject = () => {
-    setShowOpenDialog(true);
-  };;;;;
-
-  /**
-   * Handle create workspace
-   */
-  const handleCreateWorkspace = async (project: Project) => {
-    // Import the workspace creation logic
+  const handleCreateWorkspace = useCallback(async (project: Project) => {
     const { generateWorkspaceName } = await import('@/lib/nameGenerator');
 
     try {
-      const name = generateWorkspaceName(); // 形容词-动物格式，如：clever-tiger
-      // Create workspace with branch and session name (createWorkspace returns void)
-      await api.createWorkspace(
-        project.path,
-        name, // branch name
-        name  // session name
-      );
+      const name = generateWorkspaceName();
+      await api.createWorkspace(project.path, name, name);
 
-      // Reload projects list to get the new workspace with correct path from backend
       const projectList = await api.listProjects();
       setProjects(projectList ?? []);
 
-      // Find the newly created workspace from the refreshed project list
       const updatedProject = projectList.find(p => p.path === project.path);
       const newWorkspace = updatedProject?.workspaces?.find(ws => ws.name === name || ws.branch === name);
-      const claudeProvider = newWorkspace?.providers?.find(p => p.provider_id === 'claude');
+      const provider = newWorkspace?.providers?.find(p => p.provider_id === 'claude')
+        ?? newWorkspace?.providers?.find(p => p.provider_id === 'codex')
+        ?? newWorkspace?.providers?.[0];
 
-      if (claudeProvider?.path) {
-        // Use the actual path from backend
-        switchToWorkspace(claudeProvider.path);
+      if (provider?.path) {
+        const projectLabel = selectedSpaceFromProject(project)?.projectLabel ?? project.path;
+        setSelectedSpace({
+          path: provider.path,
+          label: newWorkspace?.branch || newWorkspace?.name || name,
+          projectPath: project.path,
+          projectLabel,
+        });
+        switchToWorkspace(provider.path);
       } else {
         console.error('Failed to find newly created workspace path');
       }
@@ -215,12 +220,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       console.error('Failed to create workspace:', err);
       setError(err instanceof Error ? err.message : 'Failed to create workspace');
     }
-  };
+  }, [switchToWorkspace]);
 
-  /**
-   * Toggle collapsed state
-   */
-  const toggleCollapse = () => {
+  const toggleCollapse = useCallback(() => {
     const newCollapsed = !isCollapsed;
     if (onCollapse) {
       onCollapse(newCollapsed);
@@ -228,20 +230,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       setInternalCollapsed(newCollapsed);
     }
 
-    // Broadcast collapse state change
     window.dispatchEvent(new CustomEvent('sidebar-collapsed', {
       detail: { collapsed: newCollapsed }
     }));
 
-    // Save preference to localStorage
     try {
       localStorage.setItem('sidebar_collapsed', String(newCollapsed));
     } catch (err) {
       console.warn('Failed to save sidebar state:', err);
     }
-  };
+  }, [isCollapsed, onCollapse]);
 
-  // Load collapsed state from localStorage on mount
   useEffect(() => {
     if (externalCollapsed === undefined) {
       try {
@@ -255,325 +254,98 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [externalCollapsed]);
 
-  // Broadcast initial sidebar width on mount
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('sidebar-width-changed', {
-      detail: { width: sidebarWidth }
+      detail: { width: isCollapsed ? SIDEBAR_RAIL_WIDTH : sidebarWidth }
     }));
-  }, []);
+  }, [isCollapsed, sidebarWidth]);
 
-  // Listen for toggle sidebar event
   useEffect(() => {
-    const handleToggleSidebar = () => {
-      toggleCollapse();
-    };
-
-    window.addEventListener('toggle-sidebar', handleToggleSidebar);
+    window.addEventListener('toggle-sidebar', toggleCollapse);
     return () => {
-      window.removeEventListener('toggle-sidebar', handleToggleSidebar);
+      window.removeEventListener('toggle-sidebar', toggleCollapse);
     };
-  }, [isCollapsed, onCollapse]);
-
+  }, [toggleCollapse]);
 
   return (
     <motion.div
       initial={false}
       animate={{
-        width: isCollapsed ? 48 : sidebarWidth
+        width: isCollapsed ? SIDEBAR_RAIL_WIDTH : sidebarWidth
       }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
       className={cn(
-        'relative',
-        'h-full bg-background border-r border-border/50 flex flex-col min-w-[48px]',
+        'relative h-full min-w-16 flex bg-background border-r border-border/50',
         className
       )}
-      style={{ flexShrink: 0, width: sidebarWidth }}
+      style={{ flexShrink: 0, width: isCollapsed ? SIDEBAR_RAIL_WIDTH : sidebarWidth }}
     >
-      {/* Sidebar Header */}
-      <TooltipProvider>
-        <div className={cn(
-          "flex items-center p-3 border-b border-border/50 flex-shrink-0",
-          isCollapsed ? "justify-center" : "justify-between"
-        )}>
-          {/* Sidebar toggle buttons - always visible */}
-          <div className={cn(
-            "flex items-center gap-0.5",
-            isCollapsed && "flex-col"
-          )}>
-            <TooltipSimple content={isCollapsed ? "Expand sidebar (⌘B)" : "Collapse sidebar (⌘B)"} side="right">
-              <motion.button
-                onClick={toggleCollapse}
-                whileTap={{ scale: 0.97 }}
-                transition={{ duration: 0.15 }}
-                className="p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
-              >
-                <PanelLeft size={16} />
-              </motion.button>
-            </TooltipSimple>
-            <TooltipSimple content="Toggle right sidebar (⌘J)" side="right">
-              <motion.button
-                onClick={() => window.dispatchEvent(new CustomEvent('toggle-right-sidebar'))}
-                whileTap={{ scale: 0.97 }}
-                transition={{ duration: 0.15 }}
-                className="p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors"
-              >
-                <PanelRight size={16} />
-              </motion.button>
-            </TooltipSimple>
-          </div>
+      <SidebarRail
+        mode={panelMode}
+        collapsed={isCollapsed}
+        activeSystemTabType={activeTab?.type}
+        onModeChange={setPanelMode}
+        onToggleCollapse={toggleCollapse}
+        onToggleRightSidebar={() => window.dispatchEvent(new CustomEvent('toggle-right-sidebar'))}
+        onOpenProject={() => setShowOpenDialog(true)}
+        onCloneProject={() => setShowCloneDialog(true)}
+        onSyncFromSSH={() => setShowSSHDialog(true)}
+        onAgentsClick={onAgentsClick}
+        onUsageClick={onUsageClick}
+        onSettingsClick={onSettingsClick}
+        onClaudeClick={onClaudeClick}
+        onMCPClick={onMCPClick}
+        onInfoClick={onInfoClick}
+      />
 
-          {/* Rest of menu - only when expanded */}
-          {!isCollapsed && (
-            <div className="flex items-center gap-2">
-              {/* Primary actions */}
-              <div className="flex items-center gap-0.5">
-                {onAgentsClick && (
-                  <TooltipSimple content="Agents" side="right">
-                    <motion.button
-                      onClick={onAgentsClick}
-                      whileTap={{ scale: 0.97 }}
-                      transition={{ duration: 0.15 }}
-                      className={cn(
-                        "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                        activeTab?.type === 'agents' && "bg-accent text-accent-foreground shadow-sm"
-                      )}
-                    >
-                      <Bot size={16} />
-                    </motion.button>
-                  </TooltipSimple>
-                )}
-
-                {onUsageClick && (
-                  <TooltipSimple content="Usage Dashboard" side="right">
-                    <motion.button
-                      onClick={onUsageClick}
-                      whileTap={{ scale: 0.97 }}
-                      transition={{ duration: 0.15 }}
-                      className={cn(
-                        "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                        activeTab?.type === 'usage' && "bg-accent text-accent-foreground shadow-sm"
-                      )}
-                    >
-                      <BarChart3 size={16} />
-                    </motion.button>
-                  </TooltipSimple>
-                )}
-              </div>
-
-              {/* Visual separator */}
-              <div className="w-px h-4 bg-border/50" />
-
-              {/* Secondary actions */}
-              <div className="flex items-center gap-0.5">
-                {onSettingsClick && (
-                  <TooltipSimple content="Settings" side="right">
-                    <motion.button
-                      onClick={onSettingsClick}
-                      whileTap={{ scale: 0.97 }}
-                      transition={{ duration: 0.15 }}
-                      className={cn(
-                        "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                        activeTab?.type === 'settings' && "bg-accent text-accent-foreground shadow-sm"
-                      )}
-                    >
-                      <Settings size={16} />
-                    </motion.button>
-                  </TooltipSimple>
-                )}
-
-                {/* More options dropdown */}
-                <div className="relative">
-                  <TooltipSimple content="More options" side="right">
-                    <motion.button
-                      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                      whileTap={{ scale: 0.97 }}
-                      transition={{ duration: 0.15 }}
-                      className={cn(
-                        "p-1.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors",
-                        (activeTab?.type === 'claude-md' || activeTab?.type === 'mcp') && "bg-accent text-accent-foreground shadow-sm"
-                      )}
-                    >
-                      <MoreVertical size={16} />
-                    </motion.button>
-                  </TooltipSimple>
-
-                  {isDropdownOpen && (
-                    <div className="absolute left-0 top-full mt-1 w-48 bg-popover border border-border rounded-lg shadow-lg z-[250]">
-                      <div className="py-1">
-                        {onClaudeClick && (
-                          <button
-                            onClick={() => {
-                              onClaudeClick();
-                              setIsDropdownOpen(false);
-                            }}
-                            className={cn(
-                              "w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3",
-                              activeTab?.type === 'claude-md' && "bg-accent text-accent-foreground"
-                            )}
-                          >
-                            <FileText size={14} />
-                            <span>Memory</span>
-                          </button>
-                        )}
-
-                        {onMCPClick && (
-                          <button
-                            onClick={() => {
-                              onMCPClick();
-                              setIsDropdownOpen(false);
-                            }}
-                            className={cn(
-                              "w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3",
-                              activeTab?.type === 'mcp' && "bg-accent text-accent-foreground"
-                            )}
-                          >
-                            <Network size={14} />
-                            <span>MCP Servers</span>
-                          </button>
-                        )}
-
-                        {onInfoClick && (
-                          <button
-                            onClick={() => {
-                              onInfoClick();
-                              setIsDropdownOpen(false);
-                            }}
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-3"
-                          >
-                            <Info size={14} />
-                            <span>About</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </TooltipProvider>
-
-      {/* Sidebar Content */}
-      <div className="flex-1 overflow-hidden">
-        <AnimatePresence mode="wait">
-          {!isCollapsed ? (
-            <motion.div
-              key="expanded"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="h-full"
-            >
+      {!isCollapsed && (
+        <div
+          className="h-full min-w-0 flex flex-col border-l border-border/50"
+          style={{ width: sidebarWidth - SIDEBAR_RAIL_WIDTH }}
+        >
+          {panelMode === 'projects' ? (
+            <>
               {error && (
-                <div className="p-3 text-sm text-destructive">
+                <div className="flex-shrink-0 p-3 text-sm text-destructive">
                   {error}
                 </div>
               )}
-
               <ProjectList
                 projects={projects}
                 onProjectClick={handleProjectClick}
-                onOpenProject={handleOpenProject}
+                onOpenProject={() => setShowOpenDialog(true)}
                 onCreateWorkspace={handleCreateWorkspace}
                 onRefresh={loadProjects}
                 loading={loading}
                 activeProjectPath={activeProjectPath}
+                showInlineSessions={false}
+                onSelectedSpaceChange={setSelectedSpace}
                 className="border-0"
               />
-            </motion.div>
+            </>
           ) : (
-            <motion.div
-              key="collapsed"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="flex flex-col items-center py-4 gap-3"
-            >
-              {/* Collapsed state - show icon buttons */}
-              <Button
-                onClick={handleOpenProject}
-                size="sm"
-                variant="ghost"
-                className="h-9 w-9 p-0"
-                title="Open project"
-              >
-                <FolderOpen className="h-4 w-4" />
-              </Button>
-
-              {projects.slice(0, 5).map((project) => (
-                <Button
-                  key={project.id}
-                  onClick={() => handleProjectClick(project)}
-                  size="sm"
-                  variant="ghost"
-                  className="h-9 w-9 p-0 font-mono text-xs"
-                  title={basename(project.path, project.path)}
-                >
-                  {basename(project.path, 'P')[0].toUpperCase()}
-                </Button>
-              ))}
-
-              {projects.length > 5 && (
-                <div className="text-sm text-muted-foreground">
-                  +{projects.length - 5}
-                </div>
-              )}
-            </motion.div>
+            <SessionPanel
+              selectedSpacePath={selectedSpace?.path ?? null}
+              selectedSpaceLabel={selectedSpace?.label ?? null}
+              selectedProjectLabel={selectedSpace?.projectLabel ?? null}
+              onSwitchToWorkspace={switchToWorkspace}
+            />
           )}
-        </AnimatePresence>
-      </div>
-
-      {/* Sidebar Footer - Add project dropdown */}
-      {!isCollapsed && (
-        <div className="p-3 border-t border-border/50 flex-shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                variant="outline"
-                className="w-full flex items-center gap-2 h-8"
-              >
-                <Plus className="h-4 w-4" />
-                <span className="text-sm">Add Project</span>
-                <ChevronDown className="h-4 w-4 ml-auto" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={handleOpenProject}>
-                <FolderOpen className="w-4 h-4 mr-2" />
-                Open Project
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowCloneDialog(true)}>
-                <GitBranch className="w-4 h-4 mr-2" />
-                Clone from URL
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setShowSSHDialog(true)}>
-                <Server className="w-4 h-4 mr-2" />
-                From SSH
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       )}
 
-      {/* SSH Sync Dialog */}
       <SyncFromSSHDialog
         isOpen={showSSHDialog}
         onClose={() => setShowSSHDialog(false)}
         onSuccess={loadProjects}
       />
 
-      {/* Clone From URL Dialog */}
       <CloneFromURLDialog
         isOpen={showCloneDialog}
         onClose={() => setShowCloneDialog(false)}
         onSuccess={loadProjects}
       />
 
-      {/* Open Project Dialog */}
       <OpenProjectDialog
         isOpen={showOpenDialog}
         onClose={() => setShowOpenDialog(false)}
