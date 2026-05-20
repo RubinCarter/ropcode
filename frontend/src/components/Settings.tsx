@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, lazy, Suspense } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Plus, 
-  Trash2, 
-  Save, 
+import {
+  Plus,
+  Trash2,
+  Save,
   AlertCircle,
   Loader2,
   Shield,
@@ -24,15 +24,37 @@ import {
 import type { TitleProviderOption } from "@/lib/rpc-client";
 import { cn } from "@/lib/utils";
 import { Toast, ToastContainer } from "@/components/ui/toast";
-import { ClaudeVersionSelector } from "./ClaudeVersionSelector";
-import { StorageTab } from "./StorageTab";
-import { HooksEditor } from "./HooksEditor";
-import { SlashCommandsManager } from "./SlashCommandsManager";
-import { ProxySettings } from "./ProxySettings";
-import { ProviderApiManager } from "./ProviderApiManager";
-import { ClaudeAgentsManager } from "./ClaudeAgentsManager";
-import { PluginsManager } from "./PluginsManager";
-import { DebugLogs } from "./DebugLogs";
+// Heavy sub-components are lazy-loaded so opening the Settings tab no longer
+// pulls 5,000+ lines of TSX (Storage browser, Slash commands editor, Hooks
+// editor, etc.) up-front. Each tab fetches its panel only when the user
+// actually clicks it.
+const ClaudeVersionSelector = lazy(() =>
+  import("./ClaudeVersionSelector").then((m) => ({ default: m.ClaudeVersionSelector })),
+);
+const StorageTab = lazy(() =>
+  import("./StorageTab").then((m) => ({ default: m.StorageTab })),
+);
+const HooksEditor = lazy(() =>
+  import("./HooksEditor").then((m) => ({ default: m.HooksEditor })),
+);
+const SlashCommandsManager = lazy(() =>
+  import("./SlashCommandsManager").then((m) => ({ default: m.SlashCommandsManager })),
+);
+const ProxySettings = lazy(() =>
+  import("./ProxySettings").then((m) => ({ default: m.ProxySettings })),
+);
+const ProviderApiManager = lazy(() =>
+  import("./ProviderApiManager").then((m) => ({ default: m.ProviderApiManager })),
+);
+const ClaudeAgentsManager = lazy(() =>
+  import("./ClaudeAgentsManager").then((m) => ({ default: m.ClaudeAgentsManager })),
+);
+const PluginsManager = lazy(() =>
+  import("./PluginsManager").then((m) => ({ default: m.PluginsManager })),
+);
+const DebugLogs = lazy(() =>
+  import("./DebugLogs").then((m) => ({ default: m.DebugLogs })),
+);
 import { useTheme, useTrackEvent } from "@/hooks";
 import { analytics } from "@/lib/analytics";
 import { TabPersistenceService } from "@/services/tabPersistence";
@@ -434,7 +456,14 @@ export const Settings: React.FC<SettingsProps> = ({
               <TabsTrigger value="proxy" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Proxy</TabsTrigger>
               <TabsTrigger value="debug" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>Debug</TabsTrigger>
             </TabsList>
-            
+
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              }
+            >
             {/* General Settings */}
             <TabsContent value="general" className="space-y-6 mt-6">
               <Card className="p-6 space-y-6">
@@ -1192,6 +1221,7 @@ export const Settings: React.FC<SettingsProps> = ({
                 <DebugLogs />
               </Card>
             </TabsContent>
+            </Suspense>
 
           </Tabs>
         </div>
