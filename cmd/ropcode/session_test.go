@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -49,6 +50,15 @@ type sessionSendCall struct {
 	SessionID   string
 	ProjectPath string
 	Prompt      string
+}
+
+type testSpaceSessionsResult struct {
+	Sessions []testSpaceSessionSummary `json:"sessions"`
+}
+
+type testSpaceSessionSummary struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
 }
 
 type sessionRPCTestApp struct {
@@ -271,6 +281,46 @@ func (a *sessionRPCTestApp) CreateWorkspace(parent, branch, name string) error {
 		LastProvider: "claude",
 	})
 	return a.db.SaveProjectIndex(project)
+}
+
+func (a *sessionRPCTestApp) AddProjectToIndex(path string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	name := filepathBase(path)
+	project, err := a.db.GetProjectIndex(name)
+	if err == nil && project != nil {
+		project.LastAccessed = time.Now().Unix()
+		return a.db.SaveProjectIndex(project)
+	}
+	return a.db.SaveProjectIndex(&database.ProjectIndex{
+		Name:         name,
+		AddedAt:      time.Now().Unix(),
+		LastAccessed: time.Now().Unix(),
+		Available:    true,
+		Providers: []database.ProviderInfo{{
+			ID:         name,
+			ProviderID: "claude",
+			Path:       path,
+		}},
+		LastProvider: "claude",
+	})
+}
+
+func (a *sessionRPCTestApp) ListSpaceSessions(projectPath string, limit int) (testSpaceSessionsResult, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	result := testSpaceSessionsResult{}
+	for _, session := range a.sessions {
+		if session.ProjectPath == projectPath {
+			result.Sessions = append(result.Sessions, testSpaceSessionSummary{
+				ID:       session.SessionID,
+				Provider: session.Provider,
+			})
+		}
+	}
+	return result, nil
 }
 
 // GetProjectProviderApiConfig mirrors bindings.go: returns the project-scoped
@@ -502,6 +552,8 @@ func TestSessionLogsWithCWDAttachesLatestSession(t *testing.T) {
 }
 
 func TestSessionLogsRequiresSessionOrCWD(t *testing.T) {
+	setupCLITestDB(t)
+
 	_, _, err := runCLI(t, "logs")
 	if err == nil || (!strings.Contains(err.Error(), "--session") && !strings.Contains(err.Error(), "--cwd")) {
 		t.Fatalf("expected error requiring --session or --cwd, got %v", err)
@@ -671,6 +723,166 @@ func TestWorkspaceStatus(t *testing.T) {
 	}
 }
 
+func TestStatusAutoRegistersUnindexedPWDAsMainWorkspace(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	newPath := inst.projectPath + "/new-project"
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"status"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("status failed: %v\n%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"[ropcode] PWD is not registered:",
+		"[ropcode] registered project:",
+		"[ropcode] main workspace ready:",
+		"[ropcode] imported sessions:",
+		"idle",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output, got %q", want, stdout.String())
+		}
+	}
+
+	project, err := inst.app.db.GetProjectIndex(filepathBase(newPath))
+	if err != nil {
+		t.Fatalf("project was not registered: %v", err)
+	}
+	if got := projectPrimaryPath(project); got != newPath {
+		t.Fatalf("expected registered path %q, got %q", newPath, got)
+	}
+}
+
+func TestAutoRegisterClearsSavedFocusContext(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      "old-project",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/old-project", ID: "old-project", ProviderID: "claude"}},
+	})
+	cfg, _ := config.Load()
+	if err := saveCLIContext(cfg, cliFocusContext{
+		ProjectName:   "old-project",
+		ProjectPath:   "/tmp/old-project",
+		WorkspaceName: "main",
+		WorkspacePath: "/tmp/old-project",
+		SessionID:     "old-session",
+	}); err != nil {
+		t.Fatalf("save focus: %v", err)
+	}
+
+	newPath := inst.projectPath + "/focus-cleared"
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if _, err := inst.app.StartProviderSession("claude", newPath, "new path output", "", ""); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"logs"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("logs failed: %v\n%s", err, stderr.String())
+	}
+	if strings.Contains(stdout.String(), "old-project") || strings.Contains(stdout.String(), "old-session") {
+		t.Fatalf("saved focus leaked into auto-registered pwd output: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "new path output") {
+		t.Fatalf("expected logs from auto-registered pwd, got %q", stdout.String())
+	}
+}
+
+func TestSendAutoRegistersUnindexedPWDAsMainWorkspace(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	newPath := inst.projectPath + "/send-new"
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "--prompt", "hi"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("send failed: %v\n%s", err, stderr.String())
+	}
+	for _, want := range []string{"[ropcode] registered project:", "[ropcode] main workspace ready:", "ok"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output, got %q", want, stdout.String())
+		}
+	}
+
+	inst.app.mu.Lock()
+	defer inst.app.mu.Unlock()
+	if len(inst.app.sends) != 1 {
+		t.Fatalf("expected one send, got %+v", inst.app.sends)
+	}
+	if got := inst.app.sends[0].ProjectPath; got != newPath {
+		t.Fatalf("expected send to main path %q, got %q", newPath, got)
+	}
+}
+
+func TestLogsAutoRegistersUnindexedPWDAsMainWorkspace(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	newPath := inst.projectPath + "/logs-new"
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if _, err := inst.app.StartProviderSession("claude", newPath, "initial", "", ""); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"logs"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("logs failed: %v\n%s", err, stderr.String())
+	}
+	for _, want := range []string{"[ropcode] registered project:", "initial", "assistant reply"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output, got %q", want, stdout.String())
+		}
+	}
+}
+
+func TestStopAutoRegistersUnindexedPWDAsMainWorkspace(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	newPath := inst.projectPath + "/stop-new"
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	sessionID, err := inst.app.StartProviderSession("claude", newPath, "initial", "", "")
+	if err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err = runCLIArgs([]string{"stop"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("stop failed: %v\n%s", err, stderr.String())
+	}
+	for _, want := range []string{"[ropcode] registered project:", "stopped", sessionID} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output, got %q", want, stdout.String())
+		}
+	}
+}
+
 // seedProjectAtPath registers the project at projectPath so that the
 // pwd-aware CLI sees it as a project root.
 func seedProjectAtPath(t *testing.T, db *database.Database, name, path string) {
@@ -731,6 +943,87 @@ func TestSendCreateRegistersWorkspaceAndChainsPrompt(t *testing.T) {
 	}
 	if !hit {
 		t.Fatalf("expected a session for new workspace path %q, sessions=%+v", wsPath, inst.app.sessions)
+	}
+}
+
+func TestSendCreateExplicitProjectOverridesPWDProject(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	seedProjectAtPath(t, inst.app.db, "alpha", "/tmp/alpha")
+	seedProjectAtPath(t, inst.app.db, "beta", "/tmp/beta")
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return "/tmp/alpha", nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"--project", "beta", "send", "feat-beta", "--create", "--prompt", "scaffold", "--wait"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("send --create with explicit project failed: %v\n%s", err, stderr.String())
+	}
+
+	alpha, err := inst.app.db.GetProjectIndex("alpha")
+	if err != nil {
+		t.Fatalf("GetProjectIndex alpha failed: %v", err)
+	}
+	if findWorkspaceByName(alpha.Workspaces, "feat-beta") != nil {
+		t.Fatalf("workspace feat-beta should not have been created under alpha: %+v", alpha.Workspaces)
+	}
+
+	beta, err := inst.app.db.GetProjectIndex("beta")
+	if err != nil {
+		t.Fatalf("GetProjectIndex beta failed: %v", err)
+	}
+	ws := findWorkspaceByName(beta.Workspaces, "feat-beta")
+	if ws == nil {
+		t.Fatalf("workspace feat-beta not registered under beta: %+v", beta.Workspaces)
+	}
+	if got := workspacePrimaryPath(ws); got != "/tmp/beta/.ropcode/feat-beta" {
+		t.Fatalf("expected beta workspace path, got %q", got)
+	}
+}
+
+func TestSendExplicitProjectOverridesPWDWorkspaceLookup(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      "alpha",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/alpha", ID: "alpha", ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "shared",
+			Providers: []database.ProviderInfo{{Path: "/tmp/alpha/.ropcode/shared", ID: "shared", ProviderID: "claude"}},
+		}},
+	})
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      "beta",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/beta", ID: "beta", ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "shared",
+			Providers: []database.ProviderInfo{{Path: "/tmp/beta/.ropcode/shared", ID: "shared", ProviderID: "claude"}},
+		}},
+	})
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return "/tmp/alpha", nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"--project", "beta", "send", "shared", "--prompt", "hi"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("send failed: %v\n%s", err, stderr.String())
+	}
+
+	inst.app.mu.Lock()
+	defer inst.app.mu.Unlock()
+	found := false
+	for _, send := range inst.app.sends {
+		if send.ProjectPath == "/tmp/beta/.ropcode/shared" && send.Prompt == "hi" {
+			found = true
+		}
+		if send.ProjectPath == "/tmp/alpha/.ropcode/shared" {
+			t.Fatalf("send should not target alpha when --project beta is set: %+v", inst.app.sends)
+		}
+	}
+	if !found {
+		t.Fatalf("expected send to beta shared workspace, sends=%+v", inst.app.sends)
 	}
 }
 
@@ -797,6 +1090,187 @@ func TestSendCreateNeedsParent(t *testing.T) {
 	err := runCLIArgs([]string{"send", "feat-login", "--create", "--prompt", "x"}, &stdout, &stderr, deps)
 	if err == nil || !strings.Contains(err.Error(), "parent project") {
 		t.Fatalf("expected missing-parent error, got %v", err)
+	}
+}
+
+func TestSendCreateAutoRegistersPWDParentProject(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	newPath := inst.projectPath + "/fresh-parent"
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "demo", "--create", "--prompt", "hi"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("send --create failed: %v\n%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"[ropcode] registered project:",
+		"[ropcode] main workspace ready:",
+		"created\tdemo",
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output, got %q", want, stdout.String())
+		}
+	}
+
+	project, err := inst.app.db.GetProjectIndex(filepathBase(newPath))
+	if err != nil {
+		t.Fatalf("project missing: %v", err)
+	}
+	ws := findWorkspaceByName(project.Workspaces, "demo")
+	if ws == nil {
+		t.Fatalf("workspace demo missing: %+v", project.Workspaces)
+	}
+	if got := workspacePrimaryPath(ws); got != newPath+"/.ropcode/demo" {
+		t.Fatalf("unexpected workspace path: %q", got)
+	}
+}
+
+func TestAutoRegisterPrintsImportedSessionCounts(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	newPath := inst.projectPath + "/history-project"
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if _, err := inst.app.StartProviderSession("claude", newPath, "old claude", "", ""); err != nil {
+		t.Fatalf("start claude: %v", err)
+	}
+	if _, err := inst.app.StartProviderSession("codex", newPath, "old codex", "", ""); err != nil {
+		t.Fatalf("start codex: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"status"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("status failed: %v\n%s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "[ropcode] imported sessions: total=2 claude=1 codex=1 gemini=0") {
+		t.Fatalf("missing imported session counts: %q", stdout.String())
+	}
+}
+
+func TestFocusAutoRegistersUnindexedPWD(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	newPath := inst.projectPath + "/focus-new"
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"focus"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("focus failed: %v\n%s", err, stderr.String())
+	}
+	for _, want := range []string{
+		"[ropcode] registered project:",
+		"focused",
+		"WORKSPACE\tmain",
+		newPath,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output, got %q", want, stdout.String())
+		}
+	}
+}
+
+func TestAutoRegisterRejectsProjectNameCollisionWithDifferentPath(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	parent := t.TempDir()
+	existing := parent + "/existing/same-name"
+	newPath := parent + "/other/same-name"
+	if err := os.MkdirAll(existing, 0755); err != nil {
+		t.Fatalf("mkdir existing: %v", err)
+	}
+	if err := os.MkdirAll(newPath, 0755); err != nil {
+		t.Fatalf("mkdir new: %v", err)
+	}
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      "same-name",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: existing, ID: "same-name", ProviderID: "claude"}},
+	})
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return newPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"status"}, &stdout, &stderr, deps)
+	if err == nil || !strings.Contains(err.Error(), "project name collision") {
+		t.Fatalf("expected collision error, got err=%v stdout=%q stderr=%q", err, stdout.String(), stderr.String())
+	}
+}
+
+func TestSendFromProjectRootTargetsMainWorkspace(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	projName := filepathBase(inst.projectPath)
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      projName,
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: inst.projectPath, ID: projName, ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "feat-login",
+			Providers: []database.ProviderInfo{{Path: inst.projectPath + "/.ropcode/feat-login"}},
+		}},
+	})
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return inst.projectPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"send", "--prompt", "hi"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("send from project root failed: %v\n%s", err, stderr.String())
+	}
+
+	inst.app.mu.Lock()
+	defer inst.app.mu.Unlock()
+	if len(inst.app.sends) != 1 {
+		t.Fatalf("expected one send, got %+v", inst.app.sends)
+	}
+	if got := inst.app.sends[0].ProjectPath; got != inst.projectPath {
+		t.Fatalf("expected project root cwd %q, got %q", inst.projectPath, got)
+	}
+}
+
+func TestStatusFromProjectRootFiltersMainWorkspace(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	projName := filepathBase(inst.projectPath)
+	seedProjectIndex(t, inst.app.db, &database.ProjectIndex{
+		Name:      projName,
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: inst.projectPath, ID: projName, ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "feat-login",
+			Providers: []database.ProviderInfo{{Path: inst.projectPath + "/.ropcode/feat-login"}},
+		}},
+	})
+	if _, err := inst.app.StartProviderSession("claude", inst.projectPath, "main prompt", "", ""); err != nil {
+		t.Fatalf("start main session: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return inst.projectPath, nil }
+
+	var stdout, stderr bytes.Buffer
+	err := runCLIArgs([]string{"status"}, &stdout, &stderr, deps)
+	if err != nil {
+		t.Fatalf("status from project root failed: %v\n%s", err, stderr.String())
+	}
+	for _, want := range []string{"main", "claude", "running"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in status output, got %q", want, stdout.String())
+		}
 	}
 }
 

@@ -101,7 +101,7 @@ func TestRootHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("root help failed: %v\n%s", err, stderr)
 	}
-	for _, want := range []string{"ropcode send", "ropcode status", "ropcode list", "ropcode tui"} {
+	for _, want := range []string{"ropcode send", "ropcode status", "ropcode list", "ropcode focus", "ropcode tui"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("expected %q in root help, got %q", want, stdout)
 		}
@@ -184,25 +184,6 @@ func TestBareRopcodeOutsideProjectPrintsUsage(t *testing.T) {
 	combined := stdout + stderr
 	if !strings.Contains(combined, "ropcode send") {
 		t.Fatalf("expected usage hint when outside project, got %q", combined)
-	}
-}
-
-func TestSendInProjectRootRequiresWorkspaceFlag(t *testing.T) {
-	_, db := setupCLITestDB(t)
-	seedInstance(t, db, "inst-a", "alive")
-	seedProjectIndex(t, db, &database.ProjectIndex{
-		Name:      "alpha",
-		Available: true,
-		Providers: []database.ProviderInfo{{Path: "/tmp/alpha"}},
-		Workspaces: []database.WorkspaceIndex{{
-			Name:      "ws-a",
-			Providers: []database.ProviderInfo{{Path: "/tmp/alpha/.ropcode/ws-a"}},
-		}},
-	})
-
-	_, _, err := runCLIWithPWD(t, "/tmp/alpha", "send", "--prompt", "hi")
-	if err == nil || !strings.Contains(err.Error(), "workspace name") {
-		t.Fatalf("expected error asking for a workspace name, got %v", err)
 	}
 }
 
@@ -428,5 +409,185 @@ func TestResolveWorkspaceRequiresExplicitSelectionWhenAmbiguous(t *testing.T) {
 	_, _, err = resolveWorkspace(defaultCLIDeps(), cfg, project, workspaceResolutionOptions{})
 	if err == nil || !strings.Contains(err.Error(), "--workspace <name>") {
 		t.Fatalf("expected explicit workspace error, got %v", err)
+	}
+}
+
+func TestFocusSetsDefaultWorkspaceContext(t *testing.T) {
+	cfg, db := setupCLITestDB(t)
+	seedProjectIndex(t, db, &database.ProjectIndex{
+		Name:      "alpha",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/alpha", ID: "alpha", ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "ws-a",
+			Branch:    "feat/a",
+			Providers: []database.ProviderInfo{{Path: "/tmp/alpha/.ropcode/ws-a", ID: "ws-a", ProviderID: "claude"}},
+		}},
+	})
+
+	stdout, stderr, err := runCLI(t, "focus", "alpha", "ws-a")
+	if err != nil {
+		t.Fatalf("focus failed: %v\n%s", err, stderr)
+	}
+	for _, want := range []string{"focused", "alpha", "ws-a", "/tmp/alpha/.ropcode/ws-a"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in focus output, got %q", want, stdout)
+		}
+	}
+
+	stdout, stderr, err = runCLI(t, "focus")
+	if err != nil {
+		t.Fatalf("focus show failed: %v\n%s", err, stderr)
+	}
+	for _, want := range []string{"PROJECT", "alpha", "WORKSPACE", "ws-a"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in focus show output, got %q", want, stdout)
+		}
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return "/var/empty/no-such-place", nil }
+	state := cliState{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, deps: deps}
+	resolvePWDContext(&state)
+
+	if state.pwdRole != pwdRoleInsideWorkspace {
+		t.Fatalf("expected focus to provide workspace context, got role=%v", state.pwdRole)
+	}
+	if got := state.effectiveCWD(); got != "/tmp/alpha/.ropcode/ws-a" {
+		t.Fatalf("expected effective cwd from focus, got %q", got)
+	}
+
+	var statusOut bytes.Buffer
+	printFocusedState(&statusOut, cliState{deps: deps})
+	for _, want := range []string{"current focus", "PROJECT", "alpha", "WORKSPACE", "ws-a"} {
+		if !strings.Contains(statusOut.String(), want) {
+			t.Fatalf("expected %q in focused state output, got %q", want, statusOut.String())
+		}
+	}
+
+	if _, err := os.Stat(cfg.CLIContextPath()); err != nil {
+		t.Fatalf("expected focus context file to exist: %v", err)
+	}
+}
+
+func TestFocusFromProjectRootDefaultsToMainWorkspace(t *testing.T) {
+	_, db := setupCLITestDB(t)
+	seedProjectIndex(t, db, &database.ProjectIndex{
+		Name:      "alpha",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/alpha", ID: "alpha", ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "ws-a",
+			Providers: []database.ProviderInfo{{Path: "/tmp/alpha/.ropcode/ws-a", ID: "ws-a", ProviderID: "claude"}},
+		}},
+	})
+
+	stdout, stderr, err := runCLIWithPWD(t, "/tmp/alpha", "focus")
+	if err != nil {
+		t.Fatalf("focus from project root failed: %v\n%s", err, stderr)
+	}
+	for _, want := range []string{"focused", "PROJECT", "alpha", "WORKSPACE", "main", "/tmp/alpha"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in focus output, got %q", want, stdout)
+		}
+	}
+
+	stdout, stderr, err = runCLI(t, "focus")
+	if err != nil {
+		t.Fatalf("focus show failed: %v\n%s", err, stderr)
+	}
+	for _, want := range []string{"current focus", "PROJECT", "alpha", "WORKSPACE", "main", "/tmp/alpha"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in focus show output, got %q", want, stdout)
+		}
+	}
+}
+
+func TestFocusFromWorkspaceUsesPWDWorkspace(t *testing.T) {
+	_, db := setupCLITestDB(t)
+	seedProjectIndex(t, db, &database.ProjectIndex{
+		Name:      "alpha",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/alpha", ID: "alpha", ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "ws-a",
+			Providers: []database.ProviderInfo{{Path: "/tmp/alpha/.ropcode/ws-a", ID: "ws-a", ProviderID: "claude"}},
+		}},
+	})
+
+	stdout, stderr, err := runCLIWithPWD(t, "/tmp/alpha/.ropcode/ws-a/subdir", "focus")
+	if err != nil {
+		t.Fatalf("focus from workspace failed: %v\n%s", err, stderr)
+	}
+	for _, want := range []string{"focused", "PROJECT", "alpha", "WORKSPACE", "ws-a", "/tmp/alpha/.ropcode/ws-a"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("expected %q in focus output, got %q", want, stdout)
+		}
+	}
+}
+
+func TestPWDProjectOverridesSavedFocus(t *testing.T) {
+	cfg, db := setupCLITestDB(t)
+	seedProjectIndex(t, db, &database.ProjectIndex{
+		Name:      "alpha",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/alpha", ID: "alpha", ProviderID: "claude"}},
+	})
+	seedProjectIndex(t, db, &database.ProjectIndex{
+		Name:      "beta",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/beta", ID: "beta", ProviderID: "claude"}},
+	})
+	if err := saveCLIContext(cfg, cliFocusContext{
+		ProjectName:   "alpha",
+		ProjectPath:   "/tmp/alpha",
+		WorkspaceName: "main",
+		WorkspacePath: "/tmp/alpha",
+	}); err != nil {
+		t.Fatalf("save focus: %v", err)
+	}
+
+	deps := defaultCLIDeps()
+	deps.getwd = func() (string, error) { return "/tmp/beta", nil }
+	state := cliState{stdout: &bytes.Buffer{}, stderr: &bytes.Buffer{}, deps: deps}
+	resolvePWDContext(&state)
+
+	if state.pwdFromFocus {
+		t.Fatalf("saved focus hijacked real pwd")
+	}
+	if state.pwdRole != pwdRoleProjectRoot || state.pwdProj == nil || state.pwdProj.Name != "beta" {
+		t.Fatalf("expected beta project root from pwd, got role=%v project=%+v", state.pwdRole, state.pwdProj)
+	}
+}
+
+func TestFocusClearRemovesDefaultContext(t *testing.T) {
+	_, db := setupCLITestDB(t)
+	seedProjectIndex(t, db, &database.ProjectIndex{
+		Name:      "alpha",
+		Available: true,
+		Providers: []database.ProviderInfo{{Path: "/tmp/alpha", ID: "alpha", ProviderID: "claude"}},
+		Workspaces: []database.WorkspaceIndex{{
+			Name:      "ws-a",
+			Providers: []database.ProviderInfo{{Path: "/tmp/alpha/.ropcode/ws-a", ID: "ws-a", ProviderID: "claude"}},
+		}},
+	})
+
+	if _, _, err := runCLI(t, "focus", "alpha", "ws-a"); err != nil {
+		t.Fatalf("focus failed: %v", err)
+	}
+	stdout, stderr, err := runCLI(t, "focus", "--clear")
+	if err != nil {
+		t.Fatalf("focus --clear failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "cleared") {
+		t.Fatalf("expected cleared output, got %q", stdout)
+	}
+
+	stdout, stderr, err = runCLI(t, "focus")
+	if err != nil {
+		t.Fatalf("focus show after clear failed: %v\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "no focus set") {
+		t.Fatalf("expected no focus output, got %q", stdout)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -28,9 +29,11 @@ type workspaceResolutionOptions struct {
 
 // resolvePWDContext inspects the current working directory and tags the cliState
 // with one of three roles:
-//   inside_workspace : pwd lies inside a registered workspace path
-//   project_root     : pwd lies inside a project path but no workspace
-//   outside          : neither
+//
+//	inside_workspace : pwd lies inside a registered workspace path
+//	project_root     : pwd lies inside a project path but no workspace
+//	outside          : neither
+//
 // The resolver is best-effort: any failure leaves the role at unset and the
 // commands fall back to their explicit-flag behavior.
 func resolvePWDContext(state *cliState) {
@@ -69,7 +72,118 @@ func resolvePWDContext(state *cliState) {
 		state.pwdProj = proj
 		return
 	}
+	if applyFocusContext(state, projects) {
+		return
+	}
 	state.pwdRole = pwdRoleOutside
+}
+
+type cliSpaceSessionsResult struct {
+	Sessions []struct {
+		Provider string `json:"provider"`
+	} `json:"sessions"`
+}
+
+func ensurePWDProjectContext(state *cliState) error {
+	if state == nil || state.pwd == "" {
+		return nil
+	}
+	if state.cwdFlag != "" || state.projectFlag != "" || state.workspaceFlag != "" {
+		return nil
+	}
+	if !isAutoRegisterablePWD(state) {
+		return nil
+	}
+	if state.pwdRole == pwdRoleInsideWorkspace || (state.pwdRole == pwdRoleProjectRoot && !state.pwdFromFocus) {
+		return nil
+	}
+
+	cfg, err := state.deps.loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	projects, err := listProjects(state.deps, cfg)
+	if err != nil {
+		return err
+	}
+	name := filepath.Base(state.pwd)
+	for _, project := range projects {
+		projectPath := projectPrimaryPath(project)
+		if project.Name == name && !pathMatchesOrContains(projectPath, state.pwd) {
+			return fmt.Errorf("project name collision for %q: existing=%s new=%s", name, projectPath, state.pwd)
+		}
+	}
+
+	client, err := dialResolvedInstance(*state)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	if !state.autoRegisterLogPrinted {
+		fmt.Fprintf(state.stdout, "[ropcode] PWD is not registered: %s\n", state.pwd)
+		state.autoRegisterLogPrinted = true
+	}
+	if err := client.Call("AddProjectToIndex", []any{state.pwd}, nil); err != nil {
+		return fmt.Errorf("register project: %w", err)
+	}
+
+	projects, err = listProjects(state.deps, cfg)
+	if err != nil {
+		return err
+	}
+	project := findProjectByPath(projects, state.pwd)
+	if project == nil {
+		return fmt.Errorf("project registered but not indexed yet: %s", state.pwd)
+	}
+
+	state.pwdRole = pwdRoleProjectRoot
+	state.pwdProj = project
+	state.pwdWS = nil
+	state.pwdFromFocus = false
+	state.focusSessionID = ""
+	state.autoRegistered = true
+
+	fmt.Fprintf(state.stdout, "[ropcode] registered project: %s\n", project.Name)
+	fmt.Fprintf(state.stdout, "[ropcode] main workspace ready: %s\n", projectPrimaryPath(project))
+	return logImportedSessionCounts(state, client, projectPrimaryPath(project))
+}
+
+func isAutoRegisterablePWD(state *cliState) bool {
+	if state == nil || state.pwd == "" {
+		return false
+	}
+	info, err := os.Stat(state.pwd)
+	return err == nil && info.IsDir()
+}
+
+func logImportedSessionCounts(state *cliState, client rpcSession, projectPath string) error {
+	if state == nil || client == nil || projectPath == "" {
+		return nil
+	}
+	if state.importedSessionLogPrinted {
+		return nil
+	}
+	var result cliSpaceSessionsResult
+	if err := client.Call("ListSpaceSessions", []any{projectPath, 0}, &result); err != nil {
+		fmt.Fprintf(state.stdout, "[ropcode] imported sessions: unavailable (%v)\n", err)
+		state.importedSessionLogPrinted = true
+		return nil
+	}
+	counts := map[string]int{"claude": 0, "codex": 0, "gemini": 0}
+	for _, session := range result.Sessions {
+		counts[session.Provider]++
+	}
+	fmt.Fprintf(
+		state.stdout,
+		"[ropcode] imported sessions: total=%d claude=%d codex=%d gemini=%d\n",
+		len(result.Sessions),
+		counts["claude"],
+		counts["codex"],
+		counts["gemini"],
+	)
+	state.importedSessionLogPrinted = true
+	return nil
 }
 
 // effectiveCWD returns the cwd that action commands should target. Explicit
@@ -80,6 +194,9 @@ func (s cliState) effectiveCWD() string {
 	}
 	if s.pwdRole == pwdRoleInsideWorkspace && s.pwdWS != nil {
 		return workspacePrimaryPath(s.pwdWS)
+	}
+	if s.pwdRole == pwdRoleProjectRoot && s.pwdProj != nil {
+		return projectPrimaryPath(s.pwdProj)
 	}
 	return ""
 }
@@ -98,6 +215,9 @@ func (s cliState) resolveWorkspaceFromFlag() (*database.WorkspaceIndex, error) {
 }
 
 func runOverviewCommand(state cliState) error {
+	if err := ensurePWDProjectContext(&state); err != nil {
+		return err
+	}
 	switch state.pwdRole {
 	case pwdRoleInsideWorkspace:
 		return runOverviewWorkspace(state)
@@ -194,10 +314,11 @@ func runOverviewProjectRoot(state cliState) error {
 
 	fmt.Fprintln(state.stdout, "")
 	fmt.Fprintln(state.stdout, "Hints:")
-	fmt.Fprintln(state.stdout, "  ropcode send -w <ws> --prompt \"...\"     send to a sub-workspace")
-	fmt.Fprintln(state.stdout, "  ropcode logs -w <ws> --follow             follow logs")
-	fmt.Fprintln(state.stdout, "  ropcode status --all                      list all running sessions in this project")
-	fmt.Fprintln(state.stdout, "  ropcode tui                               interactive view")
+	fmt.Fprintln(state.stdout, "  ropcode send --prompt \"...\"          send to the main workspace")
+	fmt.Fprintln(state.stdout, "  ropcode logs --follow                  follow the main workspace session")
+	fmt.Fprintln(state.stdout, "  ropcode send -w <ws> --prompt \"...\"   send to a sub-workspace")
+	fmt.Fprintln(state.stdout, "  ropcode status --all                   list all running sessions on the instance")
+	fmt.Fprintln(state.stdout, "  ropcode tui                            interactive view")
 	return nil
 }
 
@@ -450,6 +571,15 @@ func resolveWorkspace(deps cliDeps, cfg *config.Config, project *database.Projec
 		return &workspaces[0], "auto", nil
 	}
 	return nil, "", fmt.Errorf("multiple workspaces found for project %q; use `--workspace <name>` or `--cwd <path>` or run `ropcode list workspaces --project %s`", project.Name, project.Name)
+}
+
+func mainWorkspaceContext(project *database.ProjectIndex) cliFocusContext {
+	return cliFocusContext{
+		ProjectName:   project.Name,
+		ProjectPath:   projectPrimaryPath(project),
+		WorkspaceName: "main",
+		WorkspacePath: projectPrimaryPath(project),
+	}
 }
 
 func listAliveInstances(deps cliDeps, cfg *config.Config) ([]*database.InstanceRecord, error) {

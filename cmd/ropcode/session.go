@@ -48,12 +48,18 @@ func runSendCommand(state cliState, args []string) error {
 		return err
 	}
 	if opts.create {
+		if err := ensurePWDProjectContextForCreate(&state); err != nil {
+			return err
+		}
 		created, err := createWorkspaceForSend(state, opts)
 		if err != nil {
 			return err
 		}
 		opts.cwd = created
 	} else {
+		if err := ensurePWDProjectContext(&state); err != nil {
+			return err
+		}
 		cwd, err := resolveActionCWD(state)
 		if err != nil {
 			return err
@@ -71,6 +77,17 @@ func runSendCommand(state cliState, args []string) error {
 	}
 	defer client.Close()
 	return runSessionSend(state, client, opts)
+}
+
+func ensurePWDProjectContextForCreate(state *cliState) error {
+	if state == nil {
+		return nil
+	}
+	workspaceFlag := state.workspaceFlag
+	state.workspaceFlag = ""
+	err := ensurePWDProjectContext(state)
+	state.workspaceFlag = workspaceFlag
+	return err
 }
 
 // createWorkspaceForSend handles the --create path: validates inputs, picks a
@@ -124,20 +141,20 @@ func createWorkspaceForSend(state cliState, opts sessionCommandOptions) (string,
 }
 
 // resolveCreateParent returns the project the new workspace will live under.
-// Priority: pwd-resolved project → --project flag → error.
+// Priority: --project flag → pwd-resolved project → focus context → error.
 func resolveCreateParent(state cliState) (*database.ProjectIndex, error) {
+	if state.projectFlag != "" {
+		cfg, err := state.deps.loadConfig()
+		if err != nil {
+			return nil, fmt.Errorf("load config: %w", err)
+		}
+		proj, _, err := resolveProject(state.deps, cfg, projectResolutionOptions{explicitProject: state.projectFlag})
+		return proj, err
+	}
 	if state.pwdProj != nil {
 		return state.pwdProj, nil
 	}
-	if state.projectFlag == "" {
-		return nil, errors.New("--create needs a parent project: cd into one or pass --project <name>")
-	}
-	cfg, err := state.deps.loadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
-	}
-	proj, _, err := resolveProject(state.deps, cfg, projectResolutionOptions{explicitProject: state.projectFlag})
-	return proj, err
+	return nil, errors.New("--create needs a parent project: cd into one or pass --project <name>")
 }
 
 func runStatusCommand(state cliState, args []string) error {
@@ -153,14 +170,19 @@ func runStatusCommand(state cliState, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := ensurePWDProjectContext(&state); err != nil {
+		return err
+	}
 	cwd, err := resolveActionCWD(state)
 	if err != nil {
 		return err
 	}
 	opts.cwd = cwd
+	printFocusedState(state.stdout, state)
 	if state.allFlag {
 		opts.cwd = ""
-	} else if opts.cwd == "" && state.pwdRole == pwdRoleProjectRoot {
+	} else if state.pwdRole == pwdRoleProjectRoot && state.workspaceFlag == "" && state.cwdFlag == "" {
+		opts.cwd = ""
 		client, err := dialResolvedInstance(state)
 		if err != nil {
 			return err
@@ -192,6 +214,12 @@ func runLogsCommand(state cliState, args []string) error {
 	opts, err := parseSessionLogsArgs(args, "")
 	if err != nil {
 		return err
+	}
+	if err := ensurePWDProjectContext(&state); err != nil {
+		return err
+	}
+	if opts.sessionID == "" {
+		opts.sessionID = state.focusSessionID
 	}
 	if opts.sessionID == "" {
 		cwd, err := resolveActionCWD(state)
@@ -225,6 +253,12 @@ func runStopCommand(state cliState, args []string) error {
 	opts, err := parseSessionStopArgs(args, "")
 	if err != nil {
 		return err
+	}
+	if err := ensurePWDProjectContext(&state); err != nil {
+		return err
+	}
+	if opts.sessionID == "" {
+		opts.sessionID = state.focusSessionID
 	}
 	if opts.sessionID == "" {
 		cwd, err := resolveActionCWD(state)
@@ -310,6 +344,9 @@ func resolveActionCWD(state cliState) (string, error) {
 		return state.cwdFlag, nil
 	}
 	if state.workspaceFlag != "" {
+		if state.projectFlag != "" {
+			return findWorkspacePathByName(state, state.workspaceFlag, state.projectFlag)
+		}
 		if state.pwdProj != nil {
 			if ws := findWorkspaceByName(state.pwdProj.Workspaces, state.workspaceFlag); ws != nil {
 				return workspacePrimaryPath(ws), nil
@@ -367,7 +404,7 @@ func findWorkspacePathByName(state cliState, wsName, projectFilter string) (stri
 func actionCWDOrError(state cliState, command string) (string, error) {
 	switch state.pwdRole {
 	case pwdRoleProjectRoot:
-		return "", fmt.Errorf("`ropcode %s` from a project root needs a workspace name (e.g. `ropcode %s ws-a` or `-w ws-a`); see `ropcode list workspaces`", command, command)
+		return "", fmt.Errorf("`ropcode %s` from a project root could not resolve the main workspace; run `ropcode list projects` or pass --cwd", command)
 	case pwdRoleOutside:
 		return "", fmt.Errorf("`ropcode %s` needs a workspace name or --cwd (e.g. `ropcode %s ws-a`); see `ropcode list workspaces`", command, command)
 	default:
@@ -375,13 +412,16 @@ func actionCWDOrError(state cliState, command string) (string, error) {
 	}
 }
 
-// runProjectStatus lists sessions filtered to workspaces of the pwd-resolved project.
+// runProjectStatus lists sessions filtered to the main workspace and sub-workspaces of the pwd-resolved project.
 func runProjectStatus(state cliState, client rpcSession, opts sessionCommandOptions) error {
 	var all []liveProviderSession
 	if err := client.Call("ListRunningProviderSessions", nil, &all); err != nil {
 		return err
 	}
 	wsPaths := map[string]string{}
+	if root := projectPrimaryPath(state.pwdProj); root != "" {
+		wsPaths[root] = "main"
+	}
 	for i := range state.pwdProj.Workspaces {
 		ws := &state.pwdProj.Workspaces[i]
 		if p := workspacePrimaryPath(ws); p != "" {
@@ -418,7 +458,7 @@ func writeSendUsage(w io.Writer) {
 	fmt.Fprintln(w, "  ropcode send <workspace> --create --prompt <text> [...]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Continues an existing running session in the workspace, or starts a new one if none is running.")
-	fmt.Fprintln(w, "Workspace target precedence: --cwd > <workspace>|-w > $PWD-resolved workspace.")
+	fmt.Fprintln(w, "Workspace target precedence: --cwd > <workspace>|-w > $PWD-resolved workspace or project-root main workspace.")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "--create   create the workspace before sending; <workspace> is also the git branch")
 	fmt.Fprintln(w, "           parent project = $PWD project, or --project <name>")
@@ -431,7 +471,7 @@ func writeStatusUsage(w io.Writer) {
 	fmt.Fprintln(w, "  ropcode status [<workspace>] [--all]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "From a workspace dir: shows that workspace's sessions ('idle' if none).")
-	fmt.Fprintln(w, "From a project root:  shows running sessions in every sub-workspace.")
+	fmt.Fprintln(w, "From a project root:  shows running sessions in the main workspace and every sub-workspace.")
 	fmt.Fprintln(w, "--all bypasses pwd filtering and lists every session on the instance.")
 }
 

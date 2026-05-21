@@ -38,19 +38,25 @@ const (
 )
 
 type cliState struct {
-	stdout        io.Writer
-	stderr        io.Writer
-	deps          cliDeps
-	instanceFlag  string
-	projectFlag   string
-	workspaceFlag string
-	cwdFlag       string
-	allFlag       bool
+	stdout         io.Writer
+	stderr         io.Writer
+	deps           cliDeps
+	instanceFlag   string
+	projectFlag    string
+	workspaceFlag  string
+	cwdFlag        string
+	allFlag        bool
+	focusSessionID string
 
-	pwd       string
-	pwdRole   pwdRole
-	pwdProj   *database.ProjectIndex
-	pwdWS     *database.WorkspaceIndex
+	pwd          string
+	pwdRole      pwdRole
+	pwdProj      *database.ProjectIndex
+	pwdWS        *database.WorkspaceIndex
+	pwdFromFocus bool
+
+	autoRegistered            bool
+	autoRegisterLogPrinted    bool
+	importedSessionLogPrinted bool
 }
 
 func defaultCLIDeps() cliDeps {
@@ -93,6 +99,8 @@ func runCLIArgs(args []string, stdout io.Writer, stderr io.Writer, deps cliDeps)
 		return nil
 	case "list":
 		return runListCommand(state, args[1:])
+	case "focus":
+		return runFocusCommand(state, args[1:])
 	case "send":
 		return runSendCommand(state, args[1:])
 	case "status":
@@ -178,17 +186,19 @@ func writeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  ropcode logs   [<workspace>] [--follow]")
 	fmt.Fprintln(w, "  ropcode stop   [<workspace>]")
 	fmt.Fprintln(w, "  ropcode list   <instances|projects|workspaces|sessions>")
+	fmt.Fprintln(w, "  ropcode focus  [<project> [workspace]]")
 	fmt.Fprintln(w, "  ropcode tui")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Workspace target precedence (highest first):")
 	fmt.Fprintln(w, "  1. --cwd <path>")
 	fmt.Fprintln(w, "  2. <workspace> positional / -w <name>")
-	fmt.Fprintln(w, "  3. $PWD inside a registered workspace dir")
+	fmt.Fprintln(w, "  3. `ropcode focus` default context")
+	fmt.Fprintln(w, "  4. $PWD inside a registered workspace dir or project root")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "$PWD roles:")
 	fmt.Fprintln(w, "  inside a workspace dir   → bare commands target that workspace")
 	fmt.Fprintln(w, "  inside the project root  → bare `ropcode` lists every sub-workspace;")
-	fmt.Fprintln(w, "                              action commands need <workspace> or --all where applicable")
+	fmt.Fprintln(w, "                              send/logs/stop target the main workspace")
 	fmt.Fprintln(w, "  outside any project      → pass --cwd <path> or run from a project dir")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Global flags:")
