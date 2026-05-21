@@ -283,8 +283,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
                 return;
               }
 
-              // Check the actual provider session state (Gemini/Codex/Claude) instead of defaulting to Claude
-              api.isClaudeSessionRunningForProject(currentProjectPath, provider).then((running: boolean) => {
+              api.isClaudeSessionRunningForProject(currentProjectPath, message.session_id).then((running: boolean) => {
                 hasActiveSessionRef.current = running;
                 // In interactive mode, isLoading is controlled by message flow,
                 // not by process running state. The process is always running.

@@ -77,13 +77,15 @@ type RuntimeState struct {
 }
 
 type SessionStatus struct {
-	SessionID   string       `json:"session_id"`
-	ProjectPath string       `json:"project_path"`
-	Model       string       `json:"model"`
-	Status      string       `json:"status"` // "running", "completed", "failed", "cancelled"
-	StartedAt   time.Time    `json:"started_at"`
-	PID         int          `json:"pid,omitempty"`
-	Runtime     RuntimeState `json:"runtime,omitempty"`
+	SessionID         string       `json:"session_id"`
+	ClaudeSessionID   string       `json:"claude_session_id,omitempty"`
+	ProviderSessionID string       `json:"provider_session_id,omitempty"`
+	ProjectPath       string       `json:"project_path"`
+	Model             string       `json:"model"`
+	Status            string       `json:"status"` // "running", "completed", "failed", "cancelled"
+	StartedAt         time.Time    `json:"started_at"`
+	PID               int          `json:"pid,omitempty"`
+	Runtime           RuntimeState `json:"runtime,omitempty"`
 }
 
 type Session struct {
@@ -1336,12 +1338,14 @@ func (s *Session) GetStatus() *SessionStatus {
 	defer s.mu.RUnlock()
 
 	status := &SessionStatus{
-		SessionID:   s.ID,
-		ProjectPath: s.Config.ProjectPath,
-		Model:       s.Config.Model,
-		Status:      s.Status,
-		StartedAt:   s.StartedAt,
-		Runtime:     s.runtime,
+		SessionID:         s.ID,
+		ClaudeSessionID:   s.claudeSessionID,
+		ProviderSessionID: s.claudeSessionID,
+		ProjectPath:       s.Config.ProjectPath,
+		Model:             s.Config.Model,
+		Status:            s.Status,
+		StartedAt:         s.StartedAt,
+		Runtime:           s.runtime,
 	}
 
 	if s.cmd != nil && s.cmd.Process != nil {

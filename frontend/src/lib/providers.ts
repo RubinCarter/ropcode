@@ -59,8 +59,8 @@ export const providers = {
   /**
    * 加载 provider 会话历史
    */
-  loadHistory: async (sessionId: string, projectPath: string, providerName: string): Promise<ProviderHistoryMessage[]> => {
-    return LoadProviderSessionHistory(projectPath, sessionId, providerName) as Promise<ProviderHistoryMessage[]>;
+  loadHistory: async (sessionId: string, projectId: string, providerName: string): Promise<ProviderHistoryMessage[]> => {
+    return LoadProviderSessionHistory(projectId, sessionId, providerName) as Promise<ProviderHistoryMessage[]>;
   },
 };
 

@@ -2,6 +2,7 @@ package eventhub
 
 import (
 	"context"
+	"time"
 )
 
 // Broadcaster 事件广播接口
@@ -89,6 +90,21 @@ type WorktreeChangedEvent struct {
 
 func (h *EventHub) EmitWorktreeChanged(event WorktreeChangedEvent) {
 	h.emit("worktree:changed", event)
+}
+
+// ProjectChangedEvent is emitted when the persisted project index changes.
+// Frontends should refresh ListProjects after receiving it.
+type ProjectChangedEvent struct {
+	ProjectName   string    `json:"project_name"`
+	ProjectPath   string    `json:"project_path"`
+	WorkspaceName string    `json:"workspace_name,omitempty"`
+	WorkspacePath string    `json:"workspace_path,omitempty"`
+	Reason        string    `json:"reason"`
+	Timestamp     time.Time `json:"timestamp"`
+}
+
+func (h *EventHub) EmitProjectChanged(event ProjectChangedEvent) {
+	h.emit("project:changed", event)
 }
 
 // Claude 输出事件

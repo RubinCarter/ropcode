@@ -93,7 +93,9 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
     }
 
     try {
-      const running = await api.isClaudeSessionRunningForProject(projectPath, provider);
+      const running = interactiveSessionIdRef.current
+        ? await api.isClaudeSessionRunningForProject(projectPath, interactiveSessionIdRef.current)
+        : await api.isClaudeSessionRunningForProject(projectPath, provider);
       hasActiveSessionRef.current = running;
 
       // In interactive mode, process is always running but isLoading

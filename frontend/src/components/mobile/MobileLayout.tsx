@@ -8,6 +8,7 @@ import { useContainerContext } from '@/contexts/ContainerContext';
 import { WorkspaceTabProvider, useWorkspaceTabContext } from '@/contexts/WorkspaceTabContext';
 import { api, type Project } from '@/lib/api';
 import { wsClient } from '@/lib/ws-rpc-client';
+import { EventsOn } from '@/lib/rpc-events';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import { RightSidebar } from '@/components/right-sidebar';
 import { FileViewer } from '@/components/FileViewer';
@@ -73,7 +74,13 @@ export const MobileLayout: React.FC = () => {
     const unsub = wsClient.onConnect(() => {
       loadProjects();
     });
-    return unsub;
+    const unlistenProjectChanged = EventsOn('project:changed', () => {
+      loadProjects();
+    });
+    return () => {
+      unsub();
+      unlistenProjectChanged();
+    };
   }, []);
 
   const loadProjects = async () => {

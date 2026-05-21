@@ -116,6 +116,15 @@ func TestListRunningProviderSessions_IncludesProviderMetadata(t *testing.T) {
 	}
 }
 
+func TestLiveProviderSessionExposesProviderSessionID(t *testing.T) {
+	var session LiveProviderSession
+	session.ProviderSessionID = "provider-session-id"
+
+	if session.ProviderSessionID != "provider-session-id" {
+		t.Fatalf("expected provider session id to be stored, got %q", session.ProviderSessionID)
+	}
+}
+
 func TestGetProviderSessionOutputAndStopProviderSession(t *testing.T) {
 	app := newGeminiTestApp(t)
 	sessionID, err := app.StartProviderSession("gemini", t.TempDir(), "hello", "", "", "")

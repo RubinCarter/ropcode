@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { ProjectList } from '@/components/ProjectList';
 import { api, type Project } from '@/lib/api';
 import { wsClient } from '@/lib/ws-rpc-client';
+import { EventsOn } from '@/lib/rpc-events';
 import { cn } from '@/lib/utils';
 import { useTabContext } from '@/contexts/TabContext';
 import { useContainerContext } from '@/contexts/ContainerContext';
@@ -170,7 +171,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const unsub = wsClient.onConnect(() => {
       loadProjects();
     });
-    return unsub;
+    const unlistenProjectChanged = EventsOn('project:changed', () => {
+      loadProjects();
+    });
+    return () => {
+      unsub();
+      unlistenProjectChanged();
+    };
   }, [loadProjects]);
 
   useEffect(() => {

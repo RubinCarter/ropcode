@@ -136,6 +136,7 @@ export namespace main {
   }
   export interface LiveProviderSession {
     session_id: string;
+    provider_session_id?: string;
     project_path: string;
     model: string;
     status: string;
@@ -915,11 +916,11 @@ export function LoadSessionHistory(projectPath: string, sessionId: string): Prom
 }
 
 export function LoadProviderSessionHistory(
-  projectPath: string,
+  projectId: string,
   sessionId: string,
   providerName: string
 ): Promise<claude.Message[]> {
-  return wsClient.call('LoadProviderSessionHistory', sessionId, projectPath, providerName);
+  return wsClient.call('LoadProviderSessionHistory', sessionId, projectId, providerName);
 }
 
 export function LoadSubagentTranscripts(
@@ -958,8 +959,8 @@ export function IsClaudeSessionRunning(sessionId: string): Promise<boolean> {
   return wsClient.call('IsClaudeSessionRunning', sessionId);
 }
 
-export function IsClaudeSessionRunningForProject(projectPath: string, sessionId: string): Promise<boolean> {
-  return wsClient.call('IsClaudeSessionRunningForProject', projectPath, sessionId);
+export function IsClaudeSessionRunningForProject(projectPath: string, providerOrSessionId: string): Promise<boolean> {
+  return wsClient.call('IsClaudeSessionRunningForProject', projectPath, providerOrSessionId);
 }
 
 export function ListRunningClaudeSessions(): Promise<claude.SessionStatus[]> {

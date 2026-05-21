@@ -27,6 +27,7 @@ import (
 	"ropcode/internal/codex"
 	"ropcode/internal/command"
 	"ropcode/internal/database"
+	"ropcode/internal/eventhub"
 	"ropcode/internal/gemini"
 	"ropcode/internal/git"
 	"ropcode/internal/gitcontent"
@@ -38,6 +39,39 @@ import (
 	"ropcode/internal/ssh"
 	"ropcode/internal/usage"
 )
+
+type ProjectChangedEvent = eventhub.ProjectChangedEvent
+
+func (a *App) emitProjectChanged(project *database.ProjectIndex, reason string, workspace *database.WorkspaceIndex) {
+	if a.eventHub == nil || project == nil {
+		return
+	}
+	event := eventhub.ProjectChangedEvent{
+		ProjectName: project.Name,
+		ProjectPath: projectPrimaryPathForEvent(project),
+		Reason:      reason,
+		Timestamp:   time.Now().UTC(),
+	}
+	if workspace != nil {
+		event.WorkspaceName = workspace.Name
+		event.WorkspacePath = workspacePrimaryPathForEvent(workspace)
+	}
+	a.eventHub.EmitProjectChanged(event)
+}
+
+func projectPrimaryPathForEvent(project *database.ProjectIndex) string {
+	if project == nil || len(project.Providers) == 0 {
+		return ""
+	}
+	return project.Providers[0].Path
+}
+
+func workspacePrimaryPathForEvent(workspace *database.WorkspaceIndex) string {
+	if workspace == nil || len(workspace.Providers) == 0 {
+		return ""
+	}
+	return workspace.Providers[0].Path
+}
 
 type liveSessionConfig struct {
 	model           string
@@ -397,7 +431,12 @@ func (a *App) SetProjectProviderApiConfig(projectPath, providerName, configId st
 							ProviderApiID: configId,
 						})
 					}
-					return a.dbManager.SaveProjectIndex(p)
+					updated := p.Workspaces[i]
+					if err := a.dbManager.SaveProjectIndex(p); err != nil {
+						return err
+					}
+					a.emitProjectChanged(p, "workspace-provider-config-updated", &updated)
+					return nil
 				}
 			}
 		}
@@ -425,7 +464,11 @@ func (a *App) SetProjectProviderApiConfig(projectPath, providerName, configId st
 		})
 	}
 
-	return a.dbManager.SaveProjectIndex(project)
+	if err := a.dbManager.SaveProjectIndex(project); err != nil {
+		return err
+	}
+	a.emitProjectChanged(project, "project-provider-config-updated", nil)
+	return nil
 }
 
 // AddProviderToProject adds a provider to a project
@@ -454,7 +497,11 @@ func (a *App) AddProviderToProject(path, provider string) error {
 		Path:       path,
 	})
 
-	return a.dbManager.SaveProjectIndex(project)
+	if err := a.dbManager.SaveProjectIndex(project); err != nil {
+		return err
+	}
+	a.emitProjectChanged(project, "project-provider-added", nil)
+	return nil
 }
 
 // UpdateProjectLastProvider updates the last used provider for a project
@@ -470,7 +517,11 @@ func (a *App) UpdateProjectLastProvider(path, provider string) error {
 	}
 
 	project.LastProvider = provider
-	return a.dbManager.SaveProjectIndex(project)
+	if err := a.dbManager.SaveProjectIndex(project); err != nil {
+		return err
+	}
+	a.emitProjectChanged(project, "project-last-provider-updated", nil)
+	return nil
 }
 
 // UpdateWorkspaceLastProvider updates the last used provider for a workspace
@@ -490,7 +541,12 @@ func (a *App) UpdateWorkspaceLastProvider(path, provider string) error {
 		for i, workspace := range project.Workspaces {
 			if workspace.Name == workspaceName {
 				project.Workspaces[i].LastProvider = provider
-				return a.dbManager.SaveProjectIndex(project)
+				updated := project.Workspaces[i]
+				if err := a.dbManager.SaveProjectIndex(project); err != nil {
+					return err
+				}
+				a.emitProjectChanged(project, "workspace-last-provider-updated", &updated)
+				return nil
 			}
 		}
 	}
@@ -644,13 +700,14 @@ type ProviderSession struct {
 }
 
 type LiveProviderSession struct {
-	SessionID   string    `json:"session_id"`
-	ProjectPath string    `json:"project_path"`
-	Model       string    `json:"model"`
-	Status      string    `json:"status"`
-	StartedAt   time.Time `json:"started_at"`
-	PID         int       `json:"pid,omitempty"`
-	Provider    string    `json:"provider"`
+	SessionID         string    `json:"session_id"`
+	ProviderSessionID string    `json:"provider_session_id,omitempty"`
+	ProjectPath       string    `json:"project_path"`
+	Model             string    `json:"model"`
+	Status            string    `json:"status"`
+	StartedAt         time.Time `json:"started_at"`
+	PID               int       `json:"pid,omitempty"`
+	Provider          string    `json:"provider"`
 }
 
 type claudeActivityControlSender struct {
@@ -887,7 +944,11 @@ func (a *App) SaveProjectIndex(project *database.ProjectIndex) error {
 	if a.dbManager == nil {
 		return nil
 	}
-	return a.dbManager.SaveProjectIndex(project)
+	if err := a.dbManager.SaveProjectIndex(project); err != nil {
+		return err
+	}
+	a.emitProjectChanged(project, "project-saved", nil)
+	return nil
 }
 
 // DeleteProjectIndex deletes a project index by name
@@ -895,7 +956,14 @@ func (a *App) DeleteProjectIndex(name string) error {
 	if a.dbManager == nil {
 		return nil
 	}
-	return a.dbManager.DeleteProjectIndex(name)
+	project, _ := a.dbManager.GetProjectIndex(name)
+	if err := a.dbManager.DeleteProjectIndex(name); err != nil {
+		return err
+	}
+	if project != nil {
+		a.emitProjectChanged(project, "project-deleted", nil)
+	}
+	return nil
 }
 
 // ===== Git Bindings =====
@@ -1886,13 +1954,14 @@ func (a *App) ListRunningProviderSessions() []LiveProviderSession {
 	if a.claudeManager != nil {
 		for _, session := range a.claudeManager.ListRunningSessions() {
 			result = append(result, LiveProviderSession{
-				SessionID:   session.SessionID,
-				ProjectPath: session.ProjectPath,
-				Model:       session.Model,
-				Status:      session.Status,
-				StartedAt:   session.StartedAt,
-				PID:         session.PID,
-				Provider:    "claude",
+				SessionID:         session.SessionID,
+				ProviderSessionID: session.ProviderSessionID,
+				ProjectPath:       session.ProjectPath,
+				Model:             session.Model,
+				Status:            session.Status,
+				StartedAt:         session.StartedAt,
+				PID:               session.PID,
+				Provider:          "claude",
 			})
 		}
 	}
@@ -2220,9 +2289,12 @@ func (a *App) IsClaudeSessionRunning(sessionID string) bool {
 	return a.claudeManager.IsRunning(sessionID)
 }
 
-// IsClaudeSessionRunningForProject checks if any session is running for a project
-func (a *App) IsClaudeSessionRunningForProject(projectPath string, provider string) bool {
-	switch provider {
+// IsClaudeSessionRunningForProject checks provider liveness for a project.
+// The second argument is kept backward-compatible: provider names check any
+// running session for the project, while concrete session IDs check that
+// specific live session.
+func (a *App) IsClaudeSessionRunningForProject(projectPath string, providerOrSessionID string) bool {
+	switch providerOrSessionID {
 	case "gemini":
 		if a.geminiManager == nil {
 			return false
@@ -2234,6 +2306,15 @@ func (a *App) IsClaudeSessionRunningForProject(projectPath string, provider stri
 		}
 		return a.codexManager.IsRunningForProject(projectPath)
 	default:
+		if a.claudeManager != nil && a.claudeManager.IsRunning(providerOrSessionID) {
+			return true
+		}
+		if a.geminiManager != nil && a.geminiManager.IsRunning(providerOrSessionID) {
+			return true
+		}
+		if a.codexManager != nil && a.codexManager.IsRunning(providerOrSessionID) {
+			return true
+		}
 		if a.claudeManager == nil {
 			return false
 		}
@@ -3432,7 +3513,11 @@ func (a *App) AddProjectToIndex(path string) error {
 		// Update git support status
 		existingProject.HasGitSupport = &hasGitSupport
 		go a.PrewarmClaudeCapabilityLayers(path)
-		return a.dbManager.SaveProjectIndex(existingProject)
+		if err := a.dbManager.SaveProjectIndex(existingProject); err != nil {
+			return err
+		}
+		a.emitProjectChanged(existingProject, "project-updated", nil)
+		return nil
 	}
 
 	// Scan .ropcode directory for existing worktrees
@@ -3459,7 +3544,11 @@ func (a *App) AddProjectToIndex(path string) error {
 	}
 
 	go a.PrewarmClaudeCapabilityLayers(path)
-	return a.dbManager.SaveProjectIndex(project)
+	if err := a.dbManager.SaveProjectIndex(project); err != nil {
+		return err
+	}
+	a.emitProjectChanged(project, "project-added", nil)
+	return nil
 }
 
 // RemoveProjectFromIndex removes a project from the index by ID (name)
@@ -3467,7 +3556,14 @@ func (a *App) RemoveProjectFromIndex(id string) error {
 	if a.dbManager == nil {
 		return fmt.Errorf("database manager not initialized")
 	}
-	return a.dbManager.DeleteProjectIndex(id)
+	project, _ := a.dbManager.GetProjectIndex(id)
+	if err := a.dbManager.DeleteProjectIndex(id); err != nil {
+		return err
+	}
+	if project != nil {
+		a.emitProjectChanged(project, "project-removed", nil)
+	}
+	return nil
 }
 
 // UpdateProjectAccessTime updates the last accessed time for a project
@@ -3482,7 +3578,11 @@ func (a *App) UpdateProjectAccessTime(id string) error {
 	}
 
 	project.LastAccessed = time.Now().Unix()
-	return a.dbManager.SaveProjectIndex(project)
+	if err := a.dbManager.SaveProjectIndex(project); err != nil {
+		return err
+	}
+	a.emitProjectChanged(project, "project-accessed", nil)
+	return nil
 }
 
 // CreateProject creates a new project directory structure
@@ -3559,13 +3659,19 @@ func (a *App) CreateWorkspace(parent string, branch string, name string) error {
 	workspacePath := filepath.Join(ropcodeDir, name)
 
 	// 4. Execute git worktree add
-	// Use -B to allow branch reset if it exists
-	// Syntax: git worktree add -B <branch> <path>
-	cmd := exec.Command("git", "worktree", "add", "-B", branch, workspacePath)
-	cmd.Dir = parent
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to add worktree: %s - %w", string(output), err)
+	// Non-Git projects still support logical workspaces as ordinary directories.
+	hasGitSupport := project.HasGitSupport != nil && *project.HasGitSupport
+	if hasGitSupport {
+		// Use -B to allow branch reset if it exists.
+		// Syntax: git worktree add -B <branch> <path>
+		cmd := exec.Command("git", "worktree", "add", "-B", branch, workspacePath)
+		cmd.Dir = parent
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to add worktree: %s - %w", string(output), err)
+		}
+	} else if err := os.MkdirAll(workspacePath, 0755); err != nil {
+		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
 	// 5. Create workspace index
@@ -3586,7 +3692,11 @@ func (a *App) CreateWorkspace(parent string, branch string, name string) error {
 	// Add workspace to project
 	project.Workspaces = append(project.Workspaces, workspace)
 
-	return a.dbManager.SaveProjectIndex(project)
+	if err := a.dbManager.SaveProjectIndex(project); err != nil {
+		return err
+	}
+	a.emitProjectChanged(project, "workspace-created", &workspace)
+	return nil
 }
 
 // RemoveWorkspace removes a workspace from the index
@@ -3605,8 +3715,13 @@ func (a *App) RemoveWorkspace(id string) error {
 		for i, workspace := range project.Workspaces {
 			if workspace.Name == id {
 				// Remove workspace from slice
+				removed := workspace
 				project.Workspaces = append(project.Workspaces[:i], project.Workspaces[i+1:]...)
-				return a.dbManager.SaveProjectIndex(project)
+				if err := a.dbManager.SaveProjectIndex(project); err != nil {
+					return err
+				}
+				a.emitProjectChanged(project, "workspace-removed", &removed)
+				return nil
 			}
 		}
 	}
@@ -3640,7 +3755,11 @@ func (a *App) UpdateProjectFields(path string, updates map[string]interface{}) e
 		project.ProjectType = projectType
 	}
 
-	return a.dbManager.SaveProjectIndex(project)
+	if err := a.dbManager.SaveProjectIndex(project); err != nil {
+		return err
+	}
+	a.emitProjectChanged(project, "project-updated", nil)
+	return nil
 }
 
 // UpdateWorkspaceFields updates fields in a workspace
@@ -3667,7 +3786,12 @@ func (a *App) UpdateWorkspaceFields(path string, updates map[string]interface{})
 					project.Workspaces[i].LastProvider = lastProvider
 				}
 
-				return a.dbManager.SaveProjectIndex(project)
+				updated := project.Workspaces[i]
+				if err := a.dbManager.SaveProjectIndex(project); err != nil {
+					return err
+				}
+				a.emitProjectChanged(project, "workspace-updated", &updated)
+				return nil
 			}
 		}
 	}

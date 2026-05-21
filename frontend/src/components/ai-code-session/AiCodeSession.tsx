@@ -398,6 +398,11 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
       return;
     }
 
+    if (session) {
+      console.log('[AiCodeSession] Skipping session restore for explicit historical session');
+      return;
+    }
+
     if (loadedSessionIdRef.current) {
       console.log('[AiCodeSession] Already loaded session, skipping:', loadedSessionIdRef.current);
       return;
@@ -655,7 +660,7 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
         setIsRecoveringHistory(true);
 
         // Sync process state — check if task completed while disconnected
-        const running = await api.isClaudeSessionRunningForProject(projectPath, defaultProvider);
+        const running = await api.isClaudeSessionRunningForProject(projectPath, sessionId);
         if (!isMounted) return;
         if (!running) {
           processState.setIsLoading(false);

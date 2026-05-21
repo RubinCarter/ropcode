@@ -125,6 +125,9 @@ export function useSpaceSessions({ spacePath, activeTabUpdater }: UseSpaceSessio
           if (session.provider && session.session_id) {
             sessionIds.add(`${session.provider}:${session.session_id}`);
           }
+          if (session.provider && session.provider_session_id) {
+            sessionIds.add(`${session.provider}:${session.provider_session_id}`);
+          }
         }
 
         setRunningSessionIds(sessionIds);

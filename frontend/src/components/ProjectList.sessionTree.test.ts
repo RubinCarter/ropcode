@@ -33,6 +33,16 @@ test('ProjectList exposes tree-only mode for desktop companion sidebar', async (
   assert.match(sidebarSource, /showInlineSessions=\{false\}/);
 });
 
+test('Sidebar project lists refresh from project changed events', async () => {
+  const sidebarSource = await readSource(path.resolve(currentDir, './Sidebar.tsx'));
+  const mobileSource = await readSource(path.resolve(currentDir, './mobile/MobileLayout.tsx'));
+
+  assert.match(sidebarSource, /EventsOn\('project:changed'/);
+  assert.match(sidebarSource, /loadProjects\(\)/);
+  assert.match(mobileSource, /EventsOn\('project:changed'/);
+  assert.match(mobileSource, /loadProjects\(\)/);
+});
+
 test('ProjectList does not fan out session scans to all child workspaces when expanding a project', async () => {
   const source = await readSource(projectListPath);
 
@@ -66,10 +76,13 @@ test('ProjectList renders provider icons instead of provider text labels in sess
 
 test('ProjectList tracks running live sessions by workspace and session id', async () => {
   const source = await readSource(projectListPath);
+  const sidebarSource = await readSource(path.resolve(currentDir, './sidebar/useSpaceSessions.ts'));
 
   assert.match(source, /listRunningProviderSessions/);
   assert.match(source, /runningSessionIds/);
   assert.match(source, /session\.is_running \|\| runningSessionIds\.has\(`\$\{session\.provider\}:\$\{session\.id\}`\)/);
+  assert.match(source, /session\.provider_session_id/);
+  assert.match(sidebarSource, /session\.provider_session_id/);
 });
 
 test('WorkspaceContainer handles explicit new session events with a blank chat tab', async () => {
@@ -121,6 +134,20 @@ test('AiCodeSession can skip automatic session restoration for explicit new tabs
   assert.match(source, /Skipping session restore for explicit new session/);
 });
 
+test('AiCodeSession does not auto-restore localStorage over an explicit historical session', async () => {
+  const source = await readSource(path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx'));
+
+  assert.match(source, /Skipping session restore for explicit historical session/);
+  assert.match(source, /if \(session\) \{/);
+});
+
+test('AiCodeSession checks running state with the active session id, not provider id', async () => {
+  const source = await readSource(path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx'));
+
+  assert.match(source, /isClaudeSessionRunningForProject\(projectPath,\s*sessionId\)/);
+  assert.doesNotMatch(source, /isClaudeSessionRunningForProject\(projectPath,\s*defaultProvider\)/);
+});
+
 test('rpc client exposes ListSpaceSessions result types and wrapper', async () => {
   const source = await readSource(rpcClientPath);
 
@@ -128,4 +155,13 @@ test('rpc client exposes ListSpaceSessions result types and wrapper', async () =
   assert.match(source, /interface SpaceSessionsResult/);
   assert.match(source, /function ListSpaceSessions\(projectPath: string, limit: number\)/);
   assert.match(source, /wsClient\.call\('ListSpaceSessions', projectPath, limit\)/);
+});
+
+test('rpc client names provider history argument as projectId', async () => {
+  const source = await readSource(rpcClientPath);
+  const providersSource = await readSource(path.resolve(currentDir, '../lib/providers.ts'));
+
+  assert.match(source, /function LoadProviderSessionHistory\(\s*projectId: string,\s*sessionId: string,/);
+  assert.match(source, /wsClient\.call\('LoadProviderSessionHistory', sessionId, projectId, providerName\)/);
+  assert.match(providersSource, /loadHistory: async \(sessionId: string, projectId: string, providerName: string\)/);
 });
