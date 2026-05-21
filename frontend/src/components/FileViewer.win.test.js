@@ -86,7 +86,7 @@ test('CustomTitlebar delegates platform differences to platform modules', async 
   const platformWinSource = await readSource(platformWinPath);
   const viteConfigSource = await readSource(viteConfigPath);
 
-  assert.match(source, /import \{ hasNativeWindowControls \} from '@\/lib\/platform'/);
+  assert.match(source, /import \{[^}]*hasNativeWindowControls[^}]*\} from '@\/lib\/platform'/);
   assert.match(source, /!hasNativeWindowControls\(\)/);
   assert.doesNotMatch(source, /navigator\.platform/);
   assert.doesNotMatch(source, /!isFullscreen && !isElectron &&/);

@@ -9,6 +9,8 @@ const repoRoot = path.resolve(automationRoot, '..');
 const artifactsDir = path.join(automationRoot, 'artifacts');
 const headed = process.argv.includes('--headed');
 const skipBuild = process.argv.includes('--skip-build');
+const grepIndex = process.argv.indexOf('--grep');
+const grep = grepIndex >= 0 ? process.argv[grepIndex + 1] : '';
 
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
@@ -35,7 +37,12 @@ async function main() {
   const server = await startServer(vite.url, authKey);
 
   try {
-    await run(npxCmd, ['playwright', 'test', '--project=edge'], {
+    const playwrightArgs = ['playwright', 'test', '--project=edge'];
+    if (grep) {
+      playwrightArgs.push('--grep', grep);
+    }
+
+    await run(npxCmd, playwrightArgs, {
       cwd: automationRoot,
       label: 'playwright-edge',
       env: {
