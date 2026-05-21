@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Terminal, FolderTree, ListChecks } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 import { ResizeHandle } from './ResizeHandle';
 import { VerticalResizeHandle } from './VerticalResizeHandle';
 import { GitStatusPane, GitFileChange } from "./GitStatusPane";
@@ -26,9 +27,12 @@ import { basename, normalizePath } from '@/lib/pathUtils';
 import { activityBadgeCount } from '@/lib/claudeActivity';
 import type { main } from '@/lib/rpc-client';
 
+const RIGHT_SIDEBAR_RAIL_WIDTH = 64;
+
 interface RightSidebarProps {
   isOpen?: boolean;
   onToggle?: () => void;
+  visible?: boolean;
   defaultWidthPercent?: number; // 默认宽度百分比
   className?: string;
   currentProjectPath?: string; // 当前 workspace/project 路径
@@ -50,24 +54,75 @@ interface WorkspaceTerminalState {
   commandStartTime: Map<string, number>;
 }
 
+type RightSidebarTab = 'console' | 'files' | 'tasks';
+
+type RightRailButtonProps = {
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  badgeCount?: number;
+  onClick?: () => void;
+  children: React.ReactNode;
+};
+
+const RightRailButton: React.FC<RightRailButtonProps> = ({
+  label,
+  active,
+  disabled,
+  badgeCount = 0,
+  onClick,
+  children
+}) => (
+  <TooltipSimple content={label} side="left">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className={cn(
+        'relative inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground',
+        active && 'bg-accent text-accent-foreground shadow-sm',
+        disabled && 'cursor-not-allowed text-muted-foreground/40 hover:bg-transparent hover:text-muted-foreground/40'
+      )}
+    >
+      {children}
+      {badgeCount > 0 && (
+        <span className="absolute -right-1 -top-1 min-w-4 rounded-full bg-primary px-1 text-[10px] leading-4 text-primary-foreground">
+          {badgeCount}
+        </span>
+      )}
+    </button>
+  </TooltipSimple>
+);
+
 export const RightSidebar: React.FC<RightSidebarProps> = ({
   isOpen = true,
   onToggle,
+  visible = true,
   defaultWidthPercent = 35,
   className,
   currentProjectPath
 }) => {
   const [widthPercent, setWidthPercent] = useState(defaultWidthPercent);
   const [hasGitSupport, setHasGitSupport] = useState(false);
-  const [activeRightTab, setActiveRightTab] = useState<'console' | 'files' | 'tasks'>('console');
+  const [activeRightTab, setActiveRightTab] = useState<RightSidebarTab>('console');
   const [activitySnapshot, setActivitySnapshot] = useState<main.ClaudeActivitySnapshot | null>(null);
+  const activityCount = activityBadgeCount(activitySnapshot);
 
   // 广播右侧栏宽度变化
   useEffect(() => {
+    if (!visible) return;
     window.dispatchEvent(new CustomEvent('right-sidebar-width-changed', {
-      detail: { widthPercent }
+      detail: { widthPercent, railWidth: RIGHT_SIDEBAR_RAIL_WIDTH, isOpen, workspacePath: currentProjectPath }
     }));
-  }, [widthPercent]);
+  }, [widthPercent, isOpen, visible, currentProjectPath]);
+
+  useEffect(() => {
+    if (!visible) return;
+    window.dispatchEvent(new CustomEvent('right-sidebar-state-changed', {
+      detail: { isOpen, shouldShow: true, railWidth: RIGHT_SIDEBAR_RAIL_WIDTH, workspacePath: currentProjectPath }
+    }));
+  }, [isOpen, visible, currentProjectPath]);
 
   // 检测 Git 支持
   useEffect(() => {
@@ -750,78 +805,47 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [onToggle, isOpen, handleStopCommand, getCurrentState]);
 
-  // 条件渲染必须在所有 hooks 之后
-  if (!isOpen) {
-    return null;
-  }
+  const selectRightTab = useCallback((tab: RightSidebarTab) => {
+    if (tab === 'tasks' && !activeClaudeChatTab) return;
+
+    if (isOpen && activeRightTab === tab) {
+      onToggle?.();
+      return;
+    }
+
+    setActiveRightTab(tab);
+    if (!isOpen) {
+      onToggle?.();
+    }
+  }, [activeClaudeChatTab, activeRightTab, isOpen, onToggle]);
 
   return (
-    <div
-      ref={terminalContainerRef}
-      className={cn(
-        "relative h-full border-l bg-background/95 backdrop-blur-md flex flex-col",
-        className
-      )}
-      style={{ width: `${widthPercent}%`, minWidth: '200px', flexShrink: 0 }}
-      tabIndex={-1}
-    >
-      {/* 水平调整大小手柄 */}
-      <ResizeHandle
-        onResize={(newWidth) => {
-          // 将像素宽度转换为百分比
-          const percent = (newWidth / window.innerWidth) * 100;
-          // 限制在 15% - 50% 之间
-          setWidthPercent(Math.max(15, Math.min(50, percent)));
+    <TooltipProvider>
+      <div
+        ref={terminalContainerRef}
+        className={cn(
+          "relative h-full border-l bg-background/95 backdrop-blur-md flex",
+          className
+        )}
+        style={{
+          width: isOpen ? `calc(${widthPercent}% + ${RIGHT_SIDEBAR_RAIL_WIDTH}px)` : RIGHT_SIDEBAR_RAIL_WIDTH,
+          minWidth: isOpen ? `${RIGHT_SIDEBAR_RAIL_WIDTH + 200}px` : RIGHT_SIDEBAR_RAIL_WIDTH,
+          flexShrink: 0
         }}
-      />
-
-      {/* Tab 切换栏 */}
-      <div className="flex items-center border-b bg-muted/10">
-        <button
-          onClick={() => setActiveRightTab('console')}
-          className={cn(
-            "flex-1 px-4 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2",
-            activeRightTab === 'console'
-              ? "bg-background text-foreground border-b-2 border-primary"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
-          )}
-        >
-          <Terminal className="w-4 h-4" />
-          Console
-        </button>
-        <button
-          onClick={() => setActiveRightTab('files')}
-          className={cn(
-            "flex-1 px-4 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2",
-            activeRightTab === 'files'
-              ? "bg-background text-foreground border-b-2 border-primary"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
-          )}
-        >
-          <FolderTree className="w-4 h-4" />
-          Files
-        </button>
-        <button
-          onClick={() => setActiveRightTab('tasks')}
-          disabled={!activeClaudeChatTab}
-          className={cn(
-            "flex-1 px-4 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2",
-            activeRightTab === 'tasks'
-              ? "bg-background text-foreground border-b-2 border-primary"
-              : activeClaudeChatTab
-                ? "text-muted-foreground hover:text-foreground hover:bg-muted/30"
-                : "text-muted-foreground/50 cursor-not-allowed"
-          )}
-        >
-          <ListChecks className="w-4 h-4" />
-          Tasks
-          {activityBadgeCount(activitySnapshot) > 0 && (
-            <span className="ml-0.5 rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none text-primary-foreground">
-              {activityBadgeCount(activitySnapshot)}
-            </span>
-          )}
-        </button>
-      </div>
+        tabIndex={-1}
+      >
+        {isOpen && (
+          <div className="relative h-full min-w-0 flex flex-1 flex-col overflow-hidden">
+            {/* 水平调整大小手柄 */}
+            <ResizeHandle
+              onResize={(newWidth) => {
+                // 将像素宽度转换为百分比，扣除固定 rail 宽度
+                const panelWidth = Math.max(0, newWidth - RIGHT_SIDEBAR_RAIL_WIDTH);
+                const percent = (panelWidth / window.innerWidth) * 100;
+                // 限制在 15% - 50% 之间
+                setWidthPercent(Math.max(15, Math.min(50, percent)));
+              }}
+            />
 
       {/* Tab 内容 - Console */}
       {activeRightTab === 'console' && (
@@ -972,7 +996,41 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           />
         );
       })()}
-    </div>
+          </div>
+        )}
+
+        <div
+          className="flex h-full w-16 flex-shrink-0 flex-col items-center border-l border-border/50 bg-background py-2"
+          style={{ width: RIGHT_SIDEBAR_RAIL_WIDTH }}
+        >
+          <div className="flex flex-col items-center gap-1">
+            <RightRailButton
+              label="Console"
+              active={activeRightTab === 'console'}
+              onClick={() => selectRightTab('console')}
+            >
+              <Terminal className="h-4 w-4" />
+            </RightRailButton>
+            <RightRailButton
+              label="Files"
+              active={activeRightTab === 'files'}
+              onClick={() => selectRightTab('files')}
+            >
+              <FolderTree className="h-4 w-4" />
+            </RightRailButton>
+            <RightRailButton
+              label="Tasks"
+              active={activeRightTab === 'tasks'}
+              disabled={!activeClaudeChatTab}
+              badgeCount={activityCount}
+              onClick={() => selectRightTab('tasks')}
+            >
+              <ListChecks className="h-4 w-4" />
+            </RightRailButton>
+          </div>
+        </div>
+      </div>
+    </TooltipProvider>
   );
 };
 

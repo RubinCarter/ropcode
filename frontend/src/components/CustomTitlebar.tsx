@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/alert-dialog';
 
 const SIDEBAR_RAIL_WIDTH = 64;
+const RIGHT_SIDEBAR_RAIL_WIDTH = 64;
 
 interface CustomTitlebarProps {
   sidebarCollapsed?: boolean;
@@ -80,6 +81,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   const [shouldShowRightSidebar, setShouldShowRightSidebar] = useState(rightSidebarOpenProp);
   // 右侧栏宽度百分比
   const [currentWidthPercent, setCurrentWidthPercent] = useState(rightSidebarWidthPercent);
+  const [rightSidebarRailWidth, setRightSidebarRailWidth] = useState(RIGHT_SIDEBAR_RAIL_WIDTH);
   const { toggleFullscreen, isSupported, isFullscreen } = useFullscreen();
 
   // 双击标题栏最大化处理
@@ -141,16 +143,18 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   // 监听右侧栏状态变化（包括真实显示状态）
   useEffect(() => {
     const handleStateChange = (event: Event) => {
-      const customEvent = event as CustomEvent<{ isOpen: boolean; shouldShow: boolean }>;
+      const customEvent = event as CustomEvent<{ isOpen: boolean; shouldShow: boolean; railWidth?: number; workspacePath?: string }>;
+      if (customEvent.detail.workspacePath && customEvent.detail.workspacePath !== currentProjectPath) return;
       setRightSidebarOpen(customEvent.detail.isOpen);
       setShouldShowRightSidebar(customEvent.detail.shouldShow);
+      setRightSidebarRailWidth(customEvent.detail.railWidth ?? RIGHT_SIDEBAR_RAIL_WIDTH);
     };
 
     window.addEventListener('right-sidebar-state-changed', handleStateChange);
     return () => {
       window.removeEventListener('right-sidebar-state-changed', handleStateChange);
     };
-  }, []);
+  }, [currentProjectPath]);
 
   // 同步外部传入的右侧栏宽度百分比
   useEffect(() => {
@@ -160,15 +164,20 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   // 监听右侧栏宽度百分比变化
   useEffect(() => {
     const handleWidthChange = (event: Event) => {
-      const customEvent = event as CustomEvent<{ widthPercent: number }>;
+      const customEvent = event as CustomEvent<{ widthPercent: number; railWidth?: number; isOpen?: boolean; workspacePath?: string }>;
+      if (customEvent.detail.workspacePath && customEvent.detail.workspacePath !== currentProjectPath) return;
       setCurrentWidthPercent(customEvent.detail.widthPercent);
+      setRightSidebarRailWidth(customEvent.detail.railWidth ?? RIGHT_SIDEBAR_RAIL_WIDTH);
+      if (typeof customEvent.detail.isOpen === 'boolean') {
+        setRightSidebarOpen(customEvent.detail.isOpen);
+      }
     };
 
     window.addEventListener('right-sidebar-width-changed', handleWidthChange);
     return () => {
       window.removeEventListener('right-sidebar-width-changed', handleWidthChange);
     };
-  }, []);
+  }, [currentProjectPath]);
 
   // 检测 Git 支持
   useEffect(() => {
@@ -637,13 +646,15 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         className={`transition-none flex items-center justify-end window-drag overflow-hidden ${shouldShowRightSidebar ? 'border-l border-border/50' : ''}`}
         style={{
           width: shouldShowRightSidebar
-            ? `calc((100% - ${sidebarCollapsed ? SIDEBAR_RAIL_WIDTH : sidebarWidth}px) * ${currentWidthPercent / 100})`
+            ? rightSidebarOpen
+              ? `calc((100% - ${sidebarCollapsed ? SIDEBAR_RAIL_WIDTH : sidebarWidth}px) * ${currentWidthPercent / 100} + ${rightSidebarRailWidth}px)`
+              : rightSidebarRailWidth
             : 0,
           flexShrink: 0
         }}
       >
         {/* Worktree 推送按钮组 - 只在是 worktree 子分支且有 Git 支持时显示 */}
-        {hasGitSupport && isWorktreeChild && shouldShowRightSidebar && (
+        {hasGitSupport && isWorktreeChild && shouldShowRightSidebar && rightSidebarOpen && (
           <div className="flex items-center gap-2 px-3">
             {/* 未推送提交数量指示器 - 始终显示 */}
             <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 text-primary">
@@ -672,7 +683,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         )}
 
         {/* Project 推送到远程按钮组 - 只在非 worktree 子分支且有 Git 支持时显示 */}
-        {hasGitSupport && !isWorktreeChild && shouldShowRightSidebar && (
+        {hasGitSupport && !isWorktreeChild && shouldShowRightSidebar && rightSidebarOpen && (
           <div className="flex items-center gap-2 px-3">
             {/* 未推送到远程的提交数量指示器 - 始终显示 */}
             <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 text-primary">
@@ -701,7 +712,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         )}
 
         {/* 工作空间清理按钮 - 只在右侧栏真正显示且有 Git 支持时显示 */}
-        {hasGitSupport && shouldShowRightSidebar && (
+        {hasGitSupport && shouldShowRightSidebar && rightSidebarOpen && (
           <div className="flex items-center gap-2 px-3 border-l pl-4 ml-2">
             <AlertDialog open={showCleanupDialog} onOpenChange={setShowCleanupDialog}>
               <AlertDialogTrigger asChild>

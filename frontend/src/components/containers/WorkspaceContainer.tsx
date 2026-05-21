@@ -577,6 +577,7 @@ export const WorkspaceContainer: React.FC<WorkspaceContainerProps> = ({ workspac
           <RightSidebar
             isOpen={rightSidebarOpen}
             onToggle={() => setRightSidebarOpen(!rightSidebarOpen)}
+            visible={visible}
             defaultWidthPercent={35}
             currentProjectPath={workspaceId}
           />
