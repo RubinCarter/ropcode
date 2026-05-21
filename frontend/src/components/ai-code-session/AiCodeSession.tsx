@@ -281,7 +281,9 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
   const [splitPosition, setSplitPosition] = useState(33);
   const [isPreviewMaximized, setIsPreviewMaximized] = useState(false);
   const [isScrollPaused, setIsScrollPaused] = useState(false);
-  const [isSubagentPanelExpanded, setIsSubagentPanelExpanded] = useState(false);
+  // SubagentProgressPanel(s) now manage their own expanded state internally
+  // because each session may render multiple panels (one per turn) and they
+  // shouldn't share collapsed/expanded state.
   const [expandedSubagentIds, setExpandedSubagentIds] = useState<Set<string>>(new Set());
   const [expandedMessageCards, setExpandedMessageCards] = useState<Set<string>>(new Set());
   const stopRequestedRef = useRef(false);
@@ -1649,8 +1651,6 @@ ${message ? `**说明**:\n${message}` : ''}`;
         idleViewportIncrease={idleViewportIncrease}
         followOutput={followOutput}
         setAtBottom={setAtBottom}
-        isSubagentPanelExpanded={isSubagentPanelExpanded}
-        setIsSubagentPanelExpanded={setIsSubagentPanelExpanded}
         expandedSubagentIds={expandedSubagentIds}
         setExpandedSubagentIds={setExpandedSubagentIds}
         expandedMessageCards={expandedMessageCards}

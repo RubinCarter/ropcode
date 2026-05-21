@@ -26,8 +26,6 @@ interface MessageStreamViewProps {
   idleViewportIncrease: { top: number; bottom: number };
   followOutput: (isAtBottom: boolean) => false | 'auto' | 'smooth';
   setAtBottom: (isAtBottom: boolean) => void;
-  isSubagentPanelExpanded: boolean;
-  setIsSubagentPanelExpanded: (expanded: boolean) => void;
   expandedSubagentIds: Set<string>;
   setExpandedSubagentIds: React.Dispatch<React.SetStateAction<Set<string>>>;
   expandedMessageCards: Set<string> | undefined;
@@ -80,8 +78,6 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
   idleViewportIncrease,
   followOutput,
   setAtBottom,
-  isSubagentPanelExpanded,
-  setIsSubagentPanelExpanded,
   expandedSubagentIds,
   setExpandedSubagentIds,
   expandedMessageCards,
@@ -94,11 +90,11 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     (
       _: number,
       item:
-        | { type: 'subagent-panel' }
+        | { type: 'subagent-panel'; groupKey: string }
         | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number },
     ) =>
       item.type === 'subagent-panel'
-        ? 'subagent-panel'
+        ? `subagent-panel:${item.groupKey}`
         : item.message.uuid || `msg-${item.originalIndex}`,
     [],
   );
@@ -107,18 +103,32 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     (
       _: number,
       item:
-        | { type: 'subagent-panel' }
+        | { type: 'subagent-panel'; groupKey: string }
         | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean },
     ) => {
       if (item.type === 'subagent-panel') {
+        // Filter the global summary down to this group's subagents so each
+        // turn renders its own panel with its own progress counts. Falls
+        // back to the full list when groupKey is the synthetic 'all' bucket
+        // (subagents detected without a launcherMessageId).
+        const groupSubagents = item.groupKey === '__no-launcher__'
+          ? messagesState.subagentProgress.subagents.filter((s) => !s.launcherMessageId)
+          : messagesState.subagentProgress.subagents.filter(
+              (s) => s.launcherMessageId === item.groupKey,
+            );
+        const groupSummary = {
+          ...messagesState.subagentProgress,
+          subagents: groupSubagents,
+          runningCount: groupSubagents.filter((s) => s.status === 'running').length,
+          completedCount: groupSubagents.filter((s) => s.status === 'completed').length,
+          failedCount: groupSubagents.filter((s) => s.status === 'failed').length,
+        };
         return (
           <div className="w-full max-w-6xl mx-auto px-4 py-2">
             <SubagentProgressPanel
-              summary={messagesState.subagentProgress}
+              summary={groupSummary}
               streamMessages={messagesState.messagesRef.current}
               agentOutputMap={messagesState.agentOutputMap}
-              expanded={isSubagentPanelExpanded}
-              onExpandedChange={setIsSubagentPanelExpanded}
               expandedAgents={expandedSubagentIds}
               onExpandedAgentsChange={setExpandedSubagentIds}
             />
@@ -183,8 +193,6 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
       messagesState.subagentProgress,
       messagesState.subscribeTailUpdate,
       messagesState.getTailRevision,
-      isSubagentPanelExpanded,
-      setIsSubagentPanelExpanded,
       expandedSubagentIds,
       setExpandedSubagentIds,
       expandedMessageCards,
@@ -211,25 +219,41 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
   // each render tick, which is the only reasonable proxy for "the message
   // list might have changed shape". A useMemo here would just add overhead.
   const messages = messagesState.messagesRef.current;
-  const subagentIndexes = messagesState.subagentProgress.subagents.flatMap((subagent) =>
-    Array.from(subagent.messageIndexes),
-  );
-  const firstSubagentIndex = Math.min(...subagentIndexes);
-  let insertedSubagentPanel = false;
+
+  // Group subagents by their launcher's assistant message id so each turn
+  // gets its own panel anchored to where that turn's launchers actually
+  // appeared. anchorIndex is the *last* message index touched by the group's
+  // subagents — pushing the panel just past this point keeps it visually
+  // adjacent to the launcher batch even when more messages stream in later.
+  const groupAnchors = new Map<string, number>();
+  for (const subagent of messagesState.subagentProgress.subagents) {
+    const groupKey = subagent.launcherMessageId ?? '__no-launcher__';
+    let maxIndex = -1;
+    for (const idx of subagent.messageIndexes) {
+      if (idx > maxIndex) maxIndex = idx;
+    }
+    const existing = groupAnchors.get(groupKey);
+    if (existing === undefined || maxIndex > existing) {
+      groupAnchors.set(groupKey, maxIndex);
+    }
+  }
+  const pendingGroups = Array.from(groupAnchors.entries())
+    .map(([groupKey, anchorIndex]) => ({ groupKey, anchorIndex }))
+    .sort((a, b) => a.anchorIndex - b.anchorIndex);
+  let groupCursor = 0;
+
   const items: Array<
-    | { type: 'subagent-panel' }
+    | { type: 'subagent-panel'; groupKey: string }
     | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }
   > = [];
 
   messagesState.displayableMessageIndexes.forEach((originalIndex) => {
-    if (
-      messagesState.subagentProgress.subagents.length > 0 &&
-      !insertedSubagentPanel &&
-      Number.isFinite(firstSubagentIndex) &&
-      originalIndex > firstSubagentIndex
+    while (
+      groupCursor < pendingGroups.length &&
+      originalIndex > pendingGroups[groupCursor].anchorIndex
     ) {
-      items.push({ type: 'subagent-panel' });
-      insertedSubagentPanel = true;
+      items.push({ type: 'subagent-panel', groupKey: pendingGroups[groupCursor].groupKey });
+      groupCursor++;
     }
 
     const message = messages[originalIndex];
@@ -247,8 +271,9 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     });
   });
 
-  if (messagesState.subagentProgress.subagents.length > 0 && !insertedSubagentPanel) {
-    items.push({ type: 'subagent-panel' });
+  while (groupCursor < pendingGroups.length) {
+    items.push({ type: 'subagent-panel', groupKey: pendingGroups[groupCursor].groupKey });
+    groupCursor++;
   }
 
   // Surface the count back to the parent so it can decide whether to render

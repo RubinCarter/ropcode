@@ -43,6 +43,13 @@ export interface SubagentProgress {
   messageCount: number;
   lastActivity?: string;
   launcherToolUseId?: string;
+  /**
+   * The Claude CLI assistant message id that hosted this subagent's
+   * launcher tool_use. Subagents launched together in the same assistant
+   * turn share the same value, which lets the UI group them into separate
+   * SubagentProgressPanels per turn.
+   */
+  launcherMessageId?: string;
   agentId?: string;
   result?: unknown;
   error?: unknown;
@@ -412,6 +419,13 @@ export function buildSubagentProgress(
       subagent.description = getInputValue(toolUse.input, ["description"]) ?? subagent.description;
       subagent.prompt = getInputValue(toolUse.input, ["prompt"]);
       subagent.launcherToolUseId = toolUse.id;
+      // Attach the assistant message id that hosts this launcher so the UI
+      // can render one panel per turn instead of merging every turn's
+      // subagents into a single global panel.
+      const launcherMessageId = (message as any).message?.id;
+      if (launcherMessageId && !subagent.launcherMessageId) {
+        subagent.launcherMessageId = String(launcherMessageId);
+      }
 
       if (toolUse.input?.agentId || toolUse.input?.agent_id) {
         const agentId = normalizeAgentId(String(toolUse.input.agentId || toolUse.input.agent_id));
