@@ -104,17 +104,24 @@ func NewServer(app interface{}) *Server {
 }
 
 // defaultPort is the preferred port for the server.
-const defaultPort = 5173
+const (
+	defaultPort       = 5173
+	fallbackPortStart = 5180
+	fallbackPortEnd   = 5199
+)
 
 // Start 启动 WebSocket 服务器
 func (s *Server) Start(ctx context.Context) (int, error) {
-	// Try fixed port first, fallback to random
-	listener, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", defaultPort))
+	listener, err := listenOnPort(defaultPort)
 	if err != nil {
-		log.Printf("Port %d occupied, falling back to random port", defaultPort)
-		listener, err = net.Listen("tcp", "0.0.0.0:0")
+		log.Printf("Port %d occupied, trying fallback port range %d-%d", defaultPort, fallbackPortStart, fallbackPortEnd)
+		listener, err = listenOnPortRange(fallbackPortStart, fallbackPortEnd)
 		if err != nil {
-			return 0, fmt.Errorf("failed to find available port: %w", err)
+			log.Printf("Fallback ports %d-%d unavailable, falling back to random port: %v", fallbackPortStart, fallbackPortEnd, err)
+			listener, err = net.Listen("tcp", "0.0.0.0:0")
+			if err != nil {
+				return 0, fmt.Errorf("failed to find available port: %w", err)
+			}
 		}
 	}
 
@@ -146,6 +153,25 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 	fmt.Printf("WS_PORT:%d\n", s.port)
 
 	return s.port, nil
+}
+
+func listenOnPort(port int) (net.Listener, error) {
+	return net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+}
+
+func listenOnPortRange(start, end int) (net.Listener, error) {
+	var lastErr error
+	for port := start; port <= end; port++ {
+		listener, err := listenOnPort(port)
+		if err == nil {
+			return listener, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("empty port range %d-%d", start, end)
+	}
+	return nil, lastErr
 }
 
 // ServeHTTP exposes the server mux for embedded shells that host the frontend
