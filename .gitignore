@@ -30,3 +30,9 @@ electron-builder-tmp.yml
 
 build-electrobun/
 frontend/wailsjs/
+frontend/.tmp-test/
+electron/.tmp-test/
+ui-automation/node_modules/
+ui-automation/artifacts/
+ui-automation/test-results/
+ui-automation/playwright-report/
