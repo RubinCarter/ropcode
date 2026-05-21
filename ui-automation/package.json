@@ -1,0 +1,17 @@
+{
+  "name": "ropcode-ui-automation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/run-ropcode-browser-e2e.mjs",
+    "test:headed": "node scripts/run-ropcode-browser-e2e.mjs --headed",
+    "playwright": "playwright test --project=edge"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  },
+  "dependencies": {
+    "ropcode": "file:.."
+  }
+}
