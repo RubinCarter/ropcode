@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.2.4] - 2026-05-22
+
+### Added
+
+- **DeepSeek provider**: full backend session runtime + frontend surfaces (model picker, slash commands, session status bar, project list, sidebar session panel) for chatting against DeepSeek alongside Claude / Codex / Gemini
+- **Per-turn subagent panels**: each batch of subagents launched in one assistant turn now renders its own SubagentProgressPanel anchored at that turn, instead of one global panel pinned to the conversation start
+- **Async title and branch generation**: first-message title, Sparkles regenerate, and branch-rename now run in a backend goroutine and resolve via EventHub so the UI never blocks on the 60s CLI spawn
+- **Compact companion sidebar**: SidebarRail with collapsible toggles, session panel, and useSpaceSessions hook
+- **CLI auto-register workspace**: invoking the CLI under a working directory automatically registers it as the main workspace
+- **Browser automation harness**: Playwright-based smoke + right-sidebar tests under `ui-automation/`
+- **`ROPCODE_NO_HMR` dev script**: `npm run dev:no-hmr` keeps Vite reloads off so the page stays put while iterating on Go / RPC code
+
+### Fixed
+
+- **Subagent panel never showing**: launcher messages now carry their assistant `message.id` into `SubagentProgress.launcherMessageId` so the panel insertion logic can group them per turn instead of degrading into a single empty bucket
+- **WebSocket reconnect storm**: visibility handler no longer force-reconnects on every `visible` event; it returns early when `isConnected()` is true, eliminating the spurious `close 1005` cycles that were re-loading every session's full JSONL history
+- **Idle history reload**: AiCodeSession recovery skips `LoadProviderSessionHistory` when the backend reports no running session and the renderer already has local messages
+- **Right sidebar rail**: drop the redundant 'Toggle right sidebar' rail button; the right edge toggle stays canonical
+- **Settings tab "blank for a long time"**: nine sub-components are now `React.lazy`-loaded behind a Suspense boundary, so opening Settings only fetches the General tab plus the active panel
+- **Logging fallback**: server keeps writing to the file log when stderr disappears (e.g. detached Electron child)
+- **Empty new chat tab**: explicit "New chat" tabs stay blank instead of inheriting the last session's state
+- **Numeric Claude thinking budgets**: ignore non-string thinking values that previously crashed the prompt runner
+
+### Performance
+
+- **Streaming render isolation**: text deltas now bypass React state in `useMessages` and notify a tail-revision listener bus; only the streaming-tail row re-renders, keeping AiCodeSession + MessageStreamView still during long generations
+- **Stop unnecessary 1Hz re-renders**: gate the `runtimeNow` ticker on `processState.isLoading`, so completed sessions no longer re-render the entire 1700-line component once a second
+- **Drop scroll-seek placeholders**: the AI message list no longer swaps to skeleton rows during fast scrolling — the seventh fix in the family of "stuck skeleton" bugs and a measurable CPU win during streaming
+- **WebSocket queue split**: RPC responses get their own priority channel so streaming events can no longer starve button RPCs
+- **Coalesce streaming output**: Go side batches `pty-output` and `claude-output` into 16ms windows, cutting WS frame count by 10–20× during chatty sessions
+- **Refresh workspace history after completion**: avoid the redundant ListSpaceSessions on every `process:changed` tick
+
+### Changed
+
+- **WebSocket dev fallback ports**: stable defaults so consecutive dev runs don't churn through new ports
+- **Right sidebar rail tests**: cover the new collapsible toggle interactions
+- **Settings session-title flow**: provider configs drive title generation; a settings UI exposes direct API configuration
+- **Sidebar session sync**: project + live session state stay aligned on reconnects
+
 ## [0.2.3] - 2026-05-16
 
 ### Added
