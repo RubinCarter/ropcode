@@ -378,3 +378,142 @@ export function filterDisplayableMessages(
 ): ClaudeStreamMessage[] {
   return getDisplayableMessages(messages, hiddenIndexes).messages;
 }
+
+/**
+ * 增量版本：append-only 流式场景下复用上次结果，避免每条新消息都 5 次全表扫。
+ *
+ * 仅做 append + 复用：
+ * - messages 长度缩水 / hiddenIndexes ref 变化 → 触发完整 rebuild
+ * - 否则按 processedCount 起继续推进，O(new) 工作 + 偶尔 O(prev list of same msgId)
+ *
+ * 接口约定与 getDisplayableMessages 完全一致——同一 messages + hiddenIndexes
+ * 输入下，apply() 返回的 indexes / messages 必须与 stateless 版本逐元素相等。
+ */
+export interface DisplayableMessagesAccumulator {
+  apply(
+    messages: ClaudeStreamMessage[],
+    hiddenIndexes?: Set<number>,
+  ): { indexes: number[]; messages: ClaudeStreamMessage[] };
+}
+
+interface AccumulatorCache {
+  processedCount: number;
+  lastHidden: Set<number> | undefined;
+  toolUseNamesById: Map<string, string>;
+  indexesByMessageId: Map<string, number[]>;
+  supersededByMessageId: Set<number>;
+  supersededTransientIndexes: Set<number>;
+  lastTransientIndex: number | null;
+  // Set 插入顺序 = 升序（我们一定按 i 递增插入，删除不会反向重插），
+  // Array.from(set) 即得已排序结果。
+  displayableIndexes: Set<number>;
+}
+
+function createCache(): AccumulatorCache {
+  return {
+    processedCount: 0,
+    lastHidden: undefined,
+    toolUseNamesById: new Map(),
+    indexesByMessageId: new Map(),
+    supersededByMessageId: new Set(),
+    supersededTransientIndexes: new Set(),
+    lastTransientIndex: null,
+    displayableIndexes: new Set(),
+  };
+}
+
+function resetCache(cache: AccumulatorCache): void {
+  cache.processedCount = 0;
+  cache.lastHidden = undefined;
+  cache.toolUseNamesById.clear();
+  cache.indexesByMessageId.clear();
+  cache.supersededByMessageId.clear();
+  cache.supersededTransientIndexes.clear();
+  cache.lastTransientIndex = null;
+  cache.displayableIndexes.clear();
+}
+
+function ingestRange(
+  cache: AccumulatorCache,
+  messages: ClaudeStreamMessage[],
+  hiddenIndexes: Set<number> | undefined,
+  fromIndex: number,
+): void {
+  for (let i = fromIndex; i < messages.length; i++) {
+    const msg = messages[i];
+
+    // 1) toolUseNamesById：assistant 消息里所有 tool_use 的 id → name
+    const contentBlocks = msg.message?.content;
+    if (msg.type === 'assistant' && Array.isArray(contentBlocks)) {
+      for (const c of contentBlocks as any[]) {
+        if (c?.type === 'tool_use' && c.id) {
+          cache.toolUseNamesById.set(c.id, String(c.name ?? '').toLowerCase());
+        }
+      }
+    }
+
+    // 2) indexesByMessageId / supersededByMessageId
+    //    新 i 共享 msgId 时：若 i 属于 hidden，则更早的同 msgId 项被 supersede。
+    const msgId = (msg as any).message?.id;
+    if (msgId && msg.type === 'assistant') {
+      let list = cache.indexesByMessageId.get(msgId);
+      if (!list) {
+        list = [];
+        cache.indexesByMessageId.set(msgId, list);
+      }
+      if (hiddenIndexes && hiddenIndexes.has(i)) {
+        for (const prev of list) {
+          if (!cache.supersededByMessageId.has(prev)) {
+            cache.supersededByMessageId.add(prev);
+            cache.displayableIndexes.delete(prev);
+          }
+        }
+      }
+      list.push(i);
+    }
+
+    // 3) 显示资格 + transient 序列
+    if (cache.supersededByMessageId.has(i)) continue;
+    if (!isDisplayableMessage(msg, i, hiddenIndexes, cache.toolUseNamesById)) continue;
+    if (isCollapsibleTransientMessage(msg)) {
+      if (cache.lastTransientIndex !== null) {
+        cache.supersededTransientIndexes.add(cache.lastTransientIndex);
+        cache.displayableIndexes.delete(cache.lastTransientIndex);
+      }
+      cache.lastTransientIndex = i;
+      cache.displayableIndexes.add(i);
+    } else {
+      cache.lastTransientIndex = null;
+      cache.displayableIndexes.add(i);
+    }
+  }
+  cache.processedCount = messages.length;
+}
+
+export function createDisplayableMessagesAccumulator(): DisplayableMessagesAccumulator {
+  const cache = createCache();
+
+  return {
+    apply(messages, hiddenIndexes) {
+      const needRebuild =
+        messages.length < cache.processedCount ||
+        hiddenIndexes !== cache.lastHidden;
+
+      if (needRebuild) {
+        resetCache(cache);
+        cache.lastHidden = hiddenIndexes;
+        ingestRange(cache, messages, hiddenIndexes, 0);
+      } else if (messages.length > cache.processedCount) {
+        ingestRange(cache, messages, hiddenIndexes, cache.processedCount);
+      }
+      // messages.length === processedCount && hidden ref 相同 → 直接用缓存
+
+      const indexes: number[] = Array.from(cache.displayableIndexes);
+      const out: ClaudeStreamMessage[] = new Array(indexes.length);
+      for (let k = 0; k < indexes.length; k++) {
+        out[k] = messages[indexes[k]];
+      }
+      return { indexes, messages: out };
+    },
+  };
+}

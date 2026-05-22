@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ClaudeStreamMessage } from "../types";
 import type { StreamMessageContext } from "../../StreamMessage";
-import { getDisplayableMessages } from "../utils/messageFilter";
+import { createDisplayableMessagesAccumulator, type DisplayableMessagesAccumulator } from "../utils/messageFilter";
 import { buildSubagentProgress, type SubagentProgressSummary } from "@/lib/subagentProgress";
 
 type MessageUsage = {
@@ -372,8 +372,15 @@ export function useMessages(): UseMessagesReturn {
     return next;
   }, [subagentProgress.subagentMessageIndexes]);
 
+  // 增量 accumulator：append-only 复用过去的 toolUseNamesById / supersededXxx 状态，
+  // 避免每条新消息都跑 5 趟全表扫。stateless getDisplayableMessages 仍保留供测试 / 次级 viewer 用。
+  const displayableAccumulatorRef = useRef<DisplayableMessagesAccumulator | null>(null);
+  if (displayableAccumulatorRef.current === null) {
+    displayableAccumulatorRef.current = createDisplayableMessagesAccumulator();
+  }
+
   const displayable = useMemo(
-    () => getDisplayableMessages(messages, stableSubagentIndexes),
+    () => displayableAccumulatorRef.current!.apply(messages, stableSubagentIndexes),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [structuralVersion, stableSubagentIndexes]
   );
