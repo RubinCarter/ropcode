@@ -693,7 +693,7 @@ export function AgentRunOutputViewer({
                   )}
                   {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
                     <motion.div
-                      key={index}
+                      key={message.uuid ?? `msg-${index}`}
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.2 }}
@@ -814,7 +814,7 @@ export function AgentRunOutputViewer({
                     )}
                     {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
                       <motion.div
-                        key={index}
+                        key={message.uuid ?? `msg-${index}`}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.2 }}

@@ -596,7 +596,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                     </div>
                   )}
                   {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
-                    <div key={index}>
+                    <div key={message.uuid ?? `msg-${index}`}>
                       <ErrorBoundary>
                         <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                       </ErrorBoundary>
@@ -722,7 +722,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                     </div>
                   )}
                   {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
-                    <div key={index}>
+                    <div key={message.uuid ?? `msg-${index}`}>
                       <ErrorBoundary>
                         <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                       </ErrorBoundary>
