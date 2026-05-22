@@ -11,6 +11,7 @@ import (
 	"ropcode/internal/codex"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
+	"ropcode/internal/deepseek"
 	"ropcode/internal/eventhub"
 	"ropcode/internal/gemini"
 	"ropcode/internal/git"
@@ -38,6 +39,7 @@ type App struct {
 	claudeActivity      *claudeactivity.Service
 	geminiManager       *gemini.SessionManager
 	codexManager        *codex.SessionManager
+	deepseekManager     *deepseek.SessionManager
 	mcpManager          *mcp.Manager
 	sshManager          *ssh.Manager
 	pluginManager       *plugin.Manager
@@ -119,6 +121,10 @@ func (a *App) startup(ctx context.Context) {
 	a.codexManager = codex.NewSessionManager(ctx, aiSessionEmitter)
 	a.codexManager.SetProcessEmitter(&codexProcessEmitter{eventHub: a.eventHub})
 
+	// Initialize DeepSeek session manager
+	a.deepseekManager = deepseek.NewSessionManager(ctx, aiSessionEmitter)
+	a.deepseekManager.SetProcessEmitter(&deepseekProcessEmitter{eventHub: a.eventHub})
+
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution
 	// This ensures it works in .app packages where PATH is limited
@@ -190,6 +196,11 @@ func (a *App) shutdown(ctx context.Context) {
 	// Cleanup Codex sessions
 	if a.codexManager != nil {
 		a.codexManager.CleanupCompleted()
+	}
+
+	// Cleanup DeepSeek sessions
+	if a.deepseekManager != nil {
+		a.deepseekManager.CleanupCompleted()
 	}
 
 	// Flush any pending claude-output batches so the front-end sees the final
@@ -272,6 +283,20 @@ func (e *codexProcessEmitter) EmitProcessChanged(event codex.ProcessChangedEvent
 	})
 }
 
+// deepseekProcessEmitter adapts EventHub to deepseek.ProcessChangedEmitter
+type deepseekProcessEmitter struct {
+	eventHub *eventhub.EventHub
+}
+
+func (e *deepseekProcessEmitter) EmitProcessChanged(event deepseek.ProcessChangedEvent) {
+	e.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
+		PID:      event.PID,
+		Cwd:      event.Cwd,
+		State:    event.State,
+		ExitCode: event.ExitCode,
+	})
+}
+
 // SetBroadcaster sets the WebSocket broadcaster
 func (a *App) SetBroadcaster(b eventhub.Broadcaster) {
 	a.eventHub.SetBroadcaster(b)
@@ -315,6 +340,11 @@ func (a *App) GeminiManager() *gemini.SessionManager {
 // CodexManager exposes the initialized Codex session manager for read-only runtime composition.
 func (a *App) CodexManager() *codex.SessionManager {
 	return a.codexManager
+}
+
+// DeepSeekManager exposes the initialized DeepSeek session manager for read-only runtime composition.
+func (a *App) DeepSeekManager() *deepseek.SessionManager {
+	return a.deepseekManager
 }
 
 // Greet returns a greeting for the given name (keep for testing)

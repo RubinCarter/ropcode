@@ -27,6 +27,7 @@ import (
 	"ropcode/internal/codex"
 	"ropcode/internal/command"
 	"ropcode/internal/database"
+	"ropcode/internal/deepseek"
 	"ropcode/internal/eventhub"
 	"ropcode/internal/gemini"
 	"ropcode/internal/git"
@@ -191,6 +192,8 @@ func (a *App) providerSessionConfig(provider, projectPath, sessionID string) liv
 		return providerSessionConfigFromManager(a.geminiManager, sessionID)
 	case "codex":
 		return providerSessionConfigFromManager(a.codexManager, sessionID)
+	case "deepseek":
+		return providerSessionConfigFromManager(a.deepseekManager, sessionID)
 	default:
 		return liveSessionConfig{}
 	}
@@ -663,6 +666,13 @@ func (a *App) LoadProviderSessionHistory(sessionID, projectID, provider string) 
 		}
 		return gemini.LoadSessionHistory(geminiDir, projectID, sessionID)
 
+	case "deepseek":
+		deepseekDir, err := deepseek.DeepSeekDir()
+		if err != nil {
+			return []claude.Message{}, fmt.Errorf("failed to get deepseek directory: %w", err)
+		}
+		return deepseek.LoadSessionHistory(deepseekDir, projectID, sessionID)
+
 	case "claude":
 		fallthrough
 	default:
@@ -757,6 +767,29 @@ func (a *App) ListProviderSessions(projectPath, provider string) ([]ProviderSess
 		log.Printf("[ListProviderSessions] Gemini session listing not yet implemented")
 		return []ProviderSession{}, nil
 
+	case "deepseek":
+		deepseekDir, err := deepseek.DeepSeekDir()
+		if err != nil {
+			log.Printf("[ListProviderSessions] Failed to get deepseek directory: %v", err)
+			return []ProviderSession{}, nil
+		}
+		deepseekSessions, err := deepseek.ListProjectSessions(deepseekDir, projectPath)
+		if err != nil {
+			log.Printf("[ListProviderSessions] Failed to list deepseek sessions: %v", err)
+			return []ProviderSession{}, nil
+		}
+		sessions := make([]ProviderSession, len(deepseekSessions))
+		for i, s := range deepseekSessions {
+			sessions[i] = ProviderSession{
+				ID:               s.ID,
+				ProjectID:        s.ProjectID,
+				ProjectPath:      s.ProjectPath,
+				CreatedAt:        s.CreatedAt,
+				MessageTimestamp: s.MessageTimestamp,
+			}
+		}
+		return sessions, nil
+
 	case "claude":
 		fallthrough
 	default:
@@ -828,6 +861,25 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 			provider: "gemini",
 			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
 				return spaceSessionScanResult{}, nil
+			},
+		},
+		{
+			provider: "deepseek",
+			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
+				deepseekDir, err := deepseek.DeepSeekDir()
+				if err != nil {
+					return spaceSessionScanResult{}, err
+				}
+				deepseekResult, err := deepseek.ListProjectSessionsLimit(deepseekDir, projectPath, limit)
+				if err != nil {
+					return spaceSessionScanResult{}, err
+				}
+				sessions := make([]ProviderSessionSummary, 0, len(deepseekResult.Sessions))
+				for _, s := range deepseekResult.Sessions {
+					isRunning := a.deepseekManager != nil && a.deepseekManager.IsRunning(s.ID)
+					sessions = append(sessions, applyStoredSessionTitle(newDeepSeekSpaceSessionSummary(s, isRunning), a.sessionTitles))
+				}
+				return spaceSessionScanResult{sessions: sessions, hasMore: deepseekResult.HasMore}, nil
 			},
 		},
 	}
@@ -1803,6 +1855,27 @@ func (a *App) StartProviderSession(provider, projectPath, prompt, model, provide
 		}
 		return sessionID, nil
 
+	case "deepseek":
+		if a.deepseekManager == nil {
+			return "", fmt.Errorf("deepseek manager not initialized")
+		}
+		config := deepseek.SessionConfig{
+			ProjectPath:   projectPath,
+			Prompt:        prompt,
+			Model:         model,
+			ProviderApiID: providerApiID,
+		}
+		apiConfig, err := a.resolveRuntimeProviderAPIConfig("deepseek", providerApiID)
+		if err != nil {
+			return "", err
+		}
+		if apiConfig != nil {
+			config.ProviderApiID = apiConfig.ID
+			config.AuthToken = apiConfig.AuthToken
+			config.BaseURL = apiConfig.BaseURL
+		}
+		return a.deepseekManager.StartSession(config)
+
 	default:
 		// Fallback to Claude for unknown providers
 		return a.ExecuteClaudeCode(projectPath, prompt, model, "", providerApiID)
@@ -1858,6 +1931,29 @@ func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessio
 			}
 		}
 		return a.codexManager.StartSession(config)
+
+	case "deepseek":
+		if a.deepseekManager == nil {
+			return "", fmt.Errorf("deepseek manager not initialized")
+		}
+		config := deepseek.SessionConfig{
+			ProjectPath:   projectPath,
+			Prompt:        prompt,
+			Model:         model,
+			ProviderApiID: providerApiID,
+			SessionID:     sessionID,
+			Resume:        true,
+		}
+		apiConfig, err := a.resolveRuntimeProviderAPIConfig("deepseek", providerApiID)
+		if err != nil {
+			return "", err
+		}
+		if apiConfig != nil {
+			config.ProviderApiID = apiConfig.ID
+			config.AuthToken = apiConfig.AuthToken
+			config.BaseURL = apiConfig.BaseURL
+		}
+		return a.deepseekManager.StartSession(config)
 
 	default:
 		// Fallback to Claude for unknown providers
@@ -1940,6 +2036,15 @@ func (a *App) SendProviderSessionMessage(provider, projectPath, sessionID, promp
 			return "", err
 		}
 		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID, cfg.reasoningEffort)
+	case "deepseek":
+		if a.deepseekManager == nil {
+			return "", fmt.Errorf("deepseek manager not initialized")
+		}
+		cfg := a.providerSessionConfig(provider, projectPath, sessionID)
+		if err := a.deepseekManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
+			return "", err
+		}
+		return a.ResumeProviderSession(provider, projectPath, prompt, cfg.model, sessionID, cfg.providerApiID, cfg.reasoningEffort)
 	default:
 		if err := a.SendClaudeMessage(projectPath, sessionID, prompt); err != nil {
 			return "", err
@@ -1991,6 +2096,19 @@ func (a *App) ListRunningProviderSessions() []LiveProviderSession {
 			})
 		}
 	}
+	if a.deepseekManager != nil {
+		for _, session := range a.deepseekManager.ListRunningSessions() {
+			result = append(result, LiveProviderSession{
+				SessionID:   session.SessionID,
+				ProjectPath: session.ProjectPath,
+				Model:       session.Model,
+				Status:      session.Status,
+				StartedAt:   session.StartedAt,
+				PID:         session.PID,
+				Provider:    "deepseek",
+			})
+		}
+	}
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].StartedAt.After(result[j].StartedAt)
 	})
@@ -2014,6 +2132,11 @@ func (a *App) GetProviderSessionOutput(sessionID string) (string, error) {
 			return output, nil
 		}
 	}
+	if a.deepseekManager != nil {
+		if output, err := a.deepseekManager.GetSessionOutput(sessionID); err == nil {
+			return output, nil
+		}
+	}
 	return "", fmt.Errorf("session not found: %s", sessionID)
 }
 
@@ -2027,6 +2150,9 @@ func (a *App) StopProviderSession(sessionID string) error {
 	}
 	if a.codexManager != nil && a.codexManager.IsRunning(sessionID) {
 		return a.codexManager.TerminateSession(sessionID)
+	}
+	if a.deepseekManager != nil && a.deepseekManager.IsRunning(sessionID) {
+		return a.deepseekManager.TerminateSession(sessionID)
 	}
 	return fmt.Errorf("session not found: %s", sessionID)
 }
@@ -2060,6 +2186,7 @@ func (a *App) CancelClaudeExecutionByProject(projectPath string) error {
 		{"claude", a.claudeManager},
 		{"gemini", a.geminiManager},
 		{"codex", a.codexManager},
+		{"deepseek", a.deepseekManager},
 	}
 
 	for _, p := range providers {
@@ -2305,6 +2432,11 @@ func (a *App) IsClaudeSessionRunningForProject(projectPath string, providerOrSes
 			return false
 		}
 		return a.codexManager.IsRunningForProject(projectPath)
+	case "deepseek":
+		if a.deepseekManager == nil {
+			return false
+		}
+		return a.deepseekManager.IsRunningForProject(projectPath)
 	default:
 		if a.claudeManager != nil && a.claudeManager.IsRunning(providerOrSessionID) {
 			return true
@@ -2313,6 +2445,9 @@ func (a *App) IsClaudeSessionRunningForProject(projectPath string, providerOrSes
 			return true
 		}
 		if a.codexManager != nil && a.codexManager.IsRunning(providerOrSessionID) {
+			return true
+		}
+		if a.deepseekManager != nil && a.deepseekManager.IsRunning(providerOrSessionID) {
 			return true
 		}
 		if a.claudeManager == nil {
@@ -2851,6 +2986,30 @@ func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*datab
 		}, nil
 	}
 	return nil, fmt.Errorf("no provider API config found for %s", providerID)
+}
+
+func (a *App) resolveRuntimeProviderAPIConfig(providerID, providerApiID string) (*database.ProviderApiConfig, error) {
+	if a.dbManager == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(providerApiID) != "" {
+		return a.dbManager.GetProviderApiConfig(providerApiID)
+	}
+	if cfg, err := a.dbManager.GetDefaultProviderApiConfig(providerID); err != nil {
+		return nil, err
+	} else if cfg != nil {
+		return cfg, nil
+	}
+	all, err := a.dbManager.GetAllProviderApiConfigs()
+	if err != nil {
+		return nil, err
+	}
+	for _, cfg := range all {
+		if cfg != nil && cfg.ProviderID == providerID {
+			return cfg, nil
+		}
+	}
+	return nil, nil
 }
 
 // codexConfigToProviderAPI tries to translate the user's ~/.codex/config.toml

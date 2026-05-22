@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"ropcode/internal/codex"
+	"ropcode/internal/database"
+	"ropcode/internal/deepseek"
 	"ropcode/internal/gemini"
 )
 
@@ -57,6 +59,19 @@ func newCodexTestApp(t *testing.T) *App {
 	mgr := codex.NewSessionManager(context.Background(), nil)
 	mgr.SetBinaryPath(writeFakeProviderBinary(t))
 	return &App{codexManager: mgr}
+}
+
+func newDeepSeekTestApp(t *testing.T) *App {
+	t.Helper()
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("database.Open failed: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	mgr := deepseek.NewSessionManager(context.Background(), nil)
+	mgr.SetBinaryPath(writeFakeProviderBinary(t))
+	return &App{dbManager: db, deepseekManager: mgr}
 }
 
 func runningSessionConfig(t *testing.T, manager any, sessionID string) (string, string, string) {
@@ -113,6 +128,60 @@ func TestListRunningProviderSessions_IncludesProviderMetadata(t *testing.T) {
 	}
 	if sessions[0].ProjectPath != projectPath {
 		t.Fatalf("expected project path %q, got %q", projectPath, sessions[0].ProjectPath)
+	}
+}
+
+func TestStartProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T) {
+	app := newDeepSeekTestApp(t)
+	projectPath := t.TempDir()
+	apiCfg := &database.ProviderApiConfig{
+		ID:         "deepseek-default-cfg",
+		Name:       "DeepSeek Default",
+		ProviderID: "deepseek",
+		BaseURL:    "https://api.deepseek.example/v1",
+		AuthToken:  "deepseek-token",
+		IsDefault:  true,
+	}
+	if err := app.dbManager.SaveProviderApiConfig(apiCfg); err != nil {
+		t.Fatalf("SaveProviderApiConfig failed: %v", err)
+	}
+
+	sessionID, err := app.StartProviderSession("deepseek", projectPath, "hello", "deepseek-v4-pro", "", "")
+	if err != nil {
+		t.Fatalf("StartProviderSession failed: %v", err)
+	}
+	defer app.StopProviderSession(sessionID)
+
+	_, gotProviderApiID, _ := runningSessionConfig(t, app.deepseekManager, sessionID)
+	if gotProviderApiID != apiCfg.ID {
+		t.Fatalf("expected DeepSeek default providerApiID %q, got %q", apiCfg.ID, gotProviderApiID)
+	}
+}
+
+func TestResumeProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T) {
+	app := newDeepSeekTestApp(t)
+	projectPath := t.TempDir()
+	apiCfg := &database.ProviderApiConfig{
+		ID:         "deepseek-default-cfg",
+		Name:       "DeepSeek Default",
+		ProviderID: "deepseek",
+		BaseURL:    "https://api.deepseek.example/v1",
+		AuthToken:  "deepseek-token",
+		IsDefault:  true,
+	}
+	if err := app.dbManager.SaveProviderApiConfig(apiCfg); err != nil {
+		t.Fatalf("SaveProviderApiConfig failed: %v", err)
+	}
+
+	sessionID, err := app.ResumeProviderSession("deepseek", projectPath, "hello again", "deepseek-v4-pro", "upstream-session-id", "", "")
+	if err != nil {
+		t.Fatalf("ResumeProviderSession failed: %v", err)
+	}
+	defer app.StopProviderSession(sessionID)
+
+	_, gotProviderApiID, _ := runningSessionConfig(t, app.deepseekManager, sessionID)
+	if gotProviderApiID != apiCfg.ID {
+		t.Fatalf("expected DeepSeek default providerApiID %q, got %q", apiCfg.ID, gotProviderApiID)
 	}
 }
 

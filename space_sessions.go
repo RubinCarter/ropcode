@@ -9,6 +9,7 @@ import (
 
 	"ropcode/internal/claude"
 	"ropcode/internal/codex"
+	"ropcode/internal/deepseek"
 )
 
 type SpaceSessionsResult struct {
@@ -104,6 +105,21 @@ func newCodexSpaceSessionSummary(s codex.SessionInfo, isRunning bool) ProviderSe
 	return ProviderSessionSummary{
 		ID:           s.ID,
 		Provider:     "codex",
+		ProjectPath:  s.ProjectPath,
+		ProjectID:    s.ProjectID,
+		CreatedAt:    s.CreatedAt,
+		LastActivity: parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
+		Title:        title,
+		FirstMessage: title,
+		IsRunning:    isRunning,
+	}
+}
+
+func newDeepSeekSpaceSessionSummary(s deepseek.SessionInfo, isRunning bool) ProviderSessionSummary {
+	title := strings.TrimSpace(s.FirstMessage)
+	return ProviderSessionSummary{
+		ID:           s.ID,
+		Provider:     "deepseek",
 		ProjectPath:  s.ProjectPath,
 		ProjectID:    s.ProjectID,
 		CreatedAt:    s.CreatedAt,
