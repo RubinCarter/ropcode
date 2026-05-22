@@ -242,6 +242,26 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     .sort((a, b) => a.anchorIndex - b.anchorIndex);
   let groupCursor = 0;
 
+  // Diagnostic: expose subagent grouping snapshot on window so you can read
+  // it from DevTools (window.__ROPCODE_SUBAGENT_DEBUG) without enabling any
+  // console spam. Cheap because the array is small.
+  if (typeof window !== 'undefined') {
+    (window as any).__ROPCODE_SUBAGENT_DEBUG = {
+      messageCount: messages.length,
+      displayableCount: messagesState.displayableMessageIndexes.length,
+      subagents: messagesState.subagentProgress.subagents.map((s) => ({
+        id: s.id,
+        label: s.label,
+        status: s.status,
+        launcherToolUseId: s.launcherToolUseId,
+        launcherMessageId: s.launcherMessageId,
+        messageIndexCount: s.messageIndexes.size,
+        firstMessageIndex: Math.min(...Array.from(s.messageIndexes), Infinity),
+      })),
+      groups: pendingGroups,
+    };
+  }
+
   const items: Array<
     | { type: 'subagent-panel'; groupKey: string }
     | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }
