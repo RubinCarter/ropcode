@@ -174,6 +174,25 @@ export function AgentRunOutputViewer({
   const fullscreenScrollRef = useRef<HTMLDivElement>(null);
   const fullscreenMessagesEndRef = useRef<HTMLDivElement>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
+  const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
+  const rafHandleRef = useRef<number | null>(null);
+
+  const flushMessageQueue = useCallback(() => {
+    rafHandleRef.current = null;
+    const queued = messageQueueRef.current;
+    if (queued.length === 0) return;
+    messageQueueRef.current = [];
+    for (const msg of queued) {
+      appendWindowMessage(msg);
+    }
+  }, [appendWindowMessage]);
+
+  const enqueueMessage = useCallback((message: ClaudeStreamMessage) => {
+    messageQueueRef.current.push(message);
+    if (rafHandleRef.current === null) {
+      rafHandleRef.current = requestAnimationFrame(flushMessageQueue);
+    }
+  }, [flushMessageQueue]);
 
   // Auto-scroll logic
   const isAtBottom = () => {
@@ -223,6 +242,10 @@ export function AgentRunOutputViewer({
       unlistenRefs.current.forEach(unlisten => unlisten());
       unlistenRefs.current = [];
       hasSetupListenersRef.current = false;
+      if (rafHandleRef.current !== null) {
+        cancelAnimationFrame(rafHandleRef.current);
+        rafHandleRef.current = null;
+      }
     };
   }, []);
 
@@ -290,15 +313,11 @@ export function AgentRunOutputViewer({
       // Set up live event listeners with run ID isolation
       const outputUnlisten = listen(`agent-output:${run!.id}`, (payload: string) => {
         try {
-          // Skip messages during initial load phase
           if (isInitialLoadRef.current) {
-            console.log('[AgentRunOutputViewer] Skipping message during initial load');
             return;
           }
-
-          // Parse and display
           const message = JSON.parse(payload) as ClaudeStreamMessage;
-          appendWindowMessage(message);
+          enqueueMessage(message);
         } catch (err) {
           console.error("[AgentRunOutputViewer] Failed to parse message:", err, payload);
         }

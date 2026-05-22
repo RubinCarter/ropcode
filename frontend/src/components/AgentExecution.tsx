@@ -139,6 +139,23 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const executionStartTimeRef = useRef<number | null>(null);
   const [runId, setRunId] = useState<number | null>(null);
+  const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
+  const rafHandleRef = useRef<number | null>(null);
+
+  const flushMessageQueue = useCallback(() => {
+    rafHandleRef.current = null;
+    const queued = messageQueueRef.current;
+    if (queued.length === 0) return;
+    messageQueueRef.current = [];
+    setMessages(prev => [...prev, ...queued]);
+  }, []);
+
+  const enqueueMessage = useCallback((message: ClaudeStreamMessage) => {
+    messageQueueRef.current.push(message);
+    if (rafHandleRef.current === null) {
+      rafHandleRef.current = requestAnimationFrame(flushMessageQueue);
+    }
+  }, [flushMessageQueue]);
 
   // Build agentId → AgentOutputTool result mapping
   // Note: JSONL history has 'toolUseResult' at root level, but live stream needs to parse from content
@@ -265,9 +282,13 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   }, []);
 
   useEffect(() => {
-    // Clean up listeners on unmount
+    // Clean up listeners and pending rAF on unmount
     return () => {
       unlistenRefs.current.forEach(unlisten => unlisten());
+      if (rafHandleRef.current !== null) {
+        cancelAnimationFrame(rafHandleRef.current);
+        rafHandleRef.current = null;
+      }
     };
   }, []);
 
@@ -383,9 +404,8 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       // Set up event listeners with run ID isolation
       const outputUnlisten = listen(`agent-output:${executionRunId}`, (payload: string) => {
         try {
-          // Parse and display
           const message = JSON.parse(payload) as ClaudeStreamMessage;
-          setMessages(prev => [...prev, message]);
+          enqueueMessage(message);
         } catch (err) {
           console.error("Failed to parse message:", err, payload);
         }

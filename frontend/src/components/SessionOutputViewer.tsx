@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { X, Maximize2, Minimize2, Copy, RefreshCw, RotateCcw, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -57,6 +57,8 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   const fullscreenScrollRef = useRef<HTMLDivElement>(null);
   const fullscreenMessagesEndRef = useRef<HTMLDivElement>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
+  const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
+  const rafHandleRef = useRef<number | null>(null);
   const { getCachedOutput, setCachedOutput } = useOutputCache();
 
   const liveSubagentSessionInfo = useMemo(() => {
@@ -146,10 +148,29 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     }
   };
 
-  // Clean up listeners on unmount
+  const flushMessageQueue = useCallback(() => {
+    rafHandleRef.current = null;
+    const queued = messageQueueRef.current;
+    if (queued.length === 0) return;
+    messageQueueRef.current = [];
+    setMessages(prev => [...prev, ...queued]);
+  }, []);
+
+  const enqueueMessage = useCallback((message: ClaudeStreamMessage) => {
+    messageQueueRef.current.push(message);
+    if (rafHandleRef.current === null) {
+      rafHandleRef.current = requestAnimationFrame(flushMessageQueue);
+    }
+  }, [flushMessageQueue]);
+
+  // Clean up listeners and pending rAF on unmount
   useEffect(() => {
     return () => {
       unlistenRefs.current.forEach(unlisten => unlisten());
+      if (rafHandleRef.current !== null) {
+        cancelAnimationFrame(rafHandleRef.current);
+        rafHandleRef.current = null;
+      }
     };
   }, []);
 
@@ -272,9 +293,8 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
       // Set up live event listeners with run ID isolation
       const outputUnlisten = listen(`agent-output:${session.id}`, (payload: string) => {
         try {
-          // Parse and display
           const message = JSON.parse(payload) as ClaudeStreamMessage;
-          setMessages(prev => [...prev, message]);
+          enqueueMessage(message);
         } catch (err) {
           console.error("Failed to parse message:", err, payload);
         }
@@ -566,36 +586,24 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                   </div>
                 ) : (
                   <>
-                    <AnimatePresence>
-                      {subagentProgress.subagents.length > 0 && (
-                        <motion.div
-                          key="subagent-progress-panel"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <SubagentProgressPanel
-                            summary={subagentProgress}
-                            streamMessages={messages}
-                            agentOutputMap={agentOutputMap}
-                          />
-                        </motion.div>
-                      )}
-                      {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
-                        <motion.div
-                          key={index}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.2 }}
-                        >
-                          <ErrorBoundary>
-                            <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
-                          </ErrorBoundary>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                    <div ref={outputEndRef} />
-                  </>
+                  {subagentProgress.subagents.length > 0 && (
+                    <div className="mb-3">
+                      <SubagentProgressPanel
+                        summary={subagentProgress}
+                        streamMessages={messages}
+                        agentOutputMap={agentOutputMap}
+                      />
+                    </div>
+                  )}
+                  {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
+                    <div key={index}>
+                      <ErrorBoundary>
+                        <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
+                      </ErrorBoundary>
+                    </div>
+                  ))}
+                  <div ref={outputEndRef} />
+                </>
                 )}
               </div>
             )}
@@ -704,34 +712,22 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                 </div>
               ) : (
                 <>
-                  <AnimatePresence>
-                    {subagentProgress.subagents.length > 0 && (
-                      <motion.div
-                        key="fullscreen-subagent-progress-panel"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <SubagentProgressPanel
-                          summary={subagentProgress}
-                          streamMessages={messages}
-                          agentOutputMap={agentOutputMap}
-                        />
-                      </motion.div>
-                    )}
-                    {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
-                      <motion.div
-                        key={index}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <ErrorBoundary>
-                          <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
-                        </ErrorBoundary>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
+                  {subagentProgress.subagents.length > 0 && (
+                    <div className="mb-3">
+                      <SubagentProgressPanel
+                        summary={subagentProgress}
+                        streamMessages={messages}
+                        agentOutputMap={agentOutputMap}
+                      />
+                    </div>
+                  )}
+                  {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
+                    <div key={index}>
+                      <ErrorBoundary>
+                        <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
+                      </ErrorBoundary>
+                    </div>
+                  ))}
                   <div ref={fullscreenMessagesEndRef} />
                 </>
               )}
