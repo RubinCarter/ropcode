@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -66,5 +67,31 @@ func TestConfigureServerLoggingCreatesNewFileForEachStartup(t *testing.T) {
 	}
 	if _, err := os.Stat(secondPath); err != nil {
 		t.Fatalf("second log file missing: %v", err)
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("stderr unavailable")
+}
+
+func TestConfigureServerLoggingStillWritesFileWhenStderrFails(t *testing.T) {
+	home := t.TempDir()
+
+	logPath, cleanup, err := configureServerLogging(home, failingWriter{})
+	if err != nil {
+		t.Fatalf("configureServerLogging failed: %v", err)
+	}
+	defer cleanup()
+
+	log.Print("wails startup diagnostic")
+
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read log file: %v", err)
+	}
+	if !strings.Contains(string(content), "wails startup diagnostic") {
+		t.Fatalf("expected diagnostic line in log, got %q", string(content))
 	}
 }

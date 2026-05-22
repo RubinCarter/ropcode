@@ -16,6 +16,10 @@ func ConfigureServerLogging() (string, func(), error) {
 		return "", nil, err
 	}
 
+	return configureServerLogging(home, os.Stderr)
+}
+
+func configureServerLogging(home string, stderr io.Writer) (string, func(), error) {
 	logDir := filepath.Join(home, ".ropcode", "logs")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return "", nil, err
@@ -33,10 +37,10 @@ func ConfigureServerLogging() (string, func(), error) {
 	}
 
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds | log.Lshortfile)
-	log.SetOutput(io.MultiWriter(os.Stderr, file))
+	log.SetOutput(io.MultiWriter(file, stderr))
 
 	cleanup := func() {
-		log.SetOutput(os.Stderr)
+		log.SetOutput(stderr)
 		_ = file.Close()
 	}
 
