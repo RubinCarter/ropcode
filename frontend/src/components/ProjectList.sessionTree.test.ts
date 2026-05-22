@@ -71,6 +71,8 @@ test('ProjectList renders provider icons instead of provider text labels in sess
   const source = await readSource(projectListPath);
 
   assert.match(source, /getProviderIcon/);
+  assert.match(source, /DeepSeekIcon/);
+  assert.match(source, /provider === 'deepseek'\) return DeepSeekIcon/);
   assert.doesNotMatch(source, /<span className="flex-shrink-0 font-medium">\{getProviderLabel\(session\.provider\)\}<\/span>/);
 });
 
@@ -89,10 +91,21 @@ test('WorkspaceContainer handles explicit new session events with a blank chat t
   const source = await readSource(path.resolve(currentDir, './containers/WorkspaceContainer.tsx'));
 
   assert.match(source, /type OpenNewSessionEvent = CustomEvent/);
+  assert.match(source, /const pendingNewSession = \(window as any\)\.__ROPCODE_PENDING_NEW_SESSION__/);
+  assert.match(source, /pendingNewSession\?\.spacePath === workspaceId/);
   assert.match(source, /window\.addEventListener\('open-new-session'/);
   assert.match(source, /skipSessionRestore: true/);
   assert.match(source, /sessionId: undefined/);
   assert.match(source, /sessionData: undefined/);
+});
+
+test('WorkspaceContainer keeps explicit new sessions blank when switching providers', async () => {
+  const source = await readSource(path.resolve(currentDir, './containers/WorkspaceContainer.tsx'));
+
+  assert.match(source, /tab\.skipSessionRestore/);
+  assert.match(source, /Keep explicit new sessions blank when switching providers/);
+  assert.match(source, /providerId,\s*sessionData: undefined,\s*sessionId: undefined,\s*providerSessions: currentProviderSessions/s);
+  assert.match(source, /return;\s*\}\s*\/\/ Get the actual project path/s);
 });
 
 test('WorkspaceContainer deduplicates explicit new session tabs', async () => {
@@ -100,6 +113,41 @@ test('WorkspaceContainer deduplicates explicit new session tabs', async () => {
 
   assert.match(source, /skipSessionRestore === true/);
   assert.match(source, /setActiveTab\(existingNewSessionTab\.id\)/);
+});
+
+test('WorkspaceContainer reuses the initial blank chat tab for explicit new sessions', async () => {
+  const source = await readSource(path.resolve(currentDir, './containers/WorkspaceContainer.tsx'));
+
+  assert.match(source, /tabsRef/);
+  assert.match(source, /existingBlankChatTab/);
+  assert.match(source, /title: 'New chat'/);
+  assert.match(source, /skipSessionRestore: true/);
+  assert.match(source, /setActiveTab\(existingBlankChatTab\.id\)/);
+  assert.match(source, /updateTab\(existingBlankChatTab\.id,/);
+  assert.match(source, /Skipping background session restore for explicit new tab/);
+});
+
+test('WorkspaceContainer replaces the active chat tab for explicit new sessions', async () => {
+  const source = await readSource(path.resolve(currentDir, './containers/WorkspaceContainer.tsx'));
+
+  assert.match(source, /lastHandledNewSessionRef/);
+  assert.match(source, /newSessionKey/);
+  assert.match(source, /replacementTab/);
+  assert.match(source, /sessionId: undefined/);
+  assert.match(source, /sessionData: undefined/);
+  assert.match(source, /sessionResetNonce/);
+  assert.match(source, /key=\{`\$\{tab\.id\}-\$\{tab\.providerId \|\| 'claude'\}-\$\{tab\.sessionResetNonce \?\? 0\}`\}/);
+});
+
+test('WorkspaceContainer creates pending new sessions during initialization', async () => {
+  const source = await readSource(path.resolve(currentDir, './containers/WorkspaceContainer.tsx'));
+
+  assert.match(source, /delete \(window as any\)\.__ROPCODE_PENDING_NEW_SESSION__/);
+  assert.match(source, /title: 'New chat'/);
+  assert.match(source, /skipSessionRestore: true/);
+  assert.match(source, /sessionResetNonce: 1/);
+  assert.match(source, /return;\s*\}\s*\n\s*const pending = \(window as any\)\.__ROPCODE_PENDING_PROVIDER_SESSION__/s);
+  assert.doesNotMatch(source, /closeOtherChatTabs/);
 });
 
 test('WorkspaceContainer updates chat runtime state by owning tab id', async () => {

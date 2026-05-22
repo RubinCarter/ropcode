@@ -19,6 +19,7 @@ export interface Tab {
   projectPath?: string; // for agent-execution tabs, diff tabs, file tabs, and webview tabs
   providerId?: string; // for chat tabs - which AI provider to use (claude, codex, etc.)
   providerSessions?: Record<string, { sessionId: string; sessionData: any }>; // Store session per provider
+  skipSessionRestore?: boolean;
   status: 'active' | 'idle' | 'running' | 'complete' | 'error';
   hasUnsavedChanges: boolean;
   order: number;

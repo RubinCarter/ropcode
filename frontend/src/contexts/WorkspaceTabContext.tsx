@@ -21,6 +21,7 @@ export interface WorkspaceTab {
   providerId?: string;
   providerSessions?: Record<string, { sessionId: string; sessionData: any }>;
   skipSessionRestore?: boolean;
+  sessionResetNonce?: number;
   status: 'active' | 'idle' | 'running' | 'closed' | 'complete' | 'error';
   hasUnsavedChanges: boolean;
   icon?: string;

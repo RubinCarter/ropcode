@@ -253,7 +253,8 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
       // Extract and save session info from init messages
       if (message.type === 'system' && message.subtype === 'init' && message.session_id) {
         const oldSessionId = claudeSessionId;
-        setClaudeSessionId(message.session_id);
+        const runtimeSessionId = (message as any).runtime_session_id || message.session_id;
+        setClaudeSessionId(runtimeSessionId);
 
         // Set workspace status to 'working' when session starts
         if (projectPath) {
@@ -263,7 +264,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         // Update session_id in ProjectList via API
         const currentProjectPath = projectPathRef.current;
         if (currentProjectPath && message.session_id) {
-          api.updateProviderSession(currentProjectPath, provider, message.session_id)
+          api.updateProviderSession(currentProjectPath, provider, runtimeSessionId)
             .catch((err: unknown) => {
               // Silently ignore "no rows" errors - workspace might not be in database yet
               if (!String(err).includes('no rows in result set')) {
@@ -274,7 +275,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
 
         // If this is a new session, sync state immediately
         // But in interactive mode, don't override isLoading from process state
-        if (!oldSessionId || message.session_id !== oldSessionId) {
+        if (!oldSessionId || runtimeSessionId !== oldSessionId) {
           const currentProjectPath = projectPathRef.current;
           if (currentProjectPath) {
             setTimeout(() => {
@@ -283,7 +284,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
                 return;
               }
 
-              api.isClaudeSessionRunningForProject(currentProjectPath, message.session_id).then((running: boolean) => {
+              api.isClaudeSessionRunningForProject(currentProjectPath, runtimeSessionId).then((running: boolean) => {
                 hasActiveSessionRef.current = running;
                 // In interactive mode, isLoading is controlled by message flow,
                 // not by process running state. The process is always running.
@@ -307,7 +308,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
           setExtractedSessionInfo({
             sessionId: persistSessionId,
             projectId,
-            runtimeSessionId: message.session_id,
+            runtimeSessionId,
             claudeSessionId: realClaudeSessionId,
           });
           SessionPersistenceService.saveSession(
@@ -394,9 +395,10 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         // This ensures that when useProcessChanged fires (process still running),
         // interactiveSessionIdRef.current is already set, preventing it from
         // re-setting isLoading=true
-        if (message.session_id) {
+        const runtimeSessionId = (message as any).runtime_session_id || message.session_id;
+        if (runtimeSessionId) {
           // Save the interactive session ID so we can send more messages to it
-          setInteractiveSessionId(message.session_id);
+          setInteractiveSessionId(runtimeSessionId);
           // Don't clear hasActiveSessionRef - the process is still running
         } else {
           // Batch mode: session is complete

@@ -66,6 +66,17 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
         };
       }
 
+      if (tab.skipSessionRestore && !tab.sessionId && !tab.sessionData) {
+        // Keep explicit new sessions blank when switching providers.
+        updateTab(tab.id, {
+          providerId,
+          sessionData: undefined,
+          sessionId: undefined,
+          providerSessions: currentProviderSessions,
+        });
+        return;
+      }
+
       // Get the actual project path - use sessionData if available, otherwise initialProjectPath
       const actualProjectPath = tab.sessionData?.project_path || tab.initialProjectPath;
 
@@ -158,6 +169,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
               session={tab.sessionData} // Pass the full session object if available
               initialProjectPath={tab.initialProjectPath || tab.sessionData?.project_path || tab.sessionData?.project_id || undefined}
               defaultProvider={tab.providerId || "claude"}
+              skipSessionRestore={tab.skipSessionRestore}
               onBack={() => {
                 // Close current tab - projects are in sidebar
                 closeTab(tab.id);

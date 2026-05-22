@@ -16,7 +16,7 @@ const DiffViewer = lazy(() => import('@/components/right-sidebar/DiffViewer').th
 const FileViewer = lazy(() => import('@/components/FileViewer').then(m => ({ default: m.FileViewer })));
 const WebViewWidget = lazy(() => import('@/components/WebViewWidget').then(m => ({ default: m.WebViewWidget })));
 
-const CHAT_PROVIDERS = ['claude', 'codex'] as const;
+const CHAT_PROVIDERS = ['claude', 'codex', 'deepseek'] as const;
 
 interface WorkspaceContainerProps {
   workspaceId: string;
@@ -42,7 +42,10 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   const { tabs, activeTabId, addTab, updateTab, removeTab, getTabById, setActiveTab } = useWorkspaceTabContext();
   const activeTabIdRef = React.useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
+  const tabsRef = React.useRef(tabs);
+  tabsRef.current = tabs;
   const openedHistoricalSessionRef = React.useRef(false);
+  const lastHandledNewSessionRef = React.useRef<string | null>(null);
 
   // Track initialization to prevent double-init in StrictMode
   const initializingRef = React.useRef(false);
@@ -67,6 +70,25 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   }, []);
 
   const initializeWorkspace = async () => {
+    const pendingNewSession = (window as any).__ROPCODE_PENDING_NEW_SESSION__;
+    if (pendingNewSession?.spacePath === workspaceId) {
+      delete (window as any).__ROPCODE_PENDING_NEW_SESSION__;
+      addTab({
+        type: 'chat',
+        title: 'New chat',
+        sessionId: undefined,
+        sessionData: undefined,
+        projectPath: workspaceId,
+        providerId: 'claude',
+        status: 'idle',
+        hasUnsavedChanges: false,
+        icon: 'message-square',
+        skipSessionRestore: true,
+        sessionResetNonce: 1,
+      });
+      return;
+    }
+
     const pending = (window as any).__ROPCODE_PENDING_PROVIDER_SESSION__;
     if (pending?.spacePath === workspaceId && pending.session) {
       const session = pending.session as ProviderSessionSummary;
@@ -125,6 +147,12 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
 
           // Update the tab with session data
           if (tabIdRef.current) {
+            const initialTab = tabsRef.current.find(tab => tab.id === tabIdRef.current);
+            if (initialTab?.skipSessionRestore) {
+              console.log('[WorkspaceContainer] Skipping background session restore for explicit new tab');
+              return;
+            }
+
             updateTab(tabIdRef.current, {
               providerId: selectedSession.provider,
               sessionId: selectedSession.id,
@@ -182,6 +210,17 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
           sessionId: tab.sessionId,
           sessionData: tab.sessionData
         };
+      }
+
+      if (tab.skipSessionRestore && !tab.sessionId && !tab.sessionData) {
+        // Keep explicit new sessions blank when switching providers.
+        updateTab(tabId, {
+          providerId,
+          sessionData: undefined,
+          sessionId: undefined,
+          providerSessions: currentProviderSessions,
+        });
+        return;
       }
 
       // Get the actual project path
@@ -314,20 +353,59 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       const { spacePath } = (event as OpenNewSessionEvent).detail ?? {};
       if (spacePath !== workspaceId) return;
 
+      const newSessionKey = `${spacePath}:${Math.floor(performance.now() / 250)}`;
+      if (lastHandledNewSessionRef.current === newSessionKey) {
+        return;
+      }
+      lastHandledNewSessionRef.current = newSessionKey;
+
       const pending = (window as any).__ROPCODE_PENDING_NEW_SESSION__;
       if (pending?.spacePath === workspaceId) {
         delete (window as any).__ROPCODE_PENDING_NEW_SESSION__;
       }
 
-      const existingNewSessionTab = tabs.find(tab =>
+      const currentTabs = tabsRef.current;
+      const existingNewSessionTab = currentTabs.find(tab =>
         tab.type === 'chat' &&
-        tab.projectPath === spacePath &&
         tab.skipSessionRestore === true &&
         !tab.sessionId &&
         !tab.sessionData
       );
       if (existingNewSessionTab) {
         setActiveTab(existingNewSessionTab.id);
+        return;
+      }
+
+      const activeTab = activeTabIdRef.current ? currentTabs.find(tab => tab.id === activeTabIdRef.current) : undefined;
+      const replacementTab = activeTab?.type === 'chat'
+        ? activeTab
+        : currentTabs.find(tab => tab.type === 'chat');
+      if (replacementTab) {
+        updateTab(replacementTab.id, {
+          title: 'New chat',
+          providerId: 'claude',
+          sessionId: undefined,
+          sessionData: undefined,
+          status: 'idle',
+          skipSessionRestore: true,
+          sessionResetNonce: (replacementTab.sessionResetNonce ?? 0) + 1,
+        });
+        setActiveTab(replacementTab.id);
+        return;
+      }
+
+      const existingBlankChatTab = currentTabs.find(tab =>
+        tab.type === 'chat' &&
+        !tab.sessionId &&
+        !tab.sessionData
+      );
+      if (existingBlankChatTab) {
+        updateTab(existingBlankChatTab.id, {
+          title: 'New chat',
+          providerId: existingBlankChatTab.providerId || 'claude',
+          skipSessionRestore: true,
+        });
+        setActiveTab(existingBlankChatTab.id);
         return;
       }
 
@@ -342,6 +420,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         hasUnsavedChanges: false,
         icon: 'message-square',
         skipSessionRestore: true,
+        sessionResetNonce: 1,
       });
     };
 
@@ -369,8 +448,8 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     switch (tab.type) {
       case 'chat':
         return (
-          <AiCodeSession
-            key={`${tab.id}-${tab.providerId || 'claude'}`}
+            <AiCodeSession
+            key={`${tab.id}-${tab.providerId || 'claude'}-${tab.sessionResetNonce ?? 0}`}
             session={tab.sessionData}
             initialProjectPath={tab.projectPath}
             defaultProvider={tab.providerId}
