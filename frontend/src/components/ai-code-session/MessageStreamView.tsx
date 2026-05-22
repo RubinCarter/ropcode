@@ -215,66 +215,74 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     ),
   }), [error]);
 
-  // streamItems is intentionally NOT memoised — the whole view re-renders on
-  // each render tick, which is the only reasonable proxy for "the message
-  // list might have changed shape". A useMemo here would just add overhead.
+  // 把 items 构建包成 useMemo：依赖项是 useMessages 内部 memo 化输出的稳定引用，
+  // displayableMessageIndexes / subagentProgress 在 structuralVersion 变化时才会换引用。
+  // 流式 setState 风暴下，没结构变化时这块就完全跳过；以前的注释说「全 view 每帧
+  // 重渲染是 list 形状变化的合理代理」，事实是 rAF batching 后每秒 60 次重建 N 长度
+  // 的 items 数组，纯粹浪费——useMemo 的开销远小于这次遍历 + 分配。
   const messages = messagesState.messagesRef.current;
-
-  // Group subagents by their launcher's assistant message id so each turn
-  // gets its own panel anchored to where that turn's launchers actually
-  // appeared. anchorIndex is the *last* message index touched by the group's
-  // subagents — pushing the panel just past this point keeps it visually
-  // adjacent to the launcher batch even when more messages stream in later.
-  const groupAnchors = new Map<string, number>();
-  for (const subagent of messagesState.subagentProgress.subagents) {
-    const groupKey = subagent.launcherMessageId ?? '__no-launcher__';
-    let maxIndex = -1;
-    for (const idx of subagent.messageIndexes) {
-      if (idx > maxIndex) maxIndex = idx;
+  const items = useMemo(() => {
+    // Group subagents by their launcher's assistant message id so each turn
+    // gets its own panel anchored to where that turn's launchers actually
+    // appeared. anchorIndex is the *last* message index touched by the group's
+    // subagents — pushing the panel just past this point keeps it visually
+    // adjacent to the launcher batch even when more messages stream in later.
+    const groupAnchors = new Map<string, number>();
+    for (const subagent of messagesState.subagentProgress.subagents) {
+      const groupKey = subagent.launcherMessageId ?? '__no-launcher__';
+      let maxIndex = -1;
+      for (const idx of subagent.messageIndexes) {
+        if (idx > maxIndex) maxIndex = idx;
+      }
+      const existing = groupAnchors.get(groupKey);
+      if (existing === undefined || maxIndex > existing) {
+        groupAnchors.set(groupKey, maxIndex);
+      }
     }
-    const existing = groupAnchors.get(groupKey);
-    if (existing === undefined || maxIndex > existing) {
-      groupAnchors.set(groupKey, maxIndex);
-    }
-  }
-  const pendingGroups = Array.from(groupAnchors.entries())
-    .map(([groupKey, anchorIndex]) => ({ groupKey, anchorIndex }))
-    .sort((a, b) => a.anchorIndex - b.anchorIndex);
-  let groupCursor = 0;
+    const pendingGroups = Array.from(groupAnchors.entries())
+      .map(([groupKey, anchorIndex]) => ({ groupKey, anchorIndex }))
+      .sort((a, b) => a.anchorIndex - b.anchorIndex);
+    let groupCursor = 0;
 
-  const items: Array<
-    | { type: 'subagent-panel'; groupKey: string }
-    | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }
-  > = [];
+    const built: Array<
+      | { type: 'subagent-panel'; groupKey: string }
+      | { type: 'message'; message: ClaudeStreamMessage; originalIndex: number; isStreamingTail: boolean }
+    > = [];
 
-  messagesState.displayableMessageIndexes.forEach((originalIndex) => {
-    while (
-      groupCursor < pendingGroups.length &&
-      originalIndex > pendingGroups[groupCursor].anchorIndex
-    ) {
-      items.push({ type: 'subagent-panel', groupKey: pendingGroups[groupCursor].groupKey });
+    messagesState.displayableMessageIndexes.forEach((originalIndex) => {
+      while (
+        groupCursor < pendingGroups.length &&
+        originalIndex > pendingGroups[groupCursor].anchorIndex
+      ) {
+        built.push({ type: 'subagent-panel', groupKey: pendingGroups[groupCursor].groupKey });
+        groupCursor++;
+      }
+
+      const message = messages[originalIndex];
+      if (!message) return;
+
+      built.push({
+        type: 'message',
+        message,
+        originalIndex,
+        isStreamingTail:
+          isLoading &&
+          originalIndex === messages.length - 1 &&
+          message?.type === 'assistant' &&
+          !message.message?.usage,
+      });
+    });
+
+    while (groupCursor < pendingGroups.length) {
+      built.push({ type: 'subagent-panel', groupKey: pendingGroups[groupCursor].groupKey });
       groupCursor++;
     }
 
-    const message = messages[originalIndex];
-    if (!message) return;
-
-    items.push({
-      type: 'message',
-      message,
-      originalIndex,
-      isStreamingTail:
-        isLoading &&
-        originalIndex === messages.length - 1 &&
-        message?.type === 'assistant' &&
-        !message.message?.usage,
-    });
-  });
-
-  while (groupCursor < pendingGroups.length) {
-    items.push({ type: 'subagent-panel', groupKey: pendingGroups[groupCursor].groupKey });
-    groupCursor++;
-  }
+    return built;
+    // messages 经过 messagesRef 引用读取，结构变化由 displayableMessageIndexes 引用变化驱动；
+    // isStreamingTail 真正的实时刷新走 subscribeTailUpdate，那条路径不依赖这个 memo。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messagesState.subagentProgress, messagesState.displayableMessageIndexes, isLoading]);
 
   // Surface the count back to the parent so it can decide whether to render
   // peripheral chrome (scroll buttons). Only fires when the count actually
