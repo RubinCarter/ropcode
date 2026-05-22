@@ -11,7 +11,6 @@ import {
   MessageSquare,
   MoreVertical,
   Network,
-  PanelRight,
   Plus,
   Server,
   Settings,
@@ -34,7 +33,6 @@ interface SidebarRailProps {
   activeSystemTabType?: string;
   onModeChange: (mode: SidebarPanelMode) => void;
   onToggleCollapse: () => void;
-  onToggleRightSidebar: () => void;
   onOpenProject: () => void;
   onCloneProject: () => void;
   onSyncFromSSH: () => void;
@@ -77,7 +75,6 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
   activeSystemTabType,
   onModeChange,
   onToggleCollapse,
-  onToggleRightSidebar,
   onOpenProject,
   onCloneProject,
   onSyncFromSSH,
@@ -97,9 +94,6 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
             onClick={onToggleCollapse}
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </RailButton>
-          <RailButton label="Toggle right sidebar" onClick={onToggleRightSidebar}>
-            <PanelRight className="h-4 w-4" />
           </RailButton>
         </div>
 

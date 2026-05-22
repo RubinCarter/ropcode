@@ -293,7 +293,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         activeSystemTabType={activeTab?.type}
         onModeChange={setPanelMode}
         onToggleCollapse={toggleCollapse}
-        onToggleRightSidebar={() => window.dispatchEvent(new CustomEvent('toggle-right-sidebar'))}
         onOpenProject={() => setShowOpenDialog(true)}
         onCloneProject={() => setShowCloneDialog(true)}
         onSyncFromSSH={() => setShowSSHDialog(true)}
