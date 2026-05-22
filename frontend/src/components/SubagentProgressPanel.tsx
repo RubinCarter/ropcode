@@ -1,10 +1,16 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Bot, ChevronDown, ChevronRight, Hash, ListChecks, Wrench } from "lucide-react";
+import { Virtuoso } from "react-virtuoso";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatCompactNumber, type ClaudeStreamMessageLike, type SubagentProgressSummary } from "@/lib/subagentProgress";
 import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { ErrorBoundary } from "./ErrorBoundary";
+
+// transcript 长度超过这个阈值就走 Virtuoso 虚拟化，避免一次性同步 mount
+// N 个 StreamMessage 阻塞主线程（每条都要 markdown / 代码高亮 / mermaid 渲染）。
+// 短 transcript 保持普通 map，避免短列表里出现固定高度滚动框的视觉违和。
+const VIRTUALIZE_THRESHOLD = 30;
 
 interface SubagentProgressPanelProps {
   summary: SubagentProgressSummary;
@@ -122,6 +128,26 @@ const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, ag
   }, [subagent.error, subagent.messages.length, subagent.prompt, subagent.result, transcriptMessages]);
   const streamContext = React.useMemo(() => buildStreamMessageContext(renderMessages as any), [renderMessages]);
 
+  const renderItem = useCallback(
+    (_index: number, message: ClaudeStreamMessageLike) => (
+      <ErrorBoundary>
+        <StreamMessage
+          message={message as any}
+          streamMessages={renderMessages as any}
+          streamContext={streamContext}
+          agentOutputMap={agentOutputMap}
+        />
+      </ErrorBoundary>
+    ),
+    [renderMessages, streamContext, agentOutputMap]
+  );
+
+  const computeItemKey = useCallback(
+    (index: number, message: ClaudeStreamMessageLike) =>
+      (message as any).uuid ?? `${subagent.id}-fallback-${index}`,
+    [subagent.id]
+  );
+
   if (renderMessages.length === 0) {
     return (
       <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
@@ -130,19 +156,32 @@ const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, ag
     );
   }
 
+  if (renderMessages.length <= VIRTUALIZE_THRESHOLD) {
+    return (
+      <>
+        {renderMessages.map((message, index) => (
+          <ErrorBoundary key={`${subagent.id}-${Math.max(0, transcriptMessages.length - renderMessages.length) + index}`}>
+            <StreamMessage
+              message={message as any}
+              streamMessages={renderMessages as any}
+              streamContext={streamContext}
+              agentOutputMap={agentOutputMap}
+            />
+          </ErrorBoundary>
+        ))}
+      </>
+    );
+  }
+
   return (
-    <>
-      {renderMessages.map((message, index) => (
-        <ErrorBoundary key={`${subagent.id}-${Math.max(0, transcriptMessages.length - renderMessages.length) + index}`}>
-          <StreamMessage
-            message={message as any}
-            streamMessages={renderMessages as any}
-            streamContext={streamContext}
-            agentOutputMap={agentOutputMap}
-          />
-        </ErrorBoundary>
-      ))}
-    </>
+    <div className="h-[60vh] overflow-hidden rounded-md border bg-background/40">
+      <Virtuoso
+        data={renderMessages}
+        itemContent={renderItem}
+        computeItemKey={computeItemKey}
+        className="h-full"
+      />
+    </div>
   );
 });
 
