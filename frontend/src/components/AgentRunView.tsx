@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { 
   ArrowLeft, 
   Copy, 
@@ -57,6 +58,13 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
+
+  // Virtuoso ref + followOutput：替代以前 plain map + 每条 motion.div 入场动画。
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const followOutput = useCallback(
+    (isAtBottom: boolean) => (isAtBottom ? ('smooth' as const) : false),
+    []
+  );
 
   const projectId = React.useMemo(
     () => run?.project_path?.replace(/[^a-zA-Z0-9]/g, '-') || '',
@@ -454,34 +462,31 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
         </Card>
 
         {/* Output Display */}
-        <div className="flex-1 overflow-hidden">
-          <div className="h-full overflow-y-auto p-4 space-y-2">
-            {subagentProgress.subagents.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
-              >
-                <SubagentProgressPanel
-                  summary={subagentProgress}
-                  streamMessages={messages}
-                  agentOutputMap={agentOutputMap}
-                />
-              </motion.div>
-            )}
-            {displayableMessages.map((message, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, delay: index * 0.02 }}
-              >
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {subagentProgress.subagents.length > 0 && (
+            <div className="px-4 pt-4 pb-2 shrink-0">
+              <SubagentProgressPanel
+                summary={subagentProgress}
+                streamMessages={messages}
+                agentOutputMap={agentOutputMap}
+              />
+            </div>
+          )}
+          <Virtuoso
+            ref={virtuosoRef}
+            data={displayableMessages}
+            className="flex-1"
+            followOutput={followOutput}
+            computeItemKey={(index, message) => (message as any).uuid ?? `msg-${index}`}
+            itemContent={(_index, message) => (
+              <div className="px-4 py-1">
                 <ErrorBoundary>
                   <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                 </ErrorBoundary>
-              </motion.div>
-            ))}
-          </div>
+              </div>
+            )}
+            components={{ Footer: () => <div className="h-4" /> }}
+          />
         </div>
       </div>
     </div>
