@@ -4,6 +4,50 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 import fs from 'fs'
 
+// Vite 起来后真正绑到哪个端口（5174 占用就让步到 5175…）只有它自己知道。
+// Electron 那边的 Go 反代需要这个数字才能正确转发，否则就是 connection refused。
+// 这里用一个临时文件做交接：Vite 监听成功后写入端口，Electron 启动 Go 前轮询读取。
+const VITE_PORT_FILE = path.resolve(__dirname, 'node_modules/.cache/ropcode-vite-port')
+
+function ropcodeVitePortPlugin() {
+  let cleanedUp = false
+  const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
+    try { fs.unlinkSync(VITE_PORT_FILE) } catch {}
+  }
+  return {
+    name: 'ropcode-vite-port',
+    configureServer(server: any) {
+      // 启动时先删旧文件，避免 Electron 读到上一次运行残留的过期端口
+      try { fs.unlinkSync(VITE_PORT_FILE) } catch {}
+
+      const writePort = () => {
+        const addr = server.httpServer?.address()
+        if (addr && typeof addr === 'object' && typeof addr.port === 'number') {
+          try {
+            fs.mkdirSync(path.dirname(VITE_PORT_FILE), { recursive: true })
+            fs.writeFileSync(VITE_PORT_FILE, String(addr.port))
+            console.log(`[ropcode-vite-port] wrote port ${addr.port}`)
+          } catch (err) {
+            console.warn('[ropcode-vite-port] write failed:', err)
+          }
+        }
+      }
+
+      if (server.httpServer?.listening) {
+        writePort()
+      } else {
+        server.httpServer?.once('listening', writePort)
+      }
+
+      process.once('exit', cleanup)
+      process.once('SIGINT', cleanup)
+      process.once('SIGTERM', cleanup)
+    },
+  }
+}
+
 const platformModule = process.platform === 'win32'
   ? path.resolve(__dirname, './src/lib/platformWin.ts')
   : path.resolve(__dirname, './src/lib/platform.ts')
@@ -36,6 +80,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    ropcodeVitePortPlugin(),
     // Custom plugin to serve local files in dev mode
     {
       name: 'serve-local-files',
