@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import {
   Maximize2,
   Minimize2,
@@ -69,7 +69,14 @@ export function AgentRunOutputViewer({
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
-  const [hasUserScrolled, setHasUserScrolled] = useState(false);
+  // hasUserScrolled / scrollAreaRef / outputEndRef / handleScroll 等手工 auto-scroll
+  // 状态全部交给 Virtuoso 的 followOutput 接管。下面只保留 Virtuoso ref 用于程序化 scroll。
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const fullscreenVirtuosoRef = useRef<VirtuosoHandle>(null);
+  const followOutput = useCallback(
+    (isAtBottom: boolean) => (isAtBottom ? ('smooth' as const) : false),
+    []
+  );
   const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
 
   // Use message window for memory-efficient message loading
@@ -169,10 +176,6 @@ export function AgentRunOutputViewer({
   const isInitialLoadRef = useRef(true);
   const hasSetupListenersRef = useRef(false);
 
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const outputEndRef = useRef<HTMLDivElement>(null);
-  const fullscreenScrollRef = useRef<HTMLDivElement>(null);
-  const fullscreenMessagesEndRef = useRef<HTMLDivElement>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
   const rafHandleRef = useRef<number | null>(null);
@@ -194,25 +197,8 @@ export function AgentRunOutputViewer({
     }
   }, [flushMessageQueue]);
 
-  // Auto-scroll logic
-  const isAtBottom = () => {
-    const container = isFullscreen ? fullscreenScrollRef.current : scrollAreaRef.current;
-    if (container) {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      return distanceFromBottom < 1;
-    }
-    return true;
-  };
-
-  const scrollToBottom = () => {
-    if (!hasUserScrolled) {
-      const endRef = isFullscreen ? fullscreenMessagesEndRef.current : outputEndRef.current;
-      if (endRef) {
-        endRef.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-  };
+  // Auto-scroll 由 Virtuoso 的 followOutput 接管，原 isAtBottom / scrollToBottom
+  // / 手工 useEffect / handleScroll 全部删除。
 
   // Load agent run on mount
   useEffect(() => {
@@ -249,13 +235,7 @@ export function AgentRunOutputViewer({
     };
   }, []);
 
-  // Auto-scroll when messages change
-  useEffect(() => {
-    const shouldAutoScroll = !hasUserScrolled || isAtBottom();
-    if (shouldAutoScroll) {
-      scrollToBottom();
-    }
-  }, [messages, hasUserScrolled, isFullscreen]);
+  // Auto-scroll 由 Virtuoso followOutput 接管，原 useEffect 删除。
 
   const loadOutput = async (skipCache = false) => {
     if (!run?.id) return;
@@ -475,12 +455,7 @@ export function AgentRunOutputViewer({
     }
   };
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    const { scrollTop, scrollHeight, clientHeight } = target;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    setHasUserScrolled(distanceFromBottom > 50);
-  };
+  // handleScroll 已被 Virtuoso atBottomStateChange 替代，删除。
 
   // Load output on mount
   useEffect(() => {
@@ -671,40 +646,31 @@ export function AgentRunOutputViewer({
                 <p>No output available yet</p>
               </div>
             ) : (
-              <div 
-                ref={scrollAreaRef}
-                className="h-full overflow-y-auto p-4 space-y-2"
-                onScroll={handleScroll}
-              >
-                <AnimatePresence>
-                  {subagentProgress.subagents.length > 0 && (
-                    <motion.div
-                      key="subagent-progress-panel"
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <SubagentProgressPanel
-                        summary={subagentProgress}
-                        streamMessages={messages}
-                        agentOutputMap={agentOutputMap}
-                      />
-                    </motion.div>
-                  )}
-                  {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
-                    <motion.div
-                      key={message.uuid ?? `msg-${index}`}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2 }}
-                    >
+              <div className="h-full flex flex-col">
+                {subagentProgress.subagents.length > 0 && (
+                  <div className="px-4 pt-4 pb-2 shrink-0">
+                    <SubagentProgressPanel
+                      summary={subagentProgress}
+                      streamMessages={messages}
+                      agentOutputMap={agentOutputMap}
+                    />
+                  </div>
+                )}
+                <Virtuoso
+                  ref={virtuosoRef}
+                  data={displayableMessages}
+                  className="flex-1"
+                  followOutput={followOutput}
+                  computeItemKey={(index, message) => (message as any).uuid ?? `msg-${index}`}
+                  itemContent={(_index, message) => (
+                    <div className="px-4 py-1">
                       <ErrorBoundary>
                         <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                       </ErrorBoundary>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-                <div ref={outputEndRef} />
+                    </div>
+                  )}
+                  components={{ Footer: () => <div className="h-4" /> }}
+                />
               </div>
           )}
         </CardContent>
@@ -785,48 +751,39 @@ export function AgentRunOutputViewer({
               </Button>
             </div>
           </div>
-          <div 
-            ref={fullscreenScrollRef}
-            className="flex-1 overflow-y-auto p-6"
-            onScroll={handleScroll}
-          >
-            <div className="max-w-4xl mx-auto space-y-2">
+          <div className="flex-1 overflow-hidden p-6">
+            <div className="max-w-4xl mx-auto h-full">
               {messages.length === 0 ? (
                 <div className="text-center text-muted-foreground py-8">
                   No output available yet
                 </div>
               ) : (
-                <>
-                  <AnimatePresence>
-                    {subagentProgress.subagents.length > 0 && (
-                      <motion.div
-                        key="fullscreen-subagent-progress-panel"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <SubagentProgressPanel
-                          summary={subagentProgress}
-                          streamMessages={messages}
-                          agentOutputMap={agentOutputMap}
-                        />
-                      </motion.div>
-                    )}
-                    {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
-                      <motion.div
-                        key={message.uuid ?? `msg-${index}`}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
+                <div className="h-full flex flex-col">
+                  {subagentProgress.subagents.length > 0 && (
+                    <div className="pb-2 shrink-0">
+                      <SubagentProgressPanel
+                        summary={subagentProgress}
+                        streamMessages={messages}
+                        agentOutputMap={agentOutputMap}
+                      />
+                    </div>
+                  )}
+                  <Virtuoso
+                    ref={fullscreenVirtuosoRef}
+                    data={displayableMessages}
+                    className="flex-1"
+                    followOutput={followOutput}
+                    computeItemKey={(index, message) => (message as any).uuid ?? `msg-${index}`}
+                    itemContent={(_index, message) => (
+                      <div className="py-1">
                         <ErrorBoundary>
                           <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                         </ErrorBoundary>
-                      </motion.div>
-                    ))}
-                  </AnimatePresence>
-                  <div ref={fullscreenMessagesEndRef} />
-                </>
+                      </div>
+                    )}
+                    components={{ Footer: () => <div className="h-4" /> }}
+                  />
+                </div>
               )}
             </div>
           </div>
