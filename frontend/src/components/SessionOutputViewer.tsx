@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 import { X, Maximize2, Minimize2, Copy, RefreshCw, RotateCcw, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,12 +51,10 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
-  const [hasUserScrolled, setHasUserScrolled] = useState(false);
 
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const outputEndRef = useRef<HTMLDivElement>(null);
-  const fullscreenScrollRef = useRef<HTMLDivElement>(null);
-  const fullscreenMessagesEndRef = useRef<HTMLDivElement>(null);
+  // Virtuoso 自带 atBottom / followOutput，不再需要手工 hasUserScrolled + onScroll + scrollIntoView
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const fullscreenVirtuosoRef = useRef<VirtuosoHandle>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
   const rafHandleRef = useRef<number | null>(null);
@@ -128,25 +127,12 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     return map;
   }, [messages]);
 
-  // Auto-scroll logic similar to AgentExecution
-  const isAtBottom = () => {
-    const container = isFullscreen ? fullscreenScrollRef.current : scrollAreaRef.current;
-    if (container) {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-      return distanceFromBottom < 1;
-    }
-    return true;
-  };
-
-  const scrollToBottom = () => {
-    if (!hasUserScrolled) {
-      const endRef = isFullscreen ? fullscreenMessagesEndRef.current : outputEndRef.current;
-      if (endRef) {
-        endRef.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-  };
+  // Auto-scroll: Virtuoso 的 followOutput 会在新消息到来 + 用户处于底部时自动追加跟随，
+  // 离开底部时返回 false，框架自动停跟。无需我们维护 hasUserScrolled / scrollIntoView。
+  const followOutput = useCallback(
+    (isAtBottom: boolean) => (isAtBottom ? ('smooth' as const) : false),
+    []
+  );
 
   const flushMessageQueue = useCallback(() => {
     rafHandleRef.current = null;
@@ -174,13 +160,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     };
   }, []);
 
-  // Auto-scroll when messages change
-  useEffect(() => {
-    const shouldAutoScroll = !hasUserScrolled || isAtBottom();
-    if (shouldAutoScroll) {
-      scrollToBottom();
-    }
-  }, [messages, hasUserScrolled, isFullscreen]);
+  // Auto-scroll 现在交给 Virtuoso 的 followOutput 接管，原 useEffect 删除。
 
 
   const loadOutput = async (skipCache = false) => {
@@ -542,69 +522,59 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                   <span>Loading output...</span>
                 </div>
               </div>
-            ) : (
-              <div 
-                className="h-full overflow-y-auto p-6 space-y-3" 
-                ref={scrollAreaRef}
-                onScroll={() => {
-                  // Mark that user has scrolled manually
-                  if (!hasUserScrolled) {
-                    setHasUserScrolled(true);
-                  }
-                  
-                  // If user scrolls back to bottom, re-enable auto-scroll
-                  if (isAtBottom()) {
-                    setHasUserScrolled(false);
-                  }
-                }}
-              >
-                {messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-center">
-                    {session.status === 'running' ? (
-                      <>
-                        <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground mb-2" />
-                        <p className="text-muted-foreground">Waiting for output...</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Agent is running but no output received yet
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-muted-foreground">No output available</p>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={refreshOutput}
-                          className="mt-2"
-                          disabled={refreshing}
-                        >
-                          {refreshing ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <RotateCcw className="h-4 w-4 mr-2" />}
-                          Refresh
-                        </Button>
-                      </>
-                    )}
-                  </div>
+            ) : messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                {session.status === 'running' ? (
+                  <>
+                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground mb-2" />
+                    <p className="text-muted-foreground">Waiting for output...</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Agent is running but no output received yet
+                    </p>
+                  </>
                 ) : (
                   <>
-                  {subagentProgress.subagents.length > 0 && (
-                    <div className="mb-3">
-                      <SubagentProgressPanel
-                        summary={subagentProgress}
-                        streamMessages={messages}
-                        agentOutputMap={agentOutputMap}
-                      />
-                    </div>
-                  )}
-                  {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
-                    <div key={message.uuid ?? `msg-${index}`}>
+                    <p className="text-muted-foreground">No output available</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={refreshOutput}
+                      className="mt-2"
+                      disabled={refreshing}
+                    >
+                      {refreshing ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                      Refresh
+                    </Button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col">
+                {/* SubagentProgressPanel 提到 Virtuoso 外面常驻，避免 components.Header 引用变化导致 panel 内部 expand state 被 remount 重置。 */}
+                {subagentProgress.subagents.length > 0 && (
+                  <div className="px-6 pt-6 pb-2 shrink-0">
+                    <SubagentProgressPanel
+                      summary={subagentProgress}
+                      streamMessages={messages}
+                      agentOutputMap={agentOutputMap}
+                    />
+                  </div>
+                )}
+                <Virtuoso
+                  ref={virtuosoRef}
+                  data={displayableMessages}
+                  className="flex-1"
+                  followOutput={followOutput}
+                  computeItemKey={(index, message) => (message as any).uuid ?? `msg-${index}`}
+                  itemContent={(_index, message) => (
+                    <div className="px-6 py-1.5">
                       <ErrorBoundary>
                         <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                       </ErrorBoundary>
                     </div>
-                  ))}
-                  <div ref={outputEndRef} />
-                </>
-                )}
+                  )}
+                  components={{ Footer: () => <div className="h-6" /> }}
+                />
               </div>
             )}
           </CardContent>
@@ -679,59 +649,48 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
 
           {/* Modal Content */}
           <div className="flex-1 overflow-hidden p-6">
-            <div 
-              ref={fullscreenScrollRef}
-              className="h-full overflow-y-auto space-y-3"
-              onScroll={() => {
-                // Mark that user has scrolled manually
-                if (!hasUserScrolled) {
-                  setHasUserScrolled(true);
-                }
-                
-                // If user scrolls back to bottom, re-enable auto-scroll
-                if (isAtBottom()) {
-                  setHasUserScrolled(false);
-                }
-              }}
-            >
-              {messages.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center">
-                  {session.status === 'running' ? (
-                    <>
-                      <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">Waiting for output...</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Agent is running but no output received yet
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-muted-foreground">No output available</p>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <>
-                  {subagentProgress.subagents.length > 0 && (
-                    <div className="mb-3">
-                      <SubagentProgressPanel
-                        summary={subagentProgress}
-                        streamMessages={messages}
-                        agentOutputMap={agentOutputMap}
-                      />
-                    </div>
-                  )}
-                  {displayableMessages.map((message: ClaudeStreamMessage, index: number) => (
-                    <div key={message.uuid ?? `msg-${index}`}>
+            {messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                {session.status === 'running' ? (
+                  <>
+                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground mb-2" />
+                    <p className="text-muted-foreground">Waiting for output...</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Agent is running but no output received yet
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">No output available</p>
+                )}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col">
+                {subagentProgress.subagents.length > 0 && (
+                  <div className="pb-2 shrink-0">
+                    <SubagentProgressPanel
+                      summary={subagentProgress}
+                      streamMessages={messages}
+                      agentOutputMap={agentOutputMap}
+                    />
+                  </div>
+                )}
+                <Virtuoso
+                  ref={fullscreenVirtuosoRef}
+                  data={displayableMessages}
+                  className="flex-1"
+                  followOutput={followOutput}
+                  computeItemKey={(index, message) => (message as any).uuid ?? `msg-${index}`}
+                  itemContent={(_index, message) => (
+                    <div className="py-1.5">
                       <ErrorBoundary>
                         <StreamMessage message={message} streamMessages={messages} streamContext={streamMessageContext} agentOutputMap={agentOutputMap} />
                       </ErrorBoundary>
                     </div>
-                  ))}
-                  <div ref={fullscreenMessagesEndRef} />
-                </>
-              )}
-            </div>
+                  )}
+                  components={{ Footer: () => <div className="h-6" /> }}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
