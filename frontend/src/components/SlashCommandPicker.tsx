@@ -43,10 +43,10 @@ interface SlashCommandPickerProps {
    */
   className?: string;
   /**
-   * Optional provider filter for non-Claude picker paths (codex or gemini)
+   * Optional provider filter for non-Claude picker paths.
    * Claude uses ClaudeCapabilityPicker instead of filesystem slash command discovery.
    */
-  provider?: 'codex' | 'gemini';
+  provider?: 'codex' | 'gemini' | 'deepseek';
   /**
    * Optional anchor element ref for positioning the picker
    * If provided, the picker will be rendered via portal and positioned relative to the anchor
@@ -401,6 +401,8 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
                       <>Create commands in <code className="px-1">.codex/prompts/</code> or <code className="px-1">~/.codex/prompts/</code></>
                     ) : provider === 'gemini' ? (
                       <>Gemini does not currently expose filesystem slash commands here.</>
+                    ) : provider === 'deepseek' ? (
+                      <>DeepSeek does not currently expose filesystem slash commands here.</>
                     ) : null}
                   </p>
                 )}

@@ -33,6 +33,7 @@ import { useProviderApiStore } from "@/stores/providerApiStore";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
+import { DeepSeekIcon } from "./icons/DeepSeekIcon";
 import { EventsOn } from "@/lib/rpc-events";
 import { AttachmentButton } from './attachment';
 import { uploadAttachment, UploadError } from '../utils/uploadAttachment';
@@ -158,7 +159,8 @@ export interface FloatingPromptInputRef {
  */
 type ClaudeThinkingMode = "auto" | "think" | "think_hard" | "think_harder" | "ultrathink";
 type CodexThinkingMode = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
-export type ThinkingMode = ClaudeThinkingMode | CodexThinkingMode;
+type DeepSeekThinkingMode = "auto";
+export type ThinkingMode = ClaudeThinkingMode | CodexThinkingMode | DeepSeekThinkingMode;
 
 /**
  * Thinking mode configuration
@@ -300,6 +302,7 @@ const PROVIDER_THINKING_MODES: Record<string, ThinkingModeConfig[]> = {
   claude: CLAUDE_THINKING_MODES,
   codex: CODEX_THINKING_MODES,
   gemini: CLAUDE_THINKING_MODES, // Gemini uses Claude-style thinking modes (prompt engineering)
+  deepseek: [CLAUDE_THINKING_MODES[0]],
 };
 
 /**
@@ -427,11 +430,33 @@ const GEMINI_MODELS: Model[] = [
   }
 ];
 
+const DEEPSEEK_MODELS: Model[] = [
+  {
+    id: "deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    description: "DeepSeek-TUI default coding model",
+    icon: <DeepSeekIcon className="h-3.5 w-3.5" />,
+    shortName: "DS",
+    color: "text-cyan-500",
+    provider: "deepseek"
+  },
+  {
+    id: "deepseek-v4-flash",
+    name: "DeepSeek V4 Flash",
+    description: "Faster DeepSeek model for lightweight tasks",
+    icon: <Zap className="h-3.5 w-3.5" />,
+    shortName: "DSF",
+    color: "text-blue-500",
+    provider: "deepseek"
+  }
+];
+
 // Map of provider ID to their models
 const PROVIDER_MODELS: Record<string, Model[]> = {
   claude: CLAUDE_MODELS,
   codex: CODEX_MODELS,
   gemini: GEMINI_MODELS,
+  deepseek: DEEPSEEK_MODELS,
 };
 
 type Provider = {
@@ -467,6 +492,14 @@ const PROVIDERS: Provider[] = [
     icon: <GeminiIcon className="h-3.5 w-3.5" />,  // Google Gemini 图标
     shortName: "G",
     color: "text-blue-500"  // Google 品牌色系
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    description: "DeepSeek-TUI exec stream-json",
+    icon: <DeepSeekIcon className="h-3.5 w-3.5" />,
+    shortName: "D",
+    color: "text-cyan-500"
   }
 ];
 
@@ -569,6 +602,8 @@ const FloatingPromptInputInner = (
         return <OpenAIIcon className="h-3.5 w-3.5" />;
       case 'gemini':
         return <GeminiIcon className="h-3.5 w-3.5" />;
+      case 'deepseek':
+        return <DeepSeekIcon className="h-3.5 w-3.5" />;
       default:
         return <Sparkles className="h-3.5 w-3.5" />;
     }
@@ -2201,7 +2236,7 @@ const FloatingPromptInputInner = (
                         onSelect={handleSlashCommandSelect}
                         onClose={handleSlashCommandPickerClose}
                         initialQuery={slashCommandQuery}
-                        provider={effectiveProvider as 'codex' | 'gemini'}
+                        provider={effectiveProvider as 'codex' | 'gemini' | 'deepseek'}
                         anchorRef={inputContainerRef}
                       />
                     )

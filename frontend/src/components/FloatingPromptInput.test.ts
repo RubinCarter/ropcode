@@ -79,6 +79,17 @@ test('Codex model picker only exposes GPT-5.5 and current reasoning efforts', as
   assert.match(codexThinkingBlock, /id: "xhigh"/);
 });
 
+test('DeepSeek provider uses the whale logo icon instead of the generic sparkle', async () => {
+  const source = await readSource();
+  const deepseekModelsBlock = source.match(/const DEEPSEEK_MODELS: Model\[] = \[([\s\S]*?)\];/)?.[1] ?? '';
+  const providersBlock = source.match(/const PROVIDERS: Provider\[] = \[([\s\S]*?)\];/)?.[1] ?? '';
+
+  assert.match(source, /DeepSeekIcon/);
+  assert.match(deepseekModelsBlock, /<DeepSeekIcon className="h-3\.5 w-3\.5" \/>/);
+  assert.match(providersBlock, /id: "deepseek"[\s\S]*<DeepSeekIcon className="h-3\.5 w-3\.5" \/>/);
+  assert.doesNotMatch(providersBlock, /id: "deepseek"[\s\S]*<Sparkles className="h-3\.5 w-3\.5" \/>/);
+});
+
 test('does not append numeric thinking budgets to Claude prompts', async () => {
   const source = await readSource();
 

@@ -16,6 +16,7 @@ import { generateSessionTitleForSessionViaEvent, generateBranchNameViaEvent } fr
 import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
+import { DeepSeekIcon } from "./icons/DeepSeekIcon";
 
 interface ProjectListProps {
   /**
@@ -126,6 +127,7 @@ const getProviderLabel = (provider: string): string => {
   if (provider === 'claude') return 'Claude';
   if (provider === 'codex') return 'Codex';
   if (provider === 'gemini') return 'Gemini';
+  if (provider === 'deepseek') return 'DeepSeek';
   return provider;
 };
 
@@ -133,6 +135,7 @@ const getProviderIcon = (provider: string) => {
   if (provider === 'claude') return ClaudeIcon;
   if (provider === 'codex') return OpenAIIcon;
   if (provider === 'gemini') return GeminiIcon;
+  if (provider === 'deepseek') return DeepSeekIcon;
   return MessageSquare;
 };
 

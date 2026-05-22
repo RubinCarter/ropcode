@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { ClaudeIcon } from '@/components/icons/ClaudeIcon';
 import { OpenAIIcon } from '@/components/icons/OpenAIIcon';
 import { GeminiIcon } from '@/components/icons/GeminiIcon';
+import { DeepSeekIcon } from '@/components/icons/DeepSeekIcon';
 import { useSpaceSessions } from './useSpaceSessions';
 
 interface SessionPanelProps {
@@ -38,6 +39,7 @@ const getProviderLabel = (provider: string): string => {
   if (provider === 'claude') return 'Claude';
   if (provider === 'codex') return 'Codex';
   if (provider === 'gemini') return 'Gemini';
+  if (provider === 'deepseek') return 'DeepSeek';
   return provider;
 };
 
@@ -45,6 +47,7 @@ const getProviderIcon = (provider: string) => {
   if (provider === 'claude') return ClaudeIcon;
   if (provider === 'codex') return OpenAIIcon;
   if (provider === 'gemini') return GeminiIcon;
+  if (provider === 'deepseek') return DeepSeekIcon;
   return MessageSquare;
 };
 
