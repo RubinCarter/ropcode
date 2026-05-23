@@ -10,13 +10,15 @@ html, body {
   background-color: rgba(0, 0, 0, 0);
 }
 
-/* Window drag region helpers for Electron */
+/* Window drag region helpers for Electron + Wails */
 .window-drag {
   -webkit-app-region: drag;
+  --wails-draggable: drag;
 }
 
 .window-no-drag {
   -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
 }
 
 /* Apply rounded corners and background to body */

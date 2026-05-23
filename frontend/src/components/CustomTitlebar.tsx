@@ -597,7 +597,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         {/* 右侧 - Port + Workspace Name 和 Open in 按钮 */}
         <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
           {/* Instance Switcher (port indicator + dropdown) */}
-          {typeof window !== 'undefined' && window.location.port && (
+          {typeof window !== 'undefined' && (window.location.port || (window as any).electronAPI?.wsPort || (window as any).__ROPCODE_WS_PORT__) && (
             <InstanceSwitcher />
           )}
           {/* Workspace Name - 显示在 Open in 按钮左侧，点击打开文件管理器 */}

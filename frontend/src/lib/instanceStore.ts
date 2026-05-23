@@ -23,7 +23,10 @@ function generateId(): string {
 /** Build the local instance from current window.location */
 function buildLocalInstance(): RopcodeInstance {
   const origin = window.location.origin;
-  const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+  const port = (window as any).electronAPI?.wsPort
+    || (window as any).__ROPCODE_WS_PORT__
+    || window.location.port
+    || (window.location.protocol === 'https:' ? '443' : '80');
   return {
     id: 'local',
     label: `Local (:${port})`,

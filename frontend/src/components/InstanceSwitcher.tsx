@@ -23,7 +23,10 @@ export const InstanceSwitcher: React.FC = () => {
 
   const instances = getInstances();
   const currentOrigin = window.location.origin;
-  const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+  const port = (window as any).electronAPI?.wsPort
+    || (window as any).__ROPCODE_WS_PORT__
+    || window.location.port
+    || (window.location.protocol === 'https:' ? '443' : '80');
 
   const handleAdd = () => {
     const trimmedUrl = newUrl.trim();
