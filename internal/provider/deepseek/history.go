@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"ropcode/internal/claude"
+	"ropcode/internal/provider"
 )
 
 func DeepSeekDir() (string, error) {
@@ -24,21 +24,7 @@ func DeepSeekDir() (string, error) {
 	return filepath.Join(home, ".deepseek"), nil
 }
 
-type SessionInfo struct {
-	ID               string `json:"id"`
-	ProjectID        string `json:"project_id"`
-	ProjectPath      string `json:"project_path"`
-	CreatedAt        int64  `json:"created_at"`
-	MessageTimestamp string `json:"message_timestamp,omitempty"`
-	FirstMessage     string `json:"first_message,omitempty"`
-}
-
-type ProjectSessionsResult struct {
-	Sessions []SessionInfo
-	HasMore  bool
-}
-
-func LoadSessionHistory(deepseekDir, projectID, sessionID string) ([]claude.Message, error) {
+func LoadSessionHistory(deepseekDir, projectID, sessionID string) ([]provider.Message, error) {
 	path, err := findSessionJSON(deepseekDir, sessionID)
 	if err != nil {
 		return nil, err
@@ -51,7 +37,7 @@ func LoadSessionHistory(deepseekDir, projectID, sessionID string) ([]claude.Mess
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse deepseek session: %w", err)
 	}
-	return deepseekSessionToClaudeMessages(raw, projectID), nil
+	return deepseekSessionToMessages(raw, projectID), nil
 }
 
 func findSessionJSON(deepseekDir, sessionID string) (string, error) {
@@ -76,8 +62,8 @@ func findSessionJSON(deepseekDir, sessionID string) (string, error) {
 	return found, nil
 }
 
-func deepseekSessionToClaudeMessages(raw map[string]interface{}, projectID string) []claude.Message {
-	var messages []claude.Message
+func deepseekSessionToMessages(raw map[string]interface{}, projectID string) []provider.Message {
+	var messages []provider.Message
 	timestamp := time.Now().Format(time.RFC3339)
 
 	candidates := [][]interface{}{}
@@ -96,7 +82,7 @@ func deepseekSessionToClaudeMessages(raw map[string]interface{}, projectID strin
 			if role == "" {
 				role, _ = itemMap["type"].(string)
 			}
-			content := textFromDeepSeekHistoryItem(itemMap)
+			content := textFromHistoryItem(itemMap)
 			if strings.TrimSpace(content) == "" {
 				continue
 			}
@@ -104,10 +90,10 @@ func deepseekSessionToClaudeMessages(raw map[string]interface{}, projectID strin
 			if role == "user" || role == "user_message" {
 				msgType = "user"
 			}
-			if msgType == "assistant" && appendTextToLastAssistantMessage(messages, content) {
+			if msgType == "assistant" && appendTextToLastAssistant(messages, content) {
 				continue
 			}
-			messages = append(messages, claude.Message{
+			messages = append(messages, provider.Message{
 				Type:      msgType,
 				Cwd:       projectID,
 				Timestamp: timestamp,
@@ -123,7 +109,7 @@ func deepseekSessionToClaudeMessages(raw map[string]interface{}, projectID strin
 	return messages
 }
 
-func appendTextToLastAssistantMessage(messages []claude.Message, text string) bool {
+func appendTextToLastAssistant(messages []provider.Message, text string) bool {
 	if len(messages) == 0 || text == "" {
 		return false
 	}
@@ -144,10 +130,10 @@ func appendTextToLastAssistantMessage(messages []claude.Message, text string) bo
 	return true
 }
 
-func textFromDeepSeekHistoryItem(item map[string]interface{}) string {
+func textFromHistoryItem(item map[string]interface{}) string {
 	for _, key := range []string{"content", "text", "detail", "summary", "prompt"} {
 		if text, ok := item[key].(string); ok && strings.TrimSpace(text) != "" {
-			return cleanDeepSeekHistoryText(text)
+			return cleanHistoryText(text)
 		}
 	}
 	if content, ok := item["content"].([]interface{}); ok {
@@ -155,7 +141,7 @@ func textFromDeepSeekHistoryItem(item map[string]interface{}) string {
 		for _, block := range content {
 			if blockMap, ok := block.(map[string]interface{}); ok {
 				if text, ok := blockMap["text"].(string); ok && strings.TrimSpace(text) != "" {
-					if cleaned := cleanDeepSeekHistoryText(text); cleaned != "" {
+					if cleaned := cleanHistoryText(text); cleaned != "" {
 						parts = append(parts, cleaned)
 					}
 				}
@@ -166,7 +152,7 @@ func textFromDeepSeekHistoryItem(item map[string]interface{}) string {
 	return ""
 }
 
-func cleanDeepSeekHistoryText(text string) string {
+func cleanHistoryText(text string) string {
 	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "<turn_meta>") {
 		if end := strings.Index(text, "</turn_meta>"); end >= 0 {
@@ -178,7 +164,7 @@ func cleanDeepSeekHistoryText(text string) string {
 	return text
 }
 
-func ListProjectSessions(deepseekDir, projectPath string) ([]SessionInfo, error) {
+func ListProjectSessions(deepseekDir, projectPath string) ([]provider.HistorySessionInfo, error) {
 	result, err := ListProjectSessionsLimit(deepseekDir, projectPath, 0)
 	if err != nil {
 		return nil, err
@@ -186,55 +172,55 @@ func ListProjectSessions(deepseekDir, projectPath string) ([]SessionInfo, error)
 	return result.Sessions, nil
 }
 
-func ListProjectSessionsLimit(deepseekDir, projectPath string, limit int) (ProjectSessionsResult, error) {
+func ListProjectSessionsLimit(deepseekDir, projectPath string, limit int) (provider.HistorySessionsResult, error) {
 	sessionsDir := filepath.Join(deepseekDir, "sessions")
 	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
 		log.Printf("[DeepSeek History] Sessions directory does not exist: %s", sessionsDir)
-		return ProjectSessionsResult{}, nil
+		return provider.HistorySessionsResult{}, nil
 	}
 
 	type candidate struct {
 		path    string
 		modTime time.Time
 	}
-	var candidates []candidate
+	var cands []candidate
 	err := filepath.Walk(sessionsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || info.IsDir() {
 			return nil
 		}
 		if strings.HasSuffix(strings.ToLower(info.Name()), ".json") {
-			candidates = append(candidates, candidate{path: path, modTime: info.ModTime()})
+			cands = append(cands, candidate{path: path, modTime: info.ModTime()})
 		}
 		return nil
 	})
 	if err != nil {
-		return ProjectSessionsResult{}, err
+		return provider.HistorySessionsResult{}, err
 	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		return candidates[i].modTime.After(candidates[j].modTime)
+	sort.SliceStable(cands, func(i, j int) bool {
+		return cands[i].modTime.After(cands[j].modTime)
 	})
 
-	var sessions []SessionInfo
+	var sessions []provider.HistorySessionInfo
 	hasMore := false
-	for index, candidate := range candidates {
+	for index, c := range cands {
 		if limit > 0 && index >= 200 {
-			hasMore = index < len(candidates)
+			hasMore = index < len(cands)
 			break
 		}
-		info, err := extractSessionInfo(candidate.path, projectPath)
+		info, err := extractDeepseekSessionInfo(c.path, projectPath)
 		if err != nil || info == nil {
 			continue
 		}
 		sessions = append(sessions, *info)
 		if limit > 0 && len(sessions) >= limit {
-			hasMore = index+1 < len(candidates)
+			hasMore = index+1 < len(cands)
 			break
 		}
 	}
-	return ProjectSessionsResult{Sessions: sessions, HasMore: hasMore}, nil
+	return provider.HistorySessionsResult{Sessions: sessions, HasMore: hasMore}, nil
 }
 
-func extractSessionInfo(path, targetProjectPath string) (*SessionInfo, error) {
+func extractDeepseekSessionInfo(path, targetProjectPath string) (*provider.HistorySessionInfo, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -289,7 +275,7 @@ func extractSessionInfo(path, targetProjectPath string) (*SessionInfo, error) {
 	}
 
 	firstMessage := ""
-	for _, msg := range deepseekSessionToClaudeMessages(raw, workspace) {
+	for _, msg := range deepseekSessionToMessages(raw, workspace) {
 		if msg.Type == "user" {
 			if content, ok := msg.Message["content"].([]map[string]interface{}); ok && len(content) > 0 {
 				firstMessage, _ = content[0]["text"].(string)
@@ -301,7 +287,7 @@ func extractSessionInfo(path, targetProjectPath string) (*SessionInfo, error) {
 		firstMessage = strings.TrimSpace(firstString(meta, "title", "summary"))
 	}
 
-	return &SessionInfo{
+	return &provider.HistorySessionInfo{
 		ID:               id,
 		ProjectID:        workspace,
 		ProjectPath:      workspace,

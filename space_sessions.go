@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"ropcode/internal/claude"
-	"ropcode/internal/codex"
-	"ropcode/internal/deepseek"
+	"ropcode/internal/provider"
 )
 
 type SpaceSessionsResult struct {
@@ -100,7 +99,7 @@ func newClaudeSpaceSessionSummary(s claude.SessionInfo, isRunning bool) Provider
 	}
 }
 
-func newCodexSpaceSessionSummary(s codex.SessionInfo, isRunning bool) ProviderSessionSummary {
+func newCodexSpaceSessionSummary(s provider.HistorySessionInfo, isRunning bool) ProviderSessionSummary {
 	title := strings.TrimSpace(s.FirstMessage)
 	return ProviderSessionSummary{
 		ID:           s.ID,
@@ -115,7 +114,7 @@ func newCodexSpaceSessionSummary(s codex.SessionInfo, isRunning bool) ProviderSe
 	}
 }
 
-func newDeepSeekSpaceSessionSummary(s deepseek.SessionInfo, isRunning bool) ProviderSessionSummary {
+func newDeepSeekSpaceSessionSummary(s provider.HistorySessionInfo, isRunning bool) ProviderSessionSummary {
 	title := strings.TrimSpace(s.FirstMessage)
 	return ProviderSessionSummary{
 		ID:           s.ID,

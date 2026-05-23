@@ -23,12 +23,9 @@ import (
 	"github.com/google/uuid"
 	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
-	"ropcode/internal/codex"
 	"ropcode/internal/command"
 	"ropcode/internal/database"
-	"ropcode/internal/deepseek"
 	"ropcode/internal/eventhub"
-	"ropcode/internal/gemini"
 	"ropcode/internal/git"
 	"ropcode/internal/gitcontent"
 	"ropcode/internal/github"
@@ -37,6 +34,9 @@ import (
 	"ropcode/internal/pathutil"
 	"ropcode/internal/plugin"
 	"ropcode/internal/provider"
+	"ropcode/internal/provider/codex"
+	"ropcode/internal/provider/deepseek"
+	"ropcode/internal/provider/gemini"
 	"ropcode/internal/ssh"
 	"ropcode/internal/usage"
 )
@@ -670,15 +670,25 @@ type LiveProviderSession struct {
 }
 
 type claudeActivityControlSender struct {
-	manager   *claude.SessionManager
+	mgr       *provider.Manager
 	sessionID string
 }
 
 func (s claudeActivityControlSender) SendStopTask(requestID, taskID string) error {
-	if s.manager == nil {
-		return fmt.Errorf("claude manager not initialized")
+	if s.mgr == nil {
+		return fmt.Errorf("provider manager not initialized")
 	}
-	return s.manager.SendStopTaskRequest(s.sessionID, requestID, taskID)
+	envelope := map[string]interface{}{
+		"type":       "control_request",
+		"request_id": requestID,
+		"request": map[string]interface{}{
+			"subtype": "stop_task",
+			"task_id": taskID,
+		},
+	}
+	data, _ := json.Marshal(envelope)
+	data = append(data, '\n')
+	return s.mgr.WriteStdin(s.sessionID, data)
 }
 
 // ListProviderSessions lists sessions for a project based on provider type
@@ -781,7 +791,7 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 				}
 				sessions := make([]ProviderSessionSummary, 0, len(claudeResult.Sessions))
 				for _, s := range claudeResult.Sessions {
-					isRunning := a.claudeManager != nil && a.claudeManager.IsRunning(s.ID)
+					isRunning := a.providerManager != nil && a.providerManager.IsRunning(s.ID)
 					sessions = append(sessions, applyStoredSessionTitle(newClaudeSpaceSessionSummary(s, isRunning), a.sessionTitles))
 				}
 				return spaceSessionScanResult{sessions: sessions, hasMore: claudeResult.HasMore}, nil
@@ -1726,28 +1736,11 @@ func (a *App) SearchFiles(basePath, query string) ([]FileEntry, error) {
 
 // ExecuteClaudeCode starts a new Claude Code session
 func (a *App) ExecuteClaudeCode(projectPath, prompt, model string, sessionID, providerApiID string) (string, error) {
-	if a.claudeManager == nil {
-		return "", nil
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
-
-	config := claude.SessionConfig{
-		ProjectPath:   projectPath,
-		Prompt:        prompt,
-		Model:         model,
-		ProviderApiID: providerApiID,
-		SessionID:     sessionID,
-	}
-
-	// Fetch API configuration if providerApiID is specified
-	if providerApiID != "" && a.dbManager != nil {
-		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-		if err == nil && apiConfig != nil {
-			config.BaseURL = apiConfig.BaseURL
-			config.AuthToken = apiConfig.AuthToken
-		}
-	}
-
-	return a.claudeManager.StartSession(config)
+	config := a.buildUnifiedConfig("claude", projectPath, prompt, model, providerApiID, "", sessionID, false)
+	return a.providerManager.StartSession("claude", config)
 }
 
 // buildUnifiedConfig constructs a provider.SessionConfig with API credentials resolved.
@@ -1803,56 +1796,21 @@ func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessio
 
 // ResumeClaudeCode resumes an existing Claude session
 func (a *App) ResumeClaudeCode(projectPath, prompt, model, sessionID, providerApiID string) (string, error) {
-	if a.claudeManager == nil {
-		return "", nil
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
-
-	config := claude.SessionConfig{
-		ProjectPath:   projectPath,
-		Prompt:        prompt,
-		Model:         model,
-		ProviderApiID: providerApiID,
-		SessionID:     sessionID,
-		Resume:        true,
-	}
-
-	// Fetch API configuration if providerApiID is specified
-	if providerApiID != "" && a.dbManager != nil {
-		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-		if err == nil && apiConfig != nil {
-			config.BaseURL = apiConfig.BaseURL
-			config.AuthToken = apiConfig.AuthToken
-		}
-	}
-
-	return a.claudeManager.StartSession(config)
+	config := a.buildUnifiedConfig("claude", projectPath, prompt, model, providerApiID, "", sessionID, true)
+	return a.providerManager.StartSession("claude", config)
 }
 
 // ContinueClaudeCode continues an existing session
 func (a *App) ContinueClaudeCode(projectPath, prompt, model, sessionID, providerApiID string) (string, error) {
-	if a.claudeManager == nil {
-		return "", nil
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
-
-	config := claude.SessionConfig{
-		ProjectPath:   projectPath,
-		Prompt:        prompt,
-		Model:         model,
-		ProviderApiID: providerApiID,
-		SessionID:     sessionID,
-		Continue:      true,
-	}
-
-	// Fetch API configuration if providerApiID is specified
-	if providerApiID != "" && a.dbManager != nil {
-		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-		if err == nil && apiConfig != nil {
-			config.BaseURL = apiConfig.BaseURL
-			config.AuthToken = apiConfig.AuthToken
-		}
-	}
-
-	return a.claudeManager.StartSession(config)
+	config := a.buildUnifiedConfig("claude", projectPath, prompt, model, providerApiID, "", sessionID, false)
+	config.Extra = map[string]string{"continue": "true"}
+	return a.providerManager.StartSession("claude", config)
 }
 
 // SendProviderSessionMessage sends a prompt to an existing provider session.
@@ -1907,10 +1865,10 @@ func (a *App) StopProviderSession(sessionID string) error {
 
 // CancelClaudeExecution cancels a running session
 func (a *App) CancelClaudeExecution(sessionID string) error {
-	if a.claudeManager == nil {
+	if a.providerManager == nil {
 		return nil
 	}
-	return a.claudeManager.TerminateSession(sessionID)
+	return a.providerManager.TerminateSession(sessionID)
 }
 
 func shouldIgnoreMissingRunningSessionOnClear(err error) bool {
@@ -1944,11 +1902,6 @@ func (a *App) CancelClaudeExecutionByProject(projectPath string) error {
 		}
 	}
 
-	// Also check old Claude interactive manager
-	if a.claudeManager != nil && a.claudeManager.IsRunningForProject(projectPath) {
-		return a.claudeManager.TerminateByProject(projectPath)
-	}
-
 	log.Printf("[CancelClaudeExecutionByProject] No active provider session for project: %s", projectPath)
 	return nil
 }
@@ -1973,72 +1926,57 @@ func resolveInteractiveClaudeSessionStart(resumeSessionID string, hasExistingSes
 }
 
 // StartInteractiveClaudeSession starts or returns an existing interactive Claude session for a project.
-// resumeSessionID is the Claude-side session ID to resume (pass "" to start fresh).
 func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID, resumeSessionID string) (string, error) {
-	if a.claudeManager == nil {
-		return "", fmt.Errorf("claude manager not initialized")
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
 
-	existingSession := a.claudeManager.GetInteractiveSessionForProject(projectPath)
-	resolvedResumeSessionID, reuseExisting, terminateExisting, allowAutoResume := resolveInteractiveClaudeSessionStart(resumeSessionID, existingSession != nil)
+	existingSessionID := a.providerManager.GetRunningSessionForProject("claude", projectPath)
+	resolvedResumeSessionID, reuseExisting, terminateExisting, allowAutoResume := resolveInteractiveClaudeSessionStart(resumeSessionID, existingSessionID != "")
 	resumeSessionID = resolvedResumeSessionID
 
-	if reuseExisting && existingSession != nil {
-		return existingSession.ID, nil
+	if reuseExisting && existingSessionID != "" {
+		return existingSessionID, nil
 	}
-	if terminateExisting && existingSession != nil {
-		if err := a.claudeManager.TerminateSession(existingSession.ID); err != nil {
+	if terminateExisting && existingSessionID != "" {
+		if err := a.providerManager.TerminateSession(existingSessionID); err != nil {
 			return "", fmt.Errorf("failed to terminate existing interactive session: %w", err)
 		}
 	}
 
-	config := claude.SessionConfig{
-		ProjectPath:           projectPath,
-		Model:                 model,
-		ProviderApiID:         providerApiID,
-		InteractiveMode:       true,
-		ResumeClaudeSessionID: resumeSessionID,
-		DisableAutoResume:     !allowAutoResume,
-	}
-
-	// Fetch API configuration if providerApiID is specified
-	if providerApiID != "" && a.dbManager != nil {
-		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-		if err == nil && apiConfig != nil {
-			config.BaseURL = apiConfig.BaseURL
-			config.AuthToken = apiConfig.AuthToken
+	config := a.buildUnifiedConfig("claude", projectPath, "", model, providerApiID, "", resumeSessionID, resumeSessionID != "")
+	config.Interactive = true
+	if !allowAutoResume {
+		if config.Extra == nil {
+			config.Extra = make(map[string]string)
 		}
+		config.Extra["disable_auto_resume"] = "true"
 	}
 
-	sessionID, err := a.claudeManager.StartSession(config)
+	sessionID, err := a.providerManager.StartSession("claude", config)
 	if err != nil {
 		return "", err
 	}
 	if a.claudeActivity != nil {
 		a.claudeActivity.EnsureSession(sessionID, projectPath, true, claudeActivityControlSender{
-			manager:   a.claudeManager,
+			mgr:       a.providerManager,
 			sessionID: sessionID,
 		})
 	}
 
-	// Wait for the interactive session to complete initialization (control_request/response)
-	// This must complete before SendClaudeMessage can be called
-	if err := a.claudeManager.WaitForInit(sessionID, 30*time.Second); err != nil {
-		// If initialization fails, terminate the session
-		_ = a.claudeManager.TerminateSession(sessionID)
+	if err := a.providerManager.WaitForInit(sessionID, 30*time.Second); err != nil {
+		_ = a.providerManager.TerminateSession(sessionID)
 
-		// If a resume ID was specified and the session exited immediately, the session file
-		// may no longer exist (e.g., after app reinstall or manual cleanup). Retry without
-		// the resume ID to start a fresh session instead of failing.
-		if resumeSessionID != "" && strings.HasPrefix(err.Error(), "session exited before initialization") {
+		if resumeSessionID != "" && (strings.HasPrefix(err.Error(), "session init timeout") || strings.HasPrefix(err.Error(), "session exited before initialization")) {
 			log.Printf("[StartInteractiveClaudeSession] Resume session %s failed (%v), retrying without resume", resumeSessionID, err)
-			config.ResumeClaudeSessionID = ""
-			retryID, retryErr := a.claudeManager.StartSession(config)
+			config.ResumeSessionID = ""
+			config.Resume = false
+			retryID, retryErr := a.providerManager.StartSession("claude", config)
 			if retryErr != nil {
 				return "", fmt.Errorf("interactive session initialization failed: %w", retryErr)
 			}
-			if initErr := a.claudeManager.WaitForInit(retryID, 30*time.Second); initErr != nil {
-				_ = a.claudeManager.TerminateSession(retryID)
+			if initErr := a.providerManager.WaitForInit(retryID, 30*time.Second); initErr != nil {
+				_ = a.providerManager.TerminateSession(retryID)
 				return "", fmt.Errorf("interactive session initialization failed: %w", initErr)
 			}
 			return retryID, nil
@@ -2052,78 +1990,56 @@ func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID, r
 
 // SendClaudeMessage sends a message to a running interactive Claude session
 func (a *App) SendClaudeMessage(projectPath, sessionID, prompt string) error {
-	if a.claudeManager == nil {
-		return fmt.Errorf("claude manager not initialized")
+	if a.providerManager == nil {
+		return fmt.Errorf("provider manager not initialized")
 	}
-
-	return a.claudeManager.SendMessage(sessionID, prompt)
+	return a.providerManager.SendMessage(sessionID, prompt)
 }
 
 // SetClaudeSessionModel switches the model on a running interactive Claude
 // session without restarting the process. Pass an empty string or "default" to
 // reset to the CLI's default model.
 func (a *App) SetClaudeSessionModel(sessionID, model string) error {
-	if a.claudeManager == nil {
-		return fmt.Errorf("claude manager not initialized")
+	if a.providerManager == nil {
+		return fmt.Errorf("provider manager not initialized")
 	}
-	return a.claudeManager.SetSessionModel(sessionID, model)
+	return a.providerManager.SetModel(sessionID, model)
 }
 
 // SetClaudeSessionPermissionMode switches the permission mode on a running
 // interactive Claude session. Mode must be one of: default, acceptEdits,
 // bypassPermissions, plan, dontAsk.
 func (a *App) SetClaudeSessionPermissionMode(sessionID, mode string) error {
-	if a.claudeManager == nil {
-		return fmt.Errorf("claude manager not initialized")
+	if a.providerManager == nil {
+		return fmt.Errorf("provider manager not initialized")
 	}
-	return a.claudeManager.SetSessionPermissionMode(sessionID, mode)
+	return a.providerManager.SetPermissionMode(sessionID, mode)
 }
 
 // InterruptClaudeSession asks the Claude CLI to abort the current turn
 // without terminating the process. The session remains usable afterward.
 func (a *App) InterruptClaudeSession(sessionID string) error {
-	if a.claudeManager == nil {
-		return fmt.Errorf("claude manager not initialized")
+	if a.providerManager == nil {
+		return fmt.Errorf("provider manager not initialized")
 	}
-	return a.claudeManager.InterruptSession(sessionID)
+	return a.providerManager.InterruptSession(sessionID)
 }
 
 // UpdateClaudeSessionEnvironment pushes a {key:value} map into the Claude CLI
 // process. Use it to refresh credentials, switch base URL, or toggle backend
 // providers without restarting the session.
-//
-// Caveats:
-//   - The Claude CLI re-reads ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN /
-//     ANTHROPIC_API_KEY / CLAUDE_CODE_USE_BEDROCK|VERTEX|FOUNDRY on each API
-//     call, so the next turn picks up the new values. Other env vars that are
-//     read once at startup (e.g. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC)
-//     will NOT take effect mid-session.
-//   - This does not interrupt the current turn. Call InterruptClaudeSession
-//     first if you want the new env to apply immediately.
 func (a *App) UpdateClaudeSessionEnvironment(sessionID string, variables map[string]string) error {
-	if a.claudeManager == nil {
-		return fmt.Errorf("claude manager not initialized")
+	if a.providerManager == nil {
+		return fmt.Errorf("provider manager not initialized")
 	}
-	return a.claudeManager.UpdateSessionEnvironment(sessionID, variables)
+	return a.providerManager.UpdateEnvironmentVariables(sessionID, variables)
 }
 
 // SwitchClaudeSessionProviderApi swaps the active ProviderApiConfig for a
-// running interactive Claude session. It loads the target ProviderApiConfig
-// from the database (or clears it if providerApiID is empty), translates the
-// base_url / auth_token into Claude CLI environment variables, and pushes
-// them via update_environment_variables.
-//
-// We deliberately do NOT interrupt the current turn. The CLI re-reads these
-// env vars on each API call, so the in-flight turn finishes on the old
-// endpoint and the next turn picks up the new one. Callers that want
-// immediate cutover should call InterruptClaudeSession themselves first.
-//
-// Pass providerApiID="" to clear the override and let the CLI fall back to
-// whatever it inherited at process start (typically the default Anthropic
-// API endpoint).
+// running interactive Claude session.
 func (a *App) SwitchClaudeSessionProviderApi(sessionID, providerApiID string) error {
-	if a.claudeManager == nil {
-		return fmt.Errorf("claude manager not initialized")
+	if a.providerManager == nil {
+		return fmt.Errorf("provider manager not initialized")
 	}
 
 	variables := map[string]string{
@@ -2146,15 +2062,15 @@ func (a *App) SwitchClaudeSessionProviderApi(sessionID, providerApiID string) er
 		variables["ANTHROPIC_AUTH_TOKEN"] = apiConfig.AuthToken
 	}
 
-	return a.claudeManager.UpdateSessionEnvironment(sessionID, variables)
+	return a.providerManager.UpdateEnvironmentVariables(sessionID, variables)
 }
 
 // IsClaudeSessionRunning checks if a session is running
 func (a *App) IsClaudeSessionRunning(sessionID string) bool {
-	if a.claudeManager == nil {
+	if a.providerManager == nil {
 		return false
 	}
-	return a.claudeManager.IsRunning(sessionID)
+	return a.providerManager.IsRunning(sessionID)
 }
 
 // IsClaudeSessionRunningForProject checks provider liveness for a project.
@@ -2169,30 +2085,22 @@ func (a *App) IsClaudeSessionRunningForProject(projectPath string, providerOrSes
 		}
 		return a.providerManager.IsRunningForProject(providerOrSessionID, projectPath)
 	default:
-		// Check by session ID across all providers
-		if a.providerManager != nil && a.providerManager.IsRunning(providerOrSessionID) {
+		if a.providerManager == nil {
+			return false
+		}
+		if a.providerManager.IsRunning(providerOrSessionID) {
 			return true
 		}
-		if a.claudeManager != nil && a.claudeManager.IsRunning(providerOrSessionID) {
-			return true
-		}
-		// Check by project for Claude
-		if a.providerManager != nil && a.providerManager.IsRunningForProject("claude", projectPath) {
-			return true
-		}
-		if a.claudeManager != nil {
-			return a.claudeManager.IsRunningForProject(projectPath)
-		}
-		return false
+		return a.providerManager.IsRunningForProject("claude", projectPath)
 	}
 }
 
 // ListRunningClaudeSessions returns all running sessions
-func (a *App) ListRunningClaudeSessions() []*claude.SessionStatus {
-	if a.claudeManager == nil {
+func (a *App) ListRunningClaudeSessions() []*provider.SessionStatus {
+	if a.providerManager == nil {
 		return nil
 	}
-	return a.claudeManager.ListRunningSessions()
+	return a.providerManager.ListRunningSessions("claude")
 }
 
 func (a *App) GetClaudeSessionActivities(sessionID string) (claudeactivity.Snapshot, error) {
@@ -2278,24 +2186,25 @@ func (a *App) ReadClaudeSubagentLog(sessionID, activityID string, since int) (cl
 
 // GetClaudeSessionOutput returns the output of a session
 func (a *App) GetClaudeSessionOutput(sessionID string) (string, error) {
-	if a.claudeManager == nil {
+	if a.providerManager == nil {
 		return "", nil
 	}
-	return a.claudeManager.GetSessionOutput(sessionID)
+	return a.providerManager.GetSessionOutput(sessionID)
 }
 
 // GetClaudeBinaryPath returns the configured binary path
 func (a *App) GetClaudeBinaryPath() string {
-	if a.claudeManager == nil {
+	if a.providerManager == nil {
 		return ""
 	}
-	return a.claudeManager.GetBinaryPath()
+	path, _ := a.providerManager.DiscoverBinary("claude")
+	return path
 }
 
-// SetClaudeBinaryPath sets the binary path for both claude manager and mcp manager
+// SetClaudeBinaryPath sets the binary path for both provider manager and mcp manager
 func (a *App) SetClaudeBinaryPath(path string) {
-	if a.claudeManager != nil {
-		a.claudeManager.SetBinaryPath(path)
+	if a.providerManager != nil {
+		a.providerManager.SetBinaryPath("claude", path)
 	}
 	if a.mcpManager != nil {
 		a.mcpManager.SetClaudeBinary(path)
@@ -3007,7 +2916,7 @@ func (a *App) GetDefaultThinkingLevel(modelID string) (*database.ThinkingLevel, 
 
 // ExecuteAgent starts an agent run with the specified parameters
 func (a *App) ExecuteAgent(agentID int64, projectPath, task, model string) (*database.AgentRun, error) {
-	if a.dbManager == nil || a.claudeManager == nil {
+	if a.dbManager == nil || a.providerManager == nil {
 		return nil, nil
 	}
 
@@ -3041,14 +2950,7 @@ func (a *App) ExecuteAgent(agentID int64, projectPath, task, model string) (*dat
 	}
 
 	// Start the Claude session
-	config := claude.SessionConfig{
-		ProjectPath:   projectPath,
-		Prompt:        prompt,
-		Model:         model,
-		ProviderApiID: agent.ProviderApiID,
-	}
-
-	sessionID, err := a.claudeManager.StartSession(config)
+	sessionID, err := a.providerManager.StartSession("claude", a.buildUnifiedConfig("claude", projectPath, prompt, model, agent.ProviderApiID, "", "", false))
 	if err != nil {
 		// Update run status to failed
 		a.dbManager.UpdateAgentRunStatus(runID, "failed", 0, nil, nil)
@@ -3062,7 +2964,7 @@ func (a *App) ExecuteAgent(agentID int64, projectPath, task, model string) (*dat
 	run.ProcessStartedAt = &now
 
 	// Get PID from session status if available
-	if status := a.claudeManager.GetSession(sessionID); status != nil {
+	if status := a.providerManager.GetSession(sessionID); status != nil {
 		run.PID = status.PID
 	}
 
@@ -3115,7 +3017,7 @@ func (a *App) ListRunningAgentRuns() ([]*database.AgentRun, error) {
 
 // CancelAgentRun cancels a running agent
 func (a *App) CancelAgentRun(runID int64) error {
-	if a.dbManager == nil || a.claudeManager == nil {
+	if a.dbManager == nil || a.providerManager == nil {
 		return nil
 	}
 
@@ -3126,7 +3028,7 @@ func (a *App) CancelAgentRun(runID int64) error {
 
 	// Cancel the Claude session if it exists
 	if run.SessionID != "" {
-		a.claudeManager.TerminateSession(run.SessionID)
+		a.providerManager.TerminateSession(run.SessionID)
 	}
 
 	// Update run status
@@ -3144,7 +3046,7 @@ func (a *App) DeleteAgentRun(id int64) error {
 
 // GetAgentRunOutput returns the output of an agent run's session
 func (a *App) GetAgentRunOutput(runID int64) (string, error) {
-	if a.dbManager == nil || a.claudeManager == nil {
+	if a.dbManager == nil || a.providerManager == nil {
 		return "", nil
 	}
 
@@ -3157,7 +3059,7 @@ func (a *App) GetAgentRunOutput(runID int64) (string, error) {
 		return "", nil
 	}
 
-	return a.claudeManager.GetSessionOutput(run.SessionID)
+	return a.providerManager.GetSessionOutput(run.SessionID)
 }
 
 // ===== Hooks Bindings =====

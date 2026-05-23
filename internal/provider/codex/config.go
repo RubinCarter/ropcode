@@ -1,4 +1,3 @@
-// internal/codex/config.go
 package codex
 
 import (
@@ -13,26 +12,32 @@ import (
 // configured to talk to. It mirrors what the CLI itself reads out of
 // ~/.codex/config.toml + ~/.codex/auth.json.
 type ActiveProvider struct {
-	Name      string // provider table key, e.g. "OpenAI" or "Rucodes"
-	BaseURL   string // base_url from [model_providers.<Name>]
-	EnvKey    string // env_key (when set); empty means default OPENAI_API_KEY
-	AuthToken string // resolved auth token from auth.json or env
+	Name      string
+	BaseURL   string
+	EnvKey    string
+	AuthToken string
 }
 
 // LoadActiveProvider reads ~/.codex/config.toml and ~/.codex/auth.json to
 // figure out which provider is active and resolves its credentials. Returns
-// (nil, nil) when the codex config file doesn't exist — callers should fall
-// back to other sources in that case.
-//
-// The codex directory is resolved through CodexDir(), which honours
-// $CODEX_HOME and otherwise uses ~/.codex on every platform (filepath.Join
-// handles per-OS separators).
+// (nil, nil) when the codex config file doesn't exist.
 func LoadActiveProvider() (*ActiveProvider, error) {
-	codexDir, err := CodexDir()
+	codexDir, err := codexDir()
 	if err != nil {
 		return nil, err
 	}
 	return loadActiveProviderFrom(codexDir)
+}
+
+func codexDir() (string, error) {
+	if env := strings.TrimSpace(os.Getenv("CODEX_HOME")); env != "" {
+		return env, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".codex"), nil
 }
 
 func loadActiveProviderFrom(codexDir string) (*ActiveProvider, error) {
@@ -49,12 +54,10 @@ func loadActiveProviderFrom(codexDir string) (*ActiveProvider, error) {
 
 	providerName := parsed.modelProvider
 	if providerName == "" {
-		providerName = "openai" // codex CLI default when not specified
+		providerName = "openai"
 	}
 	provider, ok := parsed.providers[providerName]
 	if !ok {
-		// Try a case-insensitive lookup before giving up — TOML is case
-		// sensitive but users sometimes type "openai" vs "OpenAI".
 		for name, p := range parsed.providers {
 			if strings.EqualFold(name, providerName) {
 				provider = p
@@ -84,7 +87,6 @@ func resolveCodexAuth(codexDir, envKey string) string {
 			return v
 		}
 	}
-	// Default: codex stores OPENAI_API_KEY in ~/.codex/auth.json.
 	if data, err := os.ReadFile(filepath.Join(codexDir, "auth.json")); err == nil {
 		var auth map[string]string
 		if json.Unmarshal(data, &auth) == nil {
@@ -94,11 +96,6 @@ func resolveCodexAuth(codexDir, envKey string) string {
 			}
 			if v := strings.TrimSpace(auth[lookup]); v != "" {
 				return v
-			}
-			if envKey == "" {
-				if v := strings.TrimSpace(auth["OPENAI_API_KEY"]); v != "" {
-					return v
-				}
 			}
 		}
 	}
@@ -118,14 +115,8 @@ type codexConfig struct {
 	providers     map[string]codexProviderEntry
 }
 
-// parseCodexConfig is a deliberately tiny TOML reader that handles only the
-// subset Codex's config.toml uses for our needs: top-level scalars and
-// dotted section headers like [model_providers.OpenAI] / [projects."/some/path"].
-// We don't bring in a TOML library because the surface we touch is two
-// fields per active provider.
 func parseCodexConfig(input string) codexConfig {
 	cfg := codexConfig{providers: map[string]codexProviderEntry{}}
-
 	currentSection := ""
 	for _, raw := range strings.Split(input, "\n") {
 		line := stripCodexComment(raw)
@@ -133,10 +124,7 @@ func parseCodexConfig(input string) codexConfig {
 		if line == "" {
 			continue
 		}
-
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			// Skip array-of-tables headers ([[...]]) — Codex doesn't use them
-			// for provider config, but leave the door closed defensively.
 			if strings.HasPrefix(line, "[[") {
 				currentSection = ""
 				continue
@@ -144,12 +132,10 @@ func parseCodexConfig(input string) codexConfig {
 			currentSection = strings.TrimSpace(line[1 : len(line)-1])
 			continue
 		}
-
 		key, value, ok := splitCodexAssignment(line)
 		if !ok {
 			continue
 		}
-
 		switch {
 		case currentSection == "" && key == "model_provider":
 			cfg.modelProvider = value
@@ -166,12 +152,10 @@ func parseCodexConfig(input string) codexConfig {
 			cfg.providers[providerName] = entry
 		}
 	}
-
 	return cfg
 }
 
 func stripCodexComment(line string) string {
-	// Strip `#` to end of line, but not when it appears inside a quoted string.
 	inSingle, inDouble := false, false
 	for i := 0; i < len(line); i++ {
 		c := line[i]

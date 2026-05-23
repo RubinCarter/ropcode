@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"ropcode/internal/claude"
+	"ropcode/internal/provider"
 )
 
 // GeminiDir returns the default Gemini config directory
@@ -79,7 +79,7 @@ func FindSessionFile(geminiDir, projectID, sessionID string) (string, error) {
 }
 
 // LoadSessionHistory loads the history for a Gemini session
-func LoadSessionHistory(geminiDir, projectID, sessionID string) ([]claude.Message, error) {
+func LoadSessionHistory(geminiDir, projectID, sessionID string) ([]provider.Message, error) {
 	filePath, err := FindSessionFile(geminiDir, projectID, sessionID)
 	if err != nil {
 		return nil, err
@@ -97,7 +97,7 @@ func LoadSessionHistory(geminiDir, projectID, sessionID string) ([]claude.Messag
 		return nil, fmt.Errorf("failed to parse session file: %w", err)
 	}
 
-	var messages []claude.Message
+	var messages []provider.Message
 	timestamp := time.Now().Format(time.RFC3339)
 
 	// Extract messages from the session data
@@ -123,8 +123,8 @@ func LoadSessionHistory(geminiDir, projectID, sessionID string) ([]claude.Messag
 
 // geminiSessionMessageToClaudeHistory converts a Gemini session message to Claude history format
 // Based on Tauri version's gemini_session_message_to_claude_history function
-func geminiSessionMessageToClaudeHistory(msgMap map[string]interface{}, projectID, timestamp string) []claude.Message {
-	var messages []claude.Message
+func geminiSessionMessageToClaudeHistory(msgMap map[string]interface{}, projectID, timestamp string) []provider.Message {
+	var messages []provider.Message
 
 	msgType, _ := msgMap["type"].(string)
 	content, _ := msgMap["content"].(string)
@@ -137,7 +137,7 @@ func geminiSessionMessageToClaudeHistory(msgMap map[string]interface{}, projectI
 			return messages
 		}
 
-		msg := claude.Message{
+		msg := provider.Message{
 			Type:      "user",
 			Cwd:       projectID,
 			Timestamp: timestamp,
@@ -177,7 +177,7 @@ func geminiSessionMessageToClaudeHistory(msgMap map[string]interface{}, projectI
 
 		// If there's any non-tool content, send assistant message first
 		if len(contentBlocks) > 0 {
-			msg := claude.Message{
+			msg := provider.Message{
 				Type:      "assistant",
 				Cwd:       projectID,
 				Timestamp: timestamp,
@@ -208,7 +208,7 @@ func geminiSessionMessageToClaudeHistory(msgMap map[string]interface{}, projectI
 				claudeName, claudeInput := adaptGeminiToolToClaude(toolName, args)
 
 				// Add tool_use message
-				toolUseMsg := claude.Message{
+				toolUseMsg := provider.Message{
 					Type:      "assistant",
 					Cwd:       projectID,
 					Timestamp: timestamp,
@@ -243,7 +243,7 @@ func geminiSessionMessageToClaudeHistory(msgMap map[string]interface{}, projectI
 							status, _ := toolCall["status"].(string)
 							isError := status != "success" && status != ""
 
-							toolResultMsg := claude.Message{
+							toolResultMsg := provider.Message{
 								Type:      "user",
 								Cwd:       projectID,
 								Timestamp: timestamp,

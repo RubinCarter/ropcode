@@ -4,7 +4,7 @@ package session
 import (
 	"fmt"
 
-	"ropcode/internal/claude"
+	claude "ropcode/internal/provider/claude"
 )
 
 // HistoryManager handles session history operations

@@ -59,3 +59,42 @@ const (
 	HealthHanging ProcessHealth = "hanging"
 	HealthCrashed ProcessHealth = "crashed"
 )
+
+// Message 是所有 provider 共用的历史消息格式。
+// 各 provider 的 history reader 将自己的格式转换为此类型。
+type Message struct {
+	ParentUUID  *string                `json:"parentUuid"`
+	IsSidechain bool                   `json:"isSidechain"`
+	UserType    string                 `json:"userType,omitempty"`
+	Cwd         string                 `json:"cwd,omitempty"`
+	SessionID   string                 `json:"sessionId,omitempty"`
+	Version     string                 `json:"version,omitempty"`
+	GitBranch   string                 `json:"gitBranch,omitempty"`
+	AgentID     string                 `json:"agentId,omitempty"`
+	Message     map[string]interface{} `json:"message,omitempty"`
+	Type        string                 `json:"type"`
+	UUID        string                 `json:"uuid"`
+	Timestamp   string                 `json:"timestamp"`
+}
+
+// MessageIndex 是消息在 JSONL 文件中的行号索引。
+type MessageIndex struct {
+	LineNumbers []int `json:"line_numbers"`
+	TotalLines  int   `json:"total_lines"`
+}
+
+// HistorySessionInfo 是会话历史的元数据（从本地文件系统读取）。
+type HistorySessionInfo struct {
+	ID               string `json:"id"`
+	ProjectID        string `json:"project_id"`
+	ProjectPath      string `json:"project_path"`
+	CreatedAt        int64  `json:"created_at"`
+	MessageTimestamp string `json:"message_timestamp,omitempty"`
+	FirstMessage     string `json:"first_message,omitempty"`
+}
+
+// HistorySessionsResult 是会话列表查询结果。
+type HistorySessionsResult struct {
+	Sessions []HistorySessionInfo
+	HasMore  bool
+}

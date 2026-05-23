@@ -1,4 +1,3 @@
-// internal/codex/config_test.go
 package codex
 
 import (
@@ -90,9 +89,6 @@ base_url = "https://example.com"
 }
 
 func TestLoadActiveProvider_IgnoresProjectsAndOtherSections(t *testing.T) {
-	// The config.toml the user pasted earlier has many other sections
-	// (mcp_servers, projects with quoted paths, tui, etc.). The parser
-	// must skip those without choking on dots/slashes in section names.
 	dir := t.TempDir()
 	writeCodexFiles(t, dir, `
 model_provider = "OpenAI"
@@ -122,12 +118,12 @@ command = "/path/with#hash/in/it"
 func TestCodexDir_HonoursCODEX_HOME(t *testing.T) {
 	want := filepath.Join(t.TempDir(), "custom-codex")
 	t.Setenv("CODEX_HOME", want)
-	got, err := CodexDir()
+	got, err := codexDir()
 	if err != nil {
-		t.Fatalf("CodexDir: %v", err)
+		t.Fatalf("codexDir: %v", err)
 	}
 	if got != want {
-		t.Fatalf("CodexDir=%q want %q", got, want)
+		t.Fatalf("codexDir=%q want %q", got, want)
 	}
 }
 
@@ -138,9 +134,9 @@ func TestCodexDir_FallsBackToHomeDot(t *testing.T) {
 	} else {
 		t.Setenv("HOME", t.TempDir())
 	}
-	got, err := CodexDir()
+	got, err := codexDir()
 	if err != nil {
-		t.Fatalf("CodexDir: %v", err)
+		t.Fatalf("codexDir: %v", err)
 	}
 	if filepath.Base(got) != ".codex" {
 		t.Fatalf("expected .codex suffix, got %q", got)

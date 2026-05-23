@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"ropcode/internal/claude"
+	"ropcode/internal/provider"
 )
 
 // CodexDir returns the Codex config directory. Honours $CODEX_HOME (set by
@@ -69,7 +69,7 @@ func FindSessionFile(codexDir, sessionID string) (string, error) {
 }
 
 // LoadSessionHistory loads the history for a Codex session
-func LoadSessionHistory(codexDir, projectID, sessionID string) ([]claude.Message, error) {
+func LoadSessionHistory(codexDir, projectID, sessionID string) ([]provider.Message, error) {
 	filePath, err := FindSessionFile(codexDir, sessionID)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func LoadSessionHistory(codexDir, projectID, sessionID string) ([]claude.Message
 	}
 	defer file.Close()
 
-	var messages []claude.Message
+	var messages []provider.Message
 	scanner := bufio.NewScanner(file)
 
 	// Increase buffer size for large lines
@@ -116,8 +116,8 @@ func LoadSessionHistory(codexDir, projectID, sessionID string) ([]claude.Message
 
 // codexEventToClaudeHistory converts a Codex event to Claude history format
 // Based on Tauri version's codex_event_to_claude_history function
-func codexEventToClaudeHistory(event map[string]interface{}, projectID string) []claude.Message {
-	var messages []claude.Message
+func codexEventToClaudeHistory(event map[string]interface{}, projectID string) []provider.Message {
+	var messages []provider.Message
 
 	eventType, _ := event["type"].(string)
 	timestamp := time.Now().Format(time.RFC3339)
@@ -142,7 +142,7 @@ func codexEventToClaudeHistory(event map[string]interface{}, projectID string) [
 
 		switch itemType {
 		case "agent_message", "reasoning", "assistant_message":
-			msg := claude.Message{
+			msg := provider.Message{
 				Type:      "assistant",
 				Cwd:       projectID,
 				Timestamp: timestamp,
@@ -174,7 +174,7 @@ func codexEventToClaudeHistory(event map[string]interface{}, projectID string) [
 					return messages
 				}
 
-				msg := claude.Message{
+				msg := provider.Message{
 					Type:      "user",
 					Cwd:       projectID,
 					Timestamp: timestamp,
@@ -189,7 +189,7 @@ func codexEventToClaudeHistory(event map[string]interface{}, projectID string) [
 				// Extract content and normalize type from "output_text" to "text"
 				content := normalizeCodexContent(payload, false)
 
-				msg := claude.Message{
+				msg := provider.Message{
 					Type:      "assistant",
 					Cwd:       projectID,
 					Timestamp: timestamp,
@@ -211,7 +211,7 @@ func codexEventToClaudeHistory(event map[string]interface{}, projectID string) [
 			}
 
 			if thinkingText != "" {
-				msg := claude.Message{
+				msg := provider.Message{
 					Type:      "assistant",
 					Cwd:       projectID,
 					Timestamp: timestamp,
@@ -247,7 +247,7 @@ func codexEventToClaudeHistory(event map[string]interface{}, projectID string) [
 			// Adapt Codex tools to Claude specialized tools
 			adaptedName, adaptedInput := adaptCodexToolToClaude(name, argsValue)
 
-			msg := claude.Message{
+			msg := provider.Message{
 				Type:      "assistant",
 				Cwd:       projectID,
 				Timestamp: timestamp,
@@ -282,7 +282,7 @@ func codexEventToClaudeHistory(event map[string]interface{}, projectID string) [
 				}
 			}
 
-			msg := claude.Message{
+			msg := provider.Message{
 				Type:      "user",
 				Cwd:       projectID,
 				Timestamp: timestamp,
@@ -393,20 +393,7 @@ func adaptCodexToolToClaude(toolName string, args map[string]interface{}) (strin
 	}
 }
 
-// SessionInfo represents basic information about a Codex session
-type SessionInfo struct {
-	ID               string `json:"id"`
-	ProjectID        string `json:"project_id"`
-	ProjectPath      string `json:"project_path"`
-	CreatedAt        int64  `json:"created_at"`
-	MessageTimestamp string `json:"message_timestamp,omitempty"`
-	FirstMessage     string `json:"first_message,omitempty"`
-}
 
-type ProjectSessionsResult struct {
-	Sessions []SessionInfo
-	HasMore  bool
-}
 
 var maxLimitedProjectSessionScanFiles = 200
 
@@ -414,7 +401,7 @@ const maxSessionTitleScanLines = 20
 
 // ListProjectSessions lists all sessions for a specific project path
 // It scans the ~/.codex/sessions directory structure and extracts session info
-func ListProjectSessions(codexDir, projectPath string) ([]SessionInfo, error) {
+func ListProjectSessions(codexDir, projectPath string) ([]provider.HistorySessionInfo, error) {
 	result, err := ListProjectSessionsLimit(codexDir, projectPath, 0)
 	if err != nil {
 		return nil, err
@@ -422,12 +409,12 @@ func ListProjectSessions(codexDir, projectPath string) ([]SessionInfo, error) {
 	return result.Sessions, nil
 }
 
-func ListProjectSessionsLimit(codexDir, projectPath string, limit int) (ProjectSessionsResult, error) {
+func ListProjectSessionsLimit(codexDir, projectPath string, limit int) (provider.HistorySessionsResult, error) {
 	sessionsDir := filepath.Join(codexDir, "sessions")
 
 	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
 		log.Printf("[Codex History] Sessions directory does not exist: %s", sessionsDir)
-		return ProjectSessionsResult{}, nil
+		return provider.HistorySessionsResult{}, nil
 	}
 
 	type candidate struct {
@@ -454,14 +441,14 @@ func ListProjectSessionsLimit(codexDir, projectPath string, limit int) (ProjectS
 	})
 
 	if err != nil {
-		return ProjectSessionsResult{}, fmt.Errorf("error walking sessions directory: %w", err)
+		return provider.HistorySessionsResult{}, fmt.Errorf("error walking sessions directory: %w", err)
 	}
 
 	sort.SliceStable(candidates, func(i, j int) bool {
 		return candidates[i].modTime.After(candidates[j].modTime)
 	})
 
-	var sessions []SessionInfo
+	var sessions []provider.HistorySessionInfo
 	hasMore := false
 	for index, candidate := range candidates {
 		if limit > 0 && index >= maxLimitedProjectSessionScanFiles {
@@ -486,12 +473,12 @@ func ListProjectSessionsLimit(codexDir, projectPath string, limit int) (ProjectS
 	}
 
 	log.Printf("[Codex History] Found %d sessions for project: %s", len(sessions), projectPath)
-	return ProjectSessionsResult{Sessions: sessions, HasMore: hasMore}, nil
+	return provider.HistorySessionsResult{Sessions: sessions, HasMore: hasMore}, nil
 }
 
 // extractSessionInfo extracts session info from a Codex session file
 // Returns nil if the session doesn't match the project path
-func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error) {
+func extractSessionInfo(filePath, targetProjectPath string) (*provider.HistorySessionInfo, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, err
@@ -579,7 +566,7 @@ func extractSessionInfo(filePath, targetProjectPath string) (*SessionInfo, error
 		}
 	}
 
-	return &SessionInfo{
+	return &provider.HistorySessionInfo{
 		ID:               sessionID,
 		ProjectID:        sessionProjectPath,
 		ProjectPath:      sessionProjectPath,
