@@ -24,6 +24,7 @@ import (
 	appRuntime "ropcode/internal/runtime"
 	"ropcode/internal/session"
 	"ropcode/internal/ssh"
+	"ropcode/internal/stream"
 )
 
 // App struct contains the core application state and managers
@@ -43,7 +44,9 @@ type App struct {
 	pluginManager       *plugin.Manager
 	sessionManager      *session.HistoryManager
 	eventHub            *eventhub.EventHub
-	aiOutputCoalescer   *eventhub.ClaudeOutputCoalescer
+	sessionStreamHub    *stream.Hub
+	syncHub             *stream.SyncHub
+	bulkHub             *stream.BulkHub
 	gitWatcher          *git.GitWatcher
 	modelRegistry       *models.Registry
 	capabilityDiscovery claudeCapabilityDiscovery
@@ -87,26 +90,27 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize EventHub (before managers that need it)
 	a.eventHub = eventhub.New(nil)
+	a.sessionStreamHub = stream.NewHub()
+	a.syncHub = stream.NewSyncHub()
+	a.bulkHub = stream.NewBulkHub()
 
 	// Create event emitter that uses EventHub
 	eventEmitter := &eventEmitter{eventHub: a.eventHub}
-
-	// Coalesce high-frequency claude-output events (Claude/Codex/Gemini stream
-	// frames) into 16ms claude-output-batch frames so the WebSocket Send queue
-	// isn't saturated during long streaming runs. Other event types pass
-	// through unchanged after flushing any pending batch.
-	a.aiOutputCoalescer = eventhub.NewClaudeOutputCoalescer(a.eventHub.Emit)
-	aiSessionEmitter := &coalescedEmitter{coalescer: a.aiOutputCoalescer}
+	providerEmitter := &providerStreamEmitter{
+		eventHub: a.eventHub,
+		bridge:   stream.NewProviderBridge(a.sessionStreamHub),
+	}
 
 	// Initialize PTY manager with event emitter
 	a.ptyManager = pty.NewManager(ctx, eventEmitter)
+	a.ptyManager.SetBulkHub(a.bulkHub)
 
 	// Initialize process manager
 	a.processManager = process.NewManager(ctx)
 	a.processManager.SetEventHub(a.eventHub)
 
 	// Initialize unified provider manager
-	a.providerManager = provider.NewManager(ctx, aiSessionEmitter, nil)
+	a.providerManager = provider.NewManager(ctx, providerEmitter, nil)
 	a.providerManager.RegisterDriver(&providerClaude.Driver{})
 	a.providerManager.RegisterDriver(&providerCodex.Driver{})
 	a.providerManager.RegisterDriver(&providerGemini.Driver{})
@@ -178,12 +182,6 @@ func (a *App) shutdown(ctx context.Context) {
 		a.providerManager.Shutdown()
 	}
 
-	// Flush any pending claude-output batches so the front-end sees the final
-	// stream lines before the connection drops.
-	if a.aiOutputCoalescer != nil {
-		a.aiOutputCoalescer.Close()
-	}
-
 	// Close database
 	if a.dbManager != nil {
 		a.dbManager.Close()
@@ -201,19 +199,44 @@ func (e *eventEmitter) Emit(eventName string, data interface{}) {
 	e.eventHub.Emit(eventName, data)
 }
 
-// coalescedEmitter adapts ClaudeOutputCoalescer to the EventEmitter interface
-// expected by Claude/Codex/Gemini session managers. The coalescer batches
-// "claude-output" frames in 16ms windows; other event names pass through
-// after flushing pending batches so order is preserved.
-type coalescedEmitter struct {
-	coalescer *eventhub.ClaudeOutputCoalescer
+// providerStreamEmitter routes unified provider output into the session stream
+// hub while preserving low-frequency process/session events on EventHub.
+type providerStreamEmitter struct {
+	eventHub *eventhub.EventHub
+	bridge   *stream.ProviderBridge
 }
 
-func (e *coalescedEmitter) Emit(eventName string, data interface{}) {
-	if e.coalescer == nil {
+func (e *providerStreamEmitter) Emit(eventName string, data interface{}) {
+	if eventName != "provider-output" {
+		e.eventHub.Emit(eventName, data)
 		return
 	}
-	e.coalescer.Emit(eventName, data)
+
+	event, ok := providerOutputEventFrom(data)
+	if !ok || e.bridge == nil {
+		return
+	}
+	_ = e.bridge.EmitProviderOutput(stream.ProviderOutputContext{
+		RuntimeSessionID:  event.SessionID,
+		ProviderSessionID: event.ProviderSessionID,
+		Provider:          event.Provider,
+		Cwd:               event.Cwd,
+		ProjectPath:       event.ProjectPath,
+	}, event)
+}
+
+func providerOutputEventFrom(data interface{}) (provider.OutputEvent, bool) {
+	switch event := data.(type) {
+	case provider.OutputEvent:
+		return event, true
+	case *provider.OutputEvent:
+		if event == nil {
+			return provider.OutputEvent{}, false
+		}
+		return *event, true
+	default:
+		return provider.OutputEvent{}, false
+	}
 }
 
 // SetBroadcaster sets the WebSocket broadcaster
@@ -239,6 +262,21 @@ func BootstrapRuntime(ctx context.Context) (*App, func(context.Context), error) 
 // EventHub exposes the initialized event hub for read-only runtime composition.
 func (a *App) EventHub() *eventhub.EventHub {
 	return a.eventHub
+}
+
+// SessionStreamHub exposes the frontend-facing session stream hub.
+func (a *App) SessionStreamHub() *stream.Hub {
+	return a.sessionStreamHub
+}
+
+// SyncHub exposes the frontend-facing low-frequency sync hub.
+func (a *App) SyncHub() *stream.SyncHub {
+	return a.syncHub
+}
+
+// BulkHub exposes the frontend-facing bulk output hub.
+func (a *App) BulkHub() *stream.BulkHub {
+	return a.bulkHub
 }
 
 // Database exposes the initialized database manager for read-only runtime composition.

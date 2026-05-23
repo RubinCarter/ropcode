@@ -134,6 +134,10 @@ func (s *Server) Start(ctx context.Context) (int, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/ws/rpc", s.handleRPCWebSocket)
+	mux.HandleFunc("/ws/sync", s.handleSyncWebSocket)
+	mux.HandleFunc(sessionStreamPrefix, s.handleSessionStreamWebSocket)
+	mux.HandleFunc(bulkStreamPrefix, s.handleBulkStreamWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/upload-attachment", s.handleUploadAttachment)
 	mux.HandleFunc("/local-file/", s.handleLocalFile)
@@ -179,6 +183,10 @@ func listenOnPortRange(start, end int) (net.Listener, error) {
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/ws/rpc", s.handleRPCWebSocket)
+	mux.HandleFunc("/ws/sync", s.handleSyncWebSocket)
+	mux.HandleFunc(sessionStreamPrefix, s.handleSessionStreamWebSocket)
+	mux.HandleFunc(bulkStreamPrefix, s.handleBulkStreamWebSocket)
 	mux.HandleFunc("/health", s.handleHealth)
 	mux.HandleFunc("/api/upload-attachment", s.handleUploadAttachment)
 	mux.HandleFunc("/local-file/", s.handleLocalFile)
@@ -218,19 +226,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleWebSocket 处理 WebSocket 连接
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	// 验证 authKey - 支持 Header 和 URL 参数两种方式
-	if s.authKey != "" {
-		authHeader := r.Header.Get("X-Auth-Key")
-		authQuery := r.URL.Query().Get("authKey")
-		authKey := authHeader
-		if authKey == "" {
-			authKey = authQuery
-		}
-		if authKey != s.authKey {
-			log.Printf("WS auth mismatch: expected=%q header=%q query=%q path=%s", s.authKey, authHeader, authQuery, r.URL.Path)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
+	if !s.authorizeWebSocket(w, r) {
+		return
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)

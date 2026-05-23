@@ -41,6 +41,7 @@ import { useScrollSeekConfig } from "@/hooks/useScrollSeekConfig";
 import { HooksEditor } from "./HooksEditor";
 import { useTrackEvent, useComponentMetrics, useFeatureAdoptionTracking, useSubagentTranscriptSync } from "@/hooks";
 import { useTabState } from "@/hooks/useTabState";
+import { useAgentBulkMessages } from "@/hooks/useAgentBulkMessages";
 
 type UnlistenFn = () => void;
 
@@ -139,23 +140,15 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   const unlistenRefs = useRef<UnlistenFn[]>([]);
   const executionStartTimeRef = useRef<number | null>(null);
   const [runId, setRunId] = useState<number | null>(null);
-  const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
-  const rafHandleRef = useRef<number | null>(null);
+  const [runSessionId, setRunSessionId] = useState<string | null>(null);
 
-  const flushMessageQueue = useCallback(() => {
-    rafHandleRef.current = null;
-    const queued = messageQueueRef.current;
-    if (queued.length === 0) return;
-    messageQueueRef.current = [];
-    setMessages(prev => [...prev, ...queued]);
-  }, []);
-
-  const enqueueMessage = useCallback((message: ClaudeStreamMessage) => {
-    messageQueueRef.current.push(message);
-    if (rafHandleRef.current === null) {
-      rafHandleRef.current = requestAnimationFrame(flushMessageQueue);
-    }
-  }, [flushMessageQueue]);
+  useAgentBulkMessages<ClaudeStreamMessage>(
+    runSessionId,
+    (message) => {
+      setMessages(prev => [...prev, message]);
+    },
+    { enabled: isRunning },
+  );
 
   // Build agentId → AgentOutputTool result mapping
   // Note: JSONL history has 'toolUseResult' at root level, but live stream needs to parse from content
@@ -282,13 +275,9 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
   }, []);
 
   useEffect(() => {
-    // Clean up listeners and pending rAF on unmount
+    // Clean up listeners on unmount
     return () => {
       unlistenRefs.current.forEach(unlisten => unlisten());
-      if (rafHandleRef.current !== null) {
-        cancelAnimationFrame(rafHandleRef.current);
-        rafHandleRef.current = null;
-      }
     };
   }, []);
 
@@ -381,15 +370,18 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       setMessages([]);
       setSubagentTranscripts({});
       setRunId(null);
+      setRunSessionId(null);
       
       // Clear any existing listeners
       unlistenRefs.current.forEach(unlisten => unlisten());
       unlistenRefs.current = [];
       
       // Execute the agent and get the run ID
-      const executionRunId = await api.executeAgent(agent.id!, projectPath, task, model);
+      const executionRun = await api.executeAgent(agent.id!, projectPath, task, model);
+      const executionRunId = executionRun.id;
       console.log("Agent execution started with run ID:", executionRunId);
       setRunId(executionRunId);
+      setRunSessionId(executionRun.session_id || null);
       
       // Track agent execution start
       trackEvent.agentStarted({
@@ -401,16 +393,6 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
       // Track feature adoption
       agentFeatureTracking.trackUsage();
       
-      // Set up event listeners with run ID isolation
-      const outputUnlisten = listen(`agent-output:${executionRunId}`, (payload: string) => {
-        try {
-          const message = JSON.parse(payload) as ClaudeStreamMessage;
-          enqueueMessage(message);
-        } catch (err) {
-          console.error("Failed to parse message:", err, payload);
-        }
-      });
-
       const errorUnlisten = listen(`agent-error:${executionRunId}`, (payload: string) => {
         console.error("Agent error:", payload);
         setError(payload);
@@ -463,12 +445,13 @@ export const AgentExecution: React.FC<AgentExecutionProps> = ({
         }
       });
 
-      unlistenRefs.current = [outputUnlisten, errorUnlisten, completeUnlisten, cancelUnlisten];
+      unlistenRefs.current = [errorUnlisten, completeUnlisten, cancelUnlisten];
     } catch (err) {
       console.error("Failed to execute agent:", err);
       setIsRunning(false);
       setExecutionStartTime(null);
       setRunId(null);
+      setRunSessionId(null);
       // Update tab status to error
       if (tabId) {
         updateTabStatus(tabId, 'error');

@@ -17,7 +17,7 @@ type RPCResponse struct {
 
 // WSEvent 表示后端主动推送的事件
 type WSEvent struct {
-	Type    string      `json:"type"`    // 事件类型，如 "claude-output"
+	Type    string      `json:"type"`    // 事件类型，如 "git:changed"
 	Payload interface{} `json:"payload"` // 事件数据
 }
 

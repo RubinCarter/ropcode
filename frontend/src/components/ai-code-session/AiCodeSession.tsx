@@ -15,10 +15,6 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Copy,
-  ChevronDown,
-  ChevronUp,
-  ArrowDownToLine,
-  ArrowUpFromLine,
   Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,8 +23,7 @@ import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws-rpc-client";
 import { providers } from "@/lib/providers";
 import { cn } from "@/lib/utils";
-import { FloatingPromptInput, type FloatingPromptInputRef } from "../FloatingPromptInput";
-import { SessionStatusBar } from "./SessionStatusBar";
+import { type FloatingPromptInputRef } from "../FloatingPromptInput";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { SlashCommandsManager } from "../SlashCommandsManager";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -47,8 +42,12 @@ import { describeRuntimeStatus } from "./utils/runtimePresentation";
 import { buildSessionStatusBarModel, type SessionStatusPromptConfig, type SessionThinkingStatus } from "./utils/sessionStatusBarPresentation";
 import { classifyPromptSubmit } from "./utils/promptSubmitClassification";
 import { generateSessionTitleViaEvent } from "@/lib/titleGeneration";
-import { MessageStreamView } from "./MessageStreamView";
 import { useWorkspaceTodo } from "@/contexts/WorkspaceTodoContext";
+import { RuntimeStatusBar } from "./runtime/RuntimeStatusBar";
+import { SessionComposer } from "./composer/SessionComposer";
+import { SessionStreamProvider } from "./transport/SessionStreamProvider";
+import { SessionMessagePane } from "./messages/SessionMessagePane";
+import { replaceSessionFrames } from "@/stores/sessionFrameStore";
 
 // Import refactored hooks and types
 import type { AiCodeSessionProps, ClaudeStreamMessage } from "./types";
@@ -65,6 +64,13 @@ const activeRecoveryKeys = new Set<string>();
 
 const streamingViewportIncrease = { top: 100, bottom: 250 };
 const idleViewportIncrease = { top: 300, bottom: 600 };
+
+function streamIdForRuntimeSession(provider: string, runtimeSessionId?: string | null): string | null {
+  if (!runtimeSessionId) {
+    return null;
+  }
+  return provider ? `${provider}:${runtimeSessionId}` : runtimeSessionId;
+}
 
 function formatRecoveryError(err: unknown) {
   if (err instanceof Error) {
@@ -208,12 +214,15 @@ export const AiCodeSession: React.FC<AiCodeSessionProps> = ({
     refreshKey: `${processState.isLoading}:${processState.interactiveSessionId ?? ''}`,
   });
 
+  const activeStreamId = streamIdForRuntimeSession(defaultProvider, processState.interactiveSessionId || sessionState.extractedSessionInfo?.runtimeSessionId);
+
   // Session events - depends on all other hooks
   // Note: eventsState sets up event listeners internally, doesn't need to be used explicitly
   useSessionEvents({
     projectPath: sessionState.projectPath,
     claudeSessionId: sessionState.claudeSessionId,
     effectiveSession: sessionState.effectiveSession,
+    streamId: activeStreamId,
     provider: defaultProvider,
     isMountedRef,
     setClaudeSessionId: sessionState.setClaudeSessionId,
@@ -858,6 +867,14 @@ ${message ? `**说明**:\n${message}` : ''}`;
         restoredSession.projectId,
         restoredSession.provider || defaultProvider
       );
+      const historyFrames = await providers.loadHistoryFrames(
+        restoredSession.sessionId,
+        restoredSession.projectId,
+        restoredSession.provider || defaultProvider
+      ).catch((err) => {
+        console.warn('[AiCodeSession] Failed to load restored history frames:', err);
+        return [];
+      });
 
       // Check if projectPath changed during async load
       if (sessionState.projectPathRef.current !== targetProjectPath) {
@@ -870,6 +887,9 @@ ${message ? `**说明**:\n${message}` : ''}`;
       }
 
       if (history && history.length > 0) {
+        if (historyFrames.length > 0) {
+          replaceSessionFrames(historyFrames[0].streamId, historyFrames);
+        }
         const loadedMessages: ClaudeStreamMessage[] = history.map(entry => {
           // 智能推断消息类型，避免将用户消息错误标记为 assistant
           let messageType = entry.type;
@@ -934,8 +954,19 @@ ${message ? `**说明**:\n${message}` : ''}`;
         s.project_id,
         (s as any).provider || defaultProvider
       );
+      const historyFrames = await providers.loadHistoryFrames(
+        s.id,
+        s.project_id,
+        (s as any).provider || defaultProvider
+      ).catch((err) => {
+        console.warn('[AiCodeSession] Failed to load session history frames:', err);
+        return [];
+      });
 
       if (history && history.length > 0) {
+        if (historyFrames.length > 0) {
+          replaceSessionFrames(historyFrames[0].streamId, historyFrames);
+        }
         SessionPersistenceService.saveSession(
           s.id,
           s.project_id,
@@ -1119,7 +1150,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
   });
 
   const runtimeStatusBar = (
-    <SessionStatusBar
+    <RuntimeStatusBar
       model={runtimeStatusBarModel}
       queuedPrompts={queueState.queuedPrompts}
       queueCollapsed={queueState.queuedPromptsCollapsed}
@@ -1251,7 +1282,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
         if (activeProvider === 'claude') {
           await api.SendClaudeMessage(sessionState.projectPath, currentInteractiveSessionId, wrappedPrompt);
         } else {
-          await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentInteractiveSessionId, providerApiId || undefined, thinkingMode);
+          const runtimeSessionId = await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentInteractiveSessionId, providerApiId || undefined, thinkingMode);
+          processState.setInteractiveSessionId(runtimeSessionId);
         }
       } else if (currentEffectiveSession && !sessionState.isFirstPrompt && activeProvider !== 'claude') {
         // For non-Claude providers (batch mode), can safely resume from effectiveSession
@@ -1259,7 +1291,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
         trackEvent.sessionResumed(currentEffectiveSession.id);
         trackEvent.modelSelected(model);
 
-        await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined, thinkingMode);
+        const runtimeSessionId = await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined, thinkingMode);
+        processState.setInteractiveSessionId(runtimeSessionId);
       } else {
         // Start new session:
         // - For Claude: always start new if no interactiveSessionId
@@ -1284,7 +1317,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
           // Send the first message
           await api.SendClaudeMessage(sessionState.projectPath, interactiveSessionId, wrappedPrompt);
         } else {
-          await api.startProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, providerApiId, thinkingMode);
+          const runtimeSessionId = await api.startProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, providerApiId, thinkingMode);
+          processState.setInteractiveSessionId(runtimeSessionId);
         }
       }
 
@@ -1641,77 +1675,26 @@ ${message ? `**说明**:\n${message}` : ''}`;
   }, []);
 
   const messagesList = (
-    <div className="relative flex-1">
-      <MessageStreamView
-        messagesState={messagesState}
-        isLoading={processState.isLoading}
-        virtuosoRef={virtuosoRef}
-        isScrollPaused={isScrollPaused}
-        streamingViewportIncrease={streamingViewportIncrease}
-        idleViewportIncrease={idleViewportIncrease}
-        followOutput={followOutput}
-        setAtBottom={setAtBottom}
-        expandedSubagentIds={expandedSubagentIds}
-        setExpandedSubagentIds={setExpandedSubagentIds}
-        expandedMessageCards={expandedMessageCards}
-        setExpandedMessageCards={setExpandedMessageCards}
-        handleLinkDetected={handleLinkDetected}
-        error={error}
-        onStreamItemsCountChange={handleStreamItemsCountChange}
-      />
-
-      {/* Scroll buttons */}
-      {streamItemsCount > 5 && (
-        <div className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4">
-          <div className="max-w-6xl w-full flex justify-end">
-          <div className="flex items-center bg-background/95 border rounded-full shadow-sm overflow-hidden pointer-events-auto">
-            <TooltipSimple content={isScrollPaused ? "Resume auto-scroll" : "Lock scroll position"} side="top">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsScrollPaused(!isScrollPaused)}
-                className="px-3 py-2 hover:bg-accent rounded-none active:scale-[0.97]"
-              >
-                {isScrollPaused ? (
-                  <ArrowUpFromLine className="h-4 w-4" />
-                ) : (
-                  <ArrowDownToLine className="h-4 w-4" />
-                )}
-              </Button>
-            </TooltipSimple>
-            <div className="w-px h-6 bg-border" />
-            <TooltipSimple content="Scroll to top" side="top">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  virtuosoRef.current?.scrollToIndex({
-                    index: 0,
-                    align: 'start',
-                    behavior: 'smooth'
-                  });
-                }}
-                className="px-3 py-2 hover:bg-accent rounded-none active:scale-[0.97]"
-              >
-                <ChevronUp className="h-4 w-4" />
-              </Button>
-            </TooltipSimple>
-            <div className="w-px h-6 bg-border" />
-            <TooltipSimple content="Scroll to bottom" side="top">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => scrollToBottom('smooth')}
-                className="px-3 py-2 hover:bg-accent rounded-none active:scale-[0.97]"
-              >
-                <ChevronDown className="h-4 w-4" />
-              </Button>
-            </TooltipSimple>
-          </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <SessionMessagePane
+      messagesState={messagesState}
+      isLoading={processState.isLoading}
+      virtuosoRef={virtuosoRef}
+      isScrollPaused={isScrollPaused}
+      onScrollPausedChange={setIsScrollPaused}
+      streamingViewportIncrease={streamingViewportIncrease}
+      idleViewportIncrease={idleViewportIncrease}
+      followOutput={followOutput}
+      setAtBottom={setAtBottom}
+      expandedSubagentIds={expandedSubagentIds}
+      setExpandedSubagentIds={setExpandedSubagentIds}
+      expandedMessageCards={expandedMessageCards}
+      setExpandedMessageCards={setExpandedMessageCards}
+      handleLinkDetected={handleLinkDetected}
+      error={error}
+      streamItemsCount={streamItemsCount}
+      onStreamItemsCountChange={handleStreamItemsCountChange}
+      scrollToBottom={scrollToBottom}
+    />
   );
 
   // ==================================================================
@@ -1744,6 +1727,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
 
   return (
     <TooltipProvider>
+      <SessionStreamProvider streamId={activeStreamId}>
       <div className={cn("relative flex flex-col h-full bg-background", className)}>
         <div className="w-full h-full flex flex-col">
 
@@ -1825,8 +1809,8 @@ ${message ? `**说明**:\n${message}` : ''}`;
                 {runtimeStatusBar}
               </div>
             </div>
-            <FloatingPromptInput
-              ref={floatingPromptRef}
+            <SessionComposer
+              inputRef={floatingPromptRef}
               onSend={handleSendPrompt}
               onCancel={handleCancelExecution}
               stopStatusLabel={stopStatusBubble.label}
@@ -1862,6 +1846,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
         </Dialog>
       )}
       </div>
+      </SessionStreamProvider>
     </TooltipProvider>
   );
 };

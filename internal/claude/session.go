@@ -61,7 +61,7 @@ type ApiRetryInfo struct {
 }
 
 // RuntimeState tracks fine-grained Claude session activity derived from the JSONL stream.
-// It is injected into every claude-output event so the frontend can show real-time status.
+// It is injected into every session-output frame so the frontend can show real-time status.
 type RuntimeState struct {
 	Processing            bool          `json:"processing"`
 	Retrying              bool          `json:"retrying"`
@@ -294,7 +294,7 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 			s.enrichOutputMessage(userMessage)
 			userJSON, _ := json.Marshal(userMessage)
 			log.Printf("[Session] Broadcasting user message to all clients: session_id=%s, cwd=%s, prompt=%s", s.ID, s.Config.ProjectPath, s.Config.Prompt)
-			emitter.Emit("claude-output", string(userJSON))
+			emitter.Emit("session-output", string(userJSON))
 		}
 
 		// Start reading output in goroutines
@@ -695,7 +695,7 @@ func (s *Session) SendMessage(prompt string, emitter EventEmitter) error {
 		}
 		s.enrichOutputMessage(userMessage)
 		userJSON, _ := json.Marshal(userMessage)
-		emitter.Emit("claude-output", string(userJSON))
+		emitter.Emit("session-output", string(userJSON))
 	}
 
 	// Construct stdin message
@@ -816,8 +816,8 @@ func (s *Session) processOutputLine(lineBytes []byte, outputType string, emitter
 
 		// Re-marshal and send as JSON string
 		enrichedJSON, _ := json.Marshal(msg)
-		log.Printf("[Session] Emitting claude-output (%s): type=%v subtype=%v", outputType, msg["type"], msg["subtype"])
-		emitter.Emit("claude-output", string(enrichedJSON))
+		log.Printf("[Session] Emitting session-output (%s): type=%v subtype=%v", outputType, msg["type"], msg["subtype"])
+		emitter.Emit("session-output", string(enrichedJSON))
 	} else {
 		// Not JSON - wrap as raw output message with source info
 		rawMsg := map[string]interface{}{
@@ -828,7 +828,7 @@ func (s *Session) processOutputLine(lineBytes []byte, outputType string, emitter
 		s.enrichOutputMessage(rawMsg)
 		rawJSON, _ := json.Marshal(rawMsg)
 		log.Printf("[Session] Emitting raw output (%s): %s", outputType, line)
-		emitter.Emit("claude-output", string(rawJSON))
+		emitter.Emit("session-output", string(rawJSON))
 	}
 }
 
@@ -932,7 +932,7 @@ func (s *Session) handleOutputReadError(err error, outputType string, emitter Ev
 	}
 	s.enrichOutputMessage(rawMsg)
 	rawJSON, _ := json.Marshal(rawMsg)
-	emitter.Emit("claude-output", string(rawJSON))
+	emitter.Emit("session-output", string(rawJSON))
 }
 
 func (s *Session) enrichOutputMessage(msg map[string]interface{}) {

@@ -1,29 +1,19 @@
 import { CreatePtySession, WriteToPty, ResizePty, ClosePtySession } from '@/lib/rpc-client';
-import { EventsOn, EventsOff } from '@/lib/rpc-events';
 import { useEffect, useCallback, useRef } from 'react';
-
-interface PtyOutput {
-  session_id: string;
-  output_type: string;
-  content: string;
-}
+import { useBulkStream } from './useBulkStream';
 
 export function usePty(sessionId: string, onOutput: (content: string) => void) {
   const outputHandler = useRef(onOutput);
   outputHandler.current = onOutput;
+  const { frames } = useBulkStream('pty', sessionId);
+  const consumedCountRef = useRef(0);
 
   useEffect(() => {
-    const handler = (data: PtyOutput) => {
-      if (data.session_id === sessionId) {
-        outputHandler.current(data.content);
-      }
-    };
-
-    EventsOn('pty-output', handler);
-    return () => {
-      EventsOff('pty-output');
-    };
-  }, [sessionId]);
+    for (const frame of frames.slice(consumedCountRef.current)) {
+      outputHandler.current(frame.data ?? '');
+    }
+    consumedCountRef.current = frames.length;
+  }, [frames]);
 
   const create = useCallback(async (cwd: string, rows: number, cols: number, shell?: string) => {
     return CreatePtySession(sessionId, cwd, rows, cols, shell || '');

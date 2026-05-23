@@ -46,7 +46,11 @@ function splitPathEntries(pathValue: string, platform: InstallPlatform): string[
     .filter(Boolean);
 }
 
-export function ensurePathContains(pathValue: string, entry: string, platform: InstallPlatform = process.platform): string {
+function joinForPlatform(platform: InstallPlatform, ...parts: string[]): string {
+  return platform === 'win32' ? path.win32.join(...parts) : path.posix.join(...parts);
+}
+
+export function ensurePathContains(pathValue: string, entry: string, platform: InstallPlatform = 'linux'): string {
   const separator = platform === 'win32' ? ';' : ':';
   const entries = splitPathEntries(pathValue, platform);
   if (entries.includes(entry)) {
@@ -78,19 +82,19 @@ async function pickUnixShellProfile(env: InstallEnvironment): Promise<string | u
     : ['.bash_profile', '.bashrc', '.profile', '.zprofile', '.zshrc'];
 
   for (const candidate of candidates) {
-    const profilePath = path.join(env.homeDir, candidate);
+    const profilePath = joinForPlatform(env.platform, env.homeDir, candidate);
     if (await env.fileExists(profilePath)) {
       return profilePath;
     }
   }
 
-  return path.join(env.homeDir, shell === 'zsh' ? '.zprofile' : '.profile');
+  return joinForPlatform(env.platform, env.homeDir, shell === 'zsh' ? '.zprofile' : '.profile');
 }
 
 async function resolvePreferredUnixInstallDir(env: InstallEnvironment): Promise<{ directory: string; needsPathUpdate: boolean; shellProfilePath?: string }> {
   const preferredDirs = [
-    path.join(env.homeDir, '.local', 'bin'),
-    path.join(env.homeDir, 'bin'),
+    joinForPlatform(env.platform, env.homeDir, '.local', 'bin'),
+    joinForPlatform(env.platform, env.homeDir, 'bin'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
   ];
@@ -106,7 +110,7 @@ async function resolvePreferredUnixInstallDir(env: InstallEnvironment): Promise<
     }
   }
 
-  const fallbackDir = path.join(env.homeDir, '.local', 'bin');
+  const fallbackDir = joinForPlatform(env.platform, env.homeDir, '.local', 'bin');
   return {
     directory: fallbackDir,
     needsPathUpdate: true,
@@ -123,18 +127,18 @@ export async function getInstallTarget(env: InstallEnvironment): Promise<Install
       return {
         kind: 'symlink',
         directory: unixTarget.directory,
-        linkPath: path.join(unixTarget.directory, cliName),
+        linkPath: joinForPlatform(env.platform, unixTarget.directory, cliName),
         needsPathUpdate: unixTarget.needsPathUpdate,
         pathEntry: unixTarget.directory,
         shellProfilePath: unixTarget.shellProfilePath,
       };
     }
     case 'win32': {
-      const directory = path.join(env.homeDir, 'AppData', 'Local', 'Programs', 'Ropcode', 'bin');
+      const directory = joinForPlatform(env.platform, env.homeDir, 'AppData', 'Local', 'Programs', 'Ropcode', 'bin');
       return {
         kind: 'copy',
         directory,
-        linkPath: path.join(directory, getCliBinaryBasename(env.platform)),
+        linkPath: joinForPlatform(env.platform, directory, getCliBinaryBasename(env.platform)),
         needsPathUpdate: !splitPathEntries(env.pathValue, env.platform).includes(directory),
         pathEntry: directory,
       };

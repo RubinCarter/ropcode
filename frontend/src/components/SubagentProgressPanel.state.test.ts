@@ -7,6 +7,7 @@ import path from 'node:path';
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const subagentProgressPanelPath = path.resolve(currentDir, './SubagentProgressPanel.tsx');
 const aiCodeSessionPath = path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx');
+const messageStreamViewPath = path.resolve(currentDir, './ai-code-session/MessageStreamView.tsx');
 const agentExecutionPath = path.resolve(currentDir, './AgentExecution.tsx');
 const claudeMessageListPath = path.resolve(currentDir, './claude-code-session/MessageList.tsx');
 const streamMessagePath = path.resolve(currentDir, './StreamMessage.tsx');
@@ -65,25 +66,26 @@ test('SubagentProgressPanel supports controlled expansion state', async () => {
 
 test('AiCodeSession keeps subagent expansion state outside the virtualized row', async () => {
   const source = await readSource(aiCodeSessionPath);
+  const messageStreamViewSource = await readSource(messageStreamViewPath);
 
-  assert.match(source, /const \[isSubagentPanelExpanded, setIsSubagentPanelExpanded\] = useState\(false\);/);
   assert.match(source, /const \[expandedSubagentIds, setExpandedSubagentIds\] = useState<Set<string>>\(new Set\(\)\);/);
-  assert.match(source, /<SubagentProgressPanel[\s\S]*expanded=\{isSubagentPanelExpanded\}[\s\S]*onExpandedChange=\{setIsSubagentPanelExpanded\}[\s\S]*expandedAgents=\{expandedSubagentIds\}[\s\S]*onExpandedAgentsChange=\{setExpandedSubagentIds\}/);
+  assert.match(messageStreamViewSource, /<SubagentProgressPanel[\s\S]*expandedAgents=\{expandedSubagentIds\}[\s\S]*onExpandedAgentsChange=\{setExpandedSubagentIds\}/);
 });
 
 test('virtualized stream rows use message identity instead of row index for keys', async () => {
   const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const messageStreamViewSource = await readSource(messageStreamViewPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
   const claudeMessageListSource = await readSource(claudeMessageListPath);
 
   assert.match(aiCodeSessionSource, /const streamingViewportIncrease = \{ top: 100, bottom: 250 \};/);
   assert.match(aiCodeSessionSource, /const idleViewportIncrease = \{ top: 300, bottom: 600 \};/);
-  assert.match(aiCodeSessionSource, /increaseViewportBy=\{processState\.isLoading \? streamingViewportIncrease : idleViewportIncrease\}/);
-  assert.doesNotMatch(aiCodeSessionSource, /increaseViewportBy=\{\{ top: 900, bottom: 1400 \}\}/);
-  assert.doesNotMatch(aiCodeSessionSource, /overscan=\{\{ main: 600, reverse: 600 \}\}/);
-  assert.match(aiCodeSessionSource, /const computeItemKey = useCallback\(\(_: number, item:[\s\S]*item\.message\.uuid \|\| `msg-\$\{item\.originalIndex\}`, \[\]\);/);
-  assert.match(aiCodeSessionSource, /computeItemKey=\{computeItemKey\}/);
-  assert.doesNotMatch(aiCodeSessionSource, /`msg-\$\{item\.originalIndex\}-\$\{index\}`/);
+  assert.match(messageStreamViewSource, /increaseViewportBy=\{isLoading \? streamingViewportIncrease : idleViewportIncrease\}/);
+  assert.doesNotMatch(messageStreamViewSource, /increaseViewportBy=\{\{ top: 900, bottom: 1400 \}\}/);
+  assert.doesNotMatch(messageStreamViewSource, /overscan=\{\{ main: 600, reverse: 600 \}\}/);
+  assert.match(messageStreamViewSource, /const computeItemKey = useCallback\([\s\S]*item\.message\.uuid \|\| `msg-\$\{item\.originalIndex\}`/);
+  assert.match(messageStreamViewSource, /computeItemKey=\{computeItemKey\}/);
+  assert.doesNotMatch(messageStreamViewSource, /`msg-\$\{item\.originalIndex\}-\$\{index\}`/);
   assert.match(agentExecutionSource, /const messageIndexByObject = React\.useMemo\(\(\) => \{[\s\S]*new WeakMap<ClaudeStreamMessage, number>\(\)/);
   assert.match(agentExecutionSource, /return `\$\{prefix\}\$\{item\.uuid \|\| `msg-\$\{messageIndexByObject\.get\(item\) \?\? 0\}`\}`;/);
   assert.doesNotMatch(agentExecutionSource, /`msg-\$\{index\}-\$\{item\.type\}`/);

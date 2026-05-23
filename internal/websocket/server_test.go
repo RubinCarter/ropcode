@@ -2,6 +2,9 @@ package websocket
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"ropcode/internal/database"
+	"ropcode/internal/stream"
 )
 
 type rpcBlockingApp struct {
@@ -92,6 +98,36 @@ type registryTestApp struct {
 
 func (a *registryTestApp) Database() *database.Database {
 	return a.db
+}
+
+type splitStreamTestApp struct {
+	sessionHub *stream.Hub
+	syncHub    *stream.SyncHub
+	bulkHub    *stream.BulkHub
+}
+
+func newSplitStreamTestApp() *splitStreamTestApp {
+	return &splitStreamTestApp{
+		sessionHub: stream.NewHub(),
+		syncHub:    stream.NewSyncHub(),
+		bulkHub:    stream.NewBulkHub(),
+	}
+}
+
+func (a *splitStreamTestApp) Echo(value string) string {
+	return value
+}
+
+func (a *splitStreamTestApp) SessionStreamHub() *stream.Hub {
+	return a.sessionHub
+}
+
+func (a *splitStreamTestApp) SyncHub() *stream.SyncHub {
+	return a.syncHub
+}
+
+func (a *splitStreamTestApp) BulkHub() *stream.BulkHub {
+	return a.bulkHub
 }
 
 func openRegistryTestDB(t *testing.T) *database.Database {
@@ -304,6 +340,240 @@ func TestHandleMessage_ReturnsPromptlyForSlowRPC(t *testing.T) {
 	}
 
 	close(app.releaseSlow)
+}
+
+func TestSplitWebSocketPathsRequireAuth(t *testing.T) {
+	t.Setenv("ROPCODE_AUTH_KEY", "secret")
+	app := newSplitStreamTestApp()
+	server := NewServer(app)
+
+	port, err := server.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() {
+		_ = server.Stop(context.Background())
+	}()
+
+	for _, path := range []string{
+		"/ws/rpc",
+		"/ws/sync",
+		"/ws/stream/session/claude:runtime-1",
+		"/ws/stream/bulk/pty/terminal-1",
+	} {
+		t.Run(path, func(t *testing.T) {
+			conn, resp, err := websocket.DefaultDialer.Dial(wsURL(port, path, ""), nil)
+			if err == nil {
+				conn.Close()
+				t.Fatal("dial without auth succeeded")
+			}
+			if resp == nil || resp.StatusCode != 401 {
+				status := 0
+				if resp != nil {
+					status = resp.StatusCode
+				}
+				t.Fatalf("status = %d, want 401, err=%v", status, err)
+			}
+		})
+	}
+}
+
+func TestRPCPathRespondsWhileSessionStreamSubscribed(t *testing.T) {
+	app := newSplitStreamTestApp()
+	server := NewServer(app)
+
+	port, err := server.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() {
+		_ = server.Stop(context.Background())
+	}()
+
+	streamConn, _, err := websocket.DefaultDialer.Dial(wsURL(port, "/ws/stream/session/claude:runtime-1", ""), nil)
+	if err != nil {
+		t.Fatalf("session stream dial failed: %v", err)
+	}
+	defer streamConn.Close()
+
+	rpcConn, _, err := websocket.DefaultDialer.Dial(wsURL(port, "/ws/rpc", ""), nil)
+	if err != nil {
+		t.Fatalf("rpc dial failed: %v", err)
+	}
+	defer rpcConn.Close()
+
+	request := WSMessage{
+		Kind: "rpc_request",
+		Request: &RPCRequest{
+			ID:     "req-1",
+			Method: "Echo",
+			Params: []interface{}{"ok"},
+		},
+	}
+	if err := rpcConn.WriteJSON(request); err != nil {
+		t.Fatalf("write rpc request failed: %v", err)
+	}
+
+	_ = app.sessionHub.Append(stream.SessionFrame{
+		StreamID:         "claude:runtime-1",
+		FrameID:          "frame-1",
+		Provider:         "claude",
+		RuntimeSessionID: "runtime-1",
+		Seq:              1,
+		Kind:             stream.FrameKindMessage,
+		Role:             stream.RoleAssistant,
+		Content:          []stream.ContentBlock{{Type: stream.ContentText, Text: "hello"}},
+	})
+
+	if err := rpcConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	_, data, err := rpcConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("rpc response was blocked: %v", err)
+	}
+	var msg WSMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		t.Fatalf("invalid rpc response: %v", err)
+	}
+	if msg.Response == nil || msg.Response.ID != "req-1" || msg.Response.Result != "ok" {
+		t.Fatalf("unexpected rpc response: %#v", msg)
+	}
+}
+
+func TestSessionStreamPathsAreIndependent(t *testing.T) {
+	app := newSplitStreamTestApp()
+	server := NewServer(app)
+
+	port, err := server.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() {
+		_ = server.Stop(context.Background())
+	}()
+
+	streamA, _, err := websocket.DefaultDialer.Dial(wsURL(port, "/ws/stream/session/claude:runtime-a", ""), nil)
+	if err != nil {
+		t.Fatalf("stream A dial failed: %v", err)
+	}
+	defer streamA.Close()
+	streamB, _, err := websocket.DefaultDialer.Dial(wsURL(port, "/ws/stream/session/claude:runtime-b", ""), nil)
+	if err != nil {
+		t.Fatalf("stream B dial failed: %v", err)
+	}
+	defer streamB.Close()
+	waitForCondition(t, 500*time.Millisecond, func() (bool, error) {
+		return app.sessionHub.Diagnostics("claude:runtime-a").Subscribers == 1 &&
+			app.sessionHub.Diagnostics("claude:runtime-b").Subscribers == 1, nil
+	})
+
+	if err := app.sessionHub.Append(stream.SessionFrame{
+		StreamID:         "claude:runtime-b",
+		FrameID:          "frame-b",
+		Provider:         "claude",
+		RuntimeSessionID: "runtime-b",
+		Seq:              1,
+		Kind:             stream.FrameKindMessage,
+		Content:          []stream.ContentBlock{{Type: stream.ContentText, Text: "b"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := streamB.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	_, data, err := streamB.ReadMessage()
+	if err != nil {
+		t.Fatalf("stream B did not receive its frame: %v", err)
+	}
+	var frame stream.SessionFrame
+	if err := json.Unmarshal(data, &frame); err != nil {
+		t.Fatalf("invalid stream frame: %v", err)
+	}
+	if frame.StreamID != "claude:runtime-b" || frame.Content[0].Text != "b" {
+		t.Fatalf("unexpected stream B frame: %#v", frame)
+	}
+
+	if err := streamA.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := streamA.ReadMessage(); err == nil {
+		t.Fatal("stream A unexpectedly received stream B frame")
+	}
+}
+
+func TestSyncAndBulkPathsDeliverFrames(t *testing.T) {
+	app := newSplitStreamTestApp()
+	server := NewServer(app)
+
+	port, err := server.Start(context.Background())
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer func() {
+		_ = server.Stop(context.Background())
+	}()
+
+	syncConn, _, err := websocket.DefaultDialer.Dial(wsURL(port, "/ws/sync", ""), nil)
+	if err != nil {
+		t.Fatalf("sync dial failed: %v", err)
+	}
+	defer syncConn.Close()
+	bulkConn, _, err := websocket.DefaultDialer.Dial(wsURL(port, "/ws/stream/bulk/pty/terminal-1", ""), nil)
+	if err != nil {
+		t.Fatalf("bulk dial failed: %v", err)
+	}
+	defer bulkConn.Close()
+	waitForCondition(t, 500*time.Millisecond, func() (bool, error) {
+		return app.syncHub.Diagnostics().Subscribers == 1 &&
+			app.bulkHub.Diagnostics("pty", "terminal-1").Subscribers == 1, nil
+	})
+
+	app.syncHub.Broadcast(stream.SyncEvent{Type: "project:changed", ProjectID: "project-1"})
+	if err := app.bulkHub.Append(stream.BulkFrame{Source: "pty", ID: "terminal-1", Seq: 1, Data: "output"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := syncConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	_, syncData, err := syncConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("sync frame not received: %v", err)
+	}
+	var syncEvent stream.SyncEvent
+	if err := json.Unmarshal(syncData, &syncEvent); err != nil {
+		t.Fatalf("invalid sync frame: %v", err)
+	}
+	if syncEvent.Type != "project:changed" || syncEvent.ProjectID != "project-1" {
+		t.Fatalf("unexpected sync event: %#v", syncEvent)
+	}
+
+	if err := bulkConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	_, bulkData, err := bulkConn.ReadMessage()
+	if err != nil {
+		t.Fatalf("bulk frame not received: %v", err)
+	}
+	var bulkFrame stream.BulkFrame
+	if err := json.Unmarshal(bulkData, &bulkFrame); err != nil {
+		t.Fatalf("invalid bulk frame: %v", err)
+	}
+	if bulkFrame.Source != "pty" || bulkFrame.ID != "terminal-1" || bulkFrame.Data != "output" {
+		t.Fatalf("unexpected bulk frame: %#v", bulkFrame)
+	}
+}
+
+func wsURL(port int, path string, authKey string) string {
+	u := url.URL{Scheme: "ws", Host: fmt.Sprintf("127.0.0.1:%d", port), Path: path}
+	if authKey != "" {
+		q := u.Query()
+		q.Set("authKey", authKey)
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
 }
 
 func TestSendResponse_AfterClientClose_DoesNotPanic(t *testing.T) {

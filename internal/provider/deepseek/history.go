@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"ropcode/internal/provider"
+	"ropcode/internal/stream"
 )
 
 func DeepSeekDir() (string, error) {
@@ -38,6 +39,26 @@ func LoadSessionHistory(deepseekDir, projectID, sessionID string) ([]provider.Me
 		return nil, fmt.Errorf("parse deepseek session: %w", err)
 	}
 	return deepseekSessionToMessages(raw, projectID), nil
+}
+
+// LoadSessionHistoryFrames loads DeepSeek JSON history as stable frontend session frames.
+func LoadSessionHistoryFrames(deepseekDir, projectPath, sessionID string) ([]stream.SessionFrame, error) {
+	path, err := findSessionJSON(deepseekDir, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read deepseek session: %w", err)
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse deepseek session: %w", err)
+	}
+	return stream.AdaptDeepSeekHistoryDocument(stream.ProviderOutputContext{
+		RuntimeSessionID: sessionID,
+		ProjectPath:      projectPath,
+	}, raw, 1)
 }
 
 func findSessionJSON(deepseekDir, sessionID string) (string, error) {

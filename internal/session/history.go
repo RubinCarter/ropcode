@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	claude "ropcode/internal/provider/claude"
+	"ropcode/internal/stream"
 )
 
 // HistoryManager handles session history operations
@@ -67,6 +68,21 @@ func (h *HistoryManager) LoadSessionHistory(projectID, sessionID string) ([]clau
 	}
 
 	return messages, nil
+}
+
+// LoadSessionHistoryFrames loads all messages for a Claude session as SessionFrame values.
+func (h *HistoryManager) LoadSessionHistoryFrames(projectID, sessionID string) ([]stream.SessionFrame, error) {
+	filePath, err := claude.FindSessionFile(h.claudeDir, projectID, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find session file: %w", err)
+	}
+
+	frames, err := claude.ReadAllMessageFrames(filePath, sessionID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read message frames: %w", err)
+	}
+
+	return frames, nil
 }
 
 // LoadAgentSessionHistory loads all messages for an agent session

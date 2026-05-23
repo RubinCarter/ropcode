@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { EventsOn } from '@/lib/rpc-events';
 import { api } from '@/lib/api';
+import { useBulkStream } from './useBulkStream';
 
 type UnlistenFn = () => void;
 
@@ -268,6 +269,20 @@ export function usePtySession(options: UsePtySessionOptions) {
   const inputDisposableRef = useRef<any>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const readyUnsubscribeRef = useRef<(() => void) | null>(null);
+  const consumedBulkCountRef = useRef(0);
+  const { frames: bulkFrames } = useBulkStream('pty', sessionId, { enabled: Boolean(terminal) });
+
+  useEffect(() => {
+    if (!terminal) return;
+    for (const frame of bulkFrames.slice(consumedBulkCountRef.current)) {
+      try {
+        terminal.write(frame.data ?? '');
+      } catch (error) {
+        console.error('[usePtySession] 写入 Terminal 失败:', error);
+      }
+    }
+    consumedBulkCountRef.current = bulkFrames.length;
+  }, [bulkFrames, terminal]);
 
   // 统一的初始化流程：先设置监听器，再创建 PTY 会话
   useEffect(() => {
@@ -296,31 +311,7 @@ export function usePtySession(options: UsePtySessionOptions) {
         });
         readyUnsubscribeRef.current = readyUnsubscribe;
 
-        // 使用 EventsOn 返回的 unsubscribe 函数来只移除当前组件的监听器
-        // 避免使用 EventsOff 移除所有 pty-output 监听器
-        const unsubscribe = EventsOn('pty-output', (payload: any) => {
-          const { session_id, output_type, content } = payload;
-
-          // 只处理当前会话的输出
-          if (session_id !== sessionId) return;
-
-          // 确保 Terminal 实例仍然有效
-          if (!terminal) return;
-
-          try {
-            if (output_type === 'stdout' || output_type === 'stderr') {
-              terminal.write(content);
-            } else if (output_type === 'exit') {
-              terminal.writeln('\x1b[1;33m\r\nProcess exited\x1b[0m');
-              onExit?.();
-            }
-          } catch (error) {
-            console.error('[usePtySession] 写入 Terminal 失败:', error);
-          }
-        });
-        unsubscribeRef.current = unsubscribe;
-
-        console.log('[usePtySession] PTY 输出监听器已设置:', { sessionId, listenerId });
+        console.log('[usePtySession] PTY bulk 输出监听器已设置:', { sessionId, listenerId });
 
         // 2. 设置输入处理器
         const handleData = async (data: string) => {
@@ -354,7 +345,6 @@ export function usePtySession(options: UsePtySessionOptions) {
 
     return () => {
       console.log('[usePtySession] 清理 PTY 会话:', sessionId);
-      // 使用 unsubscribe 函数只移除当前组件的监听器，而不是移除所有 pty-output 监听器
       unsubscribeRef.current?.();
       unsubscribeRef.current = null;
       readyUnsubscribeRef.current?.();

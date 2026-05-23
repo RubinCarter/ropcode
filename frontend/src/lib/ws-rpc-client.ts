@@ -1,5 +1,5 @@
 // frontend/src/lib/ws-rpc-client.ts
-import { getWebSocketHost } from './ws-config';
+import { buildWebSocketUrl } from './ws/url';
 
 export interface RPCRequest {
   id: string;
@@ -86,12 +86,7 @@ class WSRpcClient {
    * 初始化连接
    */
   async connect(port: number, authKey?: string): Promise<void> {
-    const host = getWebSocketHost(window.location);
-    const url = new URL(`ws://${host}:${port}/ws`);
-    if (authKey) {
-      url.searchParams.set('authKey', authKey);
-    }
-    this.wsUrl = url.toString();
+    this.wsUrl = buildWebSocketUrl(port, '/ws/rpc', authKey, window.location);
     this.authKey = authKey || '';
 
     // iOS Safari pauses JS execution immediately when backgrounded and kills

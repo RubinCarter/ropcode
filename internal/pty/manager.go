@@ -6,18 +6,13 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"ropcode/internal/stream"
 )
 
 // EventEmitter interface for emitting events to the frontend
 type EventEmitter interface {
 	Emit(eventName string, data interface{})
-}
-
-// PtyOutput represents output from a PTY session
-type PtyOutput struct {
-	SessionID  string `json:"session_id"`
-	OutputType string `json:"output_type"`
-	Content    string `json:"content"`
 }
 
 // PtyReady represents PTY session ready event
@@ -31,6 +26,7 @@ type PtyReady struct {
 type Manager struct {
 	ctx      context.Context
 	emitter  EventEmitter
+	bulkHub  *stream.BulkHub
 	sessions map[string]*Session
 	mu       sync.RWMutex
 }
@@ -42,6 +38,13 @@ func NewManager(ctx context.Context, emitter EventEmitter) *Manager {
 		emitter:  emitter,
 		sessions: make(map[string]*Session),
 	}
+}
+
+// SetBulkHub enables the split bulk stream path for terminal output.
+func (m *Manager) SetBulkHub(hub *stream.BulkHub) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bulkHub = hub
 }
 
 // CreateSession creates a new PTY session
@@ -100,7 +103,7 @@ func (m *Manager) CreateSession(id, cwd string, rows, cols int, shell string) (*
 	return session, nil
 }
 
-// readOutput reads from a PTY and emits "pty-output" events to the front-end.
+// readOutput reads from a PTY and appends output to the bulk stream.
 //
 // Output is coalesced over a 16ms window before emission so that bursty
 // programs like `npm run dev` produce roughly one event per frame rather than
@@ -127,15 +130,25 @@ func (m *Manager) readOutput(session *Session) {
 	pending := make([]byte, 0, ptyFlushHighWater)
 
 	flush := func() {
-		if len(pending) == 0 || m.emitter == nil {
+		if len(pending) == 0 {
 			pending = pending[:0]
 			return
 		}
-		m.emitter.Emit("pty-output", PtyOutput{
-			SessionID:  session.ID,
-			OutputType: "stdout",
-			Content:    string(pending),
-		})
+		content := string(pending)
+		m.mu.RLock()
+		bulkHub := m.bulkHub
+		m.mu.RUnlock()
+		if bulkHub != nil {
+			_ = bulkHub.Append(stream.BulkFrame{
+				Source: "pty",
+				ID:     session.ID,
+				Seq:    time.Now().UnixNano(),
+				Data:   content,
+				Meta: map[string]any{
+					"outputType": "stdout",
+				},
+			})
+		}
 		pending = pending[:0]
 	}
 

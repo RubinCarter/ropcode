@@ -7,11 +7,11 @@
  * once per page and converts them into Promises keyed by request_id so callers
  * can `await` the result without holding an RPC open for up to 60 seconds.
  *
- * Why this matters: the synchronous `Generate*` RPCs share the WebSocket Send
- * channel with high-frequency `claude-output` / `pty-output` events. Holding
- * the RPC open during CLI-spawn-based title generation starves regular button
- * RPC responses, which is what made the UI feel frozen during the first
- * message of a chat. Async + event delivery decouples the two completely.
+ * Why this matters: the synchronous `Generate*` RPCs used to share the same
+ * write path as streaming output. Holding the RPC open during CLI-spawn-based
+ * title generation starved regular button RPC responses, which is what made
+ * the UI feel frozen during the first message of a chat. Async + event
+ * delivery decouples the two completely.
  */
 import { useCallback, useState } from 'react';
 import { EventsOn } from '@/lib/rpc-events';

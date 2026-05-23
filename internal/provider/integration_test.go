@@ -42,6 +42,20 @@ func (e *testEmitter) findEvents(name string) []testEvent {
 	return result
 }
 
+func outputEventFromTestEvent(ev testEvent) (provider.OutputEvent, bool) {
+	switch event := ev.data.(type) {
+	case provider.OutputEvent:
+		return event, true
+	case *provider.OutputEvent:
+		if event == nil {
+			return provider.OutputEvent{}, false
+		}
+		return *event, true
+	default:
+		return provider.OutputEvent{}, false
+	}
+}
+
 func TestClaudeInteractiveSession_RealBinary(t *testing.T) {
 	if _, err := exec.LookPath("claude"); err != nil {
 		t.Skip("claude binary not found, skipping real integration test")
@@ -75,14 +89,14 @@ func TestClaudeInteractiveSession_RealBinary(t *testing.T) {
 	t.Log("Init complete!")
 
 	// Check emitted events
-	claudeOutputEvents := emitter.findEvents("claude-output")
-	t.Logf("Total claude-output events after init: %d", len(claudeOutputEvents))
+	providerOutputEvents := emitter.findEvents("provider-output")
+	t.Logf("Total provider-output events after init: %d", len(providerOutputEvents))
 
 	hasSystemInit := false
-	for i, ev := range claudeOutputEvents {
-		if m, ok := ev.data.(map[string]interface{}); ok {
-			evType, _ := m["type"].(string)
-			evSubtype, _ := m["subtype"].(string)
+	for i, ev := range providerOutputEvents {
+		if event, ok := outputEventFromTestEvent(ev); ok {
+			evType := event.Type
+			evSubtype := event.Subtype
 			if i < 5 {
 				summary, _ := json.Marshal(map[string]string{"type": evType, "subtype": evSubtype})
 				t.Logf("  Event[%d]: %s", i, summary)
@@ -96,12 +110,12 @@ func TestClaudeInteractiveSession_RealBinary(t *testing.T) {
 	}
 
 	if !hasSystemInit {
-		t.Error("missing 'system init' event in claude-output emissions")
+		t.Error("missing 'system init' event in provider-output emissions")
 	}
 
 	// Send a message and verify response events are emitted
 	t.Log("Sending message...")
-	preMessageCount := len(emitter.findEvents("claude-output"))
+	preMessageCount := len(emitter.findEvents("provider-output"))
 	if err := mgr.SendMessage(sessionID, "Say exactly: hello"); err != nil {
 		t.Fatalf("SendMessage failed: %v", err)
 	}
@@ -109,15 +123,15 @@ func TestClaudeInteractiveSession_RealBinary(t *testing.T) {
 	// Wait for response
 	time.Sleep(10 * time.Second)
 
-	postMessageEvents := emitter.findEvents("claude-output")
+	postMessageEvents := emitter.findEvents("provider-output")
 	newEvents := postMessageEvents[preMessageCount:]
-	t.Logf("New claude-output events after message: %d", len(newEvents))
+	t.Logf("New provider-output events after message: %d", len(newEvents))
 
 	hasAssistant := false
 	for i, ev := range newEvents {
-		if m, ok := ev.data.(map[string]interface{}); ok {
-			evType, _ := m["type"].(string)
-			evSubtype, _ := m["subtype"].(string)
+		if event, ok := outputEventFromTestEvent(ev); ok {
+			evType := event.Type
+			evSubtype := event.Subtype
 			if i < 10 {
 				summary, _ := json.Marshal(map[string]string{"type": evType, "subtype": evSubtype})
 				t.Logf("  NewEvent[%d]: %s", i, summary)
@@ -195,7 +209,30 @@ func TestCodexBatchSession_RealBinary(t *testing.T) {
 	case <-waitDone:
 	case <-time.After(30 * time.Second):
 		mgr.TerminateSession(sessionID)
-		t.Fatal("Codex batch session did not complete within 30s")
+		t.Fatal("Codex session did not complete within 30s")
+	}
+
+	// Check events
+	providerOutputEvents := emitter.findEvents("provider-output")
+	t.Logf("Total provider-output events: %d", len(providerOutputEvents))
+
+	for i, ev := range providerOutputEvents {
+		if i >= 10 {
+			t.Logf("  ... and %d more", len(providerOutputEvents)-10)
+			break
+		}
+		if event, ok := outputEventFromTestEvent(ev); ok {
+			summary, _ := json.Marshal(map[string]string{"type": event.Type, "subtype": event.Subtype})
+			t.Logf("  Event[%d]: %s", i, summary)
+		} else {
+			t.Logf("  Event[%d]: unexpected type %T", i, ev.data)
+		}
+	}
+
+	if len(providerOutputEvents) == 0 {
+		output, _ := mgr.GetSessionOutput(sessionID)
+		t.Logf("Raw output:\n%s", output)
+		t.Error("NO provider-output events emitted for Codex session")
 	}
 
 	completeEvents := emitter.findEvents("claude-complete")

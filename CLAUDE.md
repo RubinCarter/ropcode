@@ -12,6 +12,8 @@ Ropcode is an Electron desktop app that wraps Claude Code / Gemini CLI / Codex t
 
 A standalone `ropcode-server` run (without Electron) is a valid target; the server reverse-proxies Vite in dev and serves `frontend/dist` in production.
 
+Windows firewall note: Ropcode intentionally binds the WebSocket server on `0.0.0.0` so LAN/mobile/dev clients can reach it when needed. Go test binaries are rebuilt under temporary paths, so Windows may repeatedly prompt for `ropcode.test.exe` unless a port-based allow rule exists. The server tries `5173`, then stable fallback ports `5180-5199`, before random fallback. Use admin PowerShell `.\scripts\allow-ropcode-firewall.ps1` once to allow those stable ports instead of narrowing the server to `127.0.0.1`.
+
 ## Commands
 
 All npm scripts run from the repo root unless stated. The shell is bash (Git Bash on Windows).
@@ -23,6 +25,9 @@ All npm scripts run from the repo root unless stated. The shell is bash (Git Bas
 | Full production build | `npm run build` |
 | Electron-only build | `make build` |
 | Packaged Electron release | `npm run build:release` (runs `scripts/build-electron.sh`) |
+| Wails v2 single-exe build | `.\scripts\build-wails.ps1` |
+| Wails v3 single-exe build | `.\wails3\scripts\build-wails3.ps1` |
+| Allow Ropcode dev/test firewall prompt once | Admin PowerShell: `.\scripts\allow-ropcode-firewall.ps1` |
 | Go server + platform/arch CLI | `npm run build:go` (builds `bin/ropcode-server` + CLI via `scripts/build-cli.sh`) |
 | Go CLI only (flat path) | `npm run build:cli:dev` → `bin/ropcode` |
 | Go tests | `go test ./...` (or target a package, e.g. `go test ./internal/claude`) |
@@ -37,6 +42,8 @@ Build note: `scripts/build-cli.sh` drops the CLI into `bin/<platform>/<arch>/rop
 
 For Windows release work, `npm run build:release` may fail under `cmd.exe` because it shells into `./scripts/build-electron.sh` — run it from Git Bash or invoke `bash ./scripts/build-electron.sh` directly.
 
+Wails v3 is intentionally isolated under `wails3\`. Do not add `wails3_*.go` files to the repository root. Use `.\wails3\scripts\build-wails3.ps1` to build `wails3\build\bin\RopcodeWails3.exe`; the script builds `ropcode-server`, copies `frontend/dist` into the v3 module, and embeds both into the Wails v3 shell. Wails v3 currently requires Go 1.25+.
+
 ## Architecture
 
 ### Electron ↔ Go handshake
@@ -48,6 +55,12 @@ For Windows release work, `npm run build:release` may fail under `cmd.exe` becau
 - `ROPCODE_VITE_URL` (dev) or `ROPCODE_FRONTEND_DIR` (prod) — tells Go how to serve the UI.
 
 Go picks a free port and prints `WS_PORT:<port>` to stdout. Electron parses this line, then loads the window pointing at the Go server, which reverse-proxies Vite. This means **the browser always talks to Go, never directly to Vite** — all API traffic (RPC + events + asset serving) goes through one origin.
+
+### Wails shells
+
+The legacy Wails v2 shell is configured by `wails.json` and `scripts/build-wails.ps1`. It builds `build-wails\bin\RopcodeWails.exe`, starts the existing `BootstrapRuntime` in-process, and exposes WebSocket RPC routes through the Wails asset server. Do not ship a bare `go build -tags wails` binary; use the script so Wails production tags and metadata are applied.
+
+The Wails v3 shell is a separate module in `wails3\`. Keep all v3-specific source, scripts, copied frontend files, embedded server binaries, and build output inside that directory. It embeds `ropcode-server.exe` and `frontend/dist`, extracts them at runtime, starts the server as a child process, then loads the frontend through the Wails v3 asset server while proxying `/ws`, `/ws/rpc`, `/ws/sync`, `/api/upload-attachment`, and `/local-file/` to the child server.
 
 ### RPC is reflection-based
 
@@ -79,6 +92,44 @@ Do not instantiate managers directly in new code — go through `NewApp()` + `St
 The CLI dials the same WebSocket RPC endpoint as the frontend and reuses `internal/rpc.Dial`. Entry points: `root.go` (command dispatch), `workspace.go`, `session.go`, `project.go`, `instance.go`, `tui.go`. Global flags (`--instance`, `--project`, `--workspace`, `--cwd`) are stripped before subcommand parsing — see `stripGlobalFlags`.
 
 Multiple Ropcode instances are tracked in the SQLite DB via `internal/runtime/registry.go`; the CLI's `--instance` flag picks which one to talk to.
+
+CLI PWD behavior: from a real unregistered directory, bare `ropcode status`, `send`, `logs`, `stop`, or `focus` auto-registers that directory as a project through the server RPC path, treats it as the logical `main` space, prints registration and history import counts, and emits normal project change events. Saved focus is only a fallback and must not override a real registered or auto-registerable `$PWD`.
+
+### Desktop UI automation
+
+Prefer browser-layer automation first when the behavior can be validated through the React/WebSocket UI without Electron-native window semantics. The dedicated harness lives in `ui-automation/` and runs headless Microsoft Edge through Playwright:
+
+```powershell
+npm --prefix ui-automation install
+npm --prefix ui-automation run test
+```
+
+That runner builds the latest local `bin\ropcode-server.exe` and `bin\win32\x64\ropcode.exe`, starts Vite and `ropcode-server`, opens the Go-served app in Edge, verifies injected WebSocket auth config, performs an authenticated `ListProjects` RPC call, and navigates the Projects, Settings, and Agents panes. Use it as the default final UI check for visible frontend, RPC, navigation, and CLI/UI sync changes because it does not steal mouse, keyboard, or foreground focus.
+
+Use the `agent-computer-use` skill and the `agent-cu` CLI for desktop UI validation. Do not replace it with raw coordinate scripts, PowerShell UI hacks, or generic process/window commands when the test needs to click, type, read, or verify the app.
+
+Start every UI automation run with:
+
+1. `agent-cu check-permissions`
+2. `agent-cu apps --compact` to discover the exact app name
+3. `agent-cu windows -a <APP> --compact`
+4. `agent-cu snapshot -a <APP> -i -c -d 8`
+
+If the sidebar or nested controls are missing, retry snapshots with `-d 12`. Follow the loop `snapshot -> act -> verify`: after any click, typing action, navigation, modal open, or UI mutation, take a fresh snapshot because `@e*` refs can go stale. Prefer stable `id="..."` selectors when the Electron DOM exposes them; use refs only for the immediate next action after a snapshot.
+
+For CLI/UI sync tests, mutate state through CLI/RPC or one UI surface, then verify the other surface without pressing the manual refresh button. Use `agent-cu text -a <APP>`, `agent-cu find`, `agent-cu wait-for`, or `agent-cu get-value` as the state check; do not treat a successful click as proof that the UI updated.
+
+For final verification of any change that affects visible frontend state, RPC-backed UI, navigation, modals, or user workflows, run the browser UI automation in `ui-automation/` in addition to unit tests/typechecks. If the change affects Electron startup, native window behavior, file dialogs, accessibility-tree behavior, or desktop-only focus/keyboard paths, also run a real `agent-cu` desktop scenario when the machine is available for foreground UI control. Unit tests and typechecks are necessary but not sufficient for these changes.
+
+When an `agent-cu` run hits a tool-specific pitfall, record it before finishing: include the symptom, likely cause, reliable recovery, and exact command/selector that worked. Update both this file and `AGENTS.md` when the lesson is durable enough to help future UI automation.
+
+Windows Electron lessons from the 2026-05-21 UI sync validation:
+
+- In dev runs launched through the root Electron binary, `agent-cu apps --compact` may report the app as `electron` while `agent-cu snapshot -a electron ...` fails with `application not found`. If `agent-cu windows -a electron --compact` shows a window titled `ropcode`, use the title for targeted reads (`agent-cu snapshot -a ropcode -i -c -d 8`) or omit `-a` while the Ropcode window is frontmost.
+- The Windows `agent-cu wait-for` command does not accept `-a`; `agent-cu wait-for 'name~="..."' -a ropcode` fails with `unexpected argument '-a'`. Use `agent-cu find ... -a ropcode --compact`, `agent-cu text -a ropcode`, or a frontmost-window `agent-cu wait-for` instead.
+- Electron DevTools can appear as a second text area in snapshots and pollute `agent-cu text` output. Prefer compact snapshots and selector-based checks, or close DevTools before broad text checks.
+- In project-list sync checks, an unexpanded project row may expose the updated workspace count before individual workspace names are visible. Verifying the row name changed from `ropcode 2 main` to `ropcode 3 main` without pressing refresh is valid evidence that `project:changed` reloaded the list.
+- When a user is actively using the desktop, do not run `agent-cu click`, `agent-cu type`, key presses, window restore, or window focus commands. Use `ui-automation/` or `playwright-cli --browser=msedge` browser checks instead; reserve `agent-cu` interaction for an agreed foreground test window or a dedicated VM/session.
 
 ## Constraints & gotchas
 

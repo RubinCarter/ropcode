@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"ropcode/internal/stream"
 )
 
 func TestNewHistoryManager(t *testing.T) {
@@ -151,6 +153,39 @@ func TestLoadSessionHistory(t *testing.T) {
 
 	if messages[1].UUID != "456" {
 		t.Errorf("Expected second message UUID '456', got '%s'", messages[1].UUID)
+	}
+}
+
+func TestLoadSessionHistoryFrames(t *testing.T) {
+	tmpDir := t.TempDir()
+	claudeDir := filepath.Join(tmpDir, ".claude")
+	projectID := "test-project"
+	sessionID := "test-session"
+	projectDir := filepath.Join(claudeDir, "projects", projectID)
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("Failed to create project directory: %v", err)
+	}
+
+	sessionFile := filepath.Join(projectDir, sessionID+".jsonl")
+	content := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"assistant response"}]},"uuid":"456","timestamp":"2024-01-01T00:00:01Z","sessionId":"provider-session"}
+`
+	if err := os.WriteFile(sessionFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create session file: %v", err)
+	}
+
+	manager := NewHistoryManager(claudeDir)
+	frames, err := manager.LoadSessionHistoryFrames(projectID, sessionID)
+	if err != nil {
+		t.Fatalf("LoadSessionHistoryFrames failed: %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("got %d frames, want 1", len(frames))
+	}
+	if frames[0].StreamID != stream.StreamIDForSession("claude", sessionID) || frames[0].ProviderSessionID != "provider-session" {
+		t.Fatalf("unexpected identity: %#v", frames[0])
+	}
+	if frames[0].Content[0].Text != "assistant response" {
+		t.Fatalf("unexpected content: %#v", frames[0].Content)
 	}
 }
 

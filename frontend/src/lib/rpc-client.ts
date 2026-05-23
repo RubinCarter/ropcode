@@ -6,6 +6,7 @@
  */
 
 import { wsClient } from './ws-rpc-client';
+import type { SessionFrame } from './session-frame/types';
 
 // 通用类型定义
 export type CommandType = 'claude' | 'codex';
@@ -921,6 +922,14 @@ export function LoadProviderSessionHistory(
   providerName: string
 ): Promise<claude.Message[]> {
   return wsClient.call('LoadProviderSessionHistory', sessionId, projectId, providerName);
+}
+
+export function LoadProviderSessionHistoryFrames(
+  projectId: string,
+  sessionId: string,
+  providerName: string
+): Promise<SessionFrame[]> {
+  return wsClient.call('LoadProviderSessionHistoryFrames', sessionId, projectId, providerName);
 }
 
 export function LoadSubagentTranscripts(

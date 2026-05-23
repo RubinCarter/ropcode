@@ -4,7 +4,8 @@
  * 导出 provider 相关的常量、类型和 API 方法
  */
 
-import { ListProviderSessions, LoadProviderSessionHistory } from './rpc-client';
+import { ListProviderSessions, LoadProviderSessionHistory, LoadProviderSessionHistoryFrames } from './rpc-client';
+import type { SessionFrame } from './session-frame/types';
 
 export type ProviderHistoryMessageType = 'system' | 'assistant' | 'user' | 'result' | 'info' | 'error';
 
@@ -61,6 +62,10 @@ export const providers = {
    */
   loadHistory: async (sessionId: string, projectId: string, providerName: string): Promise<ProviderHistoryMessage[]> => {
     return LoadProviderSessionHistory(projectId, sessionId, providerName) as Promise<ProviderHistoryMessage[]>;
+  },
+
+  loadHistoryFrames: async (sessionId: string, projectId: string, providerName: string): Promise<SessionFrame[]> => {
+    return LoadProviderSessionHistoryFrames(projectId, sessionId, providerName);
   },
 };
 

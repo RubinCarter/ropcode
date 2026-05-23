@@ -34,13 +34,16 @@ type SessionStatus struct {
 
 // OutputEvent is the unified output event produced by driver.ParseOutput.
 type OutputEvent struct {
-	Type      string                 `json:"type"`
-	Subtype   string                 `json:"subtype,omitempty"`
-	SessionID string                 `json:"session_id"`
-	Provider  string                 `json:"provider"`
-	Message   map[string]interface{} `json:"message,omitempty"`
-	IsDelta   bool                   `json:"is_delta,omitempty"`
-	Raw       string                 `json:"raw,omitempty"`
+	Type              string                 `json:"type"`
+	Subtype           string                 `json:"subtype,omitempty"`
+	SessionID         string                 `json:"session_id"`
+	Provider          string                 `json:"provider"`
+	ProjectPath       string                 `json:"project_path,omitempty"`
+	Cwd               string                 `json:"cwd,omitempty"`
+	ProviderSessionID string                 `json:"provider_session_id,omitempty"`
+	Message           map[string]interface{} `json:"message,omitempty"`
+	IsDelta           bool                   `json:"is_delta,omitempty"`
+	Raw               string                 `json:"raw,omitempty"`
 }
 
 // StderrEvent represents a stderr output event.

@@ -19,8 +19,7 @@ const (
 	pingPeriod = 25 * time.Second
 
 	// Buffer sizes are tuned for the workload split between RPC responses
-	// (small, infrequent) and high-frequency push events (claude-output /
-	// pty-output during streaming).
+	// (small, infrequent) and push events.
 	responseBufferSize = 1024
 	eventBufferSize    = 4096
 )
@@ -38,8 +37,8 @@ type Client struct {
 
 	// Responses carries RPC responses to the peer. Drained with priority.
 	Responses chan []byte
-	// Events carries push events (claude-output / pty-output / git:changed
-	// etc). Larger buffer because the producer side is bursty.
+	// Events carries push events. Larger buffer because the producer side is
+	// bursty.
 	Events chan []byte
 
 	mu     sync.Mutex

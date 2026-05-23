@@ -17,11 +17,14 @@ import {
   resetRuntimeTracker,
 } from "../state/runtimeTrackerStore";
 import { clearInteractiveSessionIdAfterProcessExit } from "../utils/interactiveSessionState";
+import { useSessionFrameMessages } from "@/hooks/useSessionFrameMessages";
+import { EventsOn } from "@/lib/rpc-events";
 
 export interface UseSessionEventsOptions {
   projectPath: string;
   claudeSessionId: string | null;
   effectiveSession: Session | null;
+  streamId?: string | null;
   provider?: string;  // Provider ID (claude, codex, etc.)
   isMountedRef: React.MutableRefObject<boolean>;
 
@@ -129,6 +132,30 @@ function coerceCompletionPayload(completion: boolean | string | ClaudeCompletion
   };
 }
 
+function parseCompletionPayload(payload: unknown): ClaudeCompletionPayload | null {
+  if (typeof payload === 'boolean' || typeof payload === 'string') {
+    return coerceCompletionPayload(payload);
+  }
+  if (payload && typeof payload === 'object') {
+    return coerceCompletionPayload(payload as ClaudeCompletionPayload);
+  }
+  return null;
+}
+
+function parseEventObject(payload: unknown): Record<string, any> | null {
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload) as Record<string, any>;
+    } catch {
+      return null;
+    }
+  }
+  if (payload && typeof payload === 'object') {
+    return payload as Record<string, any>;
+  }
+  return null;
+}
+
 /**
  * Hook to manage session events
  */
@@ -136,6 +163,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
   const {
     projectPath,
     claudeSessionId,
+    streamId,
     isMountedRef,
     setClaudeSessionId,
     setExtractedSessionInfo,
@@ -494,26 +522,20 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     }
   }, [flushRuntimeTracker, flushPendingSessionSave, setIsLoading, hasActiveSessionRef, setInteractiveSessionId, onComplete, processNextInQueue, projectPathRef, setWorkspaceStatus, options.provider]);
 
-  // Set up browser event listeners
+  useSessionFrameMessages(streamId, handleStreamMessage, {
+    skipInitial: messagesLengthRef.current > 0 && !hasActiveSessionRef.current,
+  });
+
   useEffect(() => {
     if (!projectPath) return;
 
-    const handleOutput = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      handleStreamMessage(customEvent.detail);
-    };
+    const handleErrorPayload = (payload: unknown) => {
+      console.error('[useSessionEvents] Error event:', payload);
 
-    const handleError = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      console.error('[useSessionEvents] Error event:', customEvent.detail);
+      const errorData = parseEventObject(payload);
+      if (errorData) {
+        if (errorData.cwd && errorData.cwd !== projectPathRef.current) return;
 
-      // Parse error and display to user
-      try {
-        const errorData = typeof customEvent.detail === 'string'
-          ? JSON.parse(customEvent.detail)
-          : customEvent.detail;
-
-        // Use type: "error" to match StreamMessage rendering
         const errorMessage: ClaudeStreamMessage = {
           type: "error",
           error: errorData.error || errorData.message || 'Unknown error',
@@ -529,37 +551,35 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         setIsLoading(false);
         hasActiveSessionRef.current = false;
         clearInteractiveSessionIdAfterProcessExit(setInteractiveSessionId);
-      } catch (parseErr) {
-        // If parsing fails, show raw error
-        const errorMessage: ClaudeStreamMessage = {
-          type: "error",
-          error: String(customEvent.detail),
-          timestamp: new Date().toISOString()
-        } as ClaudeStreamMessage;
-        addMessage(errorMessage);
-        trackError();
-        setIsLoading(false);
-        hasActiveSessionRef.current = false;
-        clearInteractiveSessionIdAfterProcessExit(setInteractiveSessionId);
+        return;
       }
+
+      const errorMessage: ClaudeStreamMessage = {
+        type: "error",
+        error: String(payload),
+        timestamp: new Date().toISOString()
+      } as ClaudeStreamMessage;
+      addMessage(errorMessage);
+      trackError();
+      setIsLoading(false);
+      hasActiveSessionRef.current = false;
+      clearInteractiveSessionIdAfterProcessExit(setInteractiveSessionId);
     };
 
-    const handleComplete = (e: Event) => {
-      const customEvent = e as CustomEvent;
-      processComplete(customEvent.detail);
+    const handleCompletePayload = (payload: unknown) => {
+      const completePayload = parseCompletionPayload(payload);
+      if (completePayload?.cwd && completePayload.cwd !== projectPathRef.current) return;
+      void processComplete(completePayload ?? String(payload));
     };
 
-    // Listen for events specific to this cwd
-    window.addEventListener(`claude-output:${projectPath}`, handleOutput);
-    window.addEventListener(`claude-error:${projectPath}`, handleError);
-    window.addEventListener(`claude-complete:${projectPath}`, handleComplete);
+    const unlistenError = EventsOn('claude-error', handleErrorPayload);
+    const unlistenComplete = EventsOn('claude-complete', handleCompletePayload);
 
     return () => {
-      window.removeEventListener(`claude-output:${projectPath}`, handleOutput);
-      window.removeEventListener(`claude-error:${projectPath}`, handleError);
-      window.removeEventListener(`claude-complete:${projectPath}`, handleComplete);
+      unlistenError();
+      unlistenComplete();
     };
-  }, [projectPath, handleStreamMessage, processComplete]);
+  }, [projectPath, processComplete, projectPathRef]);
 
   return {
     handleStreamMessage,

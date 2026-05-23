@@ -3,7 +3,6 @@ package provider
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -15,10 +14,10 @@ import (
 
 // Session is the generic provider session implementation that also implements SessionHandle.
 type Session struct {
-	ID       string
-	driver   ProviderDriver
-	config   SessionConfig
-	emitter  EventEmitter
+	ID      string
+	driver  ProviderDriver
+	config  SessionConfig
+	emitter EventEmitter
 
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
@@ -177,18 +176,11 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 				event.Provider = s.driver.ID()
 				s.extractProviderSessionID(event)
 				s.routeControlResponse(event)
+				event.ProjectPath = s.config.ProjectPath
+				event.Cwd = s.config.ProjectPath
+				event.ProviderSessionID = s.GetProviderSessionID()
 				if s.emitter != nil {
-					payload := event.Message
-					if payload == nil {
-						payload = make(map[string]interface{})
-					}
-					payload["session_id"] = s.ID
-					payload["cwd"] = s.config.ProjectPath
-					if _, hasUUID := payload["uuid"]; !hasUUID {
-						payload["uuid"] = fmt.Sprintf("%s-%d", s.ID, time.Now().UnixNano())
-					}
-					jsonBytes, _ := json.Marshal(payload)
-					s.emitter.Emit("claude-output", string(jsonBytes))
+					s.emitter.Emit("provider-output", event)
 				}
 			}
 		} else {
@@ -482,23 +474,34 @@ func (s *Session) DeliverControlResponse(requestID string, data map[string]inter
 
 // MarkInitialized marks the session as initialized and emits a system init event.
 func (s *Session) MarkInitialized() {
+	shouldEmit := false
+
 	s.mu.Lock()
 	if !s.initialized {
 		s.initialized = true
 		close(s.initDone)
+		shouldEmit = true
 	}
 	s.mu.Unlock()
 
-	if s.emitter != nil {
-		initEvent := map[string]interface{}{
+	if shouldEmit && s.emitter != nil {
+		message := map[string]interface{}{
 			"type":       "system",
 			"subtype":    "init",
 			"session_id": s.ID,
 			"cwd":        s.config.ProjectPath,
 			"provider":   s.driver.ID(),
 		}
-		jsonBytes, _ := json.Marshal(initEvent)
-		s.emitter.Emit("claude-output", string(jsonBytes))
+		s.emitter.Emit("provider-output", OutputEvent{
+			Type:              "system",
+			Subtype:           "init",
+			SessionID:         s.ID,
+			Provider:          s.driver.ID(),
+			ProjectPath:       s.config.ProjectPath,
+			Cwd:               s.config.ProjectPath,
+			ProviderSessionID: s.GetProviderSessionID(),
+			Message:           message,
+		})
 	}
 }
 

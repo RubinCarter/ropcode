@@ -32,6 +32,7 @@ import { AGENT_ICONS } from './CCAgents';
 import type { ClaudeStreamMessage } from './AgentExecution';
 import { useTabState } from '@/hooks/useTabState';
 import { useMessageWindow } from '@/hooks/useMessageWindow';
+import { useAgentBulkMessages } from '@/hooks/useAgentBulkMessages';
 
 interface AgentRunOutputViewerProps {
   /**
@@ -177,25 +178,12 @@ export function AgentRunOutputViewer({
   const hasSetupListenersRef = useRef(false);
 
   const unlistenRefs = useRef<UnlistenFn[]>([]);
-  const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
-  const rafHandleRef = useRef<number | null>(null);
 
-  const flushMessageQueue = useCallback(() => {
-    rafHandleRef.current = null;
-    const queued = messageQueueRef.current;
-    if (queued.length === 0) return;
-    messageQueueRef.current = [];
-    for (const msg of queued) {
-      appendWindowMessage(msg);
-    }
-  }, [appendWindowMessage]);
-
-  const enqueueMessage = useCallback((message: ClaudeStreamMessage) => {
-    messageQueueRef.current.push(message);
-    if (rafHandleRef.current === null) {
-      rafHandleRef.current = requestAnimationFrame(flushMessageQueue);
-    }
-  }, [flushMessageQueue]);
+  useAgentBulkMessages<ClaudeStreamMessage>(
+    run?.session_id,
+    (message) => appendWindowMessage(message),
+    { enabled: run?.status === 'running', skipInitial: true },
+  );
 
   // Auto-scroll 由 Virtuoso 的 followOutput 接管，原 isAtBottom / scrollToBottom
   // / 手工 useEffect / handleScroll 全部删除。
@@ -228,10 +216,6 @@ export function AgentRunOutputViewer({
       unlistenRefs.current.forEach(unlisten => unlisten());
       unlistenRefs.current = [];
       hasSetupListenersRef.current = false;
-      if (rafHandleRef.current !== null) {
-        cancelAnimationFrame(rafHandleRef.current);
-        rafHandleRef.current = null;
-      }
     };
   }, []);
 
@@ -290,19 +274,6 @@ export function AgentRunOutputViewer({
         isInitialLoadRef.current = false;
       }, 100);
 
-      // Set up live event listeners with run ID isolation
-      const outputUnlisten = listen(`agent-output:${run!.id}`, (payload: string) => {
-        try {
-          if (isInitialLoadRef.current) {
-            return;
-          }
-          const message = JSON.parse(payload) as ClaudeStreamMessage;
-          enqueueMessage(message);
-        } catch (err) {
-          console.error("[AgentRunOutputViewer] Failed to parse message:", err, payload);
-        }
-      });
-
       const errorUnlisten = listen(`agent-error:${run!.id}`, (payload: string) => {
         console.error("[AgentRunOutputViewer] Agent error:", payload);
         setToast({ message: payload, type: 'error' });
@@ -319,7 +290,7 @@ export function AgentRunOutputViewer({
         void refreshSubagentTranscripts();
       });
 
-      unlistenRefs.current = [outputUnlisten, errorUnlisten, completeUnlisten, cancelUnlisten];
+      unlistenRefs.current = [errorUnlisten, completeUnlisten, cancelUnlisten];
     } catch (error) {
       console.error('[AgentRunOutputViewer] Failed to set up live event listeners:', error);
     }
@@ -804,4 +775,4 @@ export function AgentRunOutputViewer({
   );
 }
 
-export default AgentRunOutputViewer; 
+export default AgentRunOutputViewer;

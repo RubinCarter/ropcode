@@ -6,20 +6,12 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
-  FileText,
-  Clock,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { getClaudeSyntaxTheme } from "@/lib/claudeSyntaxTheme";
 import { useTheme } from "@/hooks";
 import type { ClaudeStreamMessage } from "./AgentExecution";
-import { api, type FileEntry } from "@/lib/api";
-import { basename, isAbsolutePath } from "@/lib/pathUtils";
 import {
   TodoWidget,
   TodoReadWidget,
@@ -39,393 +31,40 @@ import {
   MultiEditWidget,
   MultiEditResultWidget,
   SystemReminderWidget,
-  SystemInitializedWidget,
-  SystemInstructionWidget,
   TaskWidget,
   LSResultWidget,
   ThinkingWidget,
   WebSearchWidget,
   WebFetchWidget
-} from "./ToolWidgets";
+} from "./tool-widgets";
 import { getUserMessagePresentation } from "./ai-code-session/utils/messagePresentation";
 import { summarizeRuntimeMessage } from "./ai-code-session/utils/runtimePresentation";
+import { CollapsibleTextCard } from "./stream-message/CollapsibleTextCard";
+import {
+  MarkdownContent,
+  getAgentsSnapshot,
+  loadAgentsOnce,
+  parseAgentMentions,
+  renderWithSystemInstructions,
+  subscribeAgents,
+} from "./stream-message/rendering";
+import {
+  buildStreamMessageContext,
+  streamMessagePropsAreEqual,
+  type StreamMessageContext,
+  type StreamMessageProps,
+} from "./stream-message/context";
+import { SummaryMessageCard } from "./stream-message/SummaryMessageCard";
+import {
+  ErrorMessageCard,
+  RenderFailureCard,
+  ResultMessageCard,
+  RuntimeEventCard,
+  SystemInitCard,
+} from "./stream-message/MessageCards";
 
-export interface StreamMessageContext {
-  toolResults: Map<string, any>;
-  cwd: string;
-  toolUseNamesById: Map<string, string>;
-  readToolPathsById: Map<string, string>;
-}
-
-interface StreamMessageProps {
-  message: ClaudeStreamMessage;
-  className?: string;
-  streamMessages: ClaudeStreamMessage[];
-  streamContext?: StreamMessageContext;
-  onLinkDetected?: (url: string) => void;
-  agentOutputMap?: Map<string, any>;
-  isStreamingText?: boolean;
-  expandedCards?: Set<string>;
-  onExpandedCardsChange?: React.Dispatch<React.SetStateAction<Set<string>>>;
-  messageKey?: string;
-  /**
-   * Revision counter that the streaming-tail wrapper bumps on every text
-   * delta. Read only by the memo comparator: a change here defeats memo so
-   * the in-place mutated `message` object can re-render without us having to
-   * clone it. Static rows leave this undefined and stay memoised.
-   */
-  tailRev?: number;
-}
-
-export function buildStreamMessageContext(streamMessages: ClaudeStreamMessage[]): StreamMessageContext {
-  const toolResults = new Map<string, any>();
-  const toolUseNamesById = new Map<string, string>();
-  const readToolPathsById = new Map<string, string>();
-  let cwd = "";
-
-  streamMessages.forEach((msg) => {
-    if (msg.type === "system" && msg.subtype === "init" && msg.cwd) {
-      cwd = msg.cwd;
-    }
-
-    if (msg.type === "assistant" && msg.message?.content && Array.isArray(msg.message.content)) {
-      msg.message.content.forEach((content: any) => {
-        if ((content.type === "tool_use" || content.type === "server_tool_use") && content.id) {
-          const toolName = String(content.name ?? "").toLowerCase();
-          toolUseNamesById.set(content.id, toolName);
-          if (toolName === "read" && content.input?.file_path) {
-            readToolPathsById.set(content.id, content.input.file_path);
-          }
-        }
-        if (content.tool_use_id) {
-          toolResults.set(content.tool_use_id, content);
-        }
-      });
-    }
-
-    if (msg.type === "user" && msg.message?.content && Array.isArray(msg.message.content)) {
-      msg.message.content.forEach((content: any) => {
-        if (content.type === "tool_result" && content.tool_use_id) {
-          toolResults.set(content.tool_use_id, content);
-        }
-      });
-    }
-  });
-
-  return { toolResults, cwd, toolUseNamesById, readToolPathsById };
-}
-
-interface CollapsibleTextCardProps {
-  title: string;
-  preview: string;
-  defaultExpanded?: boolean;
-  expanded?: boolean;
-  onExpandedChange?: (expanded: boolean) => void;
-  children: React.ReactNode;
-}
-
-type AgentPresentationMap = Map<string, { color?: string; icon?: string }>;
-
-let cachedAgents: AgentPresentationMap = new Map();
-let agentsLoadPromise: Promise<void> | null = null;
-const agentStoreListeners = new Set<() => void>();
-
-function subscribeAgents(listener: () => void): () => void {
-  agentStoreListeners.add(listener);
-  return () => agentStoreListeners.delete(listener);
-}
-
-function getAgentsSnapshot(): AgentPresentationMap {
-  return cachedAgents;
-}
-
-function loadAgentsOnce(): void {
-  if (agentsLoadPromise) return;
-
-  agentsLoadPromise = api.listClaudeAgents().then((agentFiles: FileEntry[]) => {
-    const nextAgents = new Map<string, { color?: string; icon?: string }>();
-    agentFiles.forEach(agent => {
-      if (agent.entry_type === 'agent') {
-        nextAgents.set(agent.name, {
-          color: agent.color,
-          icon: agent.icon,
-        });
-      }
-    });
-    cachedAgents = nextAgents;
-    agentStoreListeners.forEach((listener) => listener());
-  }).catch((err: unknown) => {
-    agentsLoadPromise = null;
-    console.error('Failed to load agents:', err);
-  });
-}
-
-const CollapsibleTextCard: React.FC<CollapsibleTextCardProps> = ({
-  title,
-  preview,
-  defaultExpanded = false,
-  expanded: controlledExpanded,
-  onExpandedChange,
-  children,
-}) => {
-  const [uncontrolledExpanded, setUncontrolledExpanded] = useState(defaultExpanded);
-  const expanded = controlledExpanded ?? uncontrolledExpanded;
-
-  const toggleExpanded = () => {
-    const nextExpanded = !expanded;
-    if (controlledExpanded === undefined) {
-      setUncontrolledExpanded(nextExpanded);
-    }
-    onExpandedChange?.(nextExpanded);
-  };
-
-  return (
-    <div className="rounded-lg border bg-muted/30 overflow-hidden">
-      <button
-        onClick={toggleExpanded}
-        className="w-full flex items-start gap-2 p-3 text-left hover:bg-muted/50 transition-colors"
-      >
-        {expanded ? (
-          <ChevronDown className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-        ) : (
-          <ChevronRight className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-        )}
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="text-sm font-medium">{title}</div>
-          {!expanded && (
-            <div className="text-xs text-muted-foreground whitespace-pre-wrap break-words">
-              {preview}
-            </div>
-          )}
-        </div>
-      </button>
-      {expanded && (
-        <div className="px-3 pb-3">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-};
-
-/**
- * Parse text and convert @mentions into styled components
- * - @agent-name: colored badges for Claude Code agents
- * - @/path/to/file: file path mentions (show filename only, tooltip shows full path)
- */
-const parseAgentMentions = (text: string, agents: Map<string, { color?: string; icon?: string }>): React.ReactNode => {
-  // Match both @agent-name and @/path/to/file patterns
-  const mentionRegex = /@([a-zA-Z0-9-_]+|[^\s]+)/g;
-
-  // If no @ mentions found, return the original text
-  if (!mentionRegex.test(text)) {
-    return text;
-  }
-
-  // Reset regex lastIndex after test
-  mentionRegex.lastIndex = 0;
-
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-
-  while ((match = mentionRegex.exec(text)) !== null) {
-    const matchIndex = match.index;
-    const fullMatch = match[0]; // @agent-name or @/path/to/file
-    const captured = match[1]; // agent-name or /path/to/file
-
-    // Add text before the match
-    if (matchIndex > lastIndex) {
-      parts.push(text.substring(lastIndex, matchIndex));
-    }
-
-    // Check if this is a file path.
-    if (isAbsolutePath(captured)) {
-      const filePath = captured;
-      const fileName = basename(filePath, filePath);
-
-      // Determine file type by extension
-      const ext = fileName.split('.').pop()?.toLowerCase();
-      const isImage = ext && ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'].includes(ext);
-      const isCode = ext && ['ts', 'tsx', 'js', 'jsx', 'py', 'rs', 'go', 'java', 'cpp', 'c', 'h'].includes(ext);
-      const isDoc = ext && ['md', 'txt', 'json', 'yaml', 'yml', 'toml', 'xml', 'html', 'css'].includes(ext);
-
-      // Choose colors based on file type
-      let colors = { bg: 'bg-gray-500/10', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-500/20' };
-      if (isImage) {
-        colors = { bg: 'bg-green-500/10', text: 'text-green-600 dark:text-green-400', border: 'border-green-500/20' };
-      } else if (isCode) {
-        colors = { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' };
-      } else if (isDoc) {
-        colors = { bg: 'bg-gray-500/10', text: 'text-gray-600 dark:text-gray-400', border: 'border-gray-500/20' };
-      }
-
-      parts.push(
-        <span
-          key={`file-${matchIndex}`}
-          className={`inline-flex items-center px-2 py-0.5 mx-1 rounded-md text-xs font-medium ${colors.bg} ${colors.text} border ${colors.border} cursor-pointer hover:opacity-80 transition-opacity`}
-          title={filePath}
-          onClick={() => {
-            // TODO: Add click handler for file preview
-            if (isImage) {
-              console.log('Open image preview:', filePath);
-              // onLinkDetected could be extended to handle image previews
-            }
-          }}
-        >
-          @{filePath}
-        </span>
-      );
-    }
-    // Check if this is a known Claude Code agent
-    else {
-      const agentName = captured;
-      const agentInfo = agents.get(agentName);
-
-      if (agentInfo) {
-        // Map color names to Tailwind classes
-        const colorMap: Record<string, { bg: string; text: string; border: string }> = {
-          'red': { bg: 'bg-red-500/20', text: 'text-red-600 dark:text-red-400', border: 'border-red-500/30' },
-          'blue': { bg: 'bg-blue-500/20', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/30' },
-          'green': { bg: 'bg-green-500/20', text: 'text-green-600 dark:text-green-400', border: 'border-green-500/30' },
-          'yellow': { bg: 'bg-yellow-500/20', text: 'text-yellow-600 dark:text-yellow-400', border: 'border-yellow-500/30' },
-          'purple': { bg: 'bg-purple-500/20', text: 'text-purple-600 dark:text-purple-400', border: 'border-purple-500/30' },
-          'orange': { bg: 'bg-orange-500/20', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-500/30' },
-        };
-
-        const colors = agentInfo.color ? colorMap[agentInfo.color] : null;
-        const defaultColors = { bg: 'bg-primary/20', text: 'text-primary', border: 'border-primary/30' };
-        const finalColors = colors || defaultColors;
-
-        parts.push(
-          <span
-            key={`agent-${matchIndex}`}
-            className={`inline-flex items-center px-2 py-0.5 mx-1 rounded-md text-xs font-medium ${finalColors.bg} ${finalColors.text} border ${finalColors.border}`}
-            title={`Agent: ${agentName}`}
-          >
-            @{agentName}
-          </span>
-        );
-      } else {
-        // For non-agent, non-file mentions, render as plain text
-        parts.push(fullMatch);
-      }
-    }
-
-    lastIndex = matchIndex + fullMatch.length;
-  }
-
-  // Add remaining text after the last match
-  if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex));
-  }
-
-  return <>{parts}</>;
-};
-
-/**
- * Parse text containing system-instruction tags and render them with SystemInstructionWidget
- * Returns null if no system-instruction tags are found
- * Supports both <system-instruction> and <system_instruction> formats
- */
-const markdownRemarkPlugins = [remarkGfm];
-
-const MarkdownContent = React.memo(function MarkdownContent({ text, syntaxTheme }: { text: string; syntaxTheme: any }) {
-  const components = useMemo(() => ({
-    code({ node, inline, className, children, ...props }: any) {
-      const match = /language-(\w+)/.exec(className || '');
-      const code = String(children).replace(/\n$/, '');
-      return !inline && match ? (
-        <SyntaxHighlighter
-          style={syntaxTheme}
-          language={match[1]}
-          PreTag="div"
-          codeTagProps={{ className: "!text-foreground" }}
-          {...props}
-        >
-          {code}
-        </SyntaxHighlighter>
-      ) : (
-        <code className={className} {...props}>
-          {children}
-        </code>
-      );
-    }
-  }), [syntaxTheme]);
-
-  return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
-      <ReactMarkdown remarkPlugins={markdownRemarkPlugins} components={components}>
-        {text}
-      </ReactMarkdown>
-    </div>
-  );
-});
-
-const renderWithSystemInstructions = (
-  contentStr: string,
-  agents: Map<string, { color?: string; icon?: string }>,
-  keyPrefix: string = '',
-  getExpansionProps?: (cardId: string, defaultExpanded: boolean) => { defaultExpanded?: boolean; expanded?: boolean; onExpandedChange?: (expanded: boolean) => void }
-): React.ReactNode | null => {
-  // Quick check if there are any system instruction tags
-  if (!contentStr.includes('<system-instruction>') && !contentStr.includes('<system_instruction>')) {
-    return null;
-  }
-
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  // Match both hyphen and underscore variants, but require matching closing tag
-  const regex = /<system(-|_)instruction>([\s\S]*?)<\/system\1instruction>/g;
-  let match: RegExpExecArray | null;
-  let keyIndex = 0;
-
-  while ((match = regex.exec(contentStr)) !== null) {
-    // Add text before this match
-    if (match.index > lastIndex) {
-      const textBefore = contentStr.substring(lastIndex, match.index).trim();
-      if (textBefore) {
-        parts.push(
-          <div key={`${keyPrefix}text-${keyIndex++}`} className="text-sm whitespace-pre-wrap">
-            {parseAgentMentions(textBefore, agents)}
-          </div>
-        );
-      }
-    }
-
-    // Add the system instruction widget
-    const instructionMessage = match[2].trim();
-    const instructionIndex = keyIndex++;
-    parts.push(
-      <SystemInstructionWidget
-        key={`${keyPrefix}instruction-${instructionIndex}`}
-        message={instructionMessage}
-        {...getExpansionProps?.(`${keyPrefix}system-instruction-${instructionIndex}`, false)}
-      />
-    );
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  // Add any remaining text after the last match
-  if (lastIndex < contentStr.length) {
-    const textAfter = contentStr.substring(lastIndex).trim();
-    if (textAfter) {
-      parts.push(
-        <div key={`${keyPrefix}text-${keyIndex++}`} className="text-sm whitespace-pre-wrap">
-          {parseAgentMentions(textAfter, agents)}
-        </div>
-      );
-    }
-  }
-
-  // Only return if we found and processed at least one system instruction
-  if (parts.length > 0) {
-    return <div className="space-y-2">{parts}</div>;
-  }
-
-  return null;
-};
+export { buildStreamMessageContext };
+export type { StreamMessageContext };
 
 function formatEventDetails(message: ClaudeStreamMessage): string {
   try {
@@ -434,94 +73,6 @@ function formatEventDetails(message: ClaudeStreamMessage): string {
   } catch (_err) {
     return String(message);
   }
-}
-
-function getMessageContentBlocks(message: ClaudeStreamMessage): any[] {
-  const content = message.message?.content ?? (message as any).content;
-  return Array.isArray(content) ? content : [];
-}
-
-function getMessageToolUseIds(message: ClaudeStreamMessage): string[] {
-  return getMessageContentBlocks(message)
-    .filter((content) => content?.type === 'tool_use' && content.id)
-    .map((content) => content.id);
-}
-
-function getMessageToolResultIds(message: ClaudeStreamMessage): string[] {
-  return getMessageContentBlocks(message)
-    .filter((content) => content?.type === 'tool_result' && content.tool_use_id)
-    .map((content) => content.tool_use_id);
-}
-
-function getTaskAgentIds(message: ClaudeStreamMessage, context?: StreamMessageContext): string[] {
-  if (!context) return [];
-
-  return getMessageContentBlocks(message).flatMap((content) => {
-    const toolName = String(content?.name ?? '').toLowerCase();
-    if (content?.type !== 'tool_use' || !content.id) {
-      return [];
-    }
-    if (toolName !== 'task' && toolName !== 'agent' && toolName !== 'agenttool') {
-      return [];
-    }
-
-    const result = context.toolResults.get(content.id);
-    const text = result?.content?.[0]?.text;
-    if (typeof text !== 'string') return [];
-
-    const match = text.match(/agentId:\s*([a-f0-9]+)/);
-    return match ? [match[1]] : [];
-  });
-}
-
-function expandedCardsChangedForMessage(prevCards: Set<string> | undefined, nextCards: Set<string> | undefined, messageKey: string | undefined, message: ClaudeStreamMessage): boolean {
-  if (prevCards === nextCards) return false;
-  if (!prevCards || !nextCards) return true;
-
-  const prefix = `${messageKey ?? message.uuid ?? 'message'}:`;
-  for (const key of prevCards) {
-    if (key.startsWith(prefix) && !nextCards.has(key)) return true;
-  }
-  for (const key of nextCards) {
-    if (key.startsWith(prefix) && !prevCards.has(key)) return true;
-  }
-  return false;
-}
-
-function streamMessagePropsAreEqual(prev: StreamMessageProps, next: StreamMessageProps): boolean {
-  if (prev.message !== next.message) return false;
-  if (prev.tailRev !== next.tailRev) return false;
-  if (prev.className !== next.className) return false;
-  if (prev.onLinkDetected !== next.onLinkDetected) return false;
-  if (prev.isStreamingText !== next.isStreamingText) return false;
-  if (prev.onExpandedCardsChange !== next.onExpandedCardsChange) return false;
-  if (prev.messageKey !== next.messageKey) return false;
-  if (expandedCardsChangedForMessage(prev.expandedCards, next.expandedCards, next.messageKey, next.message)) return false;
-
-  const prevContext = prev.streamContext;
-  const nextContext = next.streamContext;
-  if (!prevContext || !nextContext) {
-    return prev.streamMessages === next.streamMessages && prev.agentOutputMap === next.agentOutputMap;
-  }
-  if (prevContext.cwd !== nextContext.cwd) return false;
-
-  const toolUseIds = getMessageToolUseIds(next.message);
-  for (const toolUseId of toolUseIds) {
-    if (prevContext.toolResults.get(toolUseId) !== nextContext.toolResults.get(toolUseId)) return false;
-  }
-
-  const toolResultIds = getMessageToolResultIds(next.message);
-  for (const toolResultId of toolResultIds) {
-    if (prevContext.toolUseNamesById.get(toolResultId) !== nextContext.toolUseNamesById.get(toolResultId)) return false;
-    if (prevContext.readToolPathsById.get(toolResultId) !== nextContext.readToolPathsById.get(toolResultId)) return false;
-  }
-
-  const agentIds = getTaskAgentIds(next.message, nextContext);
-  for (const agentId of agentIds) {
-    if (prev.agentOutputMap?.get(agentId) !== next.agentOutputMap?.get(agentId)) return false;
-  }
-
-  return true;
 }
 
 /**
@@ -586,63 +137,8 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
       const content = typeof message.message?.content === 'string'
         ? message.message.content
         : JSON.stringify(message.message?.content || '');
-
-      // Extract title (first line) and summary content
-      const lines = content.split('\n');
-      const summaryContent = lines.slice(1).join('\n');
       const summaryExpansion = getCardExpansionProps('conversation-summary', false);
-      const isSummaryExpanded = Boolean(summaryExpansion.expanded);
-
-      return (
-        <Card className="border-l-4 border-blue-500 bg-blue-50 dark:bg-blue-900/20 rounded-lg my-4 overflow-hidden">
-          <CardContent className="p-0">
-            {/* Clickable header */}
-            <button
-              onClick={() => summaryExpansion.onExpandedChange?.(!isSummaryExpanded)}
-              className="w-full flex items-center justify-between p-4 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800/30 transition-colors border-b border-blue-200 dark:border-blue-700"
-            >
-              <div className="flex items-center gap-3">
-                {isSummaryExpanded ? (
-                  <ChevronDown className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                ) : (
-                  <ChevronRight className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                )}
-                <FileText className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-                <div className="text-left">
-                  <div className="font-semibold text-blue-900 dark:text-blue-100 text-sm">
-                    Context Summary - Continued
-                  </div>
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                    Previous conversation ended due to context limit
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <Clock className="w-4 h-4" />
-                {message.timestamp && new Date(message.timestamp).toLocaleString()}
-              </div>
-            </button>
-
-            {/* Collapsible content */}
-            {isSummaryExpanded && (
-              <div className="p-4 bg-white dark:bg-gray-800">
-                <div className="prose prose-sm dark:prose-invert max-w-none">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 p-3 rounded-md border border-gray-200 dark:border-gray-700 overflow-x-auto">
-                    {summaryContent.trim()}
-                  </pre>
-                </div>
-              </div>
-            )}
-
-            {/* Collapsed hint */}
-            {!isSummaryExpanded && (
-              <div className="px-4 pb-4 pt-2 text-sm text-gray-600 dark:text-gray-400 italic">
-                Click to expand full summary of previous conversation...
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      );
+      return <SummaryMessageCard message={message} content={content} expansion={summaryExpansion} />;
     }
 
     // Skip rendering for meta messages that don't have meaningful content
@@ -658,18 +154,11 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
     // System initialization message
     if (message.type === "system" && message.subtype === "init") {
       return (
-        <div className="space-y-2">
-          {runtimeSummary && (
-            <div className="text-xs text-muted-foreground">{runtimeSummary}</div>
-          )}
-          <SystemInitializedWidget
-            sessionId={message.session_id}
-            model={message.model}
-            cwd={message.cwd}
-            tools={message.tools}
-            {...getCardExpansionProps('system-init', false)}
-          />
-        </div>
+        <SystemInitCard
+          message={message}
+          runtimeSummary={runtimeSummary}
+          expansion={getCardExpansionProps('system-init', false)}
+        />
       );
     }
 
@@ -1333,89 +822,20 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
 
     // Error message - display error to user
     if (message.type === "error") {
-      const errorMessage = message.error?.message || message.error || "Unknown error";
-      return (
-        <Card className={cn("border-destructive/20 bg-destructive/5", className)}>
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
-              <div className="flex-1">
-                <h4 className="font-semibold text-sm text-destructive">Error</h4>
-                <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap break-words">
-                  {typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage, null, 2)}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      );
+      return <ErrorMessageCard message={message} className={className} />;
     }
 
     // Result message - render with markdown
     if (message.type === "result") {
-      const isError = message.is_error || message.subtype?.includes("error");
       const resultExpansion = getCardExpansionProps('result-details', false);
-      const expanded = Boolean(resultExpansion.expanded);
-
       return (
-        <Card className={cn(
-          isError ? "border-destructive/20 bg-destructive/5" : "border-green-500/20 bg-green-500/5",
-          className
-        )}>
-          <CardContent className="p-4">
-            {runtimeSummary && (
-              <div className="mb-2 text-xs text-muted-foreground">{runtimeSummary}</div>
-            )}
-            <button
-              onClick={() => resultExpansion.onExpandedChange?.(!expanded)}
-              className="w-full flex items-start gap-3 text-left hover:opacity-80 transition-opacity"
-            >
-              {isError ? (
-                <AlertCircle className="h-5 w-5 text-destructive mt-0.5 flex-shrink-0" />
-              ) : (
-                <CheckCircle2 className="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" />
-              )}
-              <div className="flex-1">
-                <h4 className="font-semibold text-sm">
-                  {isError ? "Execution Failed" : "Execution Complete"}
-                </h4>
-              </div>
-              <ChevronDown className={cn(
-                "h-4 w-4 text-muted-foreground transition-transform flex-shrink-0 mt-0.5",
-                expanded && "rotate-180"
-              )} />
-            </button>
-
-            {expanded && (
-              <div className="ml-8 mt-4 space-y-2">
-                {message.result && <MarkdownContent text={message.result} syntaxTheme={syntaxTheme} />}
-
-                {message.error && (
-                  <div className="text-sm text-destructive">{message.error}</div>
-                )}
-
-                <div className="text-xs text-muted-foreground space-y-1 mt-2">
-                  {((message.cost_usd !== undefined && message.cost_usd !== null) ||
-                    (message.total_cost_usd !== undefined && message.total_cost_usd !== null)) && (
-                    <div>Cost: ${(message.cost_usd || message.total_cost_usd || 0).toFixed(4)} USD</div>
-                  )}
-                  {message.duration_ms !== undefined && (
-                    <div>Duration: {(message.duration_ms / 1000).toFixed(2)}s</div>
-                  )}
-                  {message.num_turns !== undefined && (
-                    <div>Turns: {message.num_turns}</div>
-                  )}
-                  {message.usage && (
-                    <div>
-                      Total tokens: {message.usage.input_tokens + message.usage.output_tokens}
-                      ({message.usage.input_tokens} in, {message.usage.output_tokens} out)
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <ResultMessageCard
+          message={message}
+          runtimeSummary={runtimeSummary}
+          syntaxTheme={syntaxTheme}
+          className={className}
+          expansion={resultExpansion}
+        />
       );
     }
 
@@ -1423,24 +843,13 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
       const eventDetails = formatEventDetails(message);
       const eventLabel = [message.type, message.subtype].filter(Boolean).join(' · ') || 'runtime event';
       return (
-        <Card className={cn("border-muted bg-muted/20", className)}>
-          <CardContent className="p-4">
-            <div className="flex items-start gap-3">
-              <Terminal className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{runtimeSummary}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{eventLabel}</span>
-                </div>
-                <CollapsibleTextCard title="Event details" preview="Click to expand event JSON" {...getCardExpansionProps('event-details', false)}>
-                  <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-3 text-xs text-muted-foreground">
-                    {eventDetails}
-                  </pre>
-                </CollapsibleTextCard>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <RuntimeEventCard
+          runtimeSummary={runtimeSummary}
+          eventDetails={eventDetails}
+          eventLabel={eventLabel}
+          className={className}
+          expansion={getCardExpansionProps('event-details', false)}
+        />
       );
     }
 
@@ -1449,21 +858,7 @@ const StreamMessageComponent: React.FC<StreamMessageProps> = ({ message, classNa
   } catch (error) {
     // If any error occurs during rendering, show a safe error message
     console.error("Error rendering stream message:", error, message);
-    return (
-      <Card className={cn("border-destructive/20 bg-destructive/5", className)}>
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium">Error rendering message</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {error instanceof Error ? error.message : 'Unknown error'}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <RenderFailureCard error={error} />;
   }
 };
 

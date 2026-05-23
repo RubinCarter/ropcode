@@ -38,6 +38,7 @@ import (
 	"ropcode/internal/provider/deepseek"
 	"ropcode/internal/provider/gemini"
 	"ropcode/internal/ssh"
+	"ropcode/internal/stream"
 	"ropcode/internal/usage"
 )
 
@@ -543,7 +544,7 @@ func (a *App) GetSessionMessagesRange(projectID, sessionID string, start, end in
 	return a.sessionManager.GetMessagesRange(projectID, sessionID, start, end)
 }
 
-// StreamSessionOutput streams the output of a session
+// StreamSessionOutput backfills a session log into the agent bulk stream.
 func (a *App) StreamSessionOutput(projectID, sessionID string) error {
 	if a.sessionManager == nil {
 		return fmt.Errorf("session manager not initialized")
@@ -556,24 +557,34 @@ func (a *App) StreamSessionOutput(projectID, sessionID string) error {
 	// Start streaming in a goroutine
 	go a.sessionManager.StreamSessionOutput(projectID, sessionID, eventChan, errorChan)
 
-	// Forward messages to the frontend via WebSocket events
+	// Forward messages to the agent bulk stream. Viewers subscribe to
+	// /ws/stream/bulk/agent/{sessionID}.
 	go func() {
 		for {
 			select {
 			case msg, ok := <-eventChan:
 				if !ok {
-					// Channel closed, streaming complete
-					a.eventHub.Emit("session:stream:complete", map[string]interface{}{
-						"sessionId": sessionID,
-					})
 					return
 				}
-				// Emit each message to the frontend
-				a.eventHub.Emit("session:stream:message", msg)
+				if a.bulkHub != nil {
+					if data, err := json.Marshal(msg); err == nil {
+						_ = a.bulkHub.Append(stream.BulkFrame{
+							Source:    "agent",
+							ID:        sessionID,
+							FrameID:   msg.UUID,
+							Seq:       time.Now().UnixNano(),
+							Timestamp: msg.Timestamp,
+							Data:      string(data),
+							Meta: map[string]interface{}{
+								"projectId": projectID,
+							},
+						})
+					}
+				}
 
 			case err := <-errorChan:
 				if err != nil {
-					a.eventHub.Emit("session:stream:error", map[string]interface{}{
+					a.eventHub.Emit("agent-error:"+sessionID, map[string]interface{}{
 						"sessionId": sessionID,
 						"error":     err.Error(),
 					})
@@ -630,6 +641,38 @@ func (a *App) LoadProviderSessionHistory(sessionID, projectID, provider string) 
 			return []claude.Message{}, fmt.Errorf("session manager not initialized")
 		}
 		return a.sessionManager.LoadSessionHistory(projectID, sessionID)
+	}
+}
+
+// LoadProviderSessionHistoryFrames loads provider history as stable SessionFrame values.
+func (a *App) LoadProviderSessionHistoryFrames(sessionID, projectID, provider string) ([]stream.SessionFrame, error) {
+	log.Printf("[LoadProviderSessionHistoryFrames] Loading history for provider=%s, session=%s, project=%s", provider, sessionID, projectID)
+
+	switch provider {
+	case "codex":
+		codexDir, err := codex.CodexDir()
+		if err != nil {
+			return []stream.SessionFrame{}, fmt.Errorf("failed to get codex directory: %w", err)
+		}
+		return codex.LoadSessionHistoryFrames(codexDir, projectID, sessionID)
+
+	case "deepseek":
+		deepseekDir, err := deepseek.DeepSeekDir()
+		if err != nil {
+			return []stream.SessionFrame{}, fmt.Errorf("failed to get deepseek directory: %w", err)
+		}
+		return deepseek.LoadSessionHistoryFrames(deepseekDir, projectID, sessionID)
+
+	case "gemini":
+		return []stream.SessionFrame{}, fmt.Errorf("session frame history is not implemented for provider: %s", provider)
+
+	case "claude":
+		fallthrough
+	default:
+		if a.sessionManager == nil {
+			return []stream.SessionFrame{}, fmt.Errorf("session manager not initialized")
+		}
+		return a.sessionManager.LoadSessionHistoryFrames(projectID, sessionID)
 	}
 }
 
