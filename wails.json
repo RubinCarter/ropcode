@@ -7,7 +7,7 @@
   "frontend:build": "",
   "frontend:dev:watcher": "",
   "frontend:dev:serverUrl": "http://localhost:5174",
-  "build:dir": "build-wails",
+  "build:dir": "release",
   "build:tags": "wails",
   "author": {
     "name": "Ropcode",
