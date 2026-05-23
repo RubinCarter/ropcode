@@ -71,7 +71,7 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
 
   const runtimeCanHaveRunningWork = runtime.phase !== 'idle' && runtime.phase !== 'completed' && runtime.phase !== 'failed' && runtime.phase !== 'cancelled';
   const active = isLoading || stopVisible || runtimeCanHaveRunningWork;
-  const hasRunningSubagents = runtimeCanHaveRunningWork && subagentProgress.runningCount > 0;
+  const hasRunningSubagents = runtime.phase === 'tool_running' && subagentProgress.runningCount > 0;
   const base = getPrimaryState({ runtime, runtimeCopy, stopVisible, hasRunningSubagents, currentTodoActiveForm });
   const metrics: SessionStatusBarItem[] = [];
   const hints: SessionStatusBarItem[] = [];

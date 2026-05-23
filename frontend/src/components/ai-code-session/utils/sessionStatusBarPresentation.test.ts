@@ -57,7 +57,7 @@ test('buildSessionStatusBarModel summarizes subagent activity without raw event 
   const source = await readSource();
 
   assert.match(source, /const runtimeCanHaveRunningWork = runtime\.phase !== 'idle' && runtime\.phase !== 'completed' && runtime\.phase !== 'failed' && runtime\.phase !== 'cancelled';/);
-  assert.match(source, /const hasRunningSubagents = runtimeCanHaveRunningWork && subagentProgress\.runningCount > 0;/);
+  assert.match(source, /const hasRunningSubagents = runtime\.phase === 'tool_running' && subagentProgress\.runningCount > 0;/);
   assert.match(source, /return \{ primary: 'Running subagents…'/);
   assert.match(source, /label: agentParts \|\| `\$\{subagentProgress\.subagents\.length\} agents`/);
   assert.match(source, /`\$\{formatCompactNumber\(subagentProgress\.totalTokenCount\)\} agent tokens`/);
