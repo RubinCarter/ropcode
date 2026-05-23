@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { debugLog, type LogEntry } from "@/lib/debug-log";
 import { Trash2, ArrowDown, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -26,22 +27,32 @@ function formatTime(ts: number) {
     + "." + String(d.getMilliseconds()).padStart(3, "0");
 }
 
+const LogRow = React.memo(function LogRow({ entry }: { entry: LogEntry }) {
+  return (
+    <div className={cn("flex gap-2 px-1.5 py-0.5 rounded", LEVEL_BG[entry.level])}>
+      <span className="text-muted-foreground shrink-0 select-none">
+        {formatTime(entry.timestamp)}
+      </span>
+      <span className={cn("shrink-0 w-12 uppercase select-none", LEVEL_STYLES[entry.level])}>
+        {entry.level}
+      </span>
+      <span className="break-all whitespace-pre-wrap">
+        {entry.args.join(" ")}
+      </span>
+    </div>
+  );
+});
+
 export const DebugLogs: React.FC = () => {
   const [entries, setEntries] = useState<LogEntry[]>(() => debugLog.getEntries());
   const [filter, setFilter] = useState<LogEntry['level'] | 'all'>('all');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copied, setCopied] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
 
   useEffect(() => {
     return debugLog.subscribe(() => setEntries([...debugLog.getEntries()]));
   }, []);
-
-  useEffect(() => {
-    if (autoScroll && listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
-    }
-  }, [entries, autoScroll]);
 
   const filtered = filter === 'all' ? entries : entries.filter(e => e.level === filter);
 
@@ -59,6 +70,15 @@ export const DebugLogs: React.FC = () => {
       setTimeout(() => setCopied(false), 1500);
     });
   }, [filtered]);
+
+  const followOutput = useCallback(
+    (isAtBottom: boolean) => (isAtBottom && autoScroll ? ('smooth' as const) : false),
+    [autoScroll]
+  );
+
+  const itemContent = useCallback((_index: number, entry: LogEntry) => (
+    <LogRow entry={entry} />
+  ), []);
 
   return (
     <div className="space-y-4">
@@ -105,26 +125,18 @@ export const DebugLogs: React.FC = () => {
       </div>
 
       {/* Log list */}
-      <div
-        ref={listRef}
-        className="h-[60vh] overflow-y-auto rounded-lg border bg-black/30 font-mono text-xs p-2 space-y-px"
-      >
+      <div className="h-[60vh] rounded-lg border bg-black/30 font-mono text-xs">
         {filtered.length === 0 ? (
           <p className="text-muted-foreground text-center py-8">No logs yet</p>
         ) : (
-          filtered.map((entry, i) => (
-            <div key={i} className={cn("flex gap-2 px-1.5 py-0.5 rounded", LEVEL_BG[entry.level])}>
-              <span className="text-muted-foreground shrink-0 select-none">
-                {formatTime(entry.timestamp)}
-              </span>
-              <span className={cn("shrink-0 w-12 uppercase select-none", LEVEL_STYLES[entry.level])}>
-                {entry.level}
-              </span>
-              <span className="break-all whitespace-pre-wrap">
-                {entry.args.join(" ")}
-              </span>
-            </div>
-          ))
+          <Virtuoso
+            ref={virtuosoRef}
+            data={filtered}
+            followOutput={followOutput}
+            initialTopMostItemIndex={filtered.length - 1}
+            itemContent={itemContent}
+            className="h-full p-2"
+          />
         )}
       </div>
     </div>

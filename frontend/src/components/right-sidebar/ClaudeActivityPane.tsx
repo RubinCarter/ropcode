@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import { Bot, ChevronDown, ChevronRight, CircleAlert, FileText, Loader2, Square, TerminalSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import type { claude, main } from '@/lib/rpc-client';
@@ -19,21 +19,6 @@ interface ClaudeActivityPaneProps {
   workspacePath?: string;
   className?: string;
   onSnapshotChange?: (snapshot: main.ClaudeActivitySnapshot | null) => void;
-}
-
-interface ActivityListProps {
-  title: string;
-  icon: React.ReactNode;
-  activities: main.ClaudeActivity[];
-  sessionId: string;
-  expandedLogs: Set<string>;
-  logTails: Record<string, main.ClaudeActivityLogTail | undefined>;
-  subagentLogs: Map<string, ParsedTranscript>;
-  loadingLogs: Set<string>;
-  stoppingIds: Set<string>;
-  onToggleLog: (activity: main.ClaudeActivity) => void;
-  onStop: (activity: main.ClaudeActivity) => void;
-  onLoadEarlier: (activity: main.ClaudeActivity) => void;
 }
 
 function isLocalAgent(activity: main.ClaudeActivity): boolean {
@@ -403,180 +388,141 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
         </div>
       )}
 
-      {activeSession && hasActivities && snapshot && (
-        <ScrollArea className="flex-1">
-          <div className="space-y-4 p-3">
-            <ActivityList
-              title="Subagents"
-              icon={<Bot className="h-3.5 w-3.5" />}
-              activities={snapshot.subagents}
-              sessionId={snapshot.session_id}
-              expandedLogs={expandedLogs}
-              logTails={logTails}
-              subagentLogs={subagentLogs}
-              loadingLogs={loadingLogs}
-              stoppingIds={stoppingIds}
-              onToggleLog={handleToggleLog}
-              onStop={handleStop}
-              onLoadEarlier={handleLoadEarlier}
-            />
-            <ActivityList
-              title="Background Tasks"
-              icon={<TerminalSquare className="h-3.5 w-3.5" />}
-              activities={snapshot.background_tasks}
-              sessionId={snapshot.session_id}
-              expandedLogs={expandedLogs}
-              logTails={logTails}
-              subagentLogs={subagentLogs}
-              loadingLogs={loadingLogs}
-              stoppingIds={stoppingIds}
-              onToggleLog={handleToggleLog}
-              onStop={handleStop}
-              onLoadEarlier={handleLoadEarlier}
-            />
-            {snapshot.other.length > 0 && (
-              <ActivityList
-                title="Other"
-                icon={<FileText className="h-3.5 w-3.5" />}
-                activities={snapshot.other}
-                sessionId={snapshot.session_id}
-                expandedLogs={expandedLogs}
-                logTails={logTails}
-                subagentLogs={subagentLogs}
-                loadingLogs={loadingLogs}
-                stoppingIds={stoppingIds}
-                onToggleLog={handleToggleLog}
-                onStop={handleStop}
-                onLoadEarlier={handleLoadEarlier}
-              />
-            )}
-          </div>
-        </ScrollArea>
-      )}
-    </div>
-  );
-};
+      {activeSession && hasActivities && snapshot && (() => {
+        const items: Array<
+          | { kind: 'section'; title: string; icon: React.ReactNode; count: number }
+          | { kind: 'activity'; activity: main.ClaudeActivity }
+          | { kind: 'empty'; title: string }
+        > = [];
 
-const ActivityList: React.FC<ActivityListProps> = ({
-  title,
-  icon,
-  activities,
-  expandedLogs,
-  logTails,
-  subagentLogs,
-  loadingLogs,
-  stoppingIds,
-  onToggleLog,
-  onStop,
-  onLoadEarlier,
-}) => {
-  const countLabel = useMemo(() => activities.length.toString(), [activities.length]);
+        const addSection = (title: string, icon: React.ReactNode, activities: main.ClaudeActivity[]) => {
+          items.push({ kind: 'section', title, icon, count: activities.length });
+          if (activities.length === 0) {
+            items.push({ kind: 'empty', title });
+          } else {
+            activities.forEach(activity => items.push({ kind: 'activity', activity }));
+          }
+        };
 
-  return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-        <div className="flex items-center gap-1.5">
-          {icon}
-          <span>{title}</span>
-        </div>
-        <span>{countLabel}</span>
-      </div>
+        addSection('Subagents', <Bot className="h-3.5 w-3.5" />, snapshot.subagents);
+        addSection('Background Tasks', <TerminalSquare className="h-3.5 w-3.5" />, snapshot.background_tasks);
+        if (snapshot.other.length > 0) {
+          addSection('Other', <FileText className="h-3.5 w-3.5" />, snapshot.other);
+        }
 
-      {activities.length === 0 ? (
-        <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">None</div>
-      ) : (
-        <div className="space-y-2">
-          {activities.map((activity) => {
-            const expanded = expandedLogs.has(activity.id);
-            const tail = logTails[activity.id];
-            const transcript = subagentLogs.get(activity.id);
-            const loadingLog = loadingLogs.has(activity.id);
-            const stopping = stoppingIds.has(activity.id) || activity.status === 'stopping';
-            const agent = isLocalAgent(activity);
-
-            return (
-              <div key={activity.id} className="rounded-md border bg-card text-card-foreground">
-                <div className="p-3 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">
-                        {activity.description || activity.id}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                        <span>{activity.task_type || activity.type}</span>
-                        <span>pid: null</span>
-                        <span>{formatTime(activity.started_at)}</span>
-                      </div>
+        return (
+          <Virtuoso
+            data={items}
+            className="flex-1"
+            itemContent={(_index, item) => {
+              if (item.kind === 'section') {
+                return (
+                  <div className="flex items-center justify-between text-xs font-medium text-muted-foreground px-3 pt-4 pb-1">
+                    <div className="flex items-center gap-1.5">
+                      {item.icon}
+                      <span>{item.title}</span>
                     </div>
-                    <span className={cn('rounded px-1.5 py-0.5 text-[11px]', statusClass(activity.status))}>
-                      {activityStatusLabel(activity.status)}
-                    </span>
+                    <span>{item.count}</span>
                   </div>
+                );
+              }
+              if (item.kind === 'empty') {
+                return (
+                  <div className="mx-3 mb-2 rounded-md border border-dashed p-3 text-xs text-muted-foreground">None</div>
+                );
+              }
+              const { activity } = item;
+              const expanded = expandedLogs.has(activity.id);
+              const tail = logTails[activity.id];
+              const transcript = subagentLogs.get(activity.id);
+              const loadingLog = loadingLogs.has(activity.id);
+              const stopping = stoppingIds.has(activity.id) || activity.status === 'stopping';
+              const agent = isLocalAgent(activity);
 
-                  {(activity.summary || activity.last_activity || activity.error) && (
-                    <div className="text-xs text-muted-foreground break-words">
-                      {activity.error || activity.summary || activity.last_activity}
+              return (
+                <div className="mx-3 mb-2 rounded-md border bg-card text-card-foreground">
+                  <div className="p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">
+                          {activity.description || activity.id}
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span>{activity.task_type || activity.type}</span>
+                          <span>pid: null</span>
+                          <span>{formatTime(activity.started_at)}</span>
+                        </div>
+                      </div>
+                      <span className={cn('rounded px-1.5 py-0.5 text-[11px]', statusClass(activity.status))}>
+                        {activityStatusLabel(activity.status)}
+                      </span>
                     </div>
-                  )}
 
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={() => onToggleLog(activity)}
-                      disabled={!canLoadActivityLog(activity)}
-                    >
-                      {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                      Log
-                    </Button>
-                    {activity.can_stop && (
+                    {(activity.summary || activity.last_activity || activity.error) && (
+                      <div className="text-xs text-muted-foreground break-words">
+                        {activity.error || activity.summary || activity.last_activity}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
                         className="h-7 px-2 text-xs"
-                        onClick={() => onStop(activity)}
-                        disabled={stopping}
+                        onClick={() => handleToggleLog(activity)}
+                        disabled={!canLoadActivityLog(activity)}
                       >
-                        {stopping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-                        Stop
+                        {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                        Log
                       </Button>
-                    )}
+                      {activity.can_stop && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => handleStop(activity)}
+                          disabled={stopping}
+                        >
+                          {stopping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                          Stop
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {expanded && (
-                  <div className="border-t bg-muted/20 p-2">
-                    {agent ? (
-                      transcript ? (
-                        <SubagentLogView
-                          transcript={transcript}
-                          onLoadEarlier={() => onLoadEarlier(activity)}
-                        />
-                      ) : (
+                  {expanded && (
+                    <div className="border-t bg-muted/20 p-2">
+                      {agent ? (
+                        transcript ? (
+                          <SubagentLogView
+                            transcript={transcript}
+                            onLoadEarlier={() => handleLoadEarlier(activity)}
+                          />
+                        ) : (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            Loading transcript
+                          </div>
+                        )
+                      ) : loadingLog ? (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Loading transcript
+                          Loading log
                         </div>
-                      )
-                    ) : loadingLog ? (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Loading log
-                      </div>
-                    ) : (
-                      <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-background p-2 text-[11px] leading-5">
-                        {tail?.error || tail?.content || 'No log output'}
-                      </pre>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </section>
+                      ) : (
+                        <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded bg-background p-2 text-[11px] leading-5">
+                          {tail?.error || tail?.content || 'No log output'}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }}
+          />
+        );
+      })()}
+    </div>
   );
 };
 

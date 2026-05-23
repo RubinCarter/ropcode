@@ -1,4 +1,5 @@
 import React, { useCallback } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import { MessageSquare, MessageSquarePlus, RefreshCw, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ProviderSessionSummary } from '@/lib/api';
@@ -167,9 +168,9 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+      <div className="min-h-0 flex-1">
         {loading && sessions.length === 0 && (
-          <div className="space-y-1">
+          <div className="space-y-1 px-2 py-2">
             {[0, 1, 2, 3].map(index => (
               <div key={index} className="h-8 animate-pulse rounded-md bg-muted/50" />
             ))}
@@ -177,7 +178,7 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
         )}
 
         {error && (
-          <div className="rounded-md px-2 py-2 text-xs text-destructive">
+          <div className="rounded-md px-4 py-2 text-xs text-destructive">
             <div className="truncate" title={error}>Failed to load sessions</div>
             <button
               type="button"
@@ -195,64 +196,58 @@ export const SessionPanel: React.FC<SessionPanelProps> = ({
           </div>
         )}
 
-        <div className="space-y-0.5">
-          {sessions.map((session) => {
-            const ProviderIcon = getProviderIcon(session.provider);
-            const sessionKey = `${session.provider}:${session.id}`;
-            const isRunning = session.is_running || runningSessionIds.has(sessionKey);
-            const isRegenerating = regeneratingSessionTitles.has(sessionKey);
+        {sessions.length > 0 && (
+          <Virtuoso
+            data={sessions}
+            className="h-full"
+            endReached={() => { if (hasMore && !loadedAll) loadMore(); }}
+            itemContent={(_index, session) => {
+              const ProviderIcon = getProviderIcon(session.provider);
+              const sessionKey = `${session.provider}:${session.id}`;
+              const isRunning = session.is_running || runningSessionIds.has(sessionKey);
+              const isRegenerating = regeneratingSessionTitles.has(sessionKey);
 
-            return (
-              <div
-                key={sessionKey}
-                className="group/session flex items-center rounded-md text-xs text-muted-foreground transition-colors hover:bg-accent/50"
-              >
-                <button
-                  type="button"
-                  onClick={() => openSession(session)}
-                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left hover:text-foreground"
-                  title={`${getProviderLabel(session.provider)} · ${getSessionTitle(session)}`}
+              return (
+                <div
+                  className="group/session flex items-center rounded-md text-xs text-muted-foreground transition-colors hover:bg-accent/50 mx-2"
                 >
-                  <span className="relative inline-flex h-4 w-4 flex-shrink-0 items-center justify-center">
-                    <ProviderIcon className="h-3.5 w-3.5" />
-                    {isRunning && (
-                      <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-purple-500 ring-1 ring-background" />
+                  <button
+                    type="button"
+                    onClick={() => openSession(session)}
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left hover:text-foreground"
+                    title={`${getProviderLabel(session.provider)} · ${getSessionTitle(session)}`}
+                  >
+                    <span className="relative inline-flex h-4 w-4 flex-shrink-0 items-center justify-center">
+                      <ProviderIcon className="h-3.5 w-3.5" />
+                      {isRunning && (
+                        <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-purple-500 ring-1 ring-background" />
+                      )}
+                    </span>
+                    <span className={cn('min-w-0 flex-1 truncate', isRegenerating && 'animate-title-generating')}>
+                      {isRegenerating ? 'Generating...' : getSessionTitle(session)}
+                    </span>
+                    <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (!isRegenerating) regenerateTitle(session);
+                    }}
+                    disabled={isRegenerating}
+                    className={cn(
+                      'mr-1 flex-shrink-0 rounded p-1 transition-all hover:bg-accent',
+                      isRegenerating ? 'opacity-100 text-primary' : 'opacity-0 group-hover/session:opacity-100'
                     )}
-                  </span>
-                  <span className={cn('min-w-0 flex-1 truncate', isRegenerating && 'animate-title-generating')}>
-                    {isRegenerating ? 'Generating...' : getSessionTitle(session)}
-                  </span>
-                  <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (!isRegenerating) regenerateTitle(session);
-                  }}
-                  disabled={isRegenerating}
-                  className={cn(
-                    'mr-1 flex-shrink-0 rounded p-1 transition-all hover:bg-accent',
-                    isRegenerating ? 'opacity-100 text-primary' : 'opacity-0 group-hover/session:opacity-100'
-                  )}
-                  title="Summarize current focus and rename this session"
-                  aria-label={`Rename session ${getSessionTitle(session)}`}
-                >
-                  <Sparkles className={cn('h-3 w-3', isRegenerating && 'animate-pulse text-primary')} />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        {hasMore && !loadedAll && (
-          <button
-            type="button"
-            onClick={loadMore}
-            className="mt-1 w-full rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-          >
-            More
-          </button>
+                    title="Summarize current focus and rename this session"
+                    aria-label={`Rename session ${getSessionTitle(session)}`}
+                  >
+                    <Sparkles className={cn('h-3 w-3', isRegenerating && 'animate-pulse text-primary')} />
+                  </button>
+                </div>
+              );
+            }}
+          />
         )}
       </div>
     </div>

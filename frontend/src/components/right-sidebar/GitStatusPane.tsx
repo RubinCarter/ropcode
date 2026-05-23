@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { usePageVisibilityPolling } from '@/hooks';
@@ -188,7 +189,7 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
       )}
 
       {/* 内容区域 */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0">
         {error ? (
           <div className="p-4 text-sm text-red-500">
             <div className="font-medium mb-1">Error</div>
@@ -204,17 +205,17 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
             <div>Working tree is clean</div>
           </div>
         ) : (
-          <div className="p-2">
-            {/* 显示所有文件，不分组 */}
-            {files.map((file, idx) => {
+          <Virtuoso
+            data={files}
+            className="h-full"
+            itemContent={(_index, file) => {
               const display = getStatusDisplay(file);
               const isSelected = selectedFile === file.path;
               return (
                 <div
-                  key={idx}
                   onClick={() => handleFileClick(file)}
                   className={cn(
-                    "flex items-center gap-2 px-2 py-1 rounded text-xs group cursor-pointer transition-colors",
+                    "flex items-center gap-2 px-2 py-1 mx-2 rounded text-xs group cursor-pointer transition-colors",
                     "hover:bg-muted/50",
                     isSelected && "bg-muted/70 ring-1 ring-primary/50"
                   )}
@@ -227,8 +228,8 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
                   </span>
                 </div>
               );
-            })}
-          </div>
+            }}
+          />
         )}
       </div>
     </div>
