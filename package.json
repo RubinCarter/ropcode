@@ -6,18 +6,19 @@
   "description": "GUI app and Toolkit for Claude Code",
   "main": "electron/dist/main.js",
   "scripts": {
-    "dev": "npm run build:go && concurrently \"npm run dev:frontend\" \"npm run dev:electron\" --kill-others",
-    "dev:no-hmr": "npm run build:go && concurrently \"npm run dev:frontend:no-hmr\" \"npm run dev:electron\" --kill-others",
-    "dev:wails": "npm run build:wails:go && concurrently \"npm run dev:frontend\" \"npm run dev:wails:shell\" --kill-others",
+    "dev": "npm run build:cli && concurrently \"npm run dev:frontend\" \"npm run dev:wails\" --kill-others",
+    "dev:no-hmr": "npm run build:cli && concurrently \"npm run dev:frontend:no-hmr\" \"npm run dev:wails\" --kill-others",
+    "dev:electron": "npm run build:go && concurrently \"npm run dev:frontend\" \"npm run dev:electron:shell\" --kill-others",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:frontend:no-hmr": "cd frontend && ROPCODE_NO_HMR=1 npm run dev",
-    "dev:electron": "cd electron && npm run build && npm run dev",
-    "dev:wails:shell": "mkdir -p frontend/dist && touch frontend/dist/.keep && wails dev -tags wails -skipbindings",
+    "dev:electron:shell": "cd electron && npm run build && npm run dev",
+    "dev:wails": "mkdir -p frontend/dist && touch frontend/dist/.keep && wails dev -tags wails -skipbindings",
+    "build:cli": "./scripts/build-cli.sh",
     "build:cli:dev": "go build -o bin/ropcode ./cmd/ropcode",
     "build:go": "go build -tags server -o bin/ropcode-server . && ./scripts/build-cli.sh",
-    "build:wails:go": "./scripts/build-cli.sh",
-    "build": "npm run build:go && cd frontend && npm run build && cd ../electron && npm run build",
-    "build:release": "./scripts/build-electron.sh"
+    "build": "cd frontend && npm run build && cd .. && wails build -tags wails",
+    "build:release": "cd frontend && npm run build && wails build -tags wails -platform darwin/arm64",
+    "build:release:electron": "./scripts/build-electron.sh"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
