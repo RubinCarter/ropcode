@@ -4,9 +4,9 @@
   "outputfilename": "Ropcode",
   "assetdir": "frontend/dist",
   "frontend:install": "",
-  "frontend:build": "",
-  "frontend:dev:watcher": "",
-  "frontend:dev:serverUrl": "http://localhost:5174",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npx vite build --watch --mode development --emptyOutDir false",
+  "frontend:dev:serverUrl": "",
   "build:dir": "release",
   "build:tags": "wails",
   "author": {
