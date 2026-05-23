@@ -806,11 +806,11 @@ func (a *App) callAnthropicAPI(ctx context.Context, apiURL, apiKey, model, syste
 }
 
 func (a *App) runClaudeCLIForTitle(ctx context.Context, projectPath, model, prompt string) (string, error) {
-	if a.claudeManager == nil {
-		return "", fmt.Errorf("claude manager not initialized")
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
-	binary := a.claudeManager.GetBinaryPath()
-	if strings.TrimSpace(binary) == "" {
+	binary, err := a.providerManager.DiscoverBinary("claude")
+	if err != nil || strings.TrimSpace(binary) == "" {
 		return "", fmt.Errorf("claude CLI binary not found; run `claude --version` to verify install")
 	}
 

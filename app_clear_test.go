@@ -24,9 +24,6 @@ func TestBootstrapRuntimeInitializesCoreManagers(t *testing.T) {
 	if app.Database() == nil {
 		t.Fatal("expected database to be initialized")
 	}
-	if app.ClaudeManager() == nil {
-		t.Fatal("expected claude manager to be initialized")
-	}
 	if app.providerManager == nil {
 		t.Fatal("expected provider manager to be initialized")
 	}

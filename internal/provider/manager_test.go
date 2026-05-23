@@ -246,7 +246,7 @@ func (d *echoDriver) UpdateEnvironmentVariables(session SessionHandle, vars map[
 	return nil
 }
 func (d *echoDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
-func (d *echoDriver) OnProcessStart(_ context.Context, _ int) error               { return nil }
+func (d *echoDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error               { return nil }
 func (d *echoDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {
 	if msg, ok := session.DequeueMessage(); ok {
 		config := session.GetConfig()
@@ -289,5 +289,5 @@ func (d *sleepDriver) UpdateEnvironmentVariables(session SessionHandle, vars map
 	return nil
 }
 func (d *sleepDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
-func (d *sleepDriver) OnProcessStart(_ context.Context, _ int) error               { return nil }
+func (d *sleepDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error               { return nil }
 func (d *sleepDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {}

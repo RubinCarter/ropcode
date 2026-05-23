@@ -184,7 +184,25 @@ func (d *Driver) sendControlRequestAndWait(session provider.SessionHandle, reque
 	}
 }
 
-func (d *Driver) OnProcessStart(_ context.Context, _ int) error { return nil }
+func (d *Driver) OnProcessStart(_ context.Context, session provider.SessionHandle, _ int) error {
+	config := session.GetConfig()
+	if !config.Interactive {
+		return nil
+	}
+	envelope := map[string]interface{}{
+		"type":       "control_request",
+		"request_id": "init_1",
+		"request": map[string]interface{}{
+			"subtype": "initialize",
+		},
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("marshal init request: %w", err)
+	}
+	data = append(data, '\n')
+	return session.WriteStdin(data)
+}
 
 func (d *Driver) OnProcessExit(session provider.SessionHandle, exitCode int, err error) {
 	// Claude interactive mode: process exit means session ended.

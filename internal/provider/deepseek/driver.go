@@ -128,7 +128,7 @@ func (d *Driver) WaitForInit(session provider.SessionHandle, timeout time.Durati
 	return nil
 }
 
-func (d *Driver) OnProcessStart(_ context.Context, _ int) error { return nil }
+func (d *Driver) OnProcessStart(_ context.Context, _ provider.SessionHandle, _ int) error { return nil }
 
 func (d *Driver) OnProcessExit(session provider.SessionHandle, exitCode int, err error) {
 	if msg, ok := session.DequeueMessage(); ok {

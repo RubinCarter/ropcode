@@ -6,7 +6,6 @@ import (
 	"log"
 	"sync"
 
-	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
@@ -38,7 +37,6 @@ type App struct {
 	processManager      *process.Manager
 	dbManager           *database.Database
 	providerManager     *provider.Manager
-	claudeManager       *claude.SessionManager
 	claudeActivity      *claudeactivity.Service
 	mcpManager          *mcp.Manager
 	sshManager          *ssh.Manager
@@ -114,11 +112,8 @@ func (a *App) startup(ctx context.Context) {
 	a.providerManager.RegisterDriver(&providerGemini.Driver{})
 	a.providerManager.RegisterDriver(&providerDeepseek.Driver{})
 
-	// Initialize Claude session manager
+	// Initialize Claude activity service
 	a.claudeActivity = claudeactivity.NewService()
-	a.claudeManager = claude.NewSessionManager(ctx, aiSessionEmitter)
-	a.claudeManager.SetProcessEmitter(&claudeProcessEmitter{eventHub: a.eventHub})
-	a.claudeManager.SetActivityObserver(a.claudeActivity)
 
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution
@@ -183,11 +178,6 @@ func (a *App) shutdown(ctx context.Context) {
 		a.providerManager.Shutdown()
 	}
 
-	// Cleanup Claude sessions
-	if a.claudeManager != nil {
-		a.claudeManager.CleanupCompleted()
-	}
-
 	// Flush any pending claude-output batches so the front-end sees the final
 	// stream lines before the connection drops.
 	if a.aiOutputCoalescer != nil {
@@ -226,20 +216,6 @@ func (e *coalescedEmitter) Emit(eventName string, data interface{}) {
 	e.coalescer.Emit(eventName, data)
 }
 
-// claudeProcessEmitter adapts EventHub to claude.ProcessChangedEmitter
-type claudeProcessEmitter struct {
-	eventHub *eventhub.EventHub
-}
-
-func (e *claudeProcessEmitter) EmitProcessChanged(event claude.ProcessChangedEvent) {
-	e.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
-		PID:      event.PID,
-		Cwd:      event.Cwd,
-		State:    event.State,
-		ExitCode: event.ExitCode,
-	})
-}
-
 // SetBroadcaster sets the WebSocket broadcaster
 func (a *App) SetBroadcaster(b eventhub.Broadcaster) {
 	a.eventHub.SetBroadcaster(b)
@@ -271,10 +247,6 @@ func (a *App) Database() *database.Database {
 }
 
 // ClaudeManager exposes the initialized Claude session manager for read-only runtime composition.
-func (a *App) ClaudeManager() *claude.SessionManager {
-	return a.claudeManager
-}
-
 // Greet returns a greeting for the given name (keep for testing)
 func (a *App) Greet(name string) string {
 	return "Hello " + name + ", Welcome to ropcode!"

@@ -3,6 +3,7 @@ package provider
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -129,9 +130,9 @@ func (s *Session) Start() error {
 	s.done = make(chan struct{})
 	s.mu.Unlock()
 
-	if err := s.driver.OnProcessStart(s.ctx, s.pid); err != nil {
-		s.terminate()
-		return fmt.Errorf("on process start: %w", err)
+	// For batch mode, close stdin so the process knows no more input is coming
+	if !s.config.Interactive {
+		stdin.Close()
 	}
 
 	if s.monitor != nil {
@@ -141,6 +142,11 @@ func (s *Session) Start() error {
 	go s.readStream(stdout, "stdout")
 	go s.readStream(stderr, "stderr")
 	go s.waitForExit()
+
+	if err := s.driver.OnProcessStart(s.ctx, s, s.pid); err != nil {
+		s.terminate()
+		return fmt.Errorf("on process start: %w", err)
+	}
 
 	return nil
 }
@@ -172,7 +178,13 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 				s.extractProviderSessionID(event)
 				s.routeControlResponse(event)
 				if s.emitter != nil {
-					s.emitter.Emit("claude-output", event)
+					payload := event.Message
+					if payload == nil {
+						payload = make(map[string]interface{})
+					}
+					payload["session_id"] = s.ID
+					jsonBytes, _ := json.Marshal(payload)
+					s.emitter.Emit("claude-output", string(jsonBytes))
 				}
 			}
 		} else {
@@ -194,9 +206,18 @@ func (s *Session) routeControlResponse(event *OutputEvent) {
 	if event.Subtype != "control_response" || event.Message == nil {
 		return
 	}
+	// request_id may be at top level or nested inside "response" object
 	requestID, _ := event.Message["request_id"].(string)
 	if requestID == "" {
+		if resp, ok := event.Message["response"].(map[string]interface{}); ok {
+			requestID, _ = resp["request_id"].(string)
+		}
+	}
+	if requestID == "" {
 		return
+	}
+	if requestID == "init_1" {
+		s.MarkInitialized()
 	}
 	s.DeliverControlResponse(requestID, event.Message)
 }
@@ -442,7 +463,7 @@ func (s *Session) DeliverControlResponse(requestID string, data map[string]inter
 	return false
 }
 
-// MarkInitialized 标记会话初始化完成。
+// MarkInitialized 标记会话初始化完成，并 emit system init 事件。
 func (s *Session) MarkInitialized() {
 	s.mu.Lock()
 	if !s.initialized {
@@ -450,6 +471,17 @@ func (s *Session) MarkInitialized() {
 		close(s.initDone)
 	}
 	s.mu.Unlock()
+
+	if s.emitter != nil {
+		initEvent := map[string]interface{}{
+			"type":       "system",
+			"subtype":    "init",
+			"session_id": s.ID,
+			"provider":   s.driver.ID(),
+		}
+		jsonBytes, _ := json.Marshal(initEvent)
+		s.emitter.Emit("claude-output", string(jsonBytes))
+	}
 }
 
 // WaitForInit 等待会话初始化完成。
@@ -457,6 +489,8 @@ func (s *Session) WaitForInit(timeout time.Duration) error {
 	select {
 	case <-s.initDone:
 		return nil
+	case <-s.done:
+		return fmt.Errorf("session exited before initialization")
 	case <-time.After(timeout):
 		return fmt.Errorf("session init timeout after %v", timeout)
 	case <-s.ctx.Done():

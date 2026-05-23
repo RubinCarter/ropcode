@@ -43,7 +43,7 @@ type ProviderDriver interface {
 	// 其他: 立即返回（batch 进程无需握手）
 	WaitForInit(session SessionHandle, timeout time.Duration) error
 
-	OnProcessStart(ctx context.Context, pid int) error
+	OnProcessStart(ctx context.Context, session SessionHandle, pid int) error
 	OnProcessExit(session SessionHandle, exitCode int, err error)
 }
 

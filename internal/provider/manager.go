@@ -200,7 +200,31 @@ func (m *Manager) WaitForInit(sessionID string, timeout time.Duration) error {
 	return session.driver.WaitForInit(session, timeout)
 }
 
-// IsRunning 检查会话是否在运行。
+// WriteStdin 向会话的 stdin 写入原始数据（用于发送 control request 等）。
+func (m *Manager) WriteStdin(sessionID string, data []byte) error {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	return session.WriteStdin(data)
+}
+
+// GetRunningSessionForProject 返回指定 provider 在指定项目下的运行中会话 ID。
+func (m *Manager) GetRunningSessionForProject(providerID, projectPath string) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.sessions {
+		if s.driver.ID() == providerID && s.config.ProjectPath == projectPath {
+			state := s.GetState()
+			if state == StateRunning || state == StateStarting {
+				return s.ID
+			}
+		}
+	}
+	return ""
+}
 func (m *Manager) IsRunning(sessionID string) bool {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
