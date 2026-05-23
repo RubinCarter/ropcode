@@ -30,9 +30,12 @@ type Session struct {
 	outputBuf         []byte
 	startedAt         time.Time
 
-	msgQueue []string
-	done     chan struct{}
-	mu       sync.RWMutex
+	msgQueue        []string
+	done            chan struct{}
+	initDone        chan struct{}
+	initialized     bool
+	pendingRequests map[string]chan ControlResponse
+	mu              sync.RWMutex
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -46,17 +49,19 @@ var _ SessionHandle = (*Session)(nil)
 func newSession(ctx context.Context, id string, driver ProviderDriver, config SessionConfig, emitter EventEmitter, monitor *Monitor, onComplete func(*Session)) *Session {
 	sctx, cancel := context.WithCancel(ctx)
 	return &Session{
-		ID:         id,
-		driver:     driver,
-		config:     config,
-		emitter:    emitter,
-		state:      StateCreated,
-		health:     HealthOK,
-		startedAt:  time.Now(),
-		ctx:        sctx,
-		cancel:     cancel,
-		monitor:    monitor,
-		onComplete: onComplete,
+		ID:              id,
+		driver:          driver,
+		config:          config,
+		emitter:         emitter,
+		state:           StateCreated,
+		health:          HealthOK,
+		startedAt:       time.Now(),
+		initDone:        make(chan struct{}),
+		pendingRequests: make(map[string]chan ControlResponse),
+		ctx:             sctx,
+		cancel:          cancel,
+		monitor:         monitor,
+		onComplete:      onComplete,
 	}
 }
 
@@ -165,6 +170,7 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 				event.SessionID = s.ID
 				event.Provider = s.driver.ID()
 				s.extractProviderSessionID(event)
+				s.routeControlResponse(event)
 				if s.emitter != nil {
 					s.emitter.Emit("claude-output", event)
 				}
@@ -181,6 +187,18 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 			}
 		}
 	}
+}
+
+// routeControlResponse 检查事件是否为 control_response，如果是则路由到等待者。
+func (s *Session) routeControlResponse(event *OutputEvent) {
+	if event.Subtype != "control_response" || event.Message == nil {
+		return
+	}
+	requestID, _ := event.Message["request_id"].(string)
+	if requestID == "" {
+		return
+	}
+	s.DeliverControlResponse(requestID, event.Message)
 }
 
 func (s *Session) extractProviderSessionID(event *OutputEvent) {
@@ -378,4 +396,70 @@ func (s *Session) Output() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return string(s.outputBuf)
+}
+
+// UpdateConfig 原子更新 session config。
+func (s *Session) UpdateConfig(fn func(*SessionConfig)) {
+	s.mu.Lock()
+	fn(&s.config)
+	s.mu.Unlock()
+}
+
+// SendControlRequest 发送 control request 并注册响应等待。
+// 调用方通过返回的 channel 接收响应，需自行处理超时。
+func (s *Session) SendControlRequest(requestID string, payload []byte) (<-chan ControlResponse, error) {
+	ch := make(chan ControlResponse, 1)
+
+	s.mu.Lock()
+	s.pendingRequests[requestID] = ch
+	s.mu.Unlock()
+
+	if err := s.WriteStdin(payload); err != nil {
+		s.mu.Lock()
+		delete(s.pendingRequests, requestID)
+		s.mu.Unlock()
+		return nil, err
+	}
+
+	return ch, nil
+}
+
+// DeliverControlResponse 将收到的 control_response 路由到等待者。
+// 由 readStream 在解析到 control_response 时调用。
+func (s *Session) DeliverControlResponse(requestID string, data map[string]interface{}) bool {
+	s.mu.Lock()
+	ch, ok := s.pendingRequests[requestID]
+	if ok {
+		delete(s.pendingRequests, requestID)
+	}
+	s.mu.Unlock()
+
+	if ok {
+		ch <- ControlResponse{Data: data}
+		close(ch)
+		return true
+	}
+	return false
+}
+
+// MarkInitialized 标记会话初始化完成。
+func (s *Session) MarkInitialized() {
+	s.mu.Lock()
+	if !s.initialized {
+		s.initialized = true
+		close(s.initDone)
+	}
+	s.mu.Unlock()
+}
+
+// WaitForInit 等待会话初始化完成。
+func (s *Session) WaitForInit(timeout time.Duration) error {
+	select {
+	case <-s.initDone:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("session init timeout after %v", timeout)
+	case <-s.ctx.Done():
+		return s.ctx.Err()
+	}
 }

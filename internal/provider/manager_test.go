@@ -237,7 +237,16 @@ func (d *echoDriver) SendMessage(session SessionHandle, msg string) error {
 func (d *echoDriver) Interrupt(session SessionHandle) error {
 	return session.Kill()
 }
-func (d *echoDriver) OnProcessStart(_ context.Context, _ int) error { return nil }
+func (d *echoDriver) SetModel(session SessionHandle, model string) error {
+	session.UpdateConfig(func(c *SessionConfig) { c.Model = model })
+	return nil
+}
+func (d *echoDriver) SetPermissionMode(session SessionHandle, mode string) error { return nil }
+func (d *echoDriver) UpdateEnvironmentVariables(session SessionHandle, vars map[string]string) error {
+	return nil
+}
+func (d *echoDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
+func (d *echoDriver) OnProcessStart(_ context.Context, _ int) error               { return nil }
 func (d *echoDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {
 	if msg, ok := session.DequeueMessage(); ok {
 		config := session.GetConfig()
@@ -271,5 +280,14 @@ func (d *sleepDriver) SendMessage(session SessionHandle, msg string) error {
 func (d *sleepDriver) Interrupt(session SessionHandle) error {
 	return session.Kill()
 }
-func (d *sleepDriver) OnProcessStart(_ context.Context, _ int) error { return nil }
+func (d *sleepDriver) SetModel(session SessionHandle, model string) error {
+	session.UpdateConfig(func(c *SessionConfig) { c.Model = model })
+	return nil
+}
+func (d *sleepDriver) SetPermissionMode(session SessionHandle, mode string) error { return nil }
+func (d *sleepDriver) UpdateEnvironmentVariables(session SessionHandle, vars map[string]string) error {
+	return nil
+}
+func (d *sleepDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
+func (d *sleepDriver) OnProcessStart(_ context.Context, _ int) error               { return nil }
 func (d *sleepDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {}

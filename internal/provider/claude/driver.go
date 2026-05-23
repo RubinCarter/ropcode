@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"ropcode/internal/provider"
 )
@@ -122,6 +123,65 @@ func (d *Driver) Interrupt(session provider.SessionHandle) error {
 	}
 	data = append(data, '\n')
 	return session.WriteStdin(data)
+}
+
+func (d *Driver) SetModel(session provider.SessionHandle, model string) error {
+	return d.sendControlRequestAndWait(session, "set_model", map[string]interface{}{
+		"subtype": "set_model",
+		"model":   model,
+	})
+}
+
+func (d *Driver) SetPermissionMode(session provider.SessionHandle, mode string) error {
+	return d.sendControlRequestAndWait(session, "set_permission_mode", map[string]interface{}{
+		"subtype":         "set_permission_mode",
+		"permission_mode": mode,
+	})
+}
+
+func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars map[string]string) error {
+	envelope := map[string]interface{}{
+		"type":      "update_environment_variables",
+		"variables": vars,
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("marshal env update: %w", err)
+	}
+	data = append(data, '\n')
+	return session.WriteStdin(data)
+}
+
+func (d *Driver) WaitForInit(session provider.SessionHandle, timeout time.Duration) error {
+	return session.WaitForInit(timeout)
+}
+
+func (d *Driver) sendControlRequestAndWait(session provider.SessionHandle, requestID string, request map[string]interface{}) error {
+	envelope := map[string]interface{}{
+		"type":       "control_request",
+		"request_id": requestID,
+		"request":    request,
+	}
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("marshal control request: %w", err)
+	}
+	data = append(data, '\n')
+
+	ch, err := session.SendControlRequest(requestID, data)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case resp := <-ch:
+		if resp.Err != nil {
+			return resp.Err
+		}
+		return nil
+	case <-time.After(10 * time.Second):
+		return fmt.Errorf("control request %q timed out", requestID)
+	}
 }
 
 func (d *Driver) OnProcessStart(_ context.Context, _ int) error { return nil }

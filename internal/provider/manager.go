@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -153,6 +154,50 @@ func (m *Manager) InterruptSession(sessionID string) error {
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 	return session.driver.Interrupt(session)
+}
+
+// SetModel 切换会话模型。
+func (m *Manager) SetModel(sessionID, model string) error {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	return session.driver.SetModel(session, model)
+}
+
+// SetPermissionMode 切换会话权限模式。
+func (m *Manager) SetPermissionMode(sessionID, mode string) error {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	return session.driver.SetPermissionMode(session, mode)
+}
+
+// UpdateEnvironmentVariables 更新会话环境变量。
+func (m *Manager) UpdateEnvironmentVariables(sessionID string, vars map[string]string) error {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	return session.driver.UpdateEnvironmentVariables(session, vars)
+}
+
+// WaitForInit 等待会话初始化完成。
+func (m *Manager) WaitForInit(sessionID string, timeout time.Duration) error {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+	return session.driver.WaitForInit(session, timeout)
 }
 
 // IsRunning 检查会话是否在运行。
