@@ -1059,7 +1059,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
       transportConnected,
       isRecoveringHistory,
       isRestoringSession: processState.isLoading && messagesState.messages.length === 0 && Boolean(sessionState.extractedSessionInfo),
-      stopRequested: stopRequestedRef.current || stopStatusBubble.visible,
+      stopRequested: stopRequestedRef.current && !processState.isLoading,
       lastTransportConnectAt,
       loadingStartedAt: processState.loadingStartedAt,
     },
@@ -1113,7 +1113,7 @@ ${message ? `**说明**:\n${message}` : ''}`;
     promptConfig,
     isLoading: processState.isLoading,
     interactiveSessionId: processState.interactiveSessionId,
-    stopVisible: stopRequestedRef.current || stopStatusBubble.visible,
+    stopVisible: stopRequestedRef.current && processState.isLoading,
     queuedPromptsCount: queueState.queuedPrompts.length,
     thinkingStatus,
   });

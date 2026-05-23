@@ -125,6 +125,14 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     ? Math.max(0, now - (local.loadingStartedAt ?? 0))
     : 0;
 
+  // If we have evidence of recent activity (text growth or tool change) AFTER
+  // the last snapshot update, the snapshot's rate_limited/retrying flags are stale.
+  const snapshotIsStale = Boolean(
+    tracker.lastUpdatedAt &&
+    ((tracker.lastTextGrowthAt && tracker.lastTextGrowthAt > tracker.lastUpdatedAt) ||
+     (tracker.lastToolChangeAt && tracker.lastToolChangeAt > tracker.lastUpdatedAt))
+  );
+
   let phase: SessionRuntimeViewState['phase'] = 'idle';
   let label = 'Idle';
   let detail: string | null = null;
@@ -136,13 +144,13 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     label = 'Cancelled';
     severity = 'warning';
     waitingReason = null;
-  } else if (snapshot?.rate_limited) {
+  } else if (snapshot?.rate_limited && !snapshotIsStale) {
     phase = 'rate_limited';
     label = 'Rate limit wait';
     severity = 'warning';
     waitingReason = 'rate_limit';
     detail = formatRetryDetail(snapshot, retry);
-  } else if (snapshot?.retrying) {
+  } else if (snapshot?.retrying && !snapshotIsStale) {
     phase = 'retrying';
     label = 'Retrying';
     severity = 'warning';
