@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -37,6 +36,7 @@ import (
 	"ropcode/internal/openin"
 	"ropcode/internal/pathutil"
 	"ropcode/internal/plugin"
+	"ropcode/internal/provider"
 	"ropcode/internal/ssh"
 	"ropcode/internal/usage"
 )
@@ -145,57 +145,6 @@ func newClaudeCapabilityLayersResult(layers claude.CapabilityLayers) claudeCapab
 		ProjectOnly: layers.ProjectOnly,
 		AllVisible:  layers.AllVisible,
 		FetchedAt:   time.Now().UTC(),
-	}
-}
-
-func providerSessionConfigFromManager(manager any, sessionID string) liveSessionConfig {
-	value := reflect.ValueOf(manager)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
-		return liveSessionConfig{}
-	}
-
-	managerValue := value.Elem()
-	sessions := managerValue.FieldByName("sessions")
-	if !sessions.IsValid() || sessions.Kind() != reflect.Map {
-		return liveSessionConfig{}
-	}
-
-	sessionValue := sessions.MapIndex(reflect.ValueOf(sessionID))
-	if !sessionValue.IsValid() || sessionValue.IsNil() {
-		return liveSessionConfig{}
-	}
-
-	config := sessionValue.Elem().FieldByName("Config")
-	if !config.IsValid() {
-		return liveSessionConfig{}
-	}
-
-	modelField := config.FieldByName("Model")
-	providerAPIField := config.FieldByName("ProviderApiID")
-	reasoningEffortField := config.FieldByName("ReasoningEffort")
-	cfg := liveSessionConfig{}
-	if modelField.IsValid() && modelField.Kind() == reflect.String {
-		cfg.model = modelField.String()
-	}
-	if providerAPIField.IsValid() && providerAPIField.Kind() == reflect.String {
-		cfg.providerApiID = providerAPIField.String()
-	}
-	if reasoningEffortField.IsValid() && reasoningEffortField.Kind() == reflect.String {
-		cfg.reasoningEffort = reasoningEffortField.String()
-	}
-	return cfg
-}
-
-func (a *App) providerSessionConfig(provider, projectPath, sessionID string) liveSessionConfig {
-	switch provider {
-	case "gemini":
-		return providerSessionConfigFromManager(a.geminiManager, sessionID)
-	case "codex":
-		return providerSessionConfigFromManager(a.codexManager, sessionID)
-	case "deepseek":
-		return providerSessionConfigFromManager(a.deepseekManager, sessionID)
-	default:
-		return liveSessionConfig{}
 	}
 }
 
@@ -851,7 +800,7 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 				}
 				sessions := make([]ProviderSessionSummary, 0, len(codexResult.Sessions))
 				for _, s := range codexResult.Sessions {
-					isRunning := a.codexManager != nil && a.codexManager.IsRunning(s.ID)
+					isRunning := a.providerManager != nil && a.providerManager.IsRunning(s.ID)
 					sessions = append(sessions, applyStoredSessionTitle(newCodexSpaceSessionSummary(s, isRunning), a.sessionTitles))
 				}
 				return spaceSessionScanResult{sessions: sessions, hasMore: codexResult.HasMore}, nil
@@ -876,7 +825,7 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 				}
 				sessions := make([]ProviderSessionSummary, 0, len(deepseekResult.Sessions))
 				for _, s := range deepseekResult.Sessions {
-					isRunning := a.deepseekManager != nil && a.deepseekManager.IsRunning(s.ID)
+					isRunning := a.providerManager != nil && a.providerManager.IsRunning(s.ID)
 					sessions = append(sessions, applyStoredSessionTitle(newDeepSeekSpaceSessionSummary(s, isRunning), a.sessionTitles))
 				}
 				return spaceSessionScanResult{sessions: sessions, hasMore: deepseekResult.HasMore}, nil
@@ -1801,164 +1750,55 @@ func (a *App) ExecuteClaudeCode(projectPath, prompt, model string, sessionID, pr
 	return a.claudeManager.StartSession(config)
 }
 
-// StartProviderSession starts a new provider session based on the provider type
-func (a *App) StartProviderSession(provider, projectPath, prompt, model, providerApiID, reasoningEffort string) (string, error) {
-	switch provider {
-	case "claude":
-		return a.ExecuteClaudeCode(projectPath, prompt, model, "", providerApiID)
-
-	case "gemini":
-		if a.geminiManager == nil {
-			return "", fmt.Errorf("gemini manager not initialized")
+// buildUnifiedConfig constructs a provider.SessionConfig with API credentials resolved.
+func (a *App) buildUnifiedConfig(providerID, projectPath, prompt, model, providerApiID, reasoningEffort, sessionID string, resume bool) provider.SessionConfig {
+	config := provider.SessionConfig{
+		ProjectPath:     projectPath,
+		Prompt:          prompt,
+		Model:           model,
+		ProviderApiID:   providerApiID,
+		ResumeSessionID: sessionID,
+		Resume:          resume,
+	}
+	if reasoningEffort != "" {
+		if config.Extra == nil {
+			config.Extra = make(map[string]string)
 		}
-		config := gemini.SessionConfig{
-			ProjectPath:   projectPath,
-			Prompt:        prompt,
-			Model:         model,
-			ProviderApiID: providerApiID,
+		config.Extra["reasoning_effort"] = reasoningEffort
+	}
+	if providerApiID != "" && a.dbManager != nil {
+		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && apiConfig != nil {
+			config.AuthToken = apiConfig.AuthToken
+			config.BaseURL = apiConfig.BaseURL
 		}
-		// Fetch API configuration if providerApiID is specified
-		if providerApiID != "" && a.dbManager != nil {
-			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-			if err == nil && apiConfig != nil {
-				config.AuthToken = apiConfig.AuthToken
-				config.BaseURL = apiConfig.BaseURL
-			}
-		}
-		sessionID, err := a.geminiManager.StartSession(config)
-		if err != nil {
-			return "", err
-		}
-		return sessionID, nil
-
-	case "codex":
-		if a.codexManager == nil {
-			return "", fmt.Errorf("codex manager not initialized")
-		}
-		config := codex.SessionConfig{
-			ProjectPath:     projectPath,
-			Prompt:          prompt,
-			Model:           model,
-			ProviderApiID:   providerApiID,
-			ReasoningEffort: reasoningEffort,
-		}
-		if providerApiID != "" && a.dbManager != nil {
-			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-			if err == nil && apiConfig != nil {
-				config.AuthToken = apiConfig.AuthToken
-				config.BaseURL = apiConfig.BaseURL
-			}
-		}
-		sessionID, err := a.codexManager.StartSession(config)
-		if err != nil {
-			return "", err
-		}
-		return sessionID, nil
-
-	case "deepseek":
-		if a.deepseekManager == nil {
-			return "", fmt.Errorf("deepseek manager not initialized")
-		}
-		config := deepseek.SessionConfig{
-			ProjectPath:   projectPath,
-			Prompt:        prompt,
-			Model:         model,
-			ProviderApiID: providerApiID,
-		}
-		apiConfig, err := a.resolveRuntimeProviderAPIConfig("deepseek", providerApiID)
-		if err != nil {
-			return "", err
-		}
+	} else if providerID == "deepseek" {
+		apiConfig, _ := a.resolveRuntimeProviderAPIConfig("deepseek", providerApiID)
 		if apiConfig != nil {
 			config.ProviderApiID = apiConfig.ID
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
 		}
-		return a.deepseekManager.StartSession(config)
-
-	default:
-		// Fallback to Claude for unknown providers
-		return a.ExecuteClaudeCode(projectPath, prompt, model, "", providerApiID)
 	}
+	return config
+}
+
+// StartProviderSession starts a new provider session based on the provider type
+func (a *App) StartProviderSession(provider, projectPath, prompt, model, providerApiID, reasoningEffort string) (string, error) {
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
+	}
+	config := a.buildUnifiedConfig(provider, projectPath, prompt, model, providerApiID, reasoningEffort, "", false)
+	return a.providerManager.StartSession(provider, config)
 }
 
 // ResumeProviderSession resumes an existing provider session based on the provider type
 func (a *App) ResumeProviderSession(provider, projectPath, prompt, model, sessionID, providerApiID, reasoningEffort string) (string, error) {
-	switch provider {
-	case "claude":
-		return a.ResumeClaudeCode(projectPath, prompt, model, sessionID, providerApiID)
-
-	case "gemini":
-		if a.geminiManager == nil {
-			return "", fmt.Errorf("gemini manager not initialized")
-		}
-		config := gemini.SessionConfig{
-			ProjectPath:   projectPath,
-			Prompt:        prompt,
-			Model:         model,
-			ProviderApiID: providerApiID,
-			SessionID:     sessionID,
-			Resume:        true,
-		}
-		// Fetch API configuration if providerApiID is specified
-		if providerApiID != "" && a.dbManager != nil {
-			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-			if err == nil && apiConfig != nil {
-				config.AuthToken = apiConfig.AuthToken
-				config.BaseURL = apiConfig.BaseURL
-			}
-		}
-		return a.geminiManager.StartSession(config)
-
-	case "codex":
-		if a.codexManager == nil {
-			return "", fmt.Errorf("codex manager not initialized")
-		}
-		config := codex.SessionConfig{
-			ProjectPath:     projectPath,
-			Prompt:          prompt,
-			Model:           model,
-			ProviderApiID:   providerApiID,
-			ReasoningEffort: reasoningEffort,
-			SessionID:       sessionID,
-			Resume:          true,
-		}
-		if providerApiID != "" && a.dbManager != nil {
-			apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-			if err == nil && apiConfig != nil {
-				config.AuthToken = apiConfig.AuthToken
-				config.BaseURL = apiConfig.BaseURL
-			}
-		}
-		return a.codexManager.StartSession(config)
-
-	case "deepseek":
-		if a.deepseekManager == nil {
-			return "", fmt.Errorf("deepseek manager not initialized")
-		}
-		config := deepseek.SessionConfig{
-			ProjectPath:   projectPath,
-			Prompt:        prompt,
-			Model:         model,
-			ProviderApiID: providerApiID,
-			SessionID:     sessionID,
-			Resume:        true,
-		}
-		apiConfig, err := a.resolveRuntimeProviderAPIConfig("deepseek", providerApiID)
-		if err != nil {
-			return "", err
-		}
-		if apiConfig != nil {
-			config.ProviderApiID = apiConfig.ID
-			config.AuthToken = apiConfig.AuthToken
-			config.BaseURL = apiConfig.BaseURL
-		}
-		return a.deepseekManager.StartSession(config)
-
-	default:
-		// Fallback to Claude for unknown providers
-		return a.ResumeClaudeCode(projectPath, prompt, model, sessionID, providerApiID)
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
+	config := a.buildUnifiedConfig(provider, projectPath, prompt, model, providerApiID, reasoningEffort, sessionID, true)
+	return a.providerManager.StartSession(provider, config)
 }
 
 // ResumeClaudeCode resumes an existing Claude session
@@ -2017,47 +1857,20 @@ func (a *App) ContinueClaudeCode(projectPath, prompt, model, sessionID, provider
 
 // SendProviderSessionMessage sends a prompt to an existing provider session.
 func (a *App) SendProviderSessionMessage(provider, projectPath, sessionID, prompt string) (string, error) {
-	switch provider {
-	case "gemini":
-		if a.geminiManager == nil {
-			return "", fmt.Errorf("gemini manager not initialized")
-		}
-		cfg := a.providerSessionConfig(provider, projectPath, sessionID)
-		if err := a.geminiManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
-			return "", err
-		}
-		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID, cfg.reasoningEffort)
-	case "codex":
-		if a.codexManager == nil {
-			return "", fmt.Errorf("codex manager not initialized")
-		}
-		cfg := a.providerSessionConfig(provider, projectPath, sessionID)
-		if err := a.codexManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
-			return "", err
-		}
-		return a.StartProviderSession(provider, projectPath, prompt, cfg.model, cfg.providerApiID, cfg.reasoningEffort)
-	case "deepseek":
-		if a.deepseekManager == nil {
-			return "", fmt.Errorf("deepseek manager not initialized")
-		}
-		cfg := a.providerSessionConfig(provider, projectPath, sessionID)
-		if err := a.deepseekManager.TerminateSession(sessionID); err != nil && !strings.Contains(err.Error(), "session is not running") && !strings.Contains(err.Error(), "session not found") {
-			return "", err
-		}
-		return a.ResumeProviderSession(provider, projectPath, prompt, cfg.model, sessionID, cfg.providerApiID, cfg.reasoningEffort)
-	default:
-		if err := a.SendClaudeMessage(projectPath, sessionID, prompt); err != nil {
-			return "", err
-		}
-		return sessionID, nil
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
+	if err := a.providerManager.SendMessage(sessionID, prompt); err != nil {
+		return "", err
+	}
+	return sessionID, nil
 }
 
 // ListRunningProviderSessions returns all currently running live sessions across providers.
 func (a *App) ListRunningProviderSessions() []LiveProviderSession {
 	result := make([]LiveProviderSession, 0)
-	if a.claudeManager != nil {
-		for _, session := range a.claudeManager.ListRunningSessions() {
+	if a.providerManager != nil {
+		for _, session := range a.providerManager.ListAllSessions() {
 			result = append(result, LiveProviderSession{
 				SessionID:         session.SessionID,
 				ProviderSessionID: session.ProviderSessionID,
@@ -2066,46 +1879,7 @@ func (a *App) ListRunningProviderSessions() []LiveProviderSession {
 				Status:            session.Status,
 				StartedAt:         session.StartedAt,
 				PID:               session.PID,
-				Provider:          "claude",
-			})
-		}
-	}
-	if a.geminiManager != nil {
-		for _, session := range a.geminiManager.ListRunningSessions() {
-			result = append(result, LiveProviderSession{
-				SessionID:   session.SessionID,
-				ProjectPath: session.ProjectPath,
-				Model:       session.Model,
-				Status:      session.Status,
-				StartedAt:   session.StartedAt,
-				PID:         session.PID,
-				Provider:    "gemini",
-			})
-		}
-	}
-	if a.codexManager != nil {
-		for _, session := range a.codexManager.ListRunningSessions() {
-			result = append(result, LiveProviderSession{
-				SessionID:   session.SessionID,
-				ProjectPath: session.ProjectPath,
-				Model:       session.Model,
-				Status:      session.Status,
-				StartedAt:   session.StartedAt,
-				PID:         session.PID,
-				Provider:    "codex",
-			})
-		}
-	}
-	if a.deepseekManager != nil {
-		for _, session := range a.deepseekManager.ListRunningSessions() {
-			result = append(result, LiveProviderSession{
-				SessionID:   session.SessionID,
-				ProjectPath: session.ProjectPath,
-				Model:       session.Model,
-				Status:      session.Status,
-				StartedAt:   session.StartedAt,
-				PID:         session.PID,
-				Provider:    "deepseek",
+				Provider:          session.ProviderID,
 			})
 		}
 	}
@@ -2117,44 +1891,18 @@ func (a *App) ListRunningProviderSessions() []LiveProviderSession {
 
 // GetProviderSessionOutput returns buffered output for a live provider session.
 func (a *App) GetProviderSessionOutput(sessionID string) (string, error) {
-	if a.claudeManager != nil {
-		if output, err := a.claudeManager.GetSessionOutput(sessionID); err == nil {
-			return output, nil
-		}
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
-	if a.geminiManager != nil {
-		if output, err := a.geminiManager.GetSessionOutput(sessionID); err == nil {
-			return output, nil
-		}
-	}
-	if a.codexManager != nil {
-		if output, err := a.codexManager.GetSessionOutput(sessionID); err == nil {
-			return output, nil
-		}
-	}
-	if a.deepseekManager != nil {
-		if output, err := a.deepseekManager.GetSessionOutput(sessionID); err == nil {
-			return output, nil
-		}
-	}
-	return "", fmt.Errorf("session not found: %s", sessionID)
+	return a.providerManager.GetSessionOutput(sessionID)
 }
 
 // StopProviderSession stops a live provider session by id.
 func (a *App) StopProviderSession(sessionID string) error {
-	if a.claudeManager != nil && a.claudeManager.IsRunning(sessionID) {
-		return a.claudeManager.TerminateSession(sessionID)
+	if a.providerManager == nil {
+		return fmt.Errorf("provider manager not initialized")
 	}
-	if a.geminiManager != nil && a.geminiManager.IsRunning(sessionID) {
-		return a.geminiManager.TerminateSession(sessionID)
-	}
-	if a.codexManager != nil && a.codexManager.IsRunning(sessionID) {
-		return a.codexManager.TerminateSession(sessionID)
-	}
-	if a.deepseekManager != nil && a.deepseekManager.IsRunning(sessionID) {
-		return a.deepseekManager.TerminateSession(sessionID)
-	}
-	return fmt.Errorf("session not found: %s", sessionID)
+	return a.providerManager.TerminateSession(sessionID)
 }
 
 // CancelClaudeExecution cancels a running session
@@ -2173,39 +1921,32 @@ func shouldIgnoreMissingRunningSessionOnClear(err error) bool {
 }
 
 // CancelClaudeExecutionByProject cancels any provider session by project path
-// This method tries to stop any running provider (claude, codex, gemini) for the given project
+// This method tries to stop any running provider (claude, codex, gemini, deepseek) for the given project
 func (a *App) CancelClaudeExecutionByProject(projectPath string) error {
-	// Try all known providers
-	providers := []struct {
-		name    string
-		manager interface {
-			IsRunningForProject(string) bool
-			TerminateByProject(string) error
-		}
-	}{
-		{"claude", a.claudeManager},
-		{"gemini", a.geminiManager},
-		{"codex", a.codexManager},
-		{"deepseek", a.deepseekManager},
+	if a.providerManager == nil {
+		return nil
 	}
 
+	providers := []string{"claude", "codex", "gemini", "deepseek"}
 	for _, p := range providers {
-		if p.manager == nil {
-			continue
-		}
-		if p.manager.IsRunningForProject(projectPath) {
-			log.Printf("[CancelClaudeExecutionByProject] Found running %s session for project: %s", p.name, projectPath)
-			if err := p.manager.TerminateByProject(projectPath); err != nil {
+		if a.providerManager.IsRunningForProject(p, projectPath) {
+			log.Printf("[CancelClaudeExecutionByProject] Found running %s session for project: %s", p, projectPath)
+			if err := a.providerManager.TerminateByProject(p, projectPath); err != nil {
 				if shouldIgnoreMissingRunningSessionOnClear(err) {
-					log.Printf("[CancelClaudeExecutionByProject] %s session already stopped for project: %s", p.name, projectPath)
+					log.Printf("[CancelClaudeExecutionByProject] %s session already stopped for project: %s", p, projectPath)
 					return nil
 				}
-				log.Printf("[CancelClaudeExecutionByProject] Failed to terminate %s session: %v", p.name, err)
+				log.Printf("[CancelClaudeExecutionByProject] Failed to terminate %s session: %v", p, err)
 				return err
 			}
-			log.Printf("[CancelClaudeExecutionByProject] Successfully cancelled %s execution for project: %s", p.name, projectPath)
+			log.Printf("[CancelClaudeExecutionByProject] Successfully cancelled %s execution for project: %s", p, projectPath)
 			return nil
 		}
+	}
+
+	// Also check old Claude interactive manager
+	if a.claudeManager != nil && a.claudeManager.IsRunningForProject(projectPath) {
+		return a.claudeManager.TerminateByProject(projectPath)
 	}
 
 	log.Printf("[CancelClaudeExecutionByProject] No active provider session for project: %s", projectPath)
@@ -2422,38 +2163,27 @@ func (a *App) IsClaudeSessionRunning(sessionID string) bool {
 // specific live session.
 func (a *App) IsClaudeSessionRunningForProject(projectPath string, providerOrSessionID string) bool {
 	switch providerOrSessionID {
-	case "gemini":
-		if a.geminiManager == nil {
+	case "gemini", "codex", "deepseek":
+		if a.providerManager == nil {
 			return false
 		}
-		return a.geminiManager.IsRunningForProject(projectPath)
-	case "codex":
-		if a.codexManager == nil {
-			return false
-		}
-		return a.codexManager.IsRunningForProject(projectPath)
-	case "deepseek":
-		if a.deepseekManager == nil {
-			return false
-		}
-		return a.deepseekManager.IsRunningForProject(projectPath)
+		return a.providerManager.IsRunningForProject(providerOrSessionID, projectPath)
 	default:
+		// Check by session ID across all providers
+		if a.providerManager != nil && a.providerManager.IsRunning(providerOrSessionID) {
+			return true
+		}
 		if a.claudeManager != nil && a.claudeManager.IsRunning(providerOrSessionID) {
 			return true
 		}
-		if a.geminiManager != nil && a.geminiManager.IsRunning(providerOrSessionID) {
+		// Check by project for Claude
+		if a.providerManager != nil && a.providerManager.IsRunningForProject("claude", projectPath) {
 			return true
 		}
-		if a.codexManager != nil && a.codexManager.IsRunning(providerOrSessionID) {
-			return true
+		if a.claudeManager != nil {
+			return a.claudeManager.IsRunningForProject(projectPath)
 		}
-		if a.deepseekManager != nil && a.deepseekManager.IsRunning(providerOrSessionID) {
-			return true
-		}
-		if a.claudeManager == nil {
-			return false
-		}
-		return a.claudeManager.IsRunningForProject(projectPath)
+		return false
 	}
 }
 

@@ -8,17 +8,19 @@ import (
 
 	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
-	"ropcode/internal/codex"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
-	"ropcode/internal/deepseek"
 	"ropcode/internal/eventhub"
-	"ropcode/internal/gemini"
 	"ropcode/internal/git"
 	"ropcode/internal/mcp"
 	"ropcode/internal/models"
 	"ropcode/internal/plugin"
 	"ropcode/internal/process"
+	"ropcode/internal/provider"
+	providerClaude "ropcode/internal/provider/claude"
+	providerCodex "ropcode/internal/provider/codex"
+	providerDeepseek "ropcode/internal/provider/deepseek"
+	providerGemini "ropcode/internal/provider/gemini"
 	"ropcode/internal/pty"
 	appRuntime "ropcode/internal/runtime"
 	"ropcode/internal/session"
@@ -35,11 +37,9 @@ type App struct {
 	ptyManager          *pty.Manager
 	processManager      *process.Manager
 	dbManager           *database.Database
+	providerManager     *provider.Manager
 	claudeManager       *claude.SessionManager
 	claudeActivity      *claudeactivity.Service
-	geminiManager       *gemini.SessionManager
-	codexManager        *codex.SessionManager
-	deepseekManager     *deepseek.SessionManager
 	mcpManager          *mcp.Manager
 	sshManager          *ssh.Manager
 	pluginManager       *plugin.Manager
@@ -107,23 +107,18 @@ func (a *App) startup(ctx context.Context) {
 	a.processManager = process.NewManager(ctx)
 	a.processManager.SetEventHub(a.eventHub)
 
+	// Initialize unified provider manager
+	a.providerManager = provider.NewManager(ctx, aiSessionEmitter, nil)
+	a.providerManager.RegisterDriver(&providerClaude.Driver{})
+	a.providerManager.RegisterDriver(&providerCodex.Driver{})
+	a.providerManager.RegisterDriver(&providerGemini.Driver{})
+	a.providerManager.RegisterDriver(&providerDeepseek.Driver{})
+
 	// Initialize Claude session manager
 	a.claudeActivity = claudeactivity.NewService()
 	a.claudeManager = claude.NewSessionManager(ctx, aiSessionEmitter)
 	a.claudeManager.SetProcessEmitter(&claudeProcessEmitter{eventHub: a.eventHub})
 	a.claudeManager.SetActivityObserver(a.claudeActivity)
-
-	// Initialize Gemini session manager
-	a.geminiManager = gemini.NewSessionManager(ctx, aiSessionEmitter)
-	a.geminiManager.SetProcessEmitter(&geminiProcessEmitter{eventHub: a.eventHub})
-
-	// Initialize Codex session manager
-	a.codexManager = codex.NewSessionManager(ctx, aiSessionEmitter)
-	a.codexManager.SetProcessEmitter(&codexProcessEmitter{eventHub: a.eventHub})
-
-	// Initialize DeepSeek session manager
-	a.deepseekManager = deepseek.NewSessionManager(ctx, aiSessionEmitter)
-	a.deepseekManager.SetProcessEmitter(&deepseekProcessEmitter{eventHub: a.eventHub})
 
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution
@@ -183,24 +178,14 @@ func (a *App) shutdown(ctx context.Context) {
 		a.processManager.KillAll()
 	}
 
+	// Shutdown unified provider manager
+	if a.providerManager != nil {
+		a.providerManager.Shutdown()
+	}
+
 	// Cleanup Claude sessions
 	if a.claudeManager != nil {
 		a.claudeManager.CleanupCompleted()
-	}
-
-	// Cleanup Gemini sessions
-	if a.geminiManager != nil {
-		a.geminiManager.CleanupCompleted()
-	}
-
-	// Cleanup Codex sessions
-	if a.codexManager != nil {
-		a.codexManager.CleanupCompleted()
-	}
-
-	// Cleanup DeepSeek sessions
-	if a.deepseekManager != nil {
-		a.deepseekManager.CleanupCompleted()
 	}
 
 	// Flush any pending claude-output batches so the front-end sees the final
@@ -255,48 +240,6 @@ func (e *claudeProcessEmitter) EmitProcessChanged(event claude.ProcessChangedEve
 	})
 }
 
-// geminiProcessEmitter adapts EventHub to gemini.ProcessChangedEmitter
-type geminiProcessEmitter struct {
-	eventHub *eventhub.EventHub
-}
-
-func (e *geminiProcessEmitter) EmitProcessChanged(event gemini.ProcessChangedEvent) {
-	e.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
-		PID:      event.PID,
-		Cwd:      event.Cwd,
-		State:    event.State,
-		ExitCode: event.ExitCode,
-	})
-}
-
-// codexProcessEmitter adapts EventHub to codex.ProcessChangedEmitter
-type codexProcessEmitter struct {
-	eventHub *eventhub.EventHub
-}
-
-func (e *codexProcessEmitter) EmitProcessChanged(event codex.ProcessChangedEvent) {
-	e.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
-		PID:      event.PID,
-		Cwd:      event.Cwd,
-		State:    event.State,
-		ExitCode: event.ExitCode,
-	})
-}
-
-// deepseekProcessEmitter adapts EventHub to deepseek.ProcessChangedEmitter
-type deepseekProcessEmitter struct {
-	eventHub *eventhub.EventHub
-}
-
-func (e *deepseekProcessEmitter) EmitProcessChanged(event deepseek.ProcessChangedEvent) {
-	e.eventHub.EmitProcessChanged(eventhub.ProcessChangedEvent{
-		PID:      event.PID,
-		Cwd:      event.Cwd,
-		State:    event.State,
-		ExitCode: event.ExitCode,
-	})
-}
-
 // SetBroadcaster sets the WebSocket broadcaster
 func (a *App) SetBroadcaster(b eventhub.Broadcaster) {
 	a.eventHub.SetBroadcaster(b)
@@ -330,21 +273,6 @@ func (a *App) Database() *database.Database {
 // ClaudeManager exposes the initialized Claude session manager for read-only runtime composition.
 func (a *App) ClaudeManager() *claude.SessionManager {
 	return a.claudeManager
-}
-
-// GeminiManager exposes the initialized Gemini session manager for read-only runtime composition.
-func (a *App) GeminiManager() *gemini.SessionManager {
-	return a.geminiManager
-}
-
-// CodexManager exposes the initialized Codex session manager for read-only runtime composition.
-func (a *App) CodexManager() *codex.SessionManager {
-	return a.codexManager
-}
-
-// DeepSeekManager exposes the initialized DeepSeek session manager for read-only runtime composition.
-func (a *App) DeepSeekManager() *deepseek.SessionManager {
-	return a.deepseekManager
 }
 
 // Greet returns a greeting for the given name (keep for testing)

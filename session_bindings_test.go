@@ -4,15 +4,16 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"testing"
 	"time"
 
-	"ropcode/internal/codex"
 	"ropcode/internal/database"
-	"ropcode/internal/deepseek"
-	"ropcode/internal/gemini"
+	"ropcode/internal/provider"
+	providerClaude "ropcode/internal/provider/claude"
+	providerCodex "ropcode/internal/provider/codex"
+	providerDeepseek "ropcode/internal/provider/deepseek"
+	providerGemini "ropcode/internal/provider/gemini"
 )
 
 func writeFakeProviderBinary(t *testing.T) string {
@@ -49,16 +50,14 @@ func waitUntil(t *testing.T, timeout time.Duration, check func() bool) {
 
 func newGeminiTestApp(t *testing.T) *App {
 	t.Helper()
-	mgr := gemini.NewSessionManager(context.Background(), nil)
-	mgr.SetBinaryPath(writeFakeProviderBinary(t))
-	return &App{geminiManager: mgr}
+	mgr := newTestProviderManager(t)
+	return &App{providerManager: mgr}
 }
 
 func newCodexTestApp(t *testing.T) *App {
 	t.Helper()
-	mgr := codex.NewSessionManager(context.Background(), nil)
-	mgr.SetBinaryPath(writeFakeProviderBinary(t))
-	return &App{codexManager: mgr}
+	mgr := newTestProviderManager(t)
+	return &App{providerManager: mgr}
 }
 
 func newDeepSeekTestApp(t *testing.T) *App {
@@ -69,36 +68,38 @@ func newDeepSeekTestApp(t *testing.T) *App {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
-	mgr := deepseek.NewSessionManager(context.Background(), nil)
-	mgr.SetBinaryPath(writeFakeProviderBinary(t))
-	return &App{dbManager: db, deepseekManager: mgr}
+	mgr := newTestProviderManager(t)
+	return &App{dbManager: db, providerManager: mgr}
 }
 
-func runningSessionConfig(t *testing.T, manager any, sessionID string) (string, string, string) {
+func newTestProviderManager(t *testing.T) *provider.Manager {
 	t.Helper()
+	ctx := context.Background()
+	mgr := provider.NewManager(ctx, nil, nil)
+	mgr.RegisterDriver(&providerClaude.Driver{})
+	mgr.RegisterDriver(&providerCodex.Driver{})
+	mgr.RegisterDriver(&providerGemini.Driver{})
+	mgr.RegisterDriver(&providerDeepseek.Driver{})
 
-	managerValue := reflect.ValueOf(manager)
-	if managerValue.Kind() != reflect.Ptr || managerValue.IsNil() {
-		t.Fatalf("expected manager pointer, got %T", manager)
+	fakeBin := writeFakeProviderBinary(t)
+	mgr.SetBinaryPath("claude", fakeBin)
+	mgr.SetBinaryPath("codex", fakeBin)
+	mgr.SetBinaryPath("gemini", fakeBin)
+	mgr.SetBinaryPath("deepseek", fakeBin)
+	return mgr
+}
+
+func runningSessionConfig(t *testing.T, mgr *provider.Manager, sessionID string) (string, string, string) {
+	t.Helper()
+	status := mgr.GetSession(sessionID)
+	if status == nil {
+		t.Fatalf("session %q not found in provider manager", sessionID)
 	}
-	managerValue = managerValue.Elem()
-
-	sessions := managerValue.FieldByName("sessions")
-	if !sessions.IsValid() {
-		t.Fatal("manager does not expose sessions field")
-	}
-
-	session := sessions.MapIndex(reflect.ValueOf(sessionID))
-	if !session.IsValid() {
-		t.Fatalf("session %q not found", sessionID)
-	}
-
-	config := session.Elem().FieldByName("Config")
 	reasoningEffort := ""
-	if field := config.FieldByName("ReasoningEffort"); field.IsValid() {
-		reasoningEffort = field.String()
+	if status.Extra != nil {
+		reasoningEffort = status.Extra["reasoning_effort"]
 	}
-	return config.FieldByName("Model").String(), config.FieldByName("ProviderApiID").String(), reasoningEffort
+	return status.Model, status.ProviderApiID, reasoningEffort
 }
 
 func TestListRunningProviderSessions_IncludesProviderMetadata(t *testing.T) {
@@ -152,7 +153,7 @@ func TestStartProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T) 
 	}
 	defer app.StopProviderSession(sessionID)
 
-	_, gotProviderApiID, _ := runningSessionConfig(t, app.deepseekManager, sessionID)
+	_, gotProviderApiID, _ := runningSessionConfig(t, app.providerManager, sessionID)
 	if gotProviderApiID != apiCfg.ID {
 		t.Fatalf("expected DeepSeek default providerApiID %q, got %q", apiCfg.ID, gotProviderApiID)
 	}
@@ -179,7 +180,7 @@ func TestResumeProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T)
 	}
 	defer app.StopProviderSession(sessionID)
 
-	_, gotProviderApiID, _ := runningSessionConfig(t, app.deepseekManager, sessionID)
+	_, gotProviderApiID, _ := runningSessionConfig(t, app.providerManager, sessionID)
 	if gotProviderApiID != apiCfg.ID {
 		t.Fatalf("expected DeepSeek default providerApiID %q, got %q", apiCfg.ID, gotProviderApiID)
 	}
@@ -247,8 +248,9 @@ func TestSendProviderSessionMessage_RestartsGeminiSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SendProviderSessionMessage failed: %v", err)
 	}
-	if nextID == firstID {
-		t.Fatalf("expected restarted gemini session id to change, got %q", nextID)
+	// Same session ID — unified runtime reuses the session with resume
+	if nextID != firstID {
+		t.Fatalf("expected same session id on resume, got %q vs %q", firstID, nextID)
 	}
 
 	waitUntil(t, 2*time.Second, func() bool {
@@ -290,7 +292,7 @@ func TestSendProviderSessionMessage_PreservesGeminiConfigOnRestart(t *testing.T)
 		return len(sessions) == 1 && sessions[0].SessionID == nextID
 	})
 
-	model, providerAPIID, _ := runningSessionConfig(t, app.geminiManager, nextID)
+	model, providerAPIID, _ := runningSessionConfig(t, app.providerManager, nextID)
 	if model != "gemini-2.5-pro" {
 		t.Fatalf("expected restarted model to be preserved, got %q", model)
 	}
@@ -330,7 +332,7 @@ func TestSendProviderSessionMessage_PreservesCodexConfigOnRestart(t *testing.T) 
 		return len(sessions) == 1 && sessions[0].SessionID == nextID
 	})
 
-	model, providerAPIID, reasoningEffort := runningSessionConfig(t, app.codexManager, nextID)
+	model, providerAPIID, reasoningEffort := runningSessionConfig(t, app.providerManager, nextID)
 	if model != "gpt-5.5" {
 		t.Fatalf("expected restarted model to be preserved, got %q", model)
 	}

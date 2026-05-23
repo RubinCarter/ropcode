@@ -851,11 +851,11 @@ func (a *App) runClaudeCLIForTitle(ctx context.Context, projectPath, model, prom
 }
 
 func (a *App) runCodexCLIForTitle(ctx context.Context, projectPath, model, prompt string) (string, error) {
-	if a.codexManager == nil {
-		return "", fmt.Errorf("codex manager not initialized")
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
-	binary := a.codexManager.GetBinaryPath()
-	if strings.TrimSpace(binary) == "" {
+	binary, err := a.providerManager.DiscoverBinary("codex")
+	if err != nil || strings.TrimSpace(binary) == "" {
 		return "", fmt.Errorf("codex CLI binary not found; run `codex --version` to verify install")
 	}
 
@@ -897,11 +897,11 @@ func (a *App) runCodexCLIForTitle(ctx context.Context, projectPath, model, promp
 }
 
 func (a *App) runGeminiCLIForTitle(ctx context.Context, projectPath, model, prompt string) (string, error) {
-	if a.geminiManager == nil {
-		return "", fmt.Errorf("gemini manager not initialized")
+	if a.providerManager == nil {
+		return "", fmt.Errorf("provider manager not initialized")
 	}
-	binary := a.geminiManager.GetBinaryPath()
-	if strings.TrimSpace(binary) == "" {
+	binary, err := a.providerManager.DiscoverBinary("gemini")
+	if err != nil || strings.TrimSpace(binary) == "" {
 		return "", fmt.Errorf("gemini CLI binary not found; run `gemini --version` to verify install")
 	}
 
