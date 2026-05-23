@@ -28,5 +28,6 @@ export function getInitialWebSocketConfig(source: WebSocketConfigSource): { port
 
 export function getWebSocketHost(location: Location): string {
   const host = location.hostname || '127.0.0.1';
-  return host === 'wails.localhost' ? '127.0.0.1' : host;
+  if (host === 'wails.localhost' || host === 'wails') return '127.0.0.1';
+  return host;
 }

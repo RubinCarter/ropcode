@@ -123,6 +123,13 @@ func (s *wailsShell) domReady(ctx context.Context) {
 		return
 	}
 	wailsRuntime.WindowExecJS(ctx, s.runtimeScript())
+	wailsRuntime.EventsOn(ctx, "fullscreen-changed", func(optionalData ...interface{}) {
+		isFS := false
+		if len(optionalData) > 0 {
+			isFS, _ = optionalData[0].(bool)
+		}
+		wailsRuntime.WindowExecJS(ctx, fmt.Sprintf(`if(window.__ropcode_fullscreen_cb) window.__ropcode_fullscreen_cb(%v);`, isFS))
+	})
 }
 
 func (s *wailsShell) shutdown(ctx context.Context) {
@@ -232,7 +239,10 @@ func (s *wailsShell) runtimeScript() string {
     clearWebviewStorage: () => Promise.resolve(),
     onWebviewElementSelected: () => {},
     sendToWebview: () => {},
-    onFullscreenChanged: () => () => {},
+    onFullscreenChanged: (cb) => {
+      window.__ropcode_fullscreen_cb = cb;
+      return () => { delete window.__ropcode_fullscreen_cb; };
+    },
     openExternal: (url) => call('OpenExternal', url)
   };
 })();`, port, authKey, port, authKey)
@@ -282,9 +292,10 @@ func (s *wailsShell) ToggleMaximizeWindow() {
 func (s *wailsShell) SetFullscreen(fullscreen bool) {
 	if fullscreen {
 		wailsRuntime.WindowFullscreen(s.ctx)
-		return
+	} else {
+		wailsRuntime.WindowUnfullscreen(s.ctx)
 	}
-	wailsRuntime.WindowUnfullscreen(s.ctx)
+	wailsRuntime.EventsEmit(s.ctx, "fullscreen-changed", fullscreen)
 }
 
 func (s *wailsShell) IsFullscreen() bool {

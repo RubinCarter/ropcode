@@ -1,7 +1,7 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "RopcodeWails",
-  "outputfilename": "RopcodeWails",
+  "name": "Ropcode",
+  "outputfilename": "Ropcode",
   "assetdir": "frontend/dist",
   "frontend:install": "",
   "frontend:build": "",
@@ -16,7 +16,7 @@
   "info": {
     "companyName": "Ropcode",
     "productName": "Ropcode",
-    "productVersion": "0.2.2",
+    "productVersion": "0.2.4",
     "copyright": "Copyright © 2026"
   }
 }

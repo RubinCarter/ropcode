@@ -16,8 +16,9 @@
     "build:cli": "./scripts/build-cli.sh",
     "build:cli:dev": "go build -o bin/ropcode ./cmd/ropcode",
     "build:go": "go build -tags server -o bin/ropcode-server . && ./scripts/build-cli.sh",
-    "build": "cd frontend && npm run build && cd .. && wails build -tags wails",
-    "build:release": "cd frontend && npm run build && wails build -tags wails -platform darwin/arm64",
+    "build": "npm run build:frontend && wails build -tags wails",
+    "build:frontend": "cd frontend && npm run build",
+    "build:release": "./scripts/build-wails-dmg.sh",
     "build:release:electron": "./scripts/build-electron.sh"
   },
   "devDependencies": {
