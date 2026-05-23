@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useEffect, startTransition } from "react";
 import { Bot, ChevronDown, ChevronRight, Hash, ListChecks, Wrench } from "lucide-react";
 import { Virtuoso } from "react-virtuoso";
 import { Badge } from "@/components/ui/badge";
@@ -104,6 +104,9 @@ function createResultMessage(result: unknown, isError: boolean): ClaudeStreamMes
   };
 }
 
+// Initial batch size: show the most recent messages immediately, load the rest progressively
+const INITIAL_BATCH_SIZE = 15;
+
 interface SubagentTranscriptProps {
   subagent: SubagentProgressSummary['subagents'][number];
   agentOutputMap?: Map<string, any>;
@@ -114,7 +117,7 @@ const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, ag
     () => subagent.messages.filter((message) => !isDuplicatePromptMessage(message, subagent.prompt)),
     [subagent.messages, subagent.prompt]
   );
-  const renderMessages = React.useMemo(() => {
+  const allMessages = React.useMemo(() => {
     const fallbackMessages: ClaudeStreamMessageLike[] = [];
 
     if (subagent.prompt && transcriptMessages.length === subagent.messages.length) {
@@ -126,20 +129,70 @@ const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, ag
 
     return [...fallbackMessages, ...transcriptMessages];
   }, [subagent.error, subagent.messages.length, subagent.prompt, subagent.result, transcriptMessages]);
-  const streamContext = React.useMemo(() => buildStreamMessageContext(renderMessages as any), [renderMessages]);
+
+  // Incremental loading: on first mount with many messages, show tail first
+  // then fill the rest via idle callback. After initial load completes,
+  // subsequent allMessages updates go through directly.
+  const initialLoadDoneRef = React.useRef(false);
+  const [visibleMessages, setVisibleMessages] = useState<ClaudeStreamMessageLike[]>(() => {
+    if (allMessages.length > INITIAL_BATCH_SIZE) {
+      return allMessages.slice(-INITIAL_BATCH_SIZE);
+    }
+    initialLoadDoneRef.current = true;
+    return allMessages;
+  });
+
+  useEffect(() => {
+    if (initialLoadDoneRef.current) {
+      // After initial incremental load, update directly
+      setVisibleMessages(allMessages);
+      return;
+    }
+
+    if (allMessages.length <= INITIAL_BATCH_SIZE) {
+      initialLoadDoneRef.current = true;
+      setVisibleMessages(allMessages);
+      return;
+    }
+
+    // Initial mount with many messages: schedule full load
+    let cancelled = false;
+    const loadRemaining = () => {
+      if (cancelled) return;
+      initialLoadDoneRef.current = true;
+      startTransition(() => {
+        setVisibleMessages(allMessages);
+      });
+    };
+
+    const id = 'requestIdleCallback' in window
+      ? (window as any).requestIdleCallback(loadRemaining, { timeout: 300 })
+      : setTimeout(loadRemaining, 50);
+
+    return () => {
+      cancelled = true;
+      if ('cancelIdleCallback' in window) {
+        (window as any).cancelIdleCallback(id);
+      } else {
+        clearTimeout(id);
+      }
+    };
+  }, [allMessages]);
+
+  const streamContext = React.useMemo(() => buildStreamMessageContext(visibleMessages as any), [visibleMessages]);
 
   const renderItem = useCallback(
     (_index: number, message: ClaudeStreamMessageLike) => (
       <ErrorBoundary>
         <StreamMessage
           message={message as any}
-          streamMessages={renderMessages as any}
+          streamMessages={visibleMessages as any}
           streamContext={streamContext}
           agentOutputMap={agentOutputMap}
         />
       </ErrorBoundary>
     ),
-    [renderMessages, streamContext, agentOutputMap]
+    [visibleMessages, streamContext, agentOutputMap]
   );
 
   const computeItemKey = useCallback(
@@ -148,7 +201,7 @@ const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, ag
     [subagent.id]
   );
 
-  if (renderMessages.length === 0) {
+  if (visibleMessages.length === 0) {
     return (
       <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
         Detailed transcript is not available for this subagent yet.
@@ -156,14 +209,14 @@ const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, ag
     );
   }
 
-  if (renderMessages.length <= VIRTUALIZE_THRESHOLD) {
+  if (visibleMessages.length <= VIRTUALIZE_THRESHOLD) {
     return (
       <>
-        {renderMessages.map((message, index) => (
-          <ErrorBoundary key={`${subagent.id}-${Math.max(0, transcriptMessages.length - renderMessages.length) + index}`}>
+        {visibleMessages.map((message, index) => (
+          <ErrorBoundary key={(message as any).uuid ?? `${subagent.id}-${index}`}>
             <StreamMessage
               message={message as any}
-              streamMessages={renderMessages as any}
+              streamMessages={visibleMessages as any}
               streamContext={streamContext}
               agentOutputMap={agentOutputMap}
             />
@@ -176,7 +229,7 @@ const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, ag
   return (
     <div className="h-[60vh] overflow-hidden rounded-md border bg-background/40">
       <Virtuoso
-        data={renderMessages}
+        data={visibleMessages}
         itemContent={renderItem}
         computeItemKey={computeItemKey}
         className="h-full"

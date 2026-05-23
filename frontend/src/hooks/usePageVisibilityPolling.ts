@@ -2,9 +2,11 @@
  * Page Visibility Polling Hook
  *
  * 提供基于页面可见性的轮询机制。只在页面激活时进行轮询，页面隐藏时自动停止。
+ * 休眠唤醒时通过随机 jitter 错开各 hook 的首次轮询，避免 thundering herd。
  */
 
 import { useEffect, useRef, useCallback } from 'react';
+import { wsClient } from '@/lib/ws-rpc-client';
 
 export interface PollingOptions {
   /** 轮询间隔（毫秒），默认 3000ms */
@@ -17,25 +19,12 @@ export interface PollingOptions {
   shouldContinue?: (result: unknown) => boolean;
 }
 
+// Per-instance jitter seed: each hook instance gets a stable random offset
+// so that on wake all hooks spread their first poll over a window.
+let jitterCounter = 0;
+
 /**
  * 基于页面可见性的轮询 Hook
- *
- * @param pollFn 轮询执行的异步函数
- * @param options 轮询配置选项
- *
- * @example
- * ```tsx
- * // 基本用法
- * usePageVisibilityPolling(async () => {
- *   await fetchGitStatus();
- * }, { interval: 3000 });
- *
- * // 带条件控制的轮询
- * usePageVisibilityPolling(async () => {
- *   const result = await checkStatus();
- *   return result.needsMorePolling;
- * }, { interval: 2000, shouldContinue: (r) => r.needsMorePolling });
- * ```
  */
 export function usePageVisibilityPolling<T>(
   pollFn: () => Promise<T> | T,
@@ -48,78 +37,82 @@ export function usePageVisibilityPolling<T>(
     shouldContinue,
   } = options;
 
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isPageVisibleRef = useRef(!document.hidden);
   const pollFnRef = useRef(pollFn);
+  const hiddenAtRef = useRef<number>(document.hidden ? Date.now() : 0);
+  const jitterSeedRef = useRef(jitterCounter++);
   pollFnRef.current = pollFn;
 
-  // 执行轮询函数
   const executePoll = useCallback(async () => {
-    if (!enabled || !isPageVisibleRef.current) {
-      return;
-    }
+    if (!enabled || !isPageVisibleRef.current) return;
+    if (!wsClient.isConnected()) return;
 
     try {
       const result = await pollFnRef.current();
 
-      // 检查是否需要继续轮询
       if (shouldContinue && !shouldContinue(result)) {
-        // 条件不满足，停止轮询
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
         }
       }
     } catch (error) {
-      // 静默处理错误，避免轮询中断
       console.error('[usePageVisibilityPolling] Polling error:', error);
     }
   }, [enabled, shouldContinue]);
 
-  // 设置轮询定时器
-  const startPolling = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-    }
+  const startPolling = useCallback((stagger: boolean = false) => {
+    if (timerRef.current) { clearTimeout(timerRef.current as any); timerRef.current = null; }
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+
+    const beginInterval = () => {
+      intervalRef.current = setInterval(() => { executePoll(); }, interval);
+    };
 
     if (immediate) {
-      executePoll();
+      if (stagger) {
+        // Spread first poll over 0–800ms window to avoid thundering herd on wake
+        const delay = (jitterSeedRef.current % 8) * 100 + Math.random() * 100;
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          executePoll();
+          beginInterval();
+        }, delay);
+      } else {
+        executePoll();
+        beginInterval();
+      }
+    } else {
+      beginInterval();
     }
-
-    timerRef.current = setInterval(() => {
-      executePoll();
-    }, interval);
   }, [interval, immediate, executePoll]);
 
-  // 停止轮询
   const stopPolling = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
+    if (timerRef.current) { clearTimeout(timerRef.current as any); timerRef.current = null; }
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
   }, []);
 
-  // 处理页面可见性变化
   useEffect(() => {
     const handleVisibilityChange = () => {
       const isVisible = !document.hidden;
       isPageVisibleRef.current = isVisible;
 
       if (isVisible && enabled) {
-        // 页面变为可见，重新启动轮询
-        startPolling();
+        const hiddenDuration = hiddenAtRef.current > 0 ? Date.now() - hiddenAtRef.current : 0;
+        // Stagger if hidden for >2s (sleep/lock), not for quick tab switches
+        startPolling(hiddenDuration > 2000);
       } else {
-        // 页面变为隐藏，停止轮询
+        hiddenAtRef.current = Date.now();
         stopPolling();
       }
     };
 
-    // 监听页面可见性变化
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // 初始化：如果页面初始可见且启用，启动轮询
     if (!document.hidden && enabled) {
-      startPolling();
+      startPolling(false);
     }
 
     return () => {
@@ -128,12 +121,11 @@ export function usePageVisibilityPolling<T>(
     };
   }, [enabled, startPolling, stopPolling]);
 
-  // 当 enabled 变化时，重新设置轮询
   useEffect(() => {
     if (!enabled) {
       stopPolling();
     } else if (!document.hidden) {
-      startPolling();
+      startPolling(false);
     }
   }, [enabled, startPolling, stopPolling]);
 }

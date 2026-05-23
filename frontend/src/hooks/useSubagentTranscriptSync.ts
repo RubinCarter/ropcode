@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, startTransition } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { api } from '@/lib/api';
 import type { ClaudeStreamMessageLike, SubagentProgressSummary } from '@/lib/subagentProgress';
@@ -102,7 +102,9 @@ export function useSubagentTranscriptSync<TMessage extends ClaudeStreamMessageLi
 
       lastLoadedKeyRef.current = loadKey;
       lastTranscriptSigRef.current = nextSig;
-      setSubagentTranscripts(nextTranscripts);
+      startTransition(() => {
+        setSubagentTranscripts(nextTranscripts);
+      });
     } catch (error) {
       console.warn('[useSubagentTranscriptSync] Failed to load subagent transcripts:', error);
     } finally {
