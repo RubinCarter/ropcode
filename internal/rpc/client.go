@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"ropcode/internal/stream"
 	ws "ropcode/internal/websocket"
 )
 
@@ -33,6 +34,8 @@ type EventHandler func(payload json.RawMessage)
 
 type Client struct {
 	conn *websocket.Conn
+	url  string
+	key  string
 
 	writeMu sync.Mutex
 	mu      sync.RWMutex
@@ -69,6 +72,8 @@ func Dial(wsURL string, authKey string) (*Client, error) {
 
 	client := &Client{
 		conn:     conn,
+		url:      parsed.String(),
+		key:      authKey,
 		pending:  make(map[string]chan responseEnvelope),
 		handlers: make(map[string][]EventHandler),
 		closeCh:  make(chan struct{}),
@@ -141,6 +146,53 @@ func (c *Client) OnEvent(eventType string, handler func(payload json.RawMessage)
 		return
 	}
 	c.handlers[eventType] = append(c.handlers[eventType], handler)
+}
+
+func (c *Client) ConnectSessionStream(streamID string, handler func(stream.SessionFrame)) (func() error, error) {
+	parsed, err := url.Parse(c.url)
+	if err != nil {
+		return nil, fmt.Errorf("parse websocket url: %w", err)
+	}
+	parsed.Path = "/ws/stream/session/" + url.PathEscape(streamID)
+	if c.key != "" {
+		query := parsed.Query()
+		if query.Get("authKey") == "" {
+			query.Set("authKey", c.key)
+			parsed.RawQuery = query.Encode()
+		}
+	}
+
+	headers := http.Header{}
+	if c.key != "" {
+		headers.Set("X-Auth-Key", c.key)
+	}
+	conn, _, err := websocket.DefaultDialer.Dial(parsed.String(), headers)
+	if err != nil {
+		return nil, fmt.Errorf("dial session stream: %w", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer conn.Close()
+		for {
+			var frame stream.SessionFrame
+			if err := conn.ReadJSON(&frame); err != nil {
+				return
+			}
+			handler(frame)
+		}
+	}()
+
+	return func() error {
+		err := conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		_ = conn.Close()
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+		}
+		return err
+	}, nil
 }
 
 func (c *Client) Close() error {

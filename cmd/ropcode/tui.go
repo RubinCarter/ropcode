@@ -13,6 +13,7 @@ import (
 	"syscall"
 
 	"ropcode/internal/config"
+	"ropcode/internal/stream"
 )
 
 type tuiContextSummary struct {
@@ -154,9 +155,23 @@ func (v *tuiView) subscribeToEvents() {
 		}
 		_ = v.Refresh()
 	}
-	v.client.OnEvent("claude-output", handler)
 	v.client.OnEvent("claude-error", handler)
 	v.client.OnEvent("claude-complete", handler)
+	if connector, ok := v.client.(splitSessionStreamConnector); ok {
+		sessions, err := v.listSessions()
+		if err != nil {
+			return
+		}
+		for _, session := range sessions {
+			session := session
+			_, _ = connector.ConnectSessionStream(
+				stream.StreamIDForSession(session.Provider, session.SessionID),
+				func(_ stream.SessionFrame) {
+					_ = v.Refresh()
+				},
+			)
+		}
+	}
 }
 
 func (v *tuiView) Refresh() error {

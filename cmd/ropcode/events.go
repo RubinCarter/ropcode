@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ropcode/internal/stream"
 )
 
 type sessionEventStream struct {
@@ -15,16 +17,25 @@ type sessionEventStream struct {
 	mu        sync.Mutex
 	sessionID string
 	cwd       string
+	provider  string
+	minSeq    int64
+	useSplit  bool
 	doneCh    chan error
 	doneOnce  sync.Once
+	closeFunc func() error
 }
 
-func newSessionEventStream(stdout io.Writer, stderr io.Writer, sessionID string, cwd string) *sessionEventStream {
+type splitSessionStreamConnector interface {
+	ConnectSessionStream(streamID string, handler func(stream.SessionFrame)) (func() error, error)
+}
+
+func newSessionEventStream(stdout io.Writer, stderr io.Writer, sessionID string, cwd string, provider string) *sessionEventStream {
 	return &sessionEventStream{
 		stdout:    stdout,
 		stderr:    stderr,
 		sessionID: sessionID,
 		cwd:       cwd,
+		provider:  provider,
 		doneCh:    make(chan error, 1),
 	}
 }
@@ -35,10 +46,85 @@ func (s *sessionEventStream) setSessionID(sessionID string) {
 	s.mu.Unlock()
 }
 
+func (s *sessionEventStream) markLiveBoundary() {
+	s.mu.Lock()
+	s.minSeq = time.Now().UnixNano()
+	s.mu.Unlock()
+}
+
 func (s *sessionEventStream) complete(err error) {
 	s.doneOnce.Do(func() {
 		s.doneCh <- err
 	})
+}
+
+func (s *sessionEventStream) close() {
+	s.mu.Lock()
+	closeFunc := s.closeFunc
+	s.closeFunc = nil
+	s.mu.Unlock()
+	if closeFunc != nil {
+		_ = closeFunc()
+	}
+}
+
+func (s *sessionEventStream) attachSplitStream(client rpcSession, sessionID string) {
+	connector, ok := client.(splitSessionStreamConnector)
+	if !ok || sessionID == "" {
+		return
+	}
+
+	s.mu.Lock()
+	provider := s.provider
+	s.mu.Unlock()
+	streamID := stream.StreamIDForSession(firstNonEmpty(provider, "claude"), sessionID)
+	closeFunc, err := connector.ConnectSessionStream(streamID, s.handleSessionFrame)
+	if err != nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closeFunc != nil {
+		_ = closeFunc()
+		return
+	}
+	s.useSplit = true
+	s.closeFunc = closeFunc
+}
+
+func (s *sessionEventStream) handleSessionFrame(frame stream.SessionFrame) {
+	s.mu.Lock()
+	minSeq := s.minSeq
+	s.mu.Unlock()
+	if minSeq > 0 && frame.Seq <= minSeq {
+		return
+	}
+
+	if frame.Kind == stream.FrameKindResult || frame.Kind == stream.FrameKindError {
+		if frame.Kind == stream.FrameKindError || frame.IsError || (frame.Success != nil && !*frame.Success) {
+			errText := frame.Error
+			if errText == "" {
+				errText = "session error"
+			}
+			s.complete(fmt.Errorf("%s", errText))
+		} else {
+			s.complete(nil)
+		}
+		return
+	}
+	if frame.Role != stream.RoleAssistant && frame.Kind != stream.FrameKindDelta && frame.Kind != stream.FrameKindMessage {
+		return
+	}
+	lines := sessionFrameLines(frame)
+	if len(lines) == 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, line := range lines {
+		fmt.Fprintln(s.stdout, line)
+	}
 }
 
 func (s *sessionEventStream) handleOutput(payload json.RawMessage) {
@@ -54,8 +140,6 @@ func (s *sessionEventStream) handleOutput(payload json.RawMessage) {
 		return
 	}
 	msgType, _ := m["type"].(string)
-	// In interactive mode, claude-complete is never fired per-turn.
-	// The "result" message in claude-output signals turn completion.
 	if msgType == "result" {
 		subtype, _ := m["subtype"].(string)
 		if subtype == "error" {
@@ -103,6 +187,12 @@ func (s *sessionEventStream) handleComplete(payload json.RawMessage) {
 	if !s.eventMatches(payload) {
 		return
 	}
+	s.mu.Lock()
+	useSplit := s.useSplit
+	s.mu.Unlock()
+	if useSplit {
+		return
+	}
 	decoded, _ := decodePayloadValue(payload)
 	if m, ok := decoded.(map[string]interface{}); ok {
 		if success, _ := m["success"].(bool); !success {
@@ -117,6 +207,7 @@ func (s *sessionEventStream) handleComplete(payload json.RawMessage) {
 
 func (s *sessionEventStream) wait() error {
 	err := <-s.doneCh
+	s.close()
 	time.Sleep(50 * time.Millisecond)
 	return err
 }
@@ -139,12 +230,31 @@ func (s *sessionEventStream) eventMatches(payload json.RawMessage) bool {
 	return false
 }
 
-func subscribeSessionEvents(client rpcSession, stdout io.Writer, stderr io.Writer, sessionID string, cwd string) *sessionEventStream {
-	stream := newSessionEventStream(stdout, stderr, sessionID, cwd)
-	client.OnEvent("claude-output", stream.handleOutput)
-	client.OnEvent("claude-error", stream.handleError)
-	client.OnEvent("claude-complete", stream.handleComplete)
-	return stream
+func subscribeSessionEvents(client rpcSession, stdout io.Writer, stderr io.Writer, sessionID string, cwd string, provider string) *sessionEventStream {
+	eventStream := newSessionEventStream(stdout, stderr, sessionID, cwd, firstNonEmpty(provider, "claude"))
+	eventStream.attachSplitStream(client, sessionID)
+	subscribeSessionControlEvents(client, eventStream)
+	return eventStream
+}
+
+func subscribeSessionControlEvents(client rpcSession, eventStream *sessionEventStream) {
+	client.OnEvent("claude-error", eventStream.handleError)
+	client.OnEvent("claude-complete", eventStream.handleComplete)
+}
+
+func sessionFrameLines(frame stream.SessionFrame) []string {
+	var lines []string
+	for _, block := range frame.Content {
+		switch block.Type {
+		case stream.ContentText, stream.ContentThinking:
+			lines = append(lines, splitNonEmptyLines(block.Text)...)
+		case stream.ContentToolResult:
+			if block.Text != "" {
+				lines = append(lines, splitNonEmptyLines(block.Text)...)
+			}
+		}
+	}
+	return dedupePreserveOrder(lines)
 }
 
 func renderOutputBuffer(w io.Writer, output string) {
@@ -181,6 +291,15 @@ func decodePayloadValue(raw []byte) (interface{}, bool) {
 		return string(raw), true
 	}
 	return normalizePayloadValue(decoded)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func normalizePayloadValue(value interface{}) (interface{}, bool) {

@@ -14,6 +14,7 @@ import (
 	"ropcode/internal/config"
 	"ropcode/internal/database"
 	"ropcode/internal/rpc"
+	"ropcode/internal/stream"
 	"ropcode/internal/websocket"
 )
 
@@ -67,19 +68,25 @@ type sessionRPCTestApp struct {
 	sessions             map[string]*rpcLiveSession
 	sends                []sessionSendCall
 	broadcaster          func(string, interface{})
+	streamHub            *stream.Hub
 	nextID               int
 	lastInteractiveAPIID string
 }
 
 func newSessionRPCTestApp(db *database.Database) *sessionRPCTestApp {
 	return &sessionRPCTestApp{
-		db:       db,
-		sessions: make(map[string]*rpcLiveSession),
+		db:        db,
+		sessions:  make(map[string]*rpcLiveSession),
+		streamHub: stream.NewHub(),
 	}
 }
 
 func (a *sessionRPCTestApp) Database() *database.Database {
 	return a.db
+}
+
+func (a *sessionRPCTestApp) SessionStreamHub() *stream.Hub {
+	return a.streamHub
 }
 
 func (a *sessionRPCTestApp) StartProviderSession(provider, projectPath, prompt, model, providerApiID string) (string, error) {
@@ -349,25 +356,41 @@ func filepathBase(p string) string {
 }
 
 func (a *sessionRPCTestApp) emitOutput(sessionID, cwd, provider, text string) {
-	payload, _ := json.Marshal(map[string]any{
-		"type":       "assistant",
-		"session_id": sessionID,
-		"cwd":        cwd,
-		"provider":   provider,
-		"message": map[string]any{
-			"role": "assistant",
-			"content": []map[string]any{{
-				"type": "text",
-				"text": text,
-			}},
-		},
+	_ = a.streamHub.Append(stream.SessionFrame{
+		StreamID:         stream.StreamIDForSession(provider, sessionID),
+		FrameID:          fmt.Sprintf("%s-output-%d", sessionID, time.Now().UnixNano()),
+		Provider:         provider,
+		RuntimeSessionID: sessionID,
+		Cwd:              cwd,
+		ProjectPath:      cwd,
+		Seq:              time.Now().UnixNano(),
+		Timestamp:        time.Now().UTC().Format(time.RFC3339Nano),
+		Kind:             stream.FrameKindMessage,
+		Role:             stream.RoleAssistant,
+		Content: []stream.ContentBlock{{
+			Type: stream.ContentText,
+			Text: text,
+		}},
 	})
-	if a.broadcaster != nil {
-		a.broadcaster("claude-output", string(payload))
-	}
 }
 
 func (a *sessionRPCTestApp) emitComplete(sessionID, cwd, provider string) {
+	success := true
+	_ = a.streamHub.Append(stream.SessionFrame{
+		StreamID:         stream.StreamIDForSession(provider, sessionID),
+		FrameID:          fmt.Sprintf("%s-result-%d", sessionID, time.Now().UnixNano()),
+		Provider:         provider,
+		RuntimeSessionID: sessionID,
+		Cwd:              cwd,
+		ProjectPath:      cwd,
+		Seq:              time.Now().UnixNano(),
+		Timestamp:        time.Now().UTC().Format(time.RFC3339Nano),
+		Kind:             stream.FrameKindResult,
+		Role:             stream.RoleAssistant,
+		Subtype:          "completed",
+		Success:          &success,
+		Content:          []stream.ContentBlock{},
+	})
 	payload, _ := json.Marshal(map[string]any{
 		"session_id": sessionID,
 		"cwd":        cwd,
@@ -651,6 +674,23 @@ func TestSessionSendWithCWDAutoResolvesSession(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "assistant follow-up") {
 		t.Fatalf("expected follow-up output in logs, got %q", stdout)
+	}
+}
+
+func TestSessionSendWaitUsesSplitSessionStream(t *testing.T) {
+	inst := startRegisteredSessionInstance(t)
+	inst.app.broadcaster = func(eventType string, payload interface{}) {
+		if eventType == "claude-error" || eventType == "claude-complete" {
+			inst.server.BroadcastEvent(eventType, payload)
+		}
+	}
+
+	stdout, stderr, err := runCLI(t, "send", "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "hello from split stream", "--wait")
+	if err != nil {
+		t.Fatalf("send --wait failed: %v\n%s", err, stderr)
+	}
+	if strings.TrimSpace(stdout) == "" {
+		t.Fatalf("expected output from split session stream, got %q", stdout)
 	}
 }
 

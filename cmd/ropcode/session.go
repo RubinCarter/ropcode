@@ -499,7 +499,7 @@ func runSessionSend(state cliState, client rpcSession, opts sessionCommandOption
 
 	var stream *sessionEventStream
 	if opts.wait {
-		stream = subscribeSessionEvents(client, state.stdout, state.stderr, "", opts.cwd)
+		stream = subscribeSessionEvents(client, state.stdout, state.stderr, "", opts.cwd, opts.provider)
 	}
 
 	var sessionID string
@@ -516,6 +516,8 @@ func runSessionSend(state cliState, client rpcSession, opts sessionCommandOption
 		return nil
 	}
 	stream.setSessionID(sessionID)
+	stream.attachSplitStream(client, sessionID)
+	stream.markLiveBoundary()
 	return stream.wait()
 }
 
@@ -579,7 +581,7 @@ func runSessionLogs(state cliState, client rpcSession, opts sessionCommandOption
 		}
 		opts.sessionID = resolved
 	}
-	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID, opts.cwd)
+	stream := subscribeSessionEvents(client, state.stdout, state.stderr, opts.sessionID, opts.cwd, opts.provider)
 
 	var output string
 	if err := client.Call("GetProviderSessionOutput", []any{opts.sessionID}, &output); err != nil {
