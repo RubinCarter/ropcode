@@ -34,7 +34,7 @@ class PtySessionManager {
     // 监听 pty-ready 事件
     this.readyUnsubscribe = EventsOn('pty-ready', (payload: PtyReadyEvent) => {
       const { session_id, success, error } = payload;
-      console.log('[PtyManager] 收到 pty-ready 事件:', { session_id, success, error });
+      console.log('[PtyManager] Received pty-ready event:', { session_id, success, error });
 
       const session = this.sessions.get(session_id);
       if (session) {
@@ -60,13 +60,13 @@ class PtySessionManager {
     let session = this.sessions.get(sessionId);
 
     if (session?.created) {
-      console.log('[PtyManager] PTY 会话已存在:', sessionId);
+      console.log('[PtyManager] PTY session already exists:', sessionId);
       return;
     }
 
     // 如果正在等待后端启动，直接返回（不阻塞）
     if (session?.pending) {
-      console.log('[PtyManager] PTY 会话正在启动中:', sessionId);
+      console.log('[PtyManager] PTY session is already starting:', sessionId);
       return;
     }
 
@@ -83,7 +83,7 @@ class PtySessionManager {
     });
 
     try {
-      console.log('[PtyManager] 创建 PTY 会话 (异步):', { sessionId, cwd, rows, cols });
+      console.log('[PtyManager] Creating PTY session asynchronously:', { sessionId, cwd, rows, cols });
 
       // RPC 调用现在会立即返回，不等待 shell 启动
       await api.createPtySession(
@@ -94,9 +94,9 @@ class PtySessionManager {
         undefined
       );
 
-      console.log('[PtyManager] PTY 会话创建请求已发送:', sessionId);
+      console.log('[PtyManager] PTY session create request sent:', sessionId);
     } catch (error) {
-      console.error('[PtyManager] PTY 会话创建失败:', sessionId, error);
+      console.error('[PtyManager] Failed to create PTY session:', sessionId, error);
       this.sessions.delete(sessionId);
       throw error;
     }
@@ -146,13 +146,13 @@ class PtySessionManager {
   async resize(sessionId: string, rows: number, cols: number): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session?.created) {
-      console.warn('[PtyManager] PTY 会话不存在或未创建，跳过 resize:', sessionId);
+      console.warn('[PtyManager] PTY session does not exist or was not created, skipping resize:', sessionId);
       return;
     }
 
     // 如果 PTY 还没就绪，跳过 resize（后端会使用创建时的尺寸）
     if (!session.ready) {
-      console.log('[PtyManager] PTY 还未就绪，跳过 resize:', sessionId);
+      console.log('[PtyManager] PTY is not ready yet, skipping resize:', sessionId);
       session.rows = rows;
       session.cols = cols;
       return;
@@ -162,9 +162,9 @@ class PtySessionManager {
       await api.resizePty(sessionId, rows, cols);
       session.rows = rows;
       session.cols = cols;
-      console.log('[PtyManager] PTY 尺寸已调整:', { sessionId, rows, cols });
+      console.log('[PtyManager] PTY size adjusted:', { sessionId, rows, cols });
     } catch (error) {
-      console.error('[PtyManager] PTY 尺寸调整失败:', sessionId, error);
+      console.error('[PtyManager] Failed to resize PTY:', sessionId, error);
     }
   }
 
@@ -174,16 +174,16 @@ class PtySessionManager {
   async close(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      console.warn('[PtyManager] PTY 会话不存在:', sessionId);
+      console.warn('[PtyManager] PTY session does not exist:', sessionId);
       return;
     }
 
     try {
-      console.log('[PtyManager] 关闭 PTY 会话:', sessionId);
+      console.log('[PtyManager] Closing PTY session:', sessionId);
       await api.closePtySession(sessionId);
       this.sessions.delete(sessionId);
     } catch (error) {
-      console.error('[PtyManager] PTY 会话关闭失败:', sessionId, error);
+      console.error('[PtyManager] Failed to close PTY session:', sessionId, error);
       // 即使失败也从管理器中移除
       this.sessions.delete(sessionId);
     }
@@ -196,7 +196,7 @@ class PtySessionManager {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.listeners.add(listenerId);
-      console.log('[PtyManager] 注册监听器:', { sessionId, listenerId, count: session.listeners.size });
+      console.log('[PtyManager] Registered listener:', { sessionId, listenerId, count: session.listeners.size });
     }
   }
 
@@ -207,7 +207,7 @@ class PtySessionManager {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.listeners.delete(listenerId);
-      console.log('[PtyManager] 注销监听器:', { sessionId, listenerId, count: session.listeners.size });
+      console.log('[PtyManager] Unregistered listener:', { sessionId, listenerId, count: session.listeners.size });
     }
   }
 
@@ -229,7 +229,7 @@ class PtySessionManager {
    * 清理所有会话
    */
   async clear(): Promise<void> {
-    console.log('[PtyManager] 清理所有会话');
+    console.log('[PtyManager] Clearing all sessions');
     const promises = Array.from(this.sessions.keys()).map(id => this.close(id));
     await Promise.allSettled(promises);
   }
@@ -278,7 +278,7 @@ export function usePtySession(options: UsePtySessionOptions) {
       try {
         terminal.write(frame.data ?? '');
       } catch (error) {
-        console.error('[usePtySession] 写入 Terminal 失败:', error);
+        console.error('[usePtySession] Failed to write to Terminal:', error);
       }
     }
     consumedBulkCountRef.current = bulkFrames.length;
@@ -286,12 +286,12 @@ export function usePtySession(options: UsePtySessionOptions) {
 
   // 统一的初始化流程：先设置监听器，再创建 PTY 会话
   useEffect(() => {
-    console.log('[usePtySession] useEffect 触发:', { sessionId, terminalExists: !!terminal, initialized: initializedRef.current });
+    console.log('[usePtySession] useEffect triggered:', { sessionId, terminalExists: !!terminal, initialized: initializedRef.current });
     if (!terminal || initializedRef.current) return;
 
     const init = async () => {
       try {
-        console.log('[usePtySession] 开始初始化:', sessionId);
+        console.log('[usePtySession] Starting initialization:', sessionId);
 
         // 1. 先设置 PTY 输出监听器（必须在 PTY 创建之前）
         const listenerId = listenerIdRef.current;
@@ -301,24 +301,24 @@ export function usePtySession(options: UsePtySessionOptions) {
         const readyUnsubscribe = EventsOn('pty-ready', (payload: PtyReadyEvent) => {
           if (payload.session_id === sessionId) {
             if (payload.success) {
-              console.log('[usePtySession] PTY 已就绪:', sessionId);
+              console.log('[usePtySession] PTY is ready:', sessionId);
               setIsReady(true);
             } else {
-              console.error('[usePtySession] PTY 启动失败:', payload.error);
+              console.error('[usePtySession] PTY failed to start:', payload.error);
               terminal?.writeln(`\x1b[1;31mError: ${payload.error || 'Failed to start PTY'}\x1b[0m`);
             }
           }
         });
         readyUnsubscribeRef.current = readyUnsubscribe;
 
-        console.log('[usePtySession] PTY bulk 输出监听器已设置:', { sessionId, listenerId });
+        console.log('[usePtySession] PTY bulk output listener is set:', { sessionId, listenerId });
 
         // 2. 设置输入处理器
         const handleData = async (data: string) => {
           try {
             await api.writeToPty(sessionId, data);
           } catch (error) {
-            console.error('[usePtySession] 写入 PTY 失败:', error);
+            console.error('[usePtySession] Failed to write to PTY:', error);
           }
         };
 
@@ -330,13 +330,13 @@ export function usePtySession(options: UsePtySessionOptions) {
           ? { rows: terminal.rows, cols: terminal.cols }
           : { rows, cols };
 
-        console.log('[usePtySession] 创建 PTY 会话 (异步):', { sessionId, dims });
+        console.log('[usePtySession] Creating PTY session asynchronously:', { sessionId, dims });
         await ptySessionManager.getOrCreate(sessionId, cwd, dims.rows, dims.cols);
 
         initializedRef.current = true;
-        console.log('[usePtySession] PTY 创建请求已发送，等待 pty-ready 事件:', sessionId);
+        console.log('[usePtySession] PTY create request sent, waiting for pty-ready event:', sessionId);
       } catch (error) {
-        console.error('[usePtySession] PTY 会话初始化失败:', error);
+        console.error('[usePtySession] Failed to initialize PTY session:', error);
         terminal?.writeln('\x1b[1;31mError: Failed to create PTY session\x1b[0m');
       }
     };
@@ -344,7 +344,7 @@ export function usePtySession(options: UsePtySessionOptions) {
     init();
 
     return () => {
-      console.log('[usePtySession] 清理 PTY 会话:', sessionId);
+      console.log('[usePtySession] Cleaning up PTY session:', sessionId);
       unsubscribeRef.current?.();
       unsubscribeRef.current = null;
       readyUnsubscribeRef.current?.();

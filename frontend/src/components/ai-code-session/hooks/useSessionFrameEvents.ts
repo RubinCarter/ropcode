@@ -533,6 +533,10 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
       console.error('[useSessionFrameEvents] Error event:', payload);
 
       const errorData = parseEventObject(payload);
+      if (errorData?.level && errorData.level !== 'error') {
+        console.warn('[useSessionFrameEvents] Non-error provider stderr:', errorData);
+        return;
+      }
       if (errorData) {
         if (errorData.cwd && errorData.cwd !== projectPathRef.current) return;
 

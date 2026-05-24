@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -234,6 +236,29 @@ func TestMarkInitializedDoesNotEmitSyntheticInit(t *testing.T) {
 	}
 }
 
+func TestBatchSessionDoesNotAttachStdinPipe(t *testing.T) {
+	if os.Getenv("ROPCODE_PROVIDER_STDIN_HELPER") == "1" {
+		fmt.Println("ok")
+		return
+	}
+
+	session := newSession(
+		context.Background(),
+		"batch-session",
+		&stdinProbeDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Prompt: "probe"},
+		nil,
+		nil,
+		nil,
+	)
+	session.binaryPath = os.Args[0]
+
+	if err := session.Start(); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	waitForSessionDone(t, session, 2*time.Second)
+}
+
 // === Test Drivers ===
 
 // echoDriver uses "echo" command — runs and exits immediately.
@@ -315,3 +340,55 @@ func (d *sleepDriver) UpdateEnvironmentVariables(session SessionHandle, vars map
 func (d *sleepDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
 func (d *sleepDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error { return nil }
 func (d *sleepDriver) OnProcessExit(session SessionHandle, exitCode int, err error)   {}
+
+type stdinProbeDriver struct{}
+
+func (d *stdinProbeDriver) ID() string         { return "stdin-probe" }
+func (d *stdinProbeDriver) BinaryName() string { return os.Args[0] }
+func (d *stdinProbeDriver) BinaryCandidates() []string {
+	return []string{os.Args[0]}
+}
+func (d *stdinProbeDriver) BuildArgs(config SessionConfig) []string {
+	return []string{"-test.run=TestBatchSessionDoesNotAttachStdinPipe", "--"}
+}
+func (d *stdinProbeDriver) EnvVars(config SessionConfig) map[string]string {
+	return map[string]string{"ROPCODE_PROVIDER_STDIN_HELPER": "1"}
+}
+func (d *stdinProbeDriver) ParseOutput(line []byte) *OutputEvent {
+	return &OutputEvent{Type: "raw", Raw: string(line)}
+}
+func (d *stdinProbeDriver) ParseStderr(line []byte) *StderrEvent {
+	return &StderrEvent{Level: "error", Message: string(line)}
+}
+func (d *stdinProbeDriver) SendMessage(session SessionHandle, msg string) error {
+	return nil
+}
+func (d *stdinProbeDriver) Interrupt(session SessionHandle) error {
+	return session.Kill()
+}
+func (d *stdinProbeDriver) SetModel(session SessionHandle, model string) error { return nil }
+func (d *stdinProbeDriver) SetPermissionMode(session SessionHandle, mode string) error {
+	return nil
+}
+func (d *stdinProbeDriver) UpdateEnvironmentVariables(session SessionHandle, vars map[string]string) error {
+	return nil
+}
+func (d *stdinProbeDriver) WaitForInit(session SessionHandle, timeout time.Duration) error {
+	return nil
+}
+func (d *stdinProbeDriver) OnProcessStart(_ context.Context, session SessionHandle, _ int) error {
+	if concrete, ok := session.(*Session); ok && concrete.stdin != nil {
+		return fmt.Errorf("batch session should not retain stdin pipe")
+	}
+	return nil
+}
+func (d *stdinProbeDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {}
+
+func waitForSessionDone(t *testing.T, session *Session, timeout time.Duration) {
+	t.Helper()
+	select {
+	case <-session.done:
+	case <-time.After(timeout):
+		t.Fatalf("session did not exit within %s", timeout)
+	}
+}

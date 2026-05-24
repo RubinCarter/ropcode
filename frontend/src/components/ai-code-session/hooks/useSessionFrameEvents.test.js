@@ -30,3 +30,11 @@ test('provider result messages keep live interactive session id from runtime_ses
   assert.match(source, /if \(runtimeSessionId\) \{[\s\S]*setInteractiveSessionId\(runtimeSessionId\)/);
   assert.doesNotMatch(source, /if \(message\.session_id\) \{[\s\S]*setInteractiveSessionId\(message\.session_id\)/);
 });
+
+test('provider stderr warnings do not create session error messages', async () => {
+  const source = await readSource();
+
+  assert.match(source, /if \(errorData\?\.level && errorData\.level !== 'error'\) \{/);
+  assert.match(source, /console\.warn\('\[useSessionFrameEvents\] Non-error provider stderr:', errorData\);/);
+  assert.match(source, /return;\s*\}\s*if \(errorData\) \{/);
+});

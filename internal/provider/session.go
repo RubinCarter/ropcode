@@ -90,14 +90,6 @@ func (s *Session) Start() error {
 	cmd.Env = env
 	sessionproc.Configure(cmd)
 
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		s.mu.Lock()
-		s.state = StateFailed
-		s.mu.Unlock()
-		return fmt.Errorf("stdin pipe: %w", err)
-	}
-
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		s.mu.Lock()
@@ -114,6 +106,17 @@ func (s *Session) Start() error {
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
+	var stdin io.WriteCloser
+	if s.config.Interactive {
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			s.mu.Lock()
+			s.state = StateFailed
+			s.mu.Unlock()
+			return fmt.Errorf("stdin pipe: %w", err)
+		}
+	}
+
 	if err := sessionproc.Start(cmd); err != nil {
 		s.mu.Lock()
 		s.state = StateFailed
@@ -128,11 +131,6 @@ func (s *Session) Start() error {
 	s.state = StateRunning
 	s.done = make(chan struct{})
 	s.mu.Unlock()
-
-	// For batch mode, close stdin so the process knows no more input is coming
-	if !s.config.Interactive {
-		stdin.Close()
-	}
 
 	if s.monitor != nil {
 		s.monitor.Register(s.ID)

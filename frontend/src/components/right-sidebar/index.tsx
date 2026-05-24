@@ -295,7 +295,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
       if (savedState && savedState.sessions.length > 0) {
         // 使用保存的状态
-        console.log('[RightSidebar] 📦 从本地存储加载 workspace 终端状态:', key);
+        console.log('[RightSidebar] Loading workspace terminal state from local storage:', key);
         const outputs: Record<string, TerminalOutput[]> = {};
         savedState.sessions.forEach((session: TerminalSession) => {
           outputs[session.id] = [];
@@ -313,7 +313,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         });
       } else {
         // 创建默认状态
-        console.log('[RightSidebar] 🆕 创建新的 workspace 终端状态:', key);
+        console.log('[RightSidebar] Creating new workspace terminal state:', key);
         const firstTerminalId = generateTerminalId();
         workspaceStates.current.set(key, {
           sessions: [{ id: firstTerminalId, title: 'Terminal 1', type: 'bash', isPty: true }],
@@ -344,9 +344,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     const prevKey = prevProjectPathRef.current || 'default';
 
     if (prevKey !== key) {
-      console.log('[RightSidebar] 🔄 Workspace 切换:', prevKey, '->', key);
+      console.log('[RightSidebar] Workspace changed:', prevKey, '->', key);
       const currentState = getCurrentState();
-      console.log('[RightSidebar] 📊 新 workspace 状态:', {
+      console.log('[RightSidebar] New workspace state:', {
         sessions: currentState.sessions.length,
         activeSessionId: currentState.activeSessionId,
         outputCount: Object.keys(currentState.outputs).length,
@@ -390,7 +390,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     try {
       const parsed = parseProjectPath(currentProjectPath);
       if (!parsed) {
-        console.warn('[RightSidebar] 无法解析项目路径:', currentProjectPath);
+        console.warn('[RightSidebar] Failed to parse project path:', currentProjectPath);
         setActions([]);
         return;
       }
@@ -432,7 +432,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     const key = getWorkspaceStorageKey(currentProjectPath);
     saveTerminalState(key, currentState);
 
-    console.log('[RightSidebar] 🆕 创建新终端:', { id: newId, title: newSession.title });
+    console.log('[RightSidebar] Creating new terminal:', { id: newId, title: newSession.title });
     triggerUpdate();
   }, [getCurrentState, currentProjectPath]);
 
@@ -456,18 +456,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const handleCloseSession = useCallback(async (id: string) => {
     const currentState = getCurrentState();
     if (currentState.sessions.length === 1) {
-      console.log('[RightSidebar] ⚠️ 不能关闭最后一个终端');
+      console.log('[RightSidebar] Cannot close the last terminal');
       return; // 至少保留一个会话
     }
 
-    console.log('[RightSidebar] 🗑️ 关闭终端:', id);
+    console.log('[RightSidebar] Closing terminal:', id);
 
     // 清理 PTY 会话
     try {
       await api.closePtySession(id);
-      console.log('[RightSidebar] ✅ PTY 会话已关闭:', id);
+      console.log('[RightSidebar] PTY session closed:', id);
     } catch (error) {
-      console.error('[RightSidebar] ❌ 关闭 PTY 会话失败:', id, error);
+      console.error('[RightSidebar] Failed to close PTY session:', id, error);
     }
 
     // 从状态中移除
@@ -528,7 +528,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     currentState.commandToSessionMap.set(commandId, sessionId);
     // 记录命令开始时间
     currentState.commandStartTime.set(commandId, Date.now());
-    console.log('[RightSidebar] 📝 记录命令映射:', { commandId, sessionId, command: command.substring(0, 50) });
+    console.log('[RightSidebar] Recording command mapping:', { commandId, sessionId, command: command.substring(0, 50) });
 
     try {
       // 使用异步流式 API 执行命令
@@ -673,7 +673,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     const key = getWorkspaceStorageKey(currentProjectPath);
     saveTerminalState(key, currentState);
 
-    console.log('[RightSidebar] 🔄 切换到终端:', id);
+    console.log('[RightSidebar] Switched to terminal:', id);
     triggerUpdate();
   }, [getCurrentState, currentProjectPath]);
 
@@ -698,11 +698,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         const sessionId = currentState.commandToSessionMap.get(command_id);
 
         if (!sessionId) {
-          console.warn('[RightSidebar] ⚠️ 收到未知命令的输出:', command_id);
+          console.warn('[RightSidebar] Received output for an unknown command:', command_id);
           return;
         }
 
-        console.log('[RightSidebar] 📥 路由输出到会话:', { command_id, sessionId, output_type, exit_code });
+        console.log('[RightSidebar] Routing output to session:', { command_id, sessionId, output_type, exit_code });
 
         // 检测 ANSI 清屏序列 (clear 命令的输出)
         const clearScreenPattern = /\x1b\[(?:2J|3J|H)/;
@@ -747,7 +747,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           // 清理命令映射和时间戳
           currentState.commandToSessionMap.delete(command_id);
           currentState.commandStartTime.delete(command_id);
-          console.log('[RightSidebar] 🧹 清理命令映射和运行状态:', command_id, sessionId);
+          console.log('[RightSidebar] Cleared command mapping and running state:', command_id, sessionId);
         }
       });
 
@@ -970,18 +970,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         }
 
         if (!currentProjectPath) {
-          console.warn('[RightSidebar] ⚠️ 无法打开 Actions 配置：没有当前项目路径');
+          console.warn('[RightSidebar] Cannot open Actions config: no current project path');
           return null;
         }
 
         const parsed = parseProjectPath(currentProjectPath);
 
         if (!parsed) {
-          console.warn('[RightSidebar] ⚠️ 无法打开 Actions 配置：无法解析项目路径:', currentProjectPath);
+          console.warn('[RightSidebar] Cannot open Actions config: failed to parse project path:', currentProjectPath);
           return null;
         }
 
-        console.log('[RightSidebar] 打开 Actions 配置对话框:', {
+        console.log('[RightSidebar] Opening Actions config dialog:', {
           currentProjectPath,
           parsed
         });

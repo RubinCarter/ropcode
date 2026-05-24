@@ -21,7 +21,7 @@ class TerminalInstanceManager {
     let instance = this.instances.get(key);
 
     if (!instance) {
-      console.log('[TerminalManager] 创建实例占位:', key);
+      console.log('[TerminalManager] Creating instance placeholder:', key);
       instance = {
         termWrap: null,
         container: null,
@@ -31,7 +31,7 @@ class TerminalInstanceManager {
     }
 
     instance.refCount++;
-    console.log('[TerminalManager] 引用计数增加:', key, instance.refCount);
+    console.log('[TerminalManager] Ref count increased:', key, instance.refCount);
 
     return {
       termWrap: instance.termWrap,
@@ -44,13 +44,13 @@ class TerminalInstanceManager {
   attach(key: string, container: HTMLDivElement): TermWrap | null {
     const instance = this.instances.get(key);
     if (!instance) {
-      console.error('[TerminalManager] 实例不存在:', key);
+      console.error('[TerminalManager] Instance does not exist:', key);
       return null;
     }
 
     // 如果还没有创建 TermWrap，则创建
     if (!instance.termWrap) {
-      console.log('[TerminalManager] 创建 TermWrap:', key);
+      console.log('[TerminalManager] Creating TermWrap:', key);
       instance.termWrap = new TermWrap(
         container,
         {
@@ -67,14 +67,14 @@ class TerminalInstanceManager {
         }
       );
       instance.container = container;
-      console.log('[TerminalManager] TermWrap 创建成功，WebGL:', instance.termWrap.isWebGLLoaded());
+      console.log('[TerminalManager] TermWrap created, WebGL:', instance.termWrap.isWebGLLoaded());
     } else {
       // TermWrap 已存在，处理容器变更
       const terminal = instance.termWrap.getTerminal();
       const currentElement = (terminal as any)?.element as HTMLElement | null;
 
       if (currentElement && currentElement.parentElement !== container) {
-        console.log('[TerminalManager] 迁移 xterm DOM 到新容器:', key);
+        console.log('[TerminalManager] Moving xterm DOM to new container:', key);
         container.appendChild(currentElement);
         instance.container = container;
       }
@@ -99,7 +99,7 @@ class TerminalInstanceManager {
     const instance = this.instances.get(key);
     if (!instance) return;
 
-    console.log('[TerminalManager] 分离容器:', key);
+    console.log('[TerminalManager] Detaching container:', key);
     instance.container = null;
   }
 
@@ -111,7 +111,7 @@ class TerminalInstanceManager {
     if (!instance) return;
 
     instance.refCount--;
-    console.log('[TerminalManager] 引用计数减少:', key, instance.refCount);
+    console.log('[TerminalManager] Ref count decreased:', key, instance.refCount);
   }
 
   /**
@@ -121,7 +121,7 @@ class TerminalInstanceManager {
     const instance = this.instances.get(key);
     if (!instance) return;
 
-    console.log('[TerminalManager] 销毁实例:', key);
+    console.log('[TerminalManager] Destroying instance:', key);
 
     if (instance.termWrap) {
       instance.termWrap.dispose();
@@ -153,7 +153,7 @@ class TerminalInstanceManager {
    * 清理所有实例
    */
   clear(): void {
-    console.log('[TerminalManager] 清理所有实例');
+    console.log('[TerminalManager] Clearing all instances');
     this.instances.forEach((_instance, key) => {
       this.destroy(key);
     });
@@ -179,7 +179,7 @@ export function useTerminalInstance(
 
   // 创建/获取实例
   useEffect(() => {
-    console.log('[useTerminalInstance] 初始化:', { key });
+    console.log('[useTerminalInstance] Initializing:', { key });
     const inst = terminalManager.getOrCreate(key);
     setTermWrap(inst.termWrap);
 

@@ -119,7 +119,7 @@ export class TermWrap {
     this.options = wrapOptions || {};
 
     // 创建 Terminal 实例
-    console.log('[TermWrap] 创建 Terminal 实例');
+    console.log('[TermWrap] Creating Terminal instance');
     this.terminal = new Terminal(terminalOptions);
 
     // 初始化 FitAddon

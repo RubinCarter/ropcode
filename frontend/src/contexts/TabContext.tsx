@@ -93,7 +93,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     TabPersistenceService.migrateFromOldFormat();
 
     // 清空保存的 tabs，确保软件启动时不自动打开任何项目
-    console.log('[TabContext] 初始化：清空保存的 tabs，从空白状态开始...');
+    console.log('[TabContext] Initializing: clearing saved tabs and starting blank...');
     TabPersistenceService.clearTabs();
     setTabs([]);
     setActiveTabId(null);

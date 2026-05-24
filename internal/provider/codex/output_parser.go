@@ -2,6 +2,7 @@ package codex
 
 import (
 	"encoding/json"
+	"strings"
 
 	"ropcode/internal/provider"
 )
@@ -427,8 +428,16 @@ func extractTextFromPayload(payload map[string]interface{}) string {
 }
 
 func (d *Driver) ParseStderr(line []byte) *provider.StderrEvent {
+	message := strings.TrimSpace(string(line))
+	if message == "Reading additional input from stdin..." {
+		return nil
+	}
+	level := "error"
+	if strings.Contains(message, " WARN ") || strings.Contains(message, "\tWARN ") {
+		level = "warning"
+	}
 	return &provider.StderrEvent{
-		Level:   "error",
-		Message: string(line),
+		Level:   level,
+		Message: message,
 	}
 }
