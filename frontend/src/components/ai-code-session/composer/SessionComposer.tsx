@@ -1,7 +1,7 @@
 import React from 'react';
 import { FloatingPromptInput, type FloatingPromptInputRef } from '../../FloatingPromptInput';
 
-interface SessionComposerProps {
+export interface SessionComposerProps {
   inputRef: React.Ref<FloatingPromptInputRef>;
   onSend: (
     prompt: string,

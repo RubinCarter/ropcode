@@ -4,7 +4,7 @@
  * Pulled out of `AiCodeSession` so the streaming list (Virtuoso + items) can
  * be re-rendered as a wrapped subtree. The component is a controlled,
  * `React.memo`-wrapped child that takes the entire `messagesState` returned
- * by `useMessages()`, plus the imperative bits (`virtuosoRef`, viewport
+ * by `useSessionMessages()`, plus the imperative bits (`virtuosoRef`, viewport
  * config). It re-renders whenever the parent re-renders, but isolating the
  * Virtuoso lifecycle here keeps the parent JSX small and gives us a single
  * place to memoise the per-row callbacks.
@@ -15,10 +15,10 @@ import { cn } from "@/lib/utils";
 import { StreamMessage } from "../StreamMessage";
 import { SubagentProgressPanel } from "../SubagentProgressPanel";
 import type { ClaudeStreamMessage } from "./types";
-import type { UseMessagesReturn } from "./hooks/useMessages";
+import type { UseSessionMessagesReturn } from "./hooks/useSessionMessages";
 
 interface MessageStreamViewProps {
-  messagesState: UseMessagesReturn;
+  messagesState: UseSessionMessagesReturn;
   isLoading: boolean;
   virtuosoRef: React.Ref<VirtuosoHandle>;
   isScrollPaused: boolean;
@@ -36,7 +36,7 @@ interface MessageStreamViewProps {
 }
 
 /**
- * Subscribes to useMessages tail-revision updates and re-renders only this
+ * Subscribes to useSessionMessages tail-revision updates and re-renders only this
  * row when streaming text deltas arrive. Bypasses StreamMessage's React.memo
  * by feeding the revision through a `tailRev` prop that the memo comparator
  * checks.

@@ -3,6 +3,7 @@ import type {
   SessionRuntimeTracker,
   SessionRuntimeViewState,
 } from '../types';
+import type { RuntimeSnapshot } from '@/lib/session-frame/types';
 
 interface RuntimeTrackerMessage {
   type?: string;
@@ -28,6 +29,8 @@ export interface RuntimeLocalState {
   stopRequested: boolean;
   lastTransportConnectAt: number | null;
   loadingStartedAt?: number | null;
+  frameRuntime?: RuntimeSnapshot;
+  frameLastSeq?: number;
 }
 
 export interface DeriveRuntimeViewStateInput {
@@ -116,7 +119,7 @@ export function reduceRuntimeTracker(
 }
 
 export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeViewStateInput): SessionRuntimeViewState {
-  const snapshot = tracker.snapshot;
+  const snapshot = tracker.snapshot ?? snapshotFromFrameRuntime(local.frameRuntime ?? null);
   const retry = getRetryState(snapshot);
   const activeTool = snapshot?.active_tool?.trim() || null;
   const toolProgressText = formatToolProgress(snapshot);
@@ -162,6 +165,18 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     severity = 'warning';
     waitingReason = 'reconnect';
     detail = 'Waiting for WebSocket reconnection';
+  } else if (local.frameRuntime?.phase === 'failed') {
+    phase = 'failed';
+    label = 'Failed';
+    severity = 'error';
+    waitingReason = null;
+    detail = local.frameRuntime.waitingOn ?? null;
+  } else if (local.frameRuntime?.phase === 'completed') {
+    phase = 'completed';
+    label = 'Completed';
+    severity = 'success';
+    waitingReason = null;
+    detail = local.frameRuntime.waitingOn ?? null;
   } else if (snapshot?.status === 'compacting') {
     phase = 'compacting';
     label = 'Compacting context';
@@ -237,7 +252,28 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     transportState,
     waitingReason,
     isStuckLikely,
-    lastUpdatedAt: tracker.lastUpdatedAt,
+    lastUpdatedAt: tracker.lastUpdatedAt ?? (local.frameLastSeq ? now : null),
+  };
+}
+
+function snapshotFromFrameRuntime(runtime: RuntimeSnapshot | null): ClaudeRuntimeStateSnapshot | null {
+  if (!runtime) return null;
+  return {
+    processing: runtime.phase === 'thinking' || runtime.phase === 'tool_running' || runtime.phase === 'waiting',
+    retrying: Boolean(runtime.retry),
+    rate_limited: Boolean(runtime.rateLimit),
+    status: runtime.phase || '',
+    active_tool: runtime.activeTool || '',
+    active_tool_progress: runtime.progressText ? { description: runtime.progressText } : null,
+    last_api_retry: runtime.retry ? {
+      attempt: runtime.retry.attempt ?? 0,
+      max_attempts: runtime.retry.maxAttempts ?? 0,
+      retry_after_ms: runtime.retry.nextRetryMs ?? 0,
+    } : null,
+    last_thinking_phase: runtime.phase === 'thinking' ? 'thinking' : '',
+    last_partial_text_length: 0,
+    last_event_type: runtime.phase,
+    last_event_subtype: '',
   };
 }
 

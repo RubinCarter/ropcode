@@ -15,7 +15,7 @@
  * still.
  *
  * The store also owns the rAF coalescing previously implemented inline in
- * `useSessionEvents`: callers push messages with `enqueue(key, message)` and
+ * `useSessionFrameEvents`: callers push messages with `enqueue(key, message)` and
  * the store flushes the batch on the next animation frame.
  */
 

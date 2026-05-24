@@ -7,12 +7,13 @@ import assert from 'node:assert/strict';
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 test('first prompt triggers configured session title generation', async () => {
-  const source = await readFile(path.join(currentDir, 'ai-code-session', 'AiCodeSession.tsx'), 'utf8');
+  const controller = await readFile(path.join(currentDir, 'ai-code-session', 'SessionController.tsx'), 'utf8');
+  const promptActionsHook = await readFile(path.join(currentDir, 'ai-code-session', 'hooks', 'useSessionPromptActions.ts'), 'utf8');
 
-  assert.match(source, /onSessionTitleGenerated/);
-  assert.match(source, /generateSessionTitleViaEvent/);
-  assert.match(source, /sessionState\.isFirstPrompt/);
-  assert.match(source, /firstPromptForTitleRef/);
+  assert.match(controller, /onSessionTitleGenerated/);
+  assert.match(controller, /generateSessionTitleViaEvent/);
+  assert.match(promptActionsHook, /sessionState\.isFirstPrompt/);
+  assert.match(promptActionsHook, /firstPromptForTitleRef/);
 });
 
 test('workspace chat tabs apply generated titles', async () => {
@@ -25,7 +26,7 @@ test('workspace chat tabs apply generated titles', async () => {
 test('workspace chat tabs report completed turns for sidebar session refresh', async () => {
   const source = await readFile(path.join(currentDir, 'containers', 'WorkspaceContainer.tsx'), 'utf8');
   const types = await readFile(path.join(currentDir, 'ai-code-session', 'types.ts'), 'utf8');
-  const aiCodeSession = await readFile(path.join(currentDir, 'ai-code-session', 'AiCodeSession.tsx'), 'utf8');
+  const aiCodeSession = await readFile(path.join(currentDir, 'ai-code-session', 'SessionController.tsx'), 'utf8');
 
   assert.match(types, /onSessionActivityComplete\?:/);
   assert.match(aiCodeSession, /onSessionActivityComplete/);
@@ -35,7 +36,7 @@ test('workspace chat tabs report completed turns for sidebar session refresh', a
 test('completed new chats report the provider session id and force sidebar rescan', async () => {
   const source = await readFile(path.join(currentDir, 'containers', 'WorkspaceContainer.tsx'), 'utf8');
   const types = await readFile(path.join(currentDir, 'ai-code-session', 'types.ts'), 'utf8');
-  const aiCodeSession = await readFile(path.join(currentDir, 'ai-code-session', 'AiCodeSession.tsx'), 'utf8');
+  const aiCodeSession = await readFile(path.join(currentDir, 'ai-code-session', 'SessionController.tsx'), 'utf8');
   const projectList = await readFile(path.join(currentDir, 'ProjectList.tsx'), 'utf8');
 
   assert.match(types, /sessionId\?: string \| null/);
@@ -47,7 +48,7 @@ test('completed new chats report the provider session id and force sidebar resca
 });
 
 test('AiCodeSession reports process liveness separate from streaming', async () => {
-  const source = await readFile(path.join(currentDir, 'ai-code-session', 'AiCodeSession.tsx'), 'utf8');
+  const source = await readFile(path.join(currentDir, 'ai-code-session', 'SessionController.tsx'), 'utf8');
   const types = await readFile(path.join(currentDir, 'ai-code-session', 'types.ts'), 'utf8');
 
   assert.match(types, /onProcessAliveChange\?: \(isAlive: boolean\) => void/);
@@ -62,11 +63,13 @@ test('rpc client exposes GenerateSessionTitle', async () => {
 });
 
 test('generated titles are saved against the provider session id', async () => {
-  const aiCodeSession = await readFile(path.join(currentDir, 'ai-code-session', 'AiCodeSession.tsx'), 'utf8');
+  const aiCodeSession = await readFile(path.join(currentDir, 'ai-code-session', 'SessionController.tsx'), 'utf8');
+  const lifecycleHook = await readFile(path.join(currentDir, 'ai-code-session', 'hooks', 'useSessionControllerLifecycle.ts'), 'utf8');
   const rpcClient = await readFile(path.join(currentDir, '..', 'lib', 'rpc-client.ts'), 'utf8');
 
   assert.match(rpcClient, /function SaveGeneratedSessionTitle/);
-  assert.match(aiCodeSession, /SaveGeneratedSessionTitle/);
+  assert.match(lifecycleHook, /SaveGeneratedSessionTitle/);
+  assert.match(aiCodeSession, /useGeneratedSessionTitlePersistence/);
   assert.match(aiCodeSession, /generatedSessionTitleRef/);
 });
 

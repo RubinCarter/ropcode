@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const useSessionEventsPath = path.resolve(currentDir, './useSessionEvents.ts');
+const useSessionFrameEventsPath = path.resolve(currentDir, './useSessionFrameEvents.ts');
 
 async function readSource() {
-  return readFile(useSessionEventsPath, 'utf8');
+  return readFile(useSessionFrameEventsPath, 'utf8');
 }
 
 test('provider init messages persist provider session id but keep runtime id for live RPC', async () => {

@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const useMessagesPath = path.resolve(currentDir, './useMessages.ts');
+const useSessionMessagesPath = path.resolve(currentDir, './useSessionMessages.ts');
 
 async function readSource() {
-  return readFile(useMessagesPath, 'utf8');
+  return readFile(useSessionMessagesPath, 'utf8');
 }
 
 test('calculates input output and estimated output token totals separately', async () => {

@@ -13,11 +13,11 @@ export type { AiCodeSessionProps } from './types';
 // Export hooks for testing and advanced usage
 export {
   useSessionState,
-  useMessages,
+  useSessionMessages,
   useProcessState,
   usePromptQueue,
   useSessionMetrics,
-  useSessionEvents,
+  useSessionFrameEvents,
 } from './hooks';
 
 // Export types

@@ -20,7 +20,7 @@ import { clearInteractiveSessionIdAfterProcessExit } from "../utils/interactiveS
 import { useSessionFrameMessages } from "@/hooks/useSessionFrameMessages";
 import { EventsOn } from "@/lib/rpc-events";
 
-export interface UseSessionEventsOptions {
+export interface UseSessionFrameEventsOptions {
   projectPath: string;
   claudeSessionId: string | null;
   effectiveSession: Session | null;
@@ -85,7 +85,7 @@ interface ClaudeCompletionPayload {
   };
 }
 
-export interface UseSessionEventsReturn {
+export interface UseSessionFrameEventsReturn {
   handleStreamMessage: (payload: string) => void;
   processComplete: (completion: boolean | string | ClaudeCompletionPayload) => Promise<void>;
 }
@@ -159,7 +159,7 @@ function parseEventObject(payload: unknown): Record<string, any> | null {
 /**
  * Hook to manage session events
  */
-export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEventsReturn {
+export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): UseSessionFrameEventsReturn {
   const {
     projectPath,
     claudeSessionId,
@@ -296,7 +296,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
             .catch((err: unknown) => {
               // Silently ignore "no rows" errors - workspace might not be in database yet
               if (!String(err).includes('no rows in result set')) {
-                console.error('[useSessionEvents] Failed to update session_id in ProjectList:', err);
+                console.error('[useSessionFrameEvents] Failed to update session_id in ProjectList:', err);
               }
             });
         }
@@ -319,7 +319,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
                 // Only set isLoading from process state for batch mode.
                 // For init messages, isLoading should already be true (set when sending).
               }).catch((err: unknown) => {
-                console.error('[useSessionEvents] Failed to sync state:', err);
+                console.error('[useSessionFrameEvents] Failed to sync state:', err);
               });
             }, 50);
           }
@@ -373,7 +373,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
                     updateWorkspaceTodos(projectPath, projectPath, todos);
                   }
                 } catch (err) {
-                  console.error('[useSessionEvents] Failed to parse TodoWrite:', err);
+                  console.error('[useSessionFrameEvents] Failed to parse TodoWrite:', err);
                 }
               }
             } else if (block.type === 'text' && block.text?.includes('```')) {
@@ -408,7 +408,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
       if (message.type === 'result') {
         flushRuntimeTracker();
         flushPendingSessionSave();
-        console.log('[useSessionEvents] Result message received, session_id:', message.session_id);
+        console.log('[useSessionFrameEvents] Result message received, session_id:', message.session_id);
         void onComplete?.({
           success: !(message as any).is_error,
           status: (message as any).is_error ? 'failed' : 'completed',
@@ -453,7 +453,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
         scheduleSessionSave(provider);
       }
     } catch (err) {
-      console.error('[useSessionEvents] Failed to parse message:', err);
+      console.error('[useSessionFrameEvents] Failed to parse message:', err);
     }
   }, [
     claudeSessionId,
@@ -530,7 +530,7 @@ export function useSessionEvents(options: UseSessionEventsOptions): UseSessionEv
     if (!projectPath) return;
 
     const handleErrorPayload = (payload: unknown) => {
-      console.error('[useSessionEvents] Error event:', payload);
+      console.error('[useSessionFrameEvents] Error event:', payload);
 
       const errorData = parseEventObject(payload);
       if (errorData) {

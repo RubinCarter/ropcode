@@ -4,10 +4,10 @@ import type { VirtuosoHandle } from "react-virtuoso";
 import { Button } from "@/components/ui/button";
 import { TooltipSimple } from "@/components/ui/tooltip-modern";
 import { MessageStreamView } from "../MessageStreamView";
-import type { UseMessagesReturn } from "../hooks/useMessages";
+import type { UseSessionMessagesReturn } from "../hooks/useSessionMessages";
 
 interface SessionMessagePaneProps {
-  messagesState: UseMessagesReturn;
+  messagesState: UseSessionMessagesReturn;
   isLoading: boolean;
   virtuosoRef: React.RefObject<VirtuosoHandle>;
   isScrollPaused: boolean;

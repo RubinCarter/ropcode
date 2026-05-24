@@ -36,7 +36,7 @@ interface MessageDerivedState {
   agentOutputToolUseIds: Map<string, string>;
 }
 
-export interface UseMessagesReturn {
+export interface UseSessionMessagesReturn {
   // State
   messages: ClaudeStreamMessage[];
   totalTokens: number;
@@ -313,7 +313,7 @@ function buildDerivedMessagesState(messages: ClaudeStreamMessage[]): MessageDeri
  * tail-listeners directly, so AiCodeSession + MessageStreamView stay still
  * during streaming and only the streaming-tail row re-renders.
  */
-export function useMessages(): UseMessagesReturn {
+export function useSessionMessages(): UseSessionMessagesReturn {
   const messagesRef = useRef<ClaudeStreamMessage[]>([]);
   const derivedRef = useRef<MessageDerivedState>(createEmptyDerivedMessagesState());
   const [structuralVersion, setStructuralVersion] = useState(0);

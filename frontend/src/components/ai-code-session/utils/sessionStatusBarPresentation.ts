@@ -1,7 +1,7 @@
 import type { SessionRuntimeViewState } from '../types';
 import type { RuntimeStatusCopy } from './runtimePresentation';
 import type { SubagentProgressSummary } from '@/lib/subagentProgress';
-import type { TokenUsageTotals } from '../hooks/useMessages';
+import type { TokenUsageTotals } from '../hooks/useSessionMessages';
 import { formatCompactNumber } from '@/lib/subagentProgress';
 
 export type SessionStatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'error';
