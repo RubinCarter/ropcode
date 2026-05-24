@@ -2,7 +2,7 @@ package provider
 
 import "time"
 
-// SessionConfig 统一的会话配置。
+// SessionConfig is the unified session configuration.
 type SessionConfig struct {
 	ProjectPath     string            `json:"project_path"`
 	Prompt          string            `json:"prompt"`
@@ -17,7 +17,7 @@ type SessionConfig struct {
 	Extra           map[string]string `json:"extra,omitempty"`
 }
 
-// SessionStatus 会话状态快照，用于查询和展示。
+// SessionStatus is a session state snapshot for querying and display.
 type SessionStatus struct {
 	SessionID         string            `json:"session_id"`
 	ProviderID        string            `json:"provider_id"`
@@ -32,7 +32,7 @@ type SessionStatus struct {
 	Extra             map[string]string `json:"extra,omitempty"`
 }
 
-// OutputEvent 统一的输出事件，由 driver.ParseOutput 产生。
+// OutputEvent is the unified output event produced by driver.ParseOutput.
 type OutputEvent struct {
 	Type      string                 `json:"type"`
 	Subtype   string                 `json:"subtype,omitempty"`
@@ -43,13 +43,13 @@ type OutputEvent struct {
 	Raw       string                 `json:"raw,omitempty"`
 }
 
-// StderrEvent stderr 输出事件。
+// StderrEvent represents a stderr output event.
 type StderrEvent struct {
 	Level   string `json:"level"`
 	Message string `json:"message"`
 }
 
-// ProcessHealth 进程健康状态。
+// ProcessHealth represents the health state of a process.
 type ProcessHealth string
 
 const (
@@ -60,8 +60,8 @@ const (
 	HealthCrashed ProcessHealth = "crashed"
 )
 
-// Message 是所有 provider 共用的历史消息格式。
-// 各 provider 的 history reader 将自己的格式转换为此类型。
+// Message is the shared history message format used by all providers.
+// Each provider's history reader converts its native format into this type.
 type Message struct {
 	ParentUUID  *string                `json:"parentUuid"`
 	IsSidechain bool                   `json:"isSidechain"`
@@ -77,13 +77,13 @@ type Message struct {
 	Timestamp   string                 `json:"timestamp"`
 }
 
-// MessageIndex 是消息在 JSONL 文件中的行号索引。
+// MessageIndex is the line number index of messages in a JSONL file.
 type MessageIndex struct {
 	LineNumbers []int `json:"line_numbers"`
 	TotalLines  int   `json:"total_lines"`
 }
 
-// HistorySessionInfo 是会话历史的元数据（从本地文件系统读取）。
+// HistorySessionInfo is session history metadata read from the local filesystem.
 type HistorySessionInfo struct {
 	ID               string `json:"id"`
 	ProjectID        string `json:"project_id"`
@@ -93,7 +93,7 @@ type HistorySessionInfo struct {
 	FirstMessage     string `json:"first_message,omitempty"`
 }
 
-// HistorySessionsResult 是会话列表查询结果。
+// HistorySessionsResult is the result of a session list query.
 type HistorySessionsResult struct {
 	Sessions []HistorySessionInfo
 	HasMore  bool

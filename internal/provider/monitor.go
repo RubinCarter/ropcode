@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// MonitorConfig 监控配置。
+// MonitorConfig holds health monitoring configuration.
 type MonitorConfig struct {
 	CheckInterval  time.Duration
 	SlowThreshold  time.Duration
@@ -14,7 +14,7 @@ type MonitorConfig struct {
 	HangThreshold  time.Duration
 }
 
-// DefaultMonitorConfig 返回默认监控配置。
+// DefaultMonitorConfig returns the default monitoring configuration.
 func DefaultMonitorConfig() MonitorConfig {
 	return MonitorConfig{
 		CheckInterval:  5 * time.Second,
@@ -29,7 +29,7 @@ type monitoredSession struct {
 	health     ProcessHealth
 }
 
-// Monitor 负责所有 provider 进程的健康监控。
+// Monitor performs health monitoring for all provider processes.
 type Monitor struct {
 	sessions map[string]*monitoredSession
 	mu       sync.RWMutex
@@ -39,7 +39,7 @@ type Monitor struct {
 	cancel   context.CancelFunc
 }
 
-// NewMonitor 创建监控实例并启动后台扫描。
+// NewMonitor creates a monitor instance and starts the background scan loop.
 func NewMonitor(ctx context.Context, config MonitorConfig, onChange func(string, ProcessHealth)) *Monitor {
 	mctx, cancel := context.WithCancel(ctx)
 	m := &Monitor{
@@ -53,7 +53,7 @@ func NewMonitor(ctx context.Context, config MonitorConfig, onChange func(string,
 	return m
 }
 
-// Register 注册一个会话到监控。
+// Register adds a session to the monitor.
 func (m *Monitor) Register(sessionID string) {
 	m.mu.Lock()
 	m.sessions[sessionID] = &monitoredSession{
@@ -63,14 +63,14 @@ func (m *Monitor) Register(sessionID string) {
 	m.mu.Unlock()
 }
 
-// Unregister 从监控中移除会话。
+// Unregister removes a session from the monitor.
 func (m *Monitor) Unregister(sessionID string) {
 	m.mu.Lock()
 	delete(m.sessions, sessionID)
 	m.mu.Unlock()
 }
 
-// RecordOutput 记录会话收到输出的时间。
+// RecordOutput records the time a session received output.
 func (m *Monitor) RecordOutput(sessionID string) {
 	m.mu.Lock()
 	if s, ok := m.sessions[sessionID]; ok {
@@ -87,7 +87,7 @@ func (m *Monitor) RecordOutput(sessionID string) {
 	m.mu.Unlock()
 }
 
-// Stop 停止监控。
+// Stop stops the monitor.
 func (m *Monitor) Stop() {
 	m.cancel()
 }

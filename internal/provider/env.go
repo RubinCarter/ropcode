@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-// BuildProcessEnv 构建进程环境变量。
-// 分层：基础环境 → 平台 PATH 增强 → provider 特有变量
+// BuildProcessEnv builds the process environment variables.
+// Layers: base environment → platform PATH enhancement → provider-specific variables
 func BuildProcessEnv(driverEnvVars map[string]string) []string {
 	env := os.Environ()
 	env = enhancePATH(env)
@@ -16,7 +16,7 @@ func BuildProcessEnv(driverEnvVars map[string]string) []string {
 	return env
 }
 
-// enhancePATH 为 .app 打包环境补充常用工具路径。
+// enhancePATH appends common tool paths for bundled .app environments.
 func enhancePATH(env []string) []string {
 	if runtime.GOOS == "windows" {
 		return env
@@ -67,8 +67,8 @@ func enhancePATH(env []string) []string {
 	return env
 }
 
-// applyEnvVars 将 driver 提供的环境变量合并到 env 中。
-// 已存在的 key 会被覆盖。
+// applyEnvVars merges driver-provided environment variables into env.
+// Existing keys are overwritten.
 func applyEnvVars(env []string, vars map[string]string) []string {
 	for key, val := range vars {
 		prefix := key + "="

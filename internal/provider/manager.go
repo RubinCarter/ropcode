@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Manager 是所有 provider 的统一会话管理器。
+// Manager is the unified session manager for all providers.
 type Manager struct {
 	ctx      context.Context
 	drivers  map[string]ProviderDriver
@@ -20,7 +20,7 @@ type Manager struct {
 	mu       sync.RWMutex
 }
 
-// NewManager 创建统一 provider manager。
+// NewManager creates a unified provider manager.
 func NewManager(ctx context.Context, emitter EventEmitter, monitorCfg *MonitorConfig) *Manager {
 	m := &Manager{
 		ctx:      ctx,
@@ -37,7 +37,7 @@ func NewManager(ctx context.Context, emitter EventEmitter, monitorCfg *MonitorCo
 	return m
 }
 
-// RegisterDriver 注册一个 provider driver。
+// RegisterDriver registers a provider driver.
 func (m *Manager) RegisterDriver(d ProviderDriver) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -48,7 +48,7 @@ func (m *Manager) RegisterDriver(d ProviderDriver) error {
 	return nil
 }
 
-// StartSession 启动一个新的 provider 会话。
+// StartSession starts a new provider session.
 func (m *Manager) StartSession(providerID string, config SessionConfig) (string, error) {
 	m.mu.RLock()
 	driver, ok := m.drivers[providerID]
@@ -90,7 +90,7 @@ func (m *Manager) StartSession(providerID string, config SessionConfig) (string,
 	return sessionID, nil
 }
 
-// TerminateSession 终止指定会话。
+// TerminateSession terminates the specified session.
 func (m *Manager) TerminateSession(sessionID string) error {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -101,7 +101,7 @@ func (m *Manager) TerminateSession(sessionID string) error {
 	return session.terminate()
 }
 
-// TerminateByProject 终止指定 provider 在指定项目下的会话。
+// TerminateByProject terminates sessions for a given provider and project path.
 func (m *Manager) TerminateByProject(providerID, projectPath string) error {
 	m.mu.RLock()
 	var targets []*Session
@@ -118,8 +118,8 @@ func (m *Manager) TerminateByProject(providerID, projectPath string) error {
 	return nil
 }
 
-// SendMessage 向会话发送消息，由 driver 决定策略。
-// 如果会话已结束或正在取消，自动带 resume 重启。
+// SendMessage sends a message to a session; the driver decides the strategy.
+// If the session has ended or is cancelling, it automatically restarts with resume.
 func (m *Manager) SendMessage(sessionID, message string) error {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -145,7 +145,7 @@ func (m *Manager) SendMessage(sessionID, message string) error {
 	}
 }
 
-// InterruptSession 中断会话当前执行。
+// InterruptSession interrupts the current execution of a session.
 func (m *Manager) InterruptSession(sessionID string) error {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -156,7 +156,7 @@ func (m *Manager) InterruptSession(sessionID string) error {
 	return session.driver.Interrupt(session)
 }
 
-// SetModel 切换会话模型。
+// SetModel switches the session model.
 func (m *Manager) SetModel(sessionID, model string) error {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -167,7 +167,7 @@ func (m *Manager) SetModel(sessionID, model string) error {
 	return session.driver.SetModel(session, model)
 }
 
-// SetPermissionMode 切换会话权限模式。
+// SetPermissionMode switches the session permission mode.
 func (m *Manager) SetPermissionMode(sessionID, mode string) error {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -178,7 +178,7 @@ func (m *Manager) SetPermissionMode(sessionID, mode string) error {
 	return session.driver.SetPermissionMode(session, mode)
 }
 
-// UpdateEnvironmentVariables 更新会话环境变量。
+// UpdateEnvironmentVariables updates the session environment variables.
 func (m *Manager) UpdateEnvironmentVariables(sessionID string, vars map[string]string) error {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -189,7 +189,7 @@ func (m *Manager) UpdateEnvironmentVariables(sessionID string, vars map[string]s
 	return session.driver.UpdateEnvironmentVariables(session, vars)
 }
 
-// WaitForInit 等待会话初始化完成。
+// WaitForInit waits for session initialization to complete.
 func (m *Manager) WaitForInit(sessionID string, timeout time.Duration) error {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -200,7 +200,7 @@ func (m *Manager) WaitForInit(sessionID string, timeout time.Duration) error {
 	return session.driver.WaitForInit(session, timeout)
 }
 
-// WriteStdin 向会话的 stdin 写入原始数据（用于发送 control request 等）。
+// WriteStdin writes raw data to the session's stdin (for sending control requests, etc.).
 func (m *Manager) WriteStdin(sessionID string, data []byte) error {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -211,7 +211,7 @@ func (m *Manager) WriteStdin(sessionID string, data []byte) error {
 	return session.WriteStdin(data)
 }
 
-// GetRunningSessionForProject 返回指定 provider 在指定项目下的运行中会话 ID。
+// GetRunningSessionForProject returns the running session ID for a given provider and project.
 func (m *Manager) GetRunningSessionForProject(providerID, projectPath string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -236,7 +236,7 @@ func (m *Manager) IsRunning(sessionID string) bool {
 	return state == StateRunning || state == StateStarting
 }
 
-// IsRunningForProject 检查指定 provider 在指定项目下是否有运行中的会话。
+// IsRunningForProject checks whether a given provider has a running session in the specified project.
 func (m *Manager) IsRunningForProject(providerID, projectPath string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -251,7 +251,7 @@ func (m *Manager) IsRunningForProject(providerID, projectPath string) bool {
 	return false
 }
 
-// GetSessionOutput 获取会话的输出内容。
+// GetSessionOutput returns the output content of a session.
 func (m *Manager) GetSessionOutput(sessionID string) (string, error) {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -262,7 +262,7 @@ func (m *Manager) GetSessionOutput(sessionID string) (string, error) {
 	return session.Output(), nil
 }
 
-// GetSession 获取会话状态。
+// GetSession returns the session status.
 func (m *Manager) GetSession(sessionID string) *SessionStatus {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]
@@ -273,7 +273,7 @@ func (m *Manager) GetSession(sessionID string) *SessionStatus {
 	return session.Status()
 }
 
-// ListRunningSessions 列出指定 provider 的运行中会话。
+// ListRunningSessions lists running sessions for the specified provider.
 func (m *Manager) ListRunningSessions(providerID string) []*SessionStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -289,7 +289,7 @@ func (m *Manager) ListRunningSessions(providerID string) []*SessionStatus {
 	return result
 }
 
-// ListAllSessions 列出所有运行中的会话。
+// ListAllSessions lists all running sessions.
 func (m *Manager) ListAllSessions() []*SessionStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -303,7 +303,7 @@ func (m *Manager) ListAllSessions() []*SessionStatus {
 	return result
 }
 
-// DiscoverBinary 发现指定 provider 的二进制路径。
+// DiscoverBinary discovers the binary path for the specified provider.
 func (m *Manager) DiscoverBinary(providerID string) (string, error) {
 	m.mu.RLock()
 	if cached, ok := m.binaries[providerID]; ok {
@@ -327,14 +327,14 @@ func (m *Manager) DiscoverBinary(providerID string) (string, error) {
 	return path, nil
 }
 
-// SetBinaryPath 手动设置 provider 的二进制路径（用于测试或用户配置）。
+// SetBinaryPath manually sets the binary path for a provider (for testing or user configuration).
 func (m *Manager) SetBinaryPath(providerID, path string) {
 	m.mu.Lock()
 	m.binaries[providerID] = path
 	m.mu.Unlock()
 }
 
-// Shutdown 终止所有会话并停止监控。
+// Shutdown terminates all sessions and stops the monitor.
 func (m *Manager) Shutdown() {
 	m.mu.RLock()
 	sessions := make([]*Session, 0, len(m.sessions))

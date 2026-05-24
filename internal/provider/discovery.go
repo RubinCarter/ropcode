@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// DiscoverBinary 统一的二进制查找逻辑。
-// 优先级：PATH → 通用路径 → provider 特有路径 → Windows glob 展开
+// DiscoverBinary finds a provider binary using a unified discovery strategy.
+// Priority: PATH → common paths → provider-specific candidates → Windows glob expansion
 func DiscoverBinary(binaryName string, extraCandidates []string) (string, error) {
 	if path, err := exec.LookPath(binaryName); err == nil {
 		return path, nil

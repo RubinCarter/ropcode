@@ -13,7 +13,7 @@ import (
 	"ropcode/internal/sessionproc"
 )
 
-// Session 是通用的 provider 会话实现，同时实现 SessionHandle 接口。
+// Session is the generic provider session implementation that also implements SessionHandle.
 type Session struct {
 	ID       string
 	driver   ProviderDriver
@@ -205,7 +205,7 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 	}
 }
 
-// routeControlResponse 检查事件是否为 control_response 或初始化完成信号。
+// routeControlResponse checks if the event is a control_response or an initialization signal.
 func (s *Session) routeControlResponse(event *OutputEvent) {
 	// Codex: thread_created means init is complete
 	if event.Subtype == "thread_created" {
@@ -345,7 +345,7 @@ func (s *Session) terminate() error {
 	return nil
 }
 
-// === SessionHandle 接口实现 ===
+// === SessionHandle interface implementation ===
 
 func (s *Session) WriteStdin(data []byte) error {
 	s.mu.RLock()
@@ -436,15 +436,15 @@ func (s *Session) Output() string {
 	return string(s.outputBuf)
 }
 
-// UpdateConfig 原子更新 session config。
+// UpdateConfig atomically updates the session config.
 func (s *Session) UpdateConfig(fn func(*SessionConfig)) {
 	s.mu.Lock()
 	fn(&s.config)
 	s.mu.Unlock()
 }
 
-// SendControlRequest 发送 control request 并注册响应等待。
-// 调用方通过返回的 channel 接收响应，需自行处理超时。
+// SendControlRequest sends a control request and registers a response waiter.
+// The caller receives the response via the returned channel and must handle timeout itself.
 func (s *Session) SendControlRequest(requestID string, payload []byte) (<-chan ControlResponse, error) {
 	ch := make(chan ControlResponse, 1)
 
@@ -462,8 +462,8 @@ func (s *Session) SendControlRequest(requestID string, payload []byte) (<-chan C
 	return ch, nil
 }
 
-// DeliverControlResponse 将收到的 control_response 路由到等待者。
-// 由 readStream 在解析到 control_response 时调用。
+// DeliverControlResponse routes a received control_response to the waiting caller.
+// Called by readStream when a control_response is parsed.
 func (s *Session) DeliverControlResponse(requestID string, data map[string]interface{}) bool {
 	s.mu.Lock()
 	ch, ok := s.pendingRequests[requestID]
@@ -480,7 +480,7 @@ func (s *Session) DeliverControlResponse(requestID string, data map[string]inter
 	return false
 }
 
-// MarkInitialized 标记会话初始化完成，并 emit system init 事件。
+// MarkInitialized marks the session as initialized and emits a system init event.
 func (s *Session) MarkInitialized() {
 	s.mu.Lock()
 	if !s.initialized {
@@ -502,7 +502,7 @@ func (s *Session) MarkInitialized() {
 	}
 }
 
-// WaitForInit 等待会话初始化完成。
+// WaitForInit waits for the session to complete initialization.
 func (s *Session) WaitForInit(timeout time.Duration) error {
 	select {
 	case <-s.initDone:

@@ -1,16 +1,16 @@
 package provider
 
-// EventEmitter 统一的事件发射接口。
+// EventEmitter is the unified event emission interface.
 type EventEmitter interface {
 	Emit(eventName string, data interface{})
 }
 
-// ProcessChangedEmitter 进程状态变更发射接口。
+// ProcessChangedEmitter is the interface for emitting process state changes.
 type ProcessChangedEmitter interface {
 	EmitProcessChanged(event ProcessChangedEvent)
 }
 
-// ProcessChangedEvent 统一的进程状态变更事件。
+// ProcessChangedEvent is the unified process state change event.
 type ProcessChangedEvent struct {
 	PID        int    `json:"pid"`
 	Cwd        string `json:"cwd"`
@@ -20,7 +20,7 @@ type ProcessChangedEvent struct {
 	SessionID  string `json:"session_id"`
 }
 
-// SessionChangedEvent 会话状态变更事件。
+// SessionChangedEvent represents a session state change event.
 type SessionChangedEvent struct {
 	SessionID  string `json:"session_id"`
 	ProviderID string `json:"provider_id"`
