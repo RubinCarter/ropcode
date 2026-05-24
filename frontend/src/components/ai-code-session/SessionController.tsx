@@ -11,7 +11,7 @@
  * - Easier to understand and maintain
  */
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -92,7 +92,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const loadedSessionIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
   const skipRecoveryUntilRef = useRef(0);
-  const pendingFreshClaudeSessionRef = useRef(false);
+  const pendingFreshClaudeSessionRef = useRef(skipSessionRestore && defaultProvider === 'claude');
   const generatedSessionTitleRef = useRef<string | null>(null);
   const firstPromptForTitleRef = useRef<string | null>(null);
   const sendPromptRef = useRef<(
@@ -105,6 +105,12 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const sessionRef = useRef(session);
   sessionRef.current = session;
   // ==================================================================
+
+  useEffect(() => {
+    if (skipSessionRestore && defaultProvider === 'claude') {
+      pendingFreshClaudeSessionRef.current = true;
+    }
+  }, [skipSessionRestore, defaultProvider]);
 
   // Session state
   const sessionState = useSessionState({

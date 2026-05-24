@@ -78,6 +78,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         title: 'New chat',
         sessionId: undefined,
         sessionData: undefined,
+        providerSessions: undefined,
         projectPath: workspaceId,
         providerId: 'claude',
         status: 'idle',
@@ -218,7 +219,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
           providerId,
           sessionData: undefined,
           sessionId: undefined,
-          providerSessions: currentProviderSessions,
+          providerSessions: undefined,
         });
         return;
       }
@@ -386,6 +387,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
           providerId: 'claude',
           sessionId: undefined,
           sessionData: undefined,
+          providerSessions: undefined,
           status: 'idle',
           skipSessionRestore: true,
           sessionResetNonce: (replacementTab.sessionResetNonce ?? 0) + 1,
@@ -403,7 +405,11 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         updateTab(existingBlankChatTab.id, {
           title: 'New chat',
           providerId: existingBlankChatTab.providerId || 'claude',
+          sessionId: undefined,
+          sessionData: undefined,
+          providerSessions: undefined,
           skipSessionRestore: true,
+          sessionResetNonce: (existingBlankChatTab.sessionResetNonce ?? 0) + 1,
         });
         setActiveTab(existingBlankChatTab.id);
         return;
@@ -414,6 +420,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         title: 'New chat',
         sessionId: undefined,
         sessionData: undefined,
+        providerSessions: undefined,
         projectPath: spacePath,
         providerId: 'claude',
         status: 'idle',

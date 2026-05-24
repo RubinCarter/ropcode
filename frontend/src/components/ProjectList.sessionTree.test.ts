@@ -110,7 +110,7 @@ test('WorkspaceContainer keeps explicit new sessions blank when switching provid
 
   assert.match(source, /tab\.skipSessionRestore/);
   assert.match(source, /Keep explicit new sessions blank when switching providers/);
-  assert.match(source, /providerId,\s*sessionData: undefined,\s*sessionId: undefined,\s*providerSessions: currentProviderSessions/s);
+  assert.match(source, /providerId,\s*sessionData: undefined,\s*sessionId: undefined,\s*providerSessions: undefined/s);
   assert.match(source, /return;\s*\}\s*\/\/ Get the actual project path/s);
 });
 
@@ -128,6 +128,8 @@ test('WorkspaceContainer reuses the initial blank chat tab for explicit new sess
   assert.match(source, /existingBlankChatTab/);
   assert.match(source, /title: 'New chat'/);
   assert.match(source, /skipSessionRestore: true/);
+  assert.match(source, /providerSessions: undefined/);
+  assert.match(source, /sessionResetNonce: \(existingBlankChatTab\.sessionResetNonce \?\? 0\) \+ 1/);
   assert.match(source, /setActiveTab\(existingBlankChatTab\.id\)/);
   assert.match(source, /updateTab\(existingBlankChatTab\.id,/);
   assert.match(source, /Skipping background session restore for explicit new tab/);
@@ -141,6 +143,7 @@ test('WorkspaceContainer replaces the active chat tab for explicit new sessions'
   assert.match(source, /replacementTab/);
   assert.match(source, /sessionId: undefined/);
   assert.match(source, /sessionData: undefined/);
+  assert.match(source, /providerSessions: undefined/);
   assert.match(source, /sessionResetNonce/);
   assert.match(source, /key=\{`\$\{tab\.id\}-\$\{tab\.providerId \|\| 'claude'\}-\$\{tab\.sessionResetNonce \?\? 0\}`\}/);
 });
@@ -187,6 +190,15 @@ test('AiCodeSession can skip automatic session restoration for explicit new tabs
   assert.match(source, /skipSessionRestore = false/);
   assert.match(lifecycleSource, /if \(skipSessionRestore\) \{/);
   assert.match(lifecycleSource, /Skipping session restore for explicit new session/);
+});
+
+test('AiCodeSession forces a fresh Claude runtime for explicit new tabs', async () => {
+  const source = await readSource(path.resolve(currentDir, './ai-code-session/SessionController.tsx'));
+  const promptActionsSource = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionPromptActions.ts'));
+
+  assert.match(source, /useRef\(skipSessionRestore && defaultProvider === 'claude'\)/);
+  assert.match(source, /pendingFreshClaudeSessionRef\.current = true/);
+  assert.match(promptActionsSource, /__ROP_FRESH_SESSION__/);
 });
 
 test('AiCodeSession does not auto-restore localStorage over an explicit historical session', async () => {
