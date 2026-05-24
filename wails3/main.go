@@ -32,6 +32,7 @@ type shell struct {
 	app        *application.App
 	window     application.Window
 	serverCmd  *exec.Cmd
+	serverDone chan struct{}
 	serverPort int
 	authKey    string
 	mu         sync.RWMutex
@@ -106,6 +107,9 @@ func (s *shell) startServer(ctx context.Context) error {
 
 	authKey := strconv.FormatInt(time.Now().UnixNano(), 36)
 	cmd := exec.CommandContext(ctx, serverPath)
+	if err := configureServerProcess(cmd); err != nil {
+		return fmt.Errorf("configure server process: %w", err)
+	}
 	cmd.Env = append(os.Environ(),
 		"ROPCODE_AUTH_KEY="+authKey,
 		"ROPCODE_MODE=websocket",
@@ -119,15 +123,18 @@ func (s *shell) startServer(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := cmd.Start(); err != nil {
+	if err := startServerProcess(cmd); err != nil {
 		return err
 	}
 	s.serverCmd = cmd
+	s.serverDone = make(chan struct{})
 	s.authKey = authKey
 
 	go logPipe("[ropcode-server stderr] ", stderr)
 	go func() {
 		_ = cmd.Wait()
+		cleanupServerProcess(cmd)
+		close(s.serverDone)
 	}()
 
 	scanner := bufio.NewScanner(stdout)
@@ -152,7 +159,12 @@ func (s *shell) stopServer() {
 	if s.serverCmd == nil || s.serverCmd.Process == nil {
 		return
 	}
-	_ = s.serverCmd.Process.Kill()
+	done := s.serverDone
+	if done == nil {
+		done = make(chan struct{})
+		close(done)
+	}
+	_ = terminateServerProcess(s.serverCmd, done)
 }
 
 func parseWSPort(output string) (int, bool) {
