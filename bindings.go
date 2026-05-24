@@ -35,8 +35,6 @@ import (
 	"ropcode/internal/plugin"
 	providerPkg "ropcode/internal/provider"
 	"ropcode/internal/provider/codex"
-	"ropcode/internal/provider/deepseek"
-	"ropcode/internal/provider/gemini"
 	"ropcode/internal/ssh"
 	"ropcode/internal/stream"
 	"ropcode/internal/usage"
@@ -530,66 +528,37 @@ func (a *App) UpdateProviderSession(path, provider, session string) error {
 
 // GetSessionMessageIndex returns the message index for a session
 func (a *App) GetSessionMessageIndex(projectID, sessionID string) ([]int, error) {
-	if a.sessionManager == nil {
-		return []int{}, fmt.Errorf("session manager not initialized")
-	}
-	return a.sessionManager.GetMessageIndex(projectID, sessionID)
+	return a.providerManager.GetMessageIndex("claude", projectID, sessionID)
 }
 
 // GetSessionMessagesRange returns a range of messages from a session
 func (a *App) GetSessionMessagesRange(projectID, sessionID string, start, end int) ([]claude.Message, error) {
-	if a.sessionManager == nil {
-		return []claude.Message{}, fmt.Errorf("session manager not initialized")
-	}
-	return a.sessionManager.GetMessagesRange(projectID, sessionID, start, end)
+	return a.providerManager.GetMessagesRange("claude", projectID, sessionID, start, end)
 }
 
 // StreamSessionOutput backfills a session log into the agent bulk stream.
 func (a *App) StreamSessionOutput(projectID, sessionID string) error {
-	if a.sessionManager == nil {
-		return fmt.Errorf("session manager not initialized")
+	messages, err := a.providerManager.LoadSessionHistory("claude", projectID, sessionID)
+	if err != nil {
+		return err
 	}
 
-	// Create channels for streaming
-	eventChan := make(chan claude.Message, 100)
-	errorChan := make(chan error, 1)
-
-	// Start streaming in a goroutine
-	go a.sessionManager.StreamSessionOutput(projectID, sessionID, eventChan, errorChan)
-
-	// Forward messages to the agent bulk stream. Viewers subscribe to
-	// /ws/stream/bulk/agent/{sessionID}.
 	go func() {
-		for {
-			select {
-			case msg, ok := <-eventChan:
-				if !ok {
-					return
-				}
-				if a.bulkHub != nil {
-					if data, err := json.Marshal(msg); err == nil {
-						_ = a.bulkHub.Append(stream.BulkFrame{
-							Source:    "agent",
-							ID:        sessionID,
-							FrameID:   msg.UUID,
-							Seq:       time.Now().UnixNano(),
-							Timestamp: msg.Timestamp,
-							Data:      string(data),
-							Meta: map[string]interface{}{
-								"projectId": projectID,
-							},
-						})
-					}
-				}
-
-			case err := <-errorChan:
-				if err != nil {
-					a.eventHub.Emit("agent-error:"+sessionID, map[string]interface{}{
-						"sessionId": sessionID,
-						"error":     err.Error(),
+		for _, msg := range messages {
+			if a.bulkHub != nil {
+				if data, err := json.Marshal(msg); err == nil {
+					_ = a.bulkHub.Append(stream.BulkFrame{
+						Source:    "agent",
+						ID:        sessionID,
+						FrameID:   msg.UUID,
+						Seq:       time.Now().UnixNano(),
+						Timestamp: msg.Timestamp,
+						Data:      string(data),
+						Meta: map[string]interface{}{
+							"projectId": projectID,
+						},
 					})
 				}
-				return
 			}
 		}
 	}()
@@ -597,118 +566,33 @@ func (a *App) StreamSessionOutput(projectID, sessionID string) error {
 	return nil
 }
 
-// LoadSessionHistory loads the history for a session
-func (a *App) LoadSessionHistory(sessionID, projectID string) ([]claude.Message, error) {
-	if a.sessionManager == nil {
-		return []claude.Message{}, fmt.Errorf("session manager not initialized")
-	}
-	return a.sessionManager.LoadSessionHistory(projectID, sessionID)
-}
-
 // LoadProviderSessionHistory loads the history for a session based on provider type
 func (a *App) LoadProviderSessionHistory(sessionID, projectID, provider string) ([]claude.Message, error) {
 	log.Printf("[LoadProviderSessionHistory] Loading history for provider=%s, session=%s, project=%s", provider, sessionID, projectID)
-
-	switch provider {
-	case "codex":
-		// Load from Codex sessions directory
-		codexDir, err := codex.CodexDir()
-		if err != nil {
-			return []claude.Message{}, fmt.Errorf("failed to get codex directory: %w", err)
-		}
-		return codex.LoadSessionHistory(codexDir, projectID, sessionID)
-
-	case "gemini":
-		// Load from Gemini sessions directory
-		geminiDir, err := gemini.GeminiDir()
-		if err != nil {
-			return []claude.Message{}, fmt.Errorf("failed to get gemini directory: %w", err)
-		}
-		return gemini.LoadSessionHistory(geminiDir, projectID, sessionID)
-
-	case "deepseek":
-		deepseekDir, err := deepseek.DeepSeekDir()
-		if err != nil {
-			return []claude.Message{}, fmt.Errorf("failed to get deepseek directory: %w", err)
-		}
-		return deepseek.LoadSessionHistory(deepseekDir, projectID, sessionID)
-
-	case "claude":
-		fallthrough
-	default:
-		// Load from Claude sessions directory
-		if a.sessionManager == nil {
-			return []claude.Message{}, fmt.Errorf("session manager not initialized")
-		}
-		return a.sessionManager.LoadSessionHistory(projectID, sessionID)
-	}
+	return a.providerManager.LoadSessionHistory(provider, projectID, sessionID)
 }
 
 // LoadProviderSessionHistoryFrames loads provider history as stable SessionFrame values.
 func (a *App) LoadProviderSessionHistoryFrames(sessionID, projectID, provider string) ([]stream.SessionFrame, error) {
 	log.Printf("[LoadProviderSessionHistoryFrames] Loading history for provider=%s, session=%s, project=%s", provider, sessionID, projectID)
-
-	switch provider {
-	case "codex":
-		codexDir, err := codex.CodexDir()
-		if err != nil {
-			return []stream.SessionFrame{}, fmt.Errorf("failed to get codex directory: %w", err)
-		}
-		entries, err := codex.ReadAllHistoryEntries(codexDir, sessionID)
-		if err != nil {
-			return []stream.SessionFrame{}, err
-		}
-		var events []providerPkg.OutputEvent
-		for _, raw := range entries {
-			events = append(events, providerPkg.NormalizeHistoryEntry("codex", raw))
-		}
-		return stream.FramesFromEvents("codex", stream.ProviderOutputContext{
-			RuntimeSessionID: sessionID,
-			ProjectPath:      projectID,
-		}, events)
-
-	case "deepseek":
-		deepseekDir, err := deepseek.DeepSeekDir()
-		if err != nil {
-			return []stream.SessionFrame{}, fmt.Errorf("failed to get deepseek directory: %w", err)
-		}
-		raw, err := deepseek.ReadHistoryDocument(deepseekDir, sessionID)
-		if err != nil {
-			return []stream.SessionFrame{}, err
-		}
-		events := providerPkg.NormalizeHistoryDocument("deepseek", raw)
-		return stream.FramesFromEvents("deepseek", stream.ProviderOutputContext{
-			RuntimeSessionID: sessionID,
-			ProjectPath:      projectID,
-		}, events)
-
-	case "gemini":
-		return []stream.SessionFrame{}, fmt.Errorf("session frame history is not implemented for provider: %s", provider)
-
-	case "claude":
-		fallthrough
-	default:
-		if a.sessionManager == nil {
-			return []stream.SessionFrame{}, fmt.Errorf("session manager not initialized")
-		}
-		return a.sessionManager.LoadSessionHistoryFrames(projectID, sessionID)
+	events, err := a.providerManager.LoadHistoryEvents(provider, projectID, sessionID)
+	if err != nil {
+		return nil, err
 	}
+	return stream.FramesFromEvents(provider, stream.ProviderOutputContext{
+		RuntimeSessionID: sessionID,
+		ProjectPath:      projectID,
+	}, events)
 }
 
 // LoadAgentSessionHistory loads the history for an agent session
 func (a *App) LoadAgentSessionHistory(sessionID string) ([]claude.Message, error) {
-	if a.sessionManager == nil {
-		return []claude.Message{}, fmt.Errorf("session manager not initialized")
-	}
-	return a.sessionManager.LoadAgentSessionHistory(sessionID)
+	return a.providerManager.LoadSessionHistory("claude", "", sessionID)
 }
 
 // LoadSubagentTranscripts loads sidechain subagent transcripts for a parent Claude session.
 func (a *App) LoadSubagentTranscripts(sessionID, projectID string) (map[string][]claude.Message, error) {
-	if a.sessionManager == nil {
-		return map[string][]claude.Message{}, fmt.Errorf("session manager not initialized")
-	}
-	return a.sessionManager.LoadSubagentTranscripts(projectID, sessionID)
+	return a.providerManager.LoadSubagentTranscripts("claude", projectID, sessionID)
 }
 
 // ProviderSession represents a session from any provider
@@ -757,83 +641,23 @@ func (s claudeActivityControlSender) SendStopTask(requestID, taskID string) erro
 func (a *App) ListProviderSessions(projectPath, provider string) ([]ProviderSession, error) {
 	log.Printf("[ListProviderSessions] Listing sessions for provider=%s, project=%s", provider, projectPath)
 
-	switch provider {
-	case "codex":
-		// List from Codex sessions directory
-		codexDir, err := codex.CodexDir()
-		if err != nil {
-			log.Printf("[ListProviderSessions] Failed to get codex directory: %v", err)
-			return []ProviderSession{}, nil
-		}
-		codexSessions, err := codex.ListProjectSessions(codexDir, projectPath)
-		if err != nil {
-			log.Printf("[ListProviderSessions] Failed to list codex sessions: %v", err)
-			return []ProviderSession{}, nil
-		}
-		// Convert to ProviderSession
-		sessions := make([]ProviderSession, len(codexSessions))
-		for i, s := range codexSessions {
-			sessions[i] = ProviderSession{
-				ID:               s.ID,
-				ProjectID:        s.ProjectID,
-				ProjectPath:      s.ProjectPath,
-				CreatedAt:        s.CreatedAt,
-				MessageTimestamp: s.MessageTimestamp,
-			}
-		}
-		return sessions, nil
-
-	case "gemini":
-		// TODO: Implement gemini session listing
-		log.Printf("[ListProviderSessions] Gemini session listing not yet implemented")
+	infoSessions, err := a.providerManager.ListProviderSessions(provider, projectPath)
+	if err != nil {
+		log.Printf("[ListProviderSessions] Failed to list %s sessions: %v", provider, err)
 		return []ProviderSession{}, nil
-
-	case "deepseek":
-		deepseekDir, err := deepseek.DeepSeekDir()
-		if err != nil {
-			log.Printf("[ListProviderSessions] Failed to get deepseek directory: %v", err)
-			return []ProviderSession{}, nil
-		}
-		deepseekSessions, err := deepseek.ListProjectSessions(deepseekDir, projectPath)
-		if err != nil {
-			log.Printf("[ListProviderSessions] Failed to list deepseek sessions: %v", err)
-			return []ProviderSession{}, nil
-		}
-		sessions := make([]ProviderSession, len(deepseekSessions))
-		for i, s := range deepseekSessions {
-			sessions[i] = ProviderSession{
-				ID:               s.ID,
-				ProjectID:        s.ProjectID,
-				ProjectPath:      s.ProjectPath,
-				CreatedAt:        s.CreatedAt,
-				MessageTimestamp: s.MessageTimestamp,
-			}
-		}
-		return sessions, nil
-
-	case "claude":
-		fallthrough
-	default:
-		// Scan ~/.claude/projects/{projectHash}/ for JSONL session files
-		claudeDir := a.config.ClaudeDir
-		claudeSessions, err := claude.ListProjectSessions(claudeDir, projectPath)
-		if err != nil {
-			log.Printf("[ListProviderSessions] Failed to list Claude sessions: %v", err)
-			return []ProviderSession{}, nil
-		}
-		sessions := make([]ProviderSession, len(claudeSessions))
-		for i, s := range claudeSessions {
-			sessions[i] = ProviderSession{
-				ID:               s.ID,
-				ProjectID:        s.ProjectID,
-				ProjectPath:      s.ProjectPath,
-				CreatedAt:        s.CreatedAt,
-				MessageTimestamp: s.MessageTimestamp,
-			}
-		}
-		log.Printf("[ListProviderSessions] Found %d Claude sessions for project: %s", len(sessions), projectPath)
-		return sessions, nil
 	}
+	sessions := make([]ProviderSession, len(infoSessions))
+	for i, s := range infoSessions {
+		sessions[i] = ProviderSession{
+			ID:               s.ID,
+			ProjectID:        s.ProjectID,
+			ProjectPath:      s.ProjectPath,
+			CreatedAt:        s.CreatedAt,
+			MessageTimestamp: s.MessageTimestamp,
+		}
+	}
+	log.Printf("[ListProviderSessions] Found %d %s sessions for project: %s", len(sessions), provider, projectPath)
+	return sessions, nil
 }
 
 // ListSpaceSessions lists mixed provider sessions for one project or workspace path.
@@ -844,10 +668,7 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 		{
 			provider: "claude",
 			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
-				if a.config == nil {
-					return spaceSessionScanResult{}, nil
-				}
-				claudeResult, err := claude.ListProjectSessionsLimit(a.config.ClaudeDir, projectPath, limit)
+				claudeResult, err := a.providerManager.ListProviderSessionsLimit("claude", projectPath, limit)
 				if err != nil {
 					return spaceSessionScanResult{}, err
 				}
@@ -862,11 +683,7 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 		{
 			provider: "codex",
 			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
-				codexDir, err := codex.CodexDir()
-				if err != nil {
-					return spaceSessionScanResult{}, err
-				}
-				codexResult, err := codex.ListProjectSessionsLimit(codexDir, projectPath, limit)
+				codexResult, err := a.providerManager.ListProviderSessionsLimit("codex", projectPath, limit)
 				if err != nil {
 					return spaceSessionScanResult{}, err
 				}
@@ -887,11 +704,7 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 		{
 			provider: "deepseek",
 			scan: func(projectPath string, limit int) (spaceSessionScanResult, error) {
-				deepseekDir, err := deepseek.DeepSeekDir()
-				if err != nil {
-					return spaceSessionScanResult{}, err
-				}
-				deepseekResult, err := deepseek.ListProjectSessionsLimit(deepseekDir, projectPath, limit)
+				deepseekResult, err := a.providerManager.ListProviderSessionsLimit("deepseek", projectPath, limit)
 				if err != nil {
 					return spaceSessionScanResult{}, err
 				}

@@ -15,6 +15,105 @@ var _ provider.ProviderDriver = (*Driver)(nil)
 
 type Driver struct{}
 
+func ClaudeDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".claude"), nil
+}
+
+// --- HistoryProvider implementation ---
+
+func (d *Driver) LoadSessionHistory(projectID, sessionID string) ([]provider.Message, error) {
+	dir, err := ClaudeDir()
+	if err != nil {
+		return nil, err
+	}
+	var filePath string
+	if projectID == "" {
+		filePath = GetAgentSessionFilePath(dir, sessionID)
+	} else {
+		filePath, err = FindSessionFile(dir, projectID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return ReadAllMessages(filePath)
+}
+
+func (d *Driver) LoadHistoryEvents(projectID, sessionID string) ([]provider.OutputEvent, error) {
+	dir, err := ClaudeDir()
+	if err != nil {
+		return nil, err
+	}
+	filePath, err := FindSessionFile(dir, projectID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := ReadAllHistoryEntries(filePath)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]provider.OutputEvent, 0, len(entries))
+	for _, raw := range entries {
+		events = append(events, NormalizeHistoryEntry(raw))
+	}
+	return events, nil
+}
+
+func (d *Driver) ListProjectSessions(projectPath string) ([]provider.HistorySessionInfo, error) {
+	dir, err := ClaudeDir()
+	if err != nil {
+		return nil, err
+	}
+	return ListProjectSessions(dir, projectPath)
+}
+
+func (d *Driver) ListProjectSessionsLimit(projectPath string, limit int) (provider.HistorySessionsResult, error) {
+	dir, err := ClaudeDir()
+	if err != nil {
+		return provider.HistorySessionsResult{}, err
+	}
+	return ListProjectSessionsLimit(dir, projectPath, limit)
+}
+
+func (d *Driver) GetMessageIndex(projectID, sessionID string) ([]int, error) {
+	dir, err := ClaudeDir()
+	if err != nil {
+		return nil, err
+	}
+	filePath, err := FindSessionFile(dir, projectID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	index, err := BuildMessageIndex(filePath)
+	if err != nil {
+		return nil, err
+	}
+	return index.LineNumbers, nil
+}
+
+func (d *Driver) GetMessagesRange(projectID, sessionID string, start, end int) ([]provider.Message, error) {
+	dir, err := ClaudeDir()
+	if err != nil {
+		return nil, err
+	}
+	filePath, err := FindSessionFile(dir, projectID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return ReadMessagesRange(filePath, start, end)
+}
+
+func (d *Driver) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]provider.Message, error) {
+	dir, err := ClaudeDir()
+	if err != nil {
+		return nil, err
+	}
+	return ReadSubagentTranscripts(dir, projectID, sessionID)
+}
+
 func (d *Driver) ID() string         { return "claude" }
 func (d *Driver) BinaryName() string { return "claude" }
 

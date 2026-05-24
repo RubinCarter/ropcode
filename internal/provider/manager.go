@@ -390,3 +390,75 @@ func (m *Manager) onHealthChanged(sessionID string, health ProcessHealth) {
 		})
 	}
 }
+
+// --- History API (dispatches to HistoryProvider implementations) ---
+
+func (m *Manager) historyProvider(providerID string) (HistoryProvider, error) {
+	m.mu.RLock()
+	driver, ok := m.drivers[providerID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", providerID)
+	}
+	hp, ok := driver.(HistoryProvider)
+	if !ok {
+		return nil, fmt.Errorf("provider %s does not support history", providerID)
+	}
+	return hp, nil
+}
+
+func (m *Manager) LoadSessionHistory(providerID, projectID, sessionID string) ([]Message, error) {
+	hp, err := m.historyProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return hp.LoadSessionHistory(projectID, sessionID)
+}
+
+func (m *Manager) LoadHistoryEvents(providerID, projectID, sessionID string) ([]OutputEvent, error) {
+	hp, err := m.historyProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return hp.LoadHistoryEvents(projectID, sessionID)
+}
+
+func (m *Manager) ListProviderSessions(providerID, projectPath string) ([]HistorySessionInfo, error) {
+	hp, err := m.historyProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return hp.ListProjectSessions(projectPath)
+}
+
+func (m *Manager) ListProviderSessionsLimit(providerID, projectPath string, limit int) (HistorySessionsResult, error) {
+	hp, err := m.historyProvider(providerID)
+	if err != nil {
+		return HistorySessionsResult{}, err
+	}
+	return hp.ListProjectSessionsLimit(projectPath, limit)
+}
+
+func (m *Manager) GetMessageIndex(providerID, projectID, sessionID string) ([]int, error) {
+	hp, err := m.historyProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return hp.GetMessageIndex(projectID, sessionID)
+}
+
+func (m *Manager) GetMessagesRange(providerID, projectID, sessionID string, start, end int) ([]Message, error) {
+	hp, err := m.historyProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return hp.GetMessagesRange(projectID, sessionID, start, end)
+}
+
+func (m *Manager) LoadSubagentTranscripts(providerID, projectID, sessionID string) (map[string][]Message, error) {
+	hp, err := m.historyProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return hp.LoadSubagentTranscripts(projectID, sessionID)
+}

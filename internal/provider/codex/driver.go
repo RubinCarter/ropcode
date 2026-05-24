@@ -295,6 +295,60 @@ func (d *Driver) OnProcessExit(session provider.SessionHandle, exitCode int, err
 	}
 }
 
+// --- HistoryProvider implementation ---
+
+func (d *Driver) LoadSessionHistory(projectID, sessionID string) ([]provider.Message, error) {
+	dir, err := CodexDir()
+	if err != nil {
+		return nil, err
+	}
+	return LoadSessionHistory(dir, projectID, sessionID)
+}
+
+func (d *Driver) LoadHistoryEvents(projectID, sessionID string) ([]provider.OutputEvent, error) {
+	dir, err := CodexDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := ReadAllHistoryEntries(dir, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]provider.OutputEvent, 0, len(entries))
+	for _, raw := range entries {
+		events = append(events, NormalizeHistoryEntry(raw))
+	}
+	return events, nil
+}
+
+func (d *Driver) ListProjectSessions(projectPath string) ([]provider.HistorySessionInfo, error) {
+	dir, err := CodexDir()
+	if err != nil {
+		return nil, err
+	}
+	return ListProjectSessions(dir, projectPath)
+}
+
+func (d *Driver) ListProjectSessionsLimit(projectPath string, limit int) (provider.HistorySessionsResult, error) {
+	dir, err := CodexDir()
+	if err != nil {
+		return provider.HistorySessionsResult{}, err
+	}
+	return ListProjectSessionsLimit(dir, projectPath, limit)
+}
+
+func (d *Driver) GetMessageIndex(projectID, sessionID string) ([]int, error) {
+	return nil, nil
+}
+
+func (d *Driver) GetMessagesRange(projectID, sessionID string, start, end int) ([]provider.Message, error) {
+	return nil, nil
+}
+
+func (d *Driver) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]provider.Message, error) {
+	return nil, nil
+}
+
 func nextRequestID() int {
 	return int(requestSeq.Add(1))
 }

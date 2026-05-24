@@ -113,3 +113,37 @@ func (d *Driver) OnProcessExit(session provider.SessionHandle, exitCode int, err
 		session.RestartWithConfig(config)
 	}
 }
+
+// --- HistoryProvider implementation ---
+
+func (d *Driver) LoadSessionHistory(projectID, sessionID string) ([]provider.Message, error) {
+	dir, err := GeminiDir()
+	if err != nil {
+		return nil, err
+	}
+	return LoadSessionHistory(dir, projectID, sessionID)
+}
+
+func (d *Driver) LoadHistoryEvents(projectID, sessionID string) ([]provider.OutputEvent, error) {
+	return nil, nil
+}
+
+func (d *Driver) ListProjectSessions(projectPath string) ([]provider.HistorySessionInfo, error) {
+	return nil, nil
+}
+
+func (d *Driver) ListProjectSessionsLimit(projectPath string, limit int) (provider.HistorySessionsResult, error) {
+	return provider.HistorySessionsResult{}, nil
+}
+
+func (d *Driver) GetMessageIndex(projectID, sessionID string) ([]int, error) {
+	return nil, nil
+}
+
+func (d *Driver) GetMessagesRange(projectID, sessionID string, start, end int) ([]provider.Message, error) {
+	return nil, nil
+}
+
+func (d *Driver) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]provider.Message, error) {
+	return nil, nil
+}

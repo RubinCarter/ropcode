@@ -22,7 +22,6 @@ import (
 	providerGemini "ropcode/internal/provider/gemini"
 	"ropcode/internal/pty"
 	appRuntime "ropcode/internal/runtime"
-	"ropcode/internal/session"
 	"ropcode/internal/ssh"
 	"ropcode/internal/stream"
 )
@@ -42,7 +41,6 @@ type App struct {
 	mcpManager          *mcp.Manager
 	sshManager          *ssh.Manager
 	pluginManager       *plugin.Manager
-	sessionManager      *session.HistoryManager
 	eventHub            *eventhub.EventHub
 	sessionStreamHub    *stream.Hub
 	syncHub             *stream.SyncHub
@@ -129,9 +127,6 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize plugin manager
 	a.pluginManager = plugin.NewManager(cfg.ClaudeDir)
-
-	// Initialize session history manager
-	a.sessionManager = session.NewHistoryManager(cfg.ClaudeDir)
 
 	// Initialize GitWatcher (EventHub already initialized above)
 	a.gitWatcher = git.NewGitWatcher(a.eventHub)
