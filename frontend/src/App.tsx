@@ -14,6 +14,7 @@ import { MainLayout } from "@/components/MainLayout";
 import { useTabState } from "@/hooks/useTabState";
 import { useAppLifecycle } from "@/hooks";
 import { StartupIntro } from "@/components/StartupIntro";
+import { SyncEventsBridge } from "@/components/SyncEventsBridge";
 import { wsClient } from "@/lib/ws-rpc-client";
 import { mergeInstancesFromUrl } from '@/lib/instanceStore';
 import { getInitialWebSocketConfig } from '@/lib/ws-config';
@@ -289,6 +290,7 @@ function App() {
           <OutputCacheProvider>
             <TabProvider>
               <WorkspaceTodoProvider>
+                <SyncEventsBridge />
                 <AppContent />
                 <StartupIntro visible={showIntro} />
               </WorkspaceTodoProvider>

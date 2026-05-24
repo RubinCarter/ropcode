@@ -77,9 +77,11 @@ export const MobileLayout: React.FC = () => {
     const unlistenProjectChanged = EventsOn('project:changed', () => {
       loadProjects();
     });
+    window.addEventListener('project:changed', loadProjects);
     return () => {
       unsub();
       unlistenProjectChanged();
+      window.removeEventListener('project:changed', loadProjects);
     };
   }, []);
 

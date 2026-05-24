@@ -174,9 +174,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const unlistenProjectChanged = EventsOn('project:changed', () => {
       loadProjects();
     });
+    window.addEventListener('project:changed', loadProjects);
     return () => {
       unsub();
       unlistenProjectChanged();
+      window.removeEventListener('project:changed', loadProjects);
     };
   }, [loadProjects]);
 

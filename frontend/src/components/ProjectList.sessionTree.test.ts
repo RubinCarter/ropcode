@@ -36,11 +36,17 @@ test('ProjectList exposes tree-only mode for desktop companion sidebar', async (
 test('Sidebar project lists refresh from project changed events', async () => {
   const sidebarSource = await readSource(path.resolve(currentDir, './Sidebar.tsx'));
   const mobileSource = await readSource(path.resolve(currentDir, './mobile/MobileLayout.tsx'));
+  const syncBridgeSource = await readSource(path.resolve(currentDir, './SyncEventsBridge.tsx'));
 
   assert.match(sidebarSource, /EventsOn\('project:changed'/);
+  assert.match(sidebarSource, /window\.addEventListener\('project:changed'/);
   assert.match(sidebarSource, /loadProjects\(\)/);
   assert.match(mobileSource, /EventsOn\('project:changed'/);
+  assert.match(mobileSource, /window\.addEventListener\('project:changed'/);
   assert.match(mobileSource, /loadProjects\(\)/);
+  assert.match(syncBridgeSource, /useSyncEvents/);
+  assert.match(syncBridgeSource, /new CustomEvent\('project:changed'/);
+  assert.match(syncBridgeSource, /ropcode-space-sessions-refresh/);
 });
 
 test('ProjectList does not fan out session scans to all child workspaces when expanding a project', async () => {
@@ -173,24 +179,25 @@ test('ProjectList deduplicates historical workspace chat tabs by projectPath', a
 });
 
 test('AiCodeSession can skip automatic session restoration for explicit new tabs', async () => {
-  const source = await readSource(path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx'));
+  const source = await readSource(path.resolve(currentDir, './ai-code-session/SessionController.tsx'));
+  const lifecycleSource = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionControllerLifecycle.ts'));
   const types = await readSource(path.resolve(currentDir, './ai-code-session/types.ts'));
 
   assert.match(types, /skipSessionRestore\?: boolean/);
   assert.match(source, /skipSessionRestore = false/);
-  assert.match(source, /if \(skipSessionRestore\) \{/);
-  assert.match(source, /Skipping session restore for explicit new session/);
+  assert.match(lifecycleSource, /if \(skipSessionRestore\) \{/);
+  assert.match(lifecycleSource, /Skipping session restore for explicit new session/);
 });
 
 test('AiCodeSession does not auto-restore localStorage over an explicit historical session', async () => {
-  const source = await readSource(path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx'));
+  const source = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionControllerLifecycle.ts'));
 
   assert.match(source, /Skipping session restore for explicit historical session/);
   assert.match(source, /if \(session\) \{/);
 });
 
 test('AiCodeSession checks running state with the active session id, not provider id', async () => {
-  const source = await readSource(path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx'));
+  const source = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionRecovery.ts'));
 
   assert.match(source, /isClaudeSessionRunningForProject\(projectPath,\s*sessionId\)/);
   assert.doesNotMatch(source, /isClaudeSessionRunningForProject\(projectPath,\s*defaultProvider\)/);

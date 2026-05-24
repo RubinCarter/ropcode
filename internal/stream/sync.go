@@ -3,11 +3,13 @@ package stream
 import "sync"
 
 type SyncEvent struct {
-	Type      string         `json:"type"`
-	ProjectID string         `json:"projectId,omitempty"`
-	SessionID string         `json:"sessionId,omitempty"`
-	Provider  string         `json:"provider,omitempty"`
-	Summary   map[string]any `json:"summary,omitempty"`
+	Type          string         `json:"type"`
+	ProjectID     string         `json:"projectId,omitempty"`
+	ProjectPath   string         `json:"projectPath,omitempty"`
+	WorkspacePath string         `json:"workspacePath,omitempty"`
+	SessionID     string         `json:"sessionId,omitempty"`
+	Provider      string         `json:"provider,omitempty"`
+	Summary       map[string]any `json:"summary,omitempty"`
 }
 
 type SyncHub struct {

@@ -1,6 +1,8 @@
 export interface SyncEvent {
   type: string;
   projectId?: string;
+  projectPath?: string;
+  workspacePath?: string;
   sessionId?: string;
   provider?: string;
   summary?: Record<string, unknown>;
