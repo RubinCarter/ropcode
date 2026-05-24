@@ -183,6 +183,10 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 						payload = make(map[string]interface{})
 					}
 					payload["session_id"] = s.ID
+					payload["cwd"] = s.config.ProjectPath
+					if _, hasUUID := payload["uuid"]; !hasUUID {
+						payload["uuid"] = fmt.Sprintf("%s-%d", s.ID, time.Now().UnixNano())
+					}
 					jsonBytes, _ := json.Marshal(payload)
 					s.emitter.Emit("claude-output", string(jsonBytes))
 				}
@@ -201,8 +205,14 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 	}
 }
 
-// routeControlResponse 检查事件是否为 control_response，如果是则路由到等待者。
+// routeControlResponse 检查事件是否为 control_response 或初始化完成信号。
 func (s *Session) routeControlResponse(event *OutputEvent) {
+	// Codex: thread_created means init is complete
+	if event.Subtype == "thread_created" {
+		s.MarkInitialized()
+		return
+	}
+
 	if event.Subtype != "control_response" || event.Message == nil {
 		return
 	}
@@ -237,6 +247,13 @@ func (s *Session) extractProviderSessionID(event *OutputEvent) {
 		}
 	case "codex":
 		if event.Subtype == "init" {
+			if tid, ok := event.Message["thread_id"].(string); ok {
+				s.mu.Lock()
+				s.providerSessionID = tid
+				s.mu.Unlock()
+			}
+		}
+		if event.Subtype == "thread_created" {
 			if tid, ok := event.Message["thread_id"].(string); ok {
 				s.mu.Lock()
 				s.providerSessionID = tid
@@ -477,6 +494,7 @@ func (s *Session) MarkInitialized() {
 			"type":       "system",
 			"subtype":    "init",
 			"session_id": s.ID,
+			"cwd":        s.config.ProjectPath,
 			"provider":   s.driver.ID(),
 		}
 		jsonBytes, _ := json.Marshal(initEvent)

@@ -2,16 +2,20 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"ropcode/internal/provider"
 )
 
 var _ provider.ProviderDriver = (*Driver)(nil)
+
+var requestSeq atomic.Uint64
 
 type Driver struct{}
 
@@ -63,13 +67,31 @@ func windowsCandidates() []string {
 }
 
 func (d *Driver) BuildArgs(config provider.SessionConfig) []string {
+	if config.Interactive {
+		return d.buildInteractiveArgs(config)
+	}
+	return d.buildBatchArgs(config)
+}
+
+func (d *Driver) buildInteractiveArgs(config provider.SessionConfig) []string {
+	args := []string{"app-server", "--listen", "stdio://"}
+	args = append(args, "-c", `approval_policy="never"`)
+	if config.Model != "" {
+		args = append(args, "-c", fmt.Sprintf(`model=%q`, config.Model))
+	}
+	if effort, ok := config.Extra["reasoning_effort"]; ok && effort != "" {
+		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", effort))
+	}
+	return args
+}
+
+func (d *Driver) buildBatchArgs(config provider.SessionConfig) []string {
 	args := []string{
 		"exec",
 		"--sandbox", "danger-full-access",
 	}
 	args = append(args, "-c", `approval_policy="never"`)
 	args = append(args, "-c", "sandbox_danger_full_access.network_access=true")
-
 	if config.Model != "" {
 		args = append(args, "-m", config.Model)
 	}
@@ -104,19 +126,86 @@ func (d *Driver) EnvVars(config provider.SessionConfig) map[string]string {
 }
 
 func (d *Driver) SendMessage(session provider.SessionHandle, msg string) error {
-	session.EnqueueMessage(msg)
-	return nil
+	config := session.GetConfig()
+	if !config.Interactive {
+		session.EnqueueMessage(msg)
+		return nil
+	}
+
+	threadID := session.GetProviderSessionID()
+	if threadID == "" {
+		return fmt.Errorf("codex session not initialized (no thread ID)")
+	}
+
+	id := nextRequestID()
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "turn/start",
+		"params": map[string]interface{}{
+			"threadId": threadID,
+			"input":    []map[string]interface{}{{"type": "text", "text": msg}},
+		},
+	}
+	data, _ := json.Marshal(req)
+	data = append(data, '\n')
+	return session.WriteStdin(data)
 }
 
 func (d *Driver) Interrupt(session provider.SessionHandle) error {
-	return session.Kill()
+	config := session.GetConfig()
+	if !config.Interactive {
+		return session.Kill()
+	}
+
+	threadID := session.GetProviderSessionID()
+	if threadID == "" {
+		return session.Kill()
+	}
+
+	id := nextRequestID()
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "turn/interrupt",
+		"params": map[string]interface{}{
+			"threadId": threadID,
+		},
+	}
+	data, _ := json.Marshal(req)
+	data = append(data, '\n')
+	return session.WriteStdin(data)
 }
 
 func (d *Driver) SetModel(session provider.SessionHandle, model string) error {
 	session.UpdateConfig(func(c *provider.SessionConfig) {
 		c.Model = model
 	})
-	return nil
+	config := session.GetConfig()
+	if !config.Interactive {
+		return nil
+	}
+
+	threadID := session.GetProviderSessionID()
+	if threadID == "" {
+		return nil
+	}
+
+	id := nextRequestID()
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "thread/settings/update",
+		"params": map[string]interface{}{
+			"threadId": threadID,
+			"settings": map[string]interface{}{
+				"model": model,
+			},
+		},
+	}
+	data, _ := json.Marshal(req)
+	data = append(data, '\n')
+	return session.WriteStdin(data)
 }
 
 func (d *Driver) SetPermissionMode(session provider.SessionHandle, mode string) error {
@@ -142,17 +231,70 @@ func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars
 }
 
 func (d *Driver) WaitForInit(session provider.SessionHandle, timeout time.Duration) error {
-	return nil
+	config := session.GetConfig()
+	if !config.Interactive {
+		return nil
+	}
+	return session.WaitForInit(timeout)
 }
 
-func (d *Driver) OnProcessStart(_ context.Context, _ provider.SessionHandle, _ int) error { return nil }
+func (d *Driver) OnProcessStart(_ context.Context, session provider.SessionHandle, _ int) error {
+	config := session.GetConfig()
+	if !config.Interactive {
+		return nil
+	}
+
+	// 1. Send initialize
+	initReq := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      "init_1",
+		"method":  "initialize",
+		"params": map[string]interface{}{
+			"clientInfo": map[string]interface{}{
+				"name":    "ropcode",
+				"version": "0.1.0",
+			},
+		},
+	}
+	data, _ := json.Marshal(initReq)
+	data = append(data, '\n')
+	if err := session.WriteStdin(data); err != nil {
+		return err
+	}
+
+	// 2. Send thread/start (or thread/resume)
+	method := "thread/start"
+	params := map[string]interface{}{}
+	if config.ResumeSessionID != "" {
+		method = "thread/resume"
+		params["threadId"] = config.ResumeSessionID
+	}
+
+	threadReq := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      "thread_1",
+		"method":  method,
+		"params":  params,
+	}
+	data, _ = json.Marshal(threadReq)
+	data = append(data, '\n')
+	return session.WriteStdin(data)
+}
 
 func (d *Driver) OnProcessExit(session provider.SessionHandle, exitCode int, err error) {
-	if msg, ok := session.DequeueMessage(); ok {
-		config := session.GetConfig()
-		config.Prompt = msg
-		config.ResumeSessionID = session.GetProviderSessionID()
-		config.Resume = true
-		session.RestartWithConfig(config)
+	config := session.GetConfig()
+	if config.Interactive {
+		return
 	}
+	if msg, ok := session.DequeueMessage(); ok {
+		cfg := session.GetConfig()
+		cfg.Prompt = msg
+		cfg.ResumeSessionID = session.GetProviderSessionID()
+		cfg.Resume = true
+		session.RestartWithConfig(cfg)
+	}
+}
+
+func nextRequestID() int {
+	return int(requestSeq.Add(1))
 }
