@@ -6,18 +6,26 @@ import path from 'node:path';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const subagentProgressPanelPath = path.resolve(currentDir, './SubagentProgressPanel.tsx');
-const aiCodeSessionPath = path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx');
+const sessionControllerPath = path.resolve(currentDir, './ai-code-session/SessionController.tsx');
 const messageStreamViewPath = path.resolve(currentDir, './ai-code-session/MessageStreamView.tsx');
 const agentExecutionPath = path.resolve(currentDir, './AgentExecution.tsx');
 const claudeMessageListPath = path.resolve(currentDir, './claude-code-session/MessageList.tsx');
 const streamMessagePath = path.resolve(currentDir, './StreamMessage.tsx');
-const useMessagesPath = path.resolve(currentDir, './ai-code-session/hooks/useMessages.ts');
-const useSessionEventsPath = path.resolve(currentDir, './ai-code-session/hooks/useSessionEvents.ts');
+const streamMessageRenderingPath = path.resolve(currentDir, './stream-message/rendering.tsx');
+const streamMessageContextPath = path.resolve(currentDir, './stream-message/context.ts');
+const useSessionMessagesPath = path.resolve(currentDir, './ai-code-session/hooks/useSessionMessages.ts');
+const useSessionFrameEventsPath = path.resolve(currentDir, './ai-code-session/hooks/useSessionFrameEvents.ts');
 const messageFilterPath = path.resolve(currentDir, './ai-code-session/utils/messageFilter.ts');
-const toolWidgetsPath = path.resolve(currentDir, './ToolWidgets.tsx');
+const toolWidgetsDir = path.resolve(currentDir, './tool-widgets');
+const editWidgetPath = path.resolve(toolWidgetsDir, './EditWidget.tsx');
+const readWidgetPath = path.resolve(toolWidgetsDir, './ReadWidget.tsx');
+const mcpWidgetPath = path.resolve(toolWidgetsDir, './MCPWidget.tsx');
+const webSearchWidgetPath = path.resolve(toolWidgetsDir, './WebSearchWidget.tsx');
+const systemInitializedWidgetPath = path.resolve(toolWidgetsDir, './SystemInitializedWidget.tsx');
 const attachmentMenuPath = path.resolve(currentDir, './attachment/AttachmentMenu.tsx');
 const messageScrollSeekPlaceholderPath = path.resolve(currentDir, './MessageScrollSeekPlaceholder.tsx');
 const sessionStatusBarPath = path.resolve(currentDir, './ai-code-session/SessionStatusBar.tsx');
+const sessionMessagePanePath = path.resolve(currentDir, './ai-code-session/messages/SessionMessagePane.tsx');
 const floatingPromptInputPath = path.resolve(currentDir, './FloatingPromptInput.tsx');
 const projectListPath = path.resolve(currentDir, './ProjectList.tsx');
 const popoverPath = path.resolve(currentDir, './ui/popover.tsx');
@@ -46,11 +54,11 @@ test('continued conversation summaries default to collapsed cards', async () => 
 
 test('worktree paths are shortened for message cards', async () => {
   const pathUtilsSource = await readSource(pathUtilsPath);
-  const toolWidgetsSource = await readSource(toolWidgetsPath);
+  const editWidgetSource = await readSource(editWidgetPath);
 
   assert.match(pathUtilsSource, /filePath\.match\(\/\\\/\\\.ropcode\\\/\[\^\/\]\+\\\/\(\.\+\)\$\/\)/);
   assert.match(pathUtilsSource, /return worktreeMatch\[1\];/);
-  assert.match(toolWidgetsSource, /const collapsedFilePath = shortenPath\(getEditResultFilePath\(content\)\);/);
+  assert.match(editWidgetSource, /const collapsedFilePath = shortenPath\(getEditResultFilePath\(content\)\);/);
 });
 
 test('SubagentProgressPanel supports controlled expansion state', async () => {
@@ -65,7 +73,7 @@ test('SubagentProgressPanel supports controlled expansion state', async () => {
 });
 
 test('AiCodeSession keeps subagent expansion state outside the virtualized row', async () => {
-  const source = await readSource(aiCodeSessionPath);
+  const source = await readSource(sessionControllerPath);
   const messageStreamViewSource = await readSource(messageStreamViewPath);
 
   assert.match(source, /const \[expandedSubagentIds, setExpandedSubagentIds\] = useState<Set<string>>\(new Set\(\)\);/);
@@ -73,7 +81,7 @@ test('AiCodeSession keeps subagent expansion state outside the virtualized row',
 });
 
 test('virtualized stream rows use message identity instead of row index for keys', async () => {
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const aiCodeSessionSource = await readSource(sessionControllerPath);
   const messageStreamViewSource = await readSource(messageStreamViewPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
   const claudeMessageListSource = await readSource(claudeMessageListPath);
@@ -96,28 +104,25 @@ test('virtualized stream rows use message identity instead of row index for keys
 });
 
 test('streaming scroll controls avoid composite-heavy animation effects', async () => {
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const sessionMessagePaneSource = await readSource(sessionMessagePanePath);
   const sessionStatusBarSource = await readSource(sessionStatusBarPath);
-  const toolWidgetsSource = await readSource(toolWidgetsPath);
-  const scrollControls = aiCodeSessionSource.slice(
-    aiCodeSessionSource.indexOf('{/* Scroll buttons */}'),
-    aiCodeSessionSource.indexOf('// ==================================================================', aiCodeSessionSource.indexOf('{/* Scroll buttons */}'))
-  );
+  const webSearchWidgetSource = await readSource(webSearchWidgetPath);
+  const webFetchWidgetSource = await readSource(path.resolve(toolWidgetsDir, './WebFetchWidget.tsx'));
 
-  assert.match(scrollControls, /<div className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4">/);
-  assert.match(scrollControls, /bg-background\/95 border rounded-full shadow-sm overflow-hidden pointer-events-auto/);
-  assert.match(scrollControls, /active:scale-\[0\.97\]/);
-  assert.doesNotMatch(scrollControls, /backdrop-blur-md border rounded-full shadow-lg/);
-  assert.doesNotMatch(scrollControls, /transition=\{\{ delay: 0\.5 \}\}/);
-  assert.doesNotMatch(scrollControls, /whileTap=\{\{ scale: 0\.97 \}\}/);
+  assert.match(sessionMessagePaneSource, /<div className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4">/);
+  assert.match(sessionMessagePaneSource, /bg-background\/95 border rounded-full shadow-sm overflow-hidden pointer-events-auto/);
+  assert.match(sessionMessagePaneSource, /active:scale-\[0\.97\]/);
+  assert.doesNotMatch(sessionMessagePaneSource, /backdrop-blur-md border rounded-full shadow-lg/);
+  assert.doesNotMatch(sessionMessagePaneSource, /transition=\{\{ delay: 0\.5 \}\}/);
+  assert.doesNotMatch(sessionMessagePaneSource, /whileTap=\{\{ scale: 0\.97 \}\}/);
 
   assert.match(sessionStatusBarSource, /transition-colors contain-paint/);
   assert.doesNotMatch(sessionStatusBarSource, /backdrop-blur-md/);
-  assert.doesNotMatch(toolWidgetsSource, /animate-pulse|animate-bounce/);
+  assert.doesNotMatch(webSearchWidgetSource + webFetchWidgetSource, /animate-pulse|animate-bounce/);
 });
 
 test('virtualized stream rows use lightweight placeholders during fast scroll', async () => {
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const aiCodeSessionSource = await readSource(sessionControllerPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
   const claudeMessageListSource = await readSource(claudeMessageListPath);
   const messageScrollSeekPlaceholderSource = await readSource(messageScrollSeekPlaceholderPath);
@@ -145,41 +150,47 @@ test('virtualized stream rows use lightweight placeholders during fast scroll', 
 });
 
 test('markdown code blocks keep readable plain text in dark themes', async () => {
-  const streamMessageSource = await readSource(streamMessagePath);
+  const streamMessageRenderingSource = await readSource(streamMessageRenderingPath);
 
-  assert.match(streamMessageSource, /<SyntaxHighlighter[\s\S]*codeTagProps=\{\{ className: "!text-foreground" \}\}/);
+  assert.match(streamMessageRenderingSource, /<SyntaxHighlighter[\s\S]*codeTagProps=\{\{ className: "!text-foreground" \}\}/);
 });
 
 test('live streaming assistant text avoids markdown and syntax highlighting', async () => {
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const messageStreamViewSource = await readSource(messageStreamViewPath);
   const streamMessageSource = await readSource(streamMessagePath);
+  const streamMessageContextSource = await readSource(streamMessageContextPath);
+  const assistantMessageSource = await readSource(path.resolve(currentDir, './stream-message/AssistantMessageCard.tsx'));
 
-  assert.match(streamMessageSource, /isStreamingText\?: boolean;/);
-  assert.match(streamMessageSource, /if \(isStreamingText\) \{[\s\S]*className="text-sm whitespace-pre-wrap break-words leading-6"[\s\S]*\{textContent\}[\s\S]*\}/);
-  assert.match(streamMessageSource, /if \(prev\.isStreamingText !== next\.isStreamingText\) return false;/);
-  assert.match(aiCodeSessionSource, /isStreamingTail: processState\.isLoading && originalIndex === messagesState\.messages\.length - 1 && message\?\.type === 'assistant' && !message\.message\?\.usage/);
-  assert.match(aiCodeSessionSource, /isStreamingText=\{item\.isStreamingTail\}/);
+  assert.match(streamMessageContextSource, /isStreamingText\?: boolean;/);
+  assert.match(assistantMessageSource, /if \(isStreamingText\) \{[\s\S]*className="text-sm whitespace-pre-wrap break-words leading-6"[\s\S]*\{textContent\}[\s\S]*\}/);
+  assert.match(streamMessageContextSource, /if \(prev\.isStreamingText !== next\.isStreamingText\) return false;/);
+  assert.match(messageStreamViewSource, /isStreamingTail:[\s\S]*isLoading[\s\S]*originalIndex === messages\.length - 1[\s\S]*message\?\.type === 'assistant'[\s\S]*!message\.message\?\.usage/);
+  assert.match(messageStreamViewSource, /isStreamingText=\{true\}/);
+  assert.match(messageStreamViewSource, /isStreamingText=\{false\}/);
 });
 
 test('AiCodeSession keeps message card expansion state outside virtualized rows', async () => {
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const aiCodeSessionSource = await readSource(sessionControllerPath);
+  const messageStreamViewSource = await readSource(messageStreamViewPath);
   const streamMessageSource = await readSource(streamMessagePath);
+  const streamMessageContextSource = await readSource(streamMessageContextPath);
+  const userMessageSource = await readSource(path.resolve(currentDir, './stream-message/UserMessageCard.tsx'));
 
   assert.match(aiCodeSessionSource, /const \[expandedMessageCards, setExpandedMessageCards\] = useState<Set<string>>\(new Set\(\)\);/);
-  assert.match(aiCodeSessionSource, /expandedCards=\{expandedMessageCards\}/);
-  assert.match(aiCodeSessionSource, /onExpandedCardsChange=\{setExpandedMessageCards\}/);
-  assert.match(aiCodeSessionSource, /messageKey=\{item\.message\.uuid \|\| `msg-\$\{item\.originalIndex\}`\}/);
-  assert.match(streamMessageSource, /expandedCards\?: Set<string>;/);
-  assert.match(streamMessageSource, /onExpandedCardsChange\?: React\.Dispatch<React\.SetStateAction<Set<string>>>;/);
-  assert.match(streamMessageSource, /const expanded = controlledExpanded \?\? uncontrolledExpanded;/);
-  assert.match(streamMessageSource, /getCardExpansionProps\(`user-text-\$\{idx\}`, textPresentation\.defaultExpanded\)/);
+  assert.match(messageStreamViewSource, /expandedCards=\{expandedMessageCards\}/);
+  assert.match(messageStreamViewSource, /onExpandedCardsChange=\{setExpandedMessageCards\}/);
+  assert.match(messageStreamViewSource, /messageKey=\{item\.message\.uuid \|\| `msg-\$\{item\.originalIndex\}`\}/);
+  assert.match(streamMessageContextSource, /expandedCards\?: Set<string>;/);
+  assert.match(streamMessageContextSource, /onExpandedCardsChange\?: React\.Dispatch<React\.SetStateAction<Set<string>>>;/);
+  assert.match(streamMessageSource, /const currentExpandedCards = expandedCards \?\? uncontrolledExpandedCards;/);
+  assert.match(userMessageSource, /expansionKey: `user-text-\$\{idx\}`/);
 });
 
 test('session event handling batches hot stream work', async () => {
-  const source = await readSource(useSessionEventsPath);
+  const source = await readSource(useSessionFrameEventsPath);
 
-  assert.match(source, /const pendingRuntimeMessagesRef = useRef<ClaudeStreamMessage\[\]>\(\[\]\);/);
-  assert.match(source, /runtimeFlushRafRef\.current = requestAnimationFrame\(flushRuntimeTracker\);/);
+  assert.match(source, /enqueueRuntimeMessage\(projectPath, message\);/);
+  assert.match(source, /flushRuntimeMessages\(projectPath\);/);
   assert.match(source, /if \(isTextDeltaMessage\(message\)\) \{[\s\S]*addMessage\(message\);[\s\S]*return;/);
   assert.match(source, /function countCodeFencePairs\(text: string\): number/);
   assert.match(source, /const blockCount = countCodeFencePairs\(block\.text\);/);
@@ -191,12 +202,12 @@ test('session event handling batches hot stream work', async () => {
 });
 
 test('stream message filtering avoids duplicate scans and backward tool result lookup', async () => {
-  const useMessagesSource = await readSource(useMessagesPath);
+  const useSessionMessagesSource = await readSource(useSessionMessagesPath);
   const messageFilterSource = await readSource(messageFilterPath);
 
-  assert.match(useMessagesSource, /import \{ getDisplayableMessages \} from "\.\.\/utils\/messageFilter";/);
-  assert.match(useMessagesSource, /const displayable = useMemo\([\s\S]*getDisplayableMessages\(messages, subagentProgress\.subagentMessageIndexes\)/);
-  assert.doesNotMatch(useMessagesSource, /filterDisplayableMessages/);
+  assert.match(useSessionMessagesSource, /import \{ getDisplayableMessages \} from "\.\.\/utils\/messageFilter";/);
+  assert.match(useSessionMessagesSource, /const displayable = useMemo\([\s\S]*getDisplayableMessages\(messages, stableSubagentIndexes\)/);
+  assert.doesNotMatch(useSessionMessagesSource, /filterDisplayableMessages/);
   assert.match(messageFilterSource, /function buildToolUseNamesById\(messages: ClaudeStreamMessage\[\]\): Map<string, string>/);
   assert.match(messageFilterSource, /const toolUseNamesById = buildToolUseNamesById\(messages\);/);
   assert.match(messageFilterSource, /function wouldStreamMessageRender\([\s\S]*toolUseNamesById: Map<string, string>[\s\S]*\): boolean/);
@@ -206,26 +217,28 @@ test('stream message filtering avoids duplicate scans and backward tool result l
 });
 
 test('virtualized message rows use consistent compact spacing', async () => {
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const messageStreamViewSource = await readSource(messageStreamViewPath);
 
-  assert.match(aiCodeSessionSource, /<div className="w-full max-w-6xl mx-auto px-4 py-2">/);
-  assert.match(aiCodeSessionSource, /const message = messagesState\.messages\[originalIndex\];[\s\S]*if \(!message\) return;[\s\S]*items\.push\(\{/);
-  assert.doesNotMatch(aiCodeSessionSource, /px-4 pb-4 pt-2/);
+  assert.match(messageStreamViewSource, /<div className="w-full max-w-6xl mx-auto px-4 py-2">/);
+  assert.match(messageStreamViewSource, /const message = messages\[originalIndex\];[\s\S]*if \(!message\) return;[\s\S]*items\.push\(\{/);
+  assert.doesNotMatch(messageStreamViewSource, /px-4 pb-4 pt-2/);
 });
 
 test('render hotspots avoid repeated pure work', async () => {
-  const toolWidgetsSource = await readSource(toolWidgetsPath);
+  const systemInitializedWidgetSource = await readSource(systemInitializedWidgetPath);
+  const mcpWidgetSource = await readSource(mcpWidgetPath);
   const attachmentMenuSource = await readSource(attachmentMenuPath);
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const aiCodeSessionSource = await readSource(sessionControllerPath);
+  const copyConversationMenuSource = await readSource(path.resolve(currentDir, './ai-code-session/composer/CopyConversationMenu.tsx'));
   const floatingPromptInputSource = await readSource(floatingPromptInputPath);
   const projectListSource = await readSource(projectListPath);
 
-  assert.match(toolWidgetsSource, /const systemToolIcons: Record<string, LucideIcon> = \{/);
-  assert.match(toolWidgetsSource, /function formatMcpToolName\(toolName: string\)/);
-  assert.match(toolWidgetsSource, /const \{ regularTools, mcpTools \} = useMemo\(\(\) => \{/);
-  assert.match(toolWidgetsSource, /if \(!expanded \|\| !mcpExpanded\) return \{\} as Record<string, string\[\]>;/);
-  assert.match(toolWidgetsSource, /const Icon = getSystemToolIcon\(tool\);/);
-  assert.doesNotMatch(toolWidgetsSource, /const toolIcons: Record<string, LucideIcon> = \{[\s\S]*export const SystemInitializedWidget/);
+  assert.match(systemInitializedWidgetSource, /const systemToolIcons: Record<string, LucideIcon> = \{/);
+  assert.match(systemInitializedWidgetSource, /function formatMcpToolName\(toolName: string\)/);
+  assert.match(systemInitializedWidgetSource, /const \{ regularTools, mcpTools \} = useMemo\(\(\) => \{/);
+  assert.match(systemInitializedWidgetSource, /if \(!expanded \|\| !mcpExpanded\) return \{\} as Record<string, string\[\]>;/);
+  assert.match(systemInitializedWidgetSource, /const Icon = getSystemToolIcon\(tool\);/);
+  assert.doesNotMatch(mcpWidgetSource, /const toolIcons: Record<string, LucideIcon> = \{[\s\S]*export const SystemInitializedWidget/);
 
   assert.match(attachmentMenuSource, /const detectMobile = \(\): boolean => \{/);
   assert.match(attachmentMenuSource, /useEffect\(\(\) => \{[\s\S]*if \(!isOpen\) return;[\s\S]*setMobile\(detectMobile\(\)\);/);
@@ -233,12 +246,12 @@ test('render hotspots avoid repeated pure work', async () => {
   assert.doesNotMatch(attachmentMenuSource, /const mobile = isMobile\(\);/);
 
   assert.match(aiCodeSessionSource, /const followOutput = useCallback\(\(isAtBottom: boolean\) => \{[\s\S]*\}, \[isScrollPaused, processState\.isLoading\]\);/);
-  assert.match(aiCodeSessionSource, /const itemContent = useCallback\(\(_: number, item:[\s\S]*\), \[[\s\S]*messagesState\.subagentProgress,[\s\S]*\]\);/);
-  assert.match(aiCodeSessionSource, /const virtuosoComponents = React\.useMemo\(\(\) => \(\{/);
-  assert.match(aiCodeSessionSource, /const copyConversationMenu = React\.useMemo\(\(\) => \(/);
+  assert.doesNotMatch(aiCodeSessionSource, /const itemContent = useCallback\(\(_: number, item:/);
+  assert.doesNotMatch(aiCodeSessionSource, /const virtuosoComponents = React\.useMemo\(\(\) => \(\{/);
+  assert.match(copyConversationMenuSource, /export function CopyConversationMenu/);
+  assert.match(copyConversationMenuSource, /return useMemo\(\(\) => \{/);
   assert.match(aiCodeSessionSource, /const handlePromptConfigChange = useCallback\(\(config: SessionStatusPromptConfig\) => \{/);
-  assert.match(aiCodeSessionSource, /onConfigChange=\{handlePromptConfigChange\}/);
-  assert.match(aiCodeSessionSource, /extraMenuItems=\{copyConversationMenu\}/);
+  assert.match(aiCodeSessionSource, /composerProps=\{\{[\s\S]*onConfigChange: handlePromptConfigChange,[\s\S]*extraMenuItems: \([\s\S]*<CopyConversationMenu[\s\S]*\),[\s\S]*\}\}/);
   assert.match(floatingPromptInputSource, /export const FloatingPromptInput = React\.memo\(React\.forwardRef</);
   assert.match(floatingPromptInputSource, /bg-background\/95 border-t border-border shadow-sm contain-paint/);
   assert.doesNotMatch(floatingPromptInputSource, /w-full bg-background\/95 backdrop-blur-sm border-t border-border shadow-lg/);
@@ -254,6 +267,37 @@ test('render hotspots avoid repeated pure work', async () => {
   assert.doesNotMatch(projectListSource, /\{hasWorkspaces && \[\.\.project\.workspaces!/);
 });
 
+test('SessionController delegates lifecycle, runtime status, and element selection to hooks', async () => {
+  const aiCodeSessionSource = await readSource(sessionControllerPath);
+  const hooksIndexSource = await readSource(path.resolve(currentDir, './ai-code-session/hooks/index.ts'));
+  const lifecycleHookSource = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionControllerLifecycle.ts'));
+  const runtimeHookSource = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionRuntimeStatusModel.ts'));
+  const elementSelectionHookSource = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useElementSelectionPrompt.ts'));
+  const promptActionsHookSource = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionPromptActions.ts'));
+
+  assert.match(aiCodeSessionSource, /useSessionControllerLifecycle\(/);
+  assert.match(aiCodeSessionSource, /useSessionRuntimeStatusModel\(/);
+  assert.match(aiCodeSessionSource, /useElementSelectionPrompt\(/);
+  assert.match(aiCodeSessionSource, /useSessionPromptActions\(/);
+  assert.doesNotMatch(aiCodeSessionSource, /window\.addEventListener\('webview-element-selected'/);
+  assert.doesNotMatch(aiCodeSessionSource, /const sessions = SessionPersistenceService\.getSessionIndex\(\);/);
+  assert.doesNotMatch(aiCodeSessionSource, /const interval = setInterval\(\(\) => \{/);
+  assert.doesNotMatch(aiCodeSessionSource, /const handleSendPrompt = async/);
+  assert.doesNotMatch(aiCodeSessionSource, /const handleLocalClearFallback = async/);
+  assert.doesNotMatch(aiCodeSessionSource, /const handleCancelExecution = async/);
+
+  assert.match(hooksIndexSource, /export \{ useSessionControllerLifecycle, useGeneratedSessionTitlePersistence \} from '\.\/useSessionControllerLifecycle';/);
+  assert.match(hooksIndexSource, /export \{ useSessionRuntimeStatusModel \} from '\.\/useSessionRuntimeStatusModel';/);
+  assert.match(hooksIndexSource, /export \{ useElementSelectionPrompt \} from '\.\/useElementSelectionPrompt';/);
+  assert.match(hooksIndexSource, /export \{ useSessionPromptActions \} from '\.\/useSessionPromptActions';/);
+  assert.match(lifecycleHookSource, /SessionPersistenceService\.getSessionIndex\(\)/);
+  assert.match(runtimeHookSource, /setInterval\(\(\) => \{/);
+  assert.match(elementSelectionHookSource, /window\.addEventListener\('webview-element-selected'/);
+  assert.match(promptActionsHookSource, /api\.StartInteractiveClaudeSession/);
+  assert.match(promptActionsHookSource, /api\.cancelClaudeExecutionByProject/);
+  assert.match(promptActionsHookSource, /classifyPromptSubmit/);
+});
+
 test('RPC request timeouts are cleared when calls settle early', async () => {
   const source = await readSource(path.resolve(currentDir, '../lib/ws-rpc-client.ts'));
 
@@ -265,38 +309,54 @@ test('RPC request timeouts are cleared when calls settle early', async () => {
 });
 
 test('heavy edit diffs are computed only when expanded', async () => {
-  const toolWidgetsSource = await readSource(toolWidgetsPath);
+  const editWidgetSource = await readSource(editWidgetPath);
 
-  assert.match(toolWidgetsSource, /import React, \{ useMemo, useState \} from "react";/);
-  assert.doesNotMatch(toolWidgetsSource, /import \{ motion, AnimatePresence \} from "framer-motion";/);
-  assert.match(toolWidgetsSource, /const diffResult = useMemo\(\(\) => \{[\s\S]*if \(!expanded\) return \[\];[\s\S]*Diff\.diffLines\(old_string \|\| '', new_string \|\| '',/);
+  assert.match(editWidgetSource, /import React, \{ useMemo, useState \} from "react";/);
+  assert.doesNotMatch(editWidgetSource, /import \{ motion, AnimatePresence \} from "framer-motion";/);
+  assert.match(editWidgetSource, /const diffResult = useMemo\(\(\) => \{[\s\S]*if \(!expanded\) return \[\];[\s\S]*Diff\.diffLines\(old_string \|\| '', new_string \|\| '',/);
 });
 
 test('collapsed read and edit results do not parse or highlight file content', async () => {
-  const toolWidgetsSource = await readSource(toolWidgetsPath);
+  const readWidgetSource = await readSource(readWidgetPath);
+  const editWidgetSource = await readSource(editWidgetPath);
 
-  assert.match(toolWidgetsSource, /const \[isExpanded, setIsExpanded\] = useControlledExpansion\(expansionProps\);/);
-  assert.match(toolWidgetsSource, /\{isExpanded && \(\(\) => \{[\s\S]*const \{ codeContent, startLineNumber \} = parseContent\(content\);[\s\S]*<SyntaxHighlighter/);
-  assert.doesNotMatch(toolWidgetsSource, /Click "Expand" to view the file/);
-  assert.match(toolWidgetsSource, /function getEditResultFilePath\(content: string\): string \{[\s\S]*content\.match\(\/The file \(\.\+\) has been updated\/\)/);
-  assert.match(toolWidgetsSource, /function parseEditResultContent\(content: string\) \{[\s\S]*const lines = content\.split\('\\n'\);/);
-  assert.match(toolWidgetsSource, /\{isExpanded \? \(\(\) => \{[\s\S]*const \{ filePath, codeContent, startLineNumber \} = parseEditResultContent\(content\);[\s\S]*<SyntaxHighlighter/);
-  assert.match(toolWidgetsSource, /Click "Expand" to view the edit result/);
-  assert.doesNotMatch(toolWidgetsSource, /shouldUsePlainCode|PLAIN_CODE|shouldRenderPlainCodeBlock/);
+  assert.match(readWidgetSource, /const \[isExpanded, setIsExpanded\] = useControlledExpansion\(expansionProps\);/);
+  assert.match(readWidgetSource, /\{isExpanded && \(\(\) => \{[\s\S]*const \{ codeContent, startLineNumber \} = parseContent\(content\);[\s\S]*<SyntaxHighlighter/);
+  assert.doesNotMatch(readWidgetSource, /Click "Expand" to view the file/);
+  assert.match(editWidgetSource, /function getEditResultFilePath\(content: string\): string \{[\s\S]*content\.match\(\/The file \(\.\+\) has been updated\/\)/);
+  assert.match(editWidgetSource, /function parseEditResultContent\(content: string\) \{[\s\S]*const lines = content\.split\('\\n'\);/);
+  assert.match(editWidgetSource, /\{isExpanded \? \(\(\) => \{[\s\S]*const \{ filePath, codeContent, startLineNumber \} = parseEditResultContent\(content\);[\s\S]*<SyntaxHighlighter/);
+  assert.match(editWidgetSource, /Click "Expand" to view the edit result/);
+  assert.doesNotMatch(readWidgetSource + editWidgetSource, /shouldUsePlainCode|PLAIN_CODE|shouldRenderPlainCodeBlock/);
 });
 
 test('collapsed MCP parameters do not stringify or highlight large JSON', async () => {
-  const toolWidgetsSource = await readSource(toolWidgetsPath);
+  const mcpWidgetSource = await readSource(mcpWidgetPath);
 
-  assert.match(toolWidgetsSource, /const inputTokenSource = hasInput \? JSON\.stringify\(input\) : '';/);
-  assert.match(toolWidgetsSource, /const shouldRenderFullInput = !isLargeInput \|\| isParametersExpanded;/);
-  assert.match(toolWidgetsSource, /const inputString = shouldRenderFullInput \? JSON\.stringify\(input, null, 2\) : '';/);
-  assert.match(toolWidgetsSource, /\{shouldRenderFullInput \? \([\s\S]*<SyntaxHighlighter[\s\S]*\) : \([\s\S]*Click "Show full parameters" to view JSON parameters/);
+  assert.match(mcpWidgetSource, /const inputTokenSource = hasInput \? JSON\.stringify\(input\) : '';/);
+  assert.match(mcpWidgetSource, /const shouldRenderFullInput = !isLargeInput \|\| isParametersExpanded;/);
+  assert.match(mcpWidgetSource, /const inputString = shouldRenderFullInput \? JSON\.stringify\(input, null, 2\) : '';/);
+  assert.match(mcpWidgetSource, /\{shouldRenderFullInput \? \([\s\S]*<SyntaxHighlighter[\s\S]*\) : \([\s\S]*Click "Show full parameters" to view JSON parameters/);
 });
 
 test('tool card expansion state is controlled by StreamMessage stable card keys', async () => {
-  const toolWidgetsSource = await readSource(toolWidgetsPath);
+  const widgetSources = await Promise.all([
+    webSearchWidgetPath,
+    path.resolve(toolWidgetsDir, './WebFetchWidget.tsx'),
+    readWidgetPath,
+    editWidgetPath,
+    path.resolve(toolWidgetsDir, './GrepWidget.tsx'),
+    mcpWidgetPath,
+    path.resolve(toolWidgetsDir, './TaskWidget.tsx'),
+    path.resolve(toolWidgetsDir, './ThinkingWidget.tsx'),
+    path.resolve(toolWidgetsDir, './SystemInstructionWidget.tsx'),
+  ].map(readSource));
+  const toolWidgetsSource = widgetSources.join('\n');
   const streamMessageSource = await readSource(streamMessagePath);
+  const streamMessageRenderingSource = await readSource(streamMessageRenderingPath);
+  const toolUseRendererSource = await readSource(path.resolve(currentDir, './stream-message/ToolUseRenderer.tsx'));
+  const assistantMessageSource = await readSource(path.resolve(currentDir, './stream-message/AssistantMessageCard.tsx'));
+  const toolResultRendererSource = await readSource(path.resolve(currentDir, './stream-message/ToolResultRenderer.tsx'));
 
   assert.match(toolWidgetsSource, /export interface ControlledExpansionProps \{[\s\S]*expanded\?: boolean;[\s\S]*onExpandedChange\?: \(expanded: boolean\) => void;/);
   assert.match(toolWidgetsSource, /function useControlledExpansion\(\{ defaultExpanded = false, expanded: controlledExpanded, onExpandedChange \}: ControlledExpansionProps = \{\}\)/);
@@ -307,18 +367,18 @@ test('tool card expansion state is controlled by StreamMessage stable card keys'
   assert.match(streamMessageSource, /const \[uncontrolledExpandedCards, setUncontrolledExpandedCards\] = useState<Set<string>>\(new Set\(\)\);/);
   assert.match(streamMessageSource, /const currentExpandedCards = expandedCards \?\? uncontrolledExpandedCards;/);
   assert.match(streamMessageSource, /const updateExpandedCards = onExpandedCardsChange \?\? setUncontrolledExpandedCards;/);
-  assert.match(streamMessageSource, /const toolCardKey = `tool-\$\{toolName \|\| 'unknown'\}-\$\{toolId \|\| idx\}`;/);
-  assert.match(streamMessageSource, /<WebSearchWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
-  assert.match(streamMessageSource, /<WebFetchWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
-  assert.match(streamMessageSource, /<MCPWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
-  assert.match(streamMessageSource, /<TaskWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`\$\{toolCardKey\}-task-instructions`, false\)\}/);
-  assert.match(streamMessageSource, /<ThinkingWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`thinking-\$\{idx\}`, false\)\}/);
-  assert.match(streamMessageSource, /<EditResultWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| idx\}-edit`, false\)\}/);
-  assert.match(streamMessageSource, /<ReadResultWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| idx\}-read`, false\)\}/);
+  assert.match(toolUseRendererSource, /const toolCardKey = `tool-\$\{toolName \|\| 'unknown'\}-\$\{toolId \|\| index\}`;/);
+  assert.match(toolUseRendererSource, /<WebSearchWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
+  assert.match(toolUseRendererSource, /<WebFetchWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
+  assert.match(toolUseRendererSource, /<MCPWidget[\s\S]*\{\.\.\.getCardExpansionProps\(toolCardKey, false\)\}/);
+  assert.match(toolUseRendererSource, /<TaskWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`\$\{toolCardKey\}-task-instructions`, false\)\}/);
+  assert.match(assistantMessageSource, /<ThinkingWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`thinking-\$\{idx\}`, false\)\}/);
+  assert.match(toolResultRendererSource, /<EditResultWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| index\}-edit`, false\)\}/);
+  assert.match(toolResultRendererSource, /<ReadResultWidget[\s\S]*\{\.\.\.getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| index\}-read`, false\)\}/);
   assert.match(streamMessageSource, /const summaryExpansion = getCardExpansionProps\('conversation-summary', false\);/);
-  assert.match(streamMessageSource, /const toolResultExpansion = getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| idx\}`, false\);/);
+  assert.match(toolResultRendererSource, /const toolResultExpansion = getCardExpansionProps\(`tool-result-\$\{content\.tool_use_id \|\| index\}`, false\);/);
   assert.match(streamMessageSource, /const resultExpansion = getCardExpansionProps\('result-details', false\);/);
-  assert.match(streamMessageSource, /<SystemInstructionWidget[\s\S]*\{\.\.\.getExpansionProps\?\.\(`\$\{keyPrefix\}system-instruction-\$\{instructionIndex\}`, false\)\}/);
+  assert.match(streamMessageRenderingSource, /<SystemInstructionWidget[\s\S]*\{\.\.\.getExpansionProps\?\.\(`\$\{keyPrefix\}system-instruction-\$\{instructionIndex\}`, false\)\}/);
   assert.doesNotMatch(streamMessageSource, /expandedToolResults|setExpandedToolResults|setIsSummaryExpanded|const \[expanded, setExpanded\] = useState\(false\)/);
 });
 

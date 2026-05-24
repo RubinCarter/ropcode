@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const hookPath = path.resolve(currentDir, './useSubagentTranscriptSync.ts');
-const aiCodeSessionPath = path.resolve(currentDir, '../components/ai-code-session/AiCodeSession.tsx');
+const sessionControllerPath = path.resolve(currentDir, '../components/ai-code-session/SessionController.tsx');
 const agentExecutionPath = path.resolve(currentDir, '../components/AgentExecution.tsx');
 const sessionOutputViewerPath = path.resolve(currentDir, '../components/SessionOutputViewer.tsx');
 const agentRunOutputViewerPath = path.resolve(currentDir, '../components/AgentRunOutputViewer.tsx');
@@ -44,7 +44,7 @@ test('useSubagentTranscriptSync guards in-flight stale and unchanged transcript 
 });
 
 test('live subagent renderers use shared transcript sync and canonical merge point', async () => {
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const aiCodeSessionSource = await readSource(sessionControllerPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
   const sessionOutputViewerSource = await readSource(sessionOutputViewerPath);
   const agentRunOutputViewerSource = await readSource(agentRunOutputViewerPath);

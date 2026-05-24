@@ -8,8 +8,12 @@ const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const streamMessagePath = path.resolve(currentDir, './StreamMessage.tsx');
 const streamMessageContextPath = path.resolve(currentDir, './stream-message/context.ts');
 const streamMessageRenderingPath = path.resolve(currentDir, './stream-message/rendering.tsx');
+const assistantMessageCardPath = path.resolve(currentDir, './stream-message/AssistantMessageCard.tsx');
+const userMessageCardPath = path.resolve(currentDir, './stream-message/UserMessageCard.tsx');
+const toolUseRendererPath = path.resolve(currentDir, './stream-message/ToolUseRenderer.tsx');
+const toolResultRendererPath = path.resolve(currentDir, './stream-message/ToolResultRenderer.tsx');
 const messageStreamViewPath = path.resolve(currentDir, './ai-code-session/MessageStreamView.tsx');
-const aiCodeSessionPath = path.resolve(currentDir, './ai-code-session/AiCodeSession.tsx');
+const sessionControllerPath = path.resolve(currentDir, './ai-code-session/SessionController.tsx');
 const agentExecutionPath = path.resolve(currentDir, './AgentExecution.tsx');
 const sessionOutputViewerPath = path.resolve(currentDir, './SessionOutputViewer.tsx');
 const agentRunOutputViewerPath = path.resolve(currentDir, './AgentRunOutputViewer.tsx');
@@ -53,15 +57,34 @@ test('StreamMessage shares Claude agent metadata across mounted rows', async () 
 test('StreamMessage binds server tool results for history views', async () => {
   const contextSource = await readSource(streamMessageContextPath);
   const streamMessageSource = await readSource(streamMessagePath);
+  const toolUseRendererSource = await readSource(toolUseRendererPath);
 
   assert.match(contextSource, /content\.type === "tool_use" \|\| content\.type === "server_tool_use"/);
   assert.match(contextSource, /if \(content\.tool_use_id\) \{[\s\S]*toolResults\.set\(content\.tool_use_id, content\);[\s\S]*\}/);
-  assert.match(streamMessageSource, /content\.type === "tool_use" \|\| content\.type === "server_tool_use"/);
-  assert.match(streamMessageSource, /toolName === "websearch" \|\| toolName === "web_search"/);
+  assert.match(toolUseRendererSource, /content\.type !== "tool_use" && content\.type !== "server_tool_use"/);
+  assert.match(toolUseRendererSource, /toolName === "websearch" \|\| toolName === "web_search"/);
+  assert.doesNotMatch(streamMessageSource, /toolName === "websearch" \|\| toolName === "web_search"/);
+});
+
+test('StreamMessage delegates message-specific branches to focused renderers', async () => {
+  const streamMessageSource = await readSource(streamMessagePath);
+  const assistantSource = await readSource(assistantMessageCardPath);
+  const userSource = await readSource(userMessageCardPath);
+  const toolUseSource = await readSource(toolUseRendererPath);
+  const toolResultSource = await readSource(toolResultRendererPath);
+
+  assert.match(streamMessageSource, /<AssistantMessageCard/);
+  assert.match(streamMessageSource, /<UserMessageCard/);
+  assert.doesNotMatch(streamMessageSource, /const renderToolWidget = \(\) => \{/);
+  assert.doesNotMatch(streamMessageSource, /const reminderMatch = contentText\.match/);
+  assert.match(assistantSource, /export const AssistantMessageCard/);
+  assert.match(userSource, /export const UserMessageCard/);
+  assert.match(toolUseSource, /export function renderToolUseContent/);
+  assert.match(toolResultSource, /export function renderToolResultContent/);
 });
 
 test('live message renderers pass memoized stream context to StreamMessage', async () => {
-  const aiCodeSessionSource = await readSource(aiCodeSessionPath);
+  const aiCodeSessionSource = await readSource(sessionControllerPath);
   const agentExecutionSource = await readSource(agentExecutionPath);
   const sessionOutputViewerSource = await readSource(sessionOutputViewerPath);
   const agentRunOutputViewerSource = await readSource(agentRunOutputViewerPath);

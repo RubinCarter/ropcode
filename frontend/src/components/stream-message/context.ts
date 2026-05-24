@@ -8,6 +8,14 @@ export interface StreamMessageContext {
   readToolPathsById: Map<string, string>;
 }
 
+export interface CardExpansionProps {
+  defaultExpanded?: boolean;
+  expanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+}
+
+export type GetCardExpansionProps = (cardId: string, defaultExpanded: boolean) => CardExpansionProps;
+
 export interface StreamMessageProps {
   message: ClaudeStreamMessage;
   className?: string;

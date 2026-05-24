@@ -25,7 +25,7 @@ test('subagent progress still groups transcripts through the canonical merge pat
   assert.match(source, /for \(const \[rawAgentId, transcript\] of Object\.entries\(subagentTranscripts\)\)/);
   assert.match(source, /const matchedByPrompt = !matchedByAgentId/);
   assert.match(source, /subagent\.messages = transcript;/);
-  assert.match(source, /return \{\n    subagents,/);
+  assert.match(source, /return \{\r?\n    subagents,/);
 });
 
 test('subagent envelope predicate hides explicit sidechain and parent tool messages only', () => {

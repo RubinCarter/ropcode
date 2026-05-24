@@ -5,10 +5,10 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const toolWidgetsPath = path.resolve(currentDir, './ToolWidgets.tsx');
+const webSearchWidgetPath = path.resolve(currentDir, './tool-widgets/WebSearchWidget.tsx');
 
 async function readSource() {
-  return readFile(toolWidgetsPath, 'utf8');
+  return readFile(webSearchWidgetPath, 'utf8');
 }
 
 test('WebSearchWidget supports Claude server tool result blocks', async () => {
