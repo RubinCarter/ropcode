@@ -90,6 +90,7 @@ if (Test-Path "wails3/frontend") {
   Remove-Item -Recurse -Force -LiteralPath "wails3/frontend"
 }
 Copy-Item -Recurse -Force -LiteralPath "frontend/dist" -Destination "wails3/frontend"
+New-Item -ItemType File -Force -Path "wails3/frontend/.keep" | Out-Null
 
 Write-Step "Cleaning Wails v3 output folder"
 Stop-Wails3Processes
