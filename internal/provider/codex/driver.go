@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -338,15 +339,94 @@ func (d *Driver) ListProjectSessionsLimit(projectPath string, limit int) (provid
 }
 
 func (d *Driver) GetMessageIndex(projectID, sessionID string) ([]int, error) {
-	return nil, nil
+	dir, err := CodexDir()
+	if err != nil {
+		return nil, err
+	}
+	filePath, err := FindSessionFile(dir, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return buildLineIndex(filePath)
 }
 
 func (d *Driver) GetMessagesRange(projectID, sessionID string, start, end int) ([]provider.Message, error) {
-	return nil, nil
+	dir, err := CodexDir()
+	if err != nil {
+		return nil, err
+	}
+	filePath, err := FindSessionFile(dir, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return readMessagesRange(filePath, start, end)
+}
+
+func buildLineIndex(filePath string) ([]int, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var lineNumbers []int
+	lineNum := 0
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		lineNum++
+		if len(scanner.Bytes()) > 0 {
+			lineNumbers = append(lineNumbers, lineNum)
+		}
+	}
+	return lineNumbers, scanner.Err()
+}
+
+func readMessagesRange(filePath string, start, end int) ([]provider.Message, error) {
+	if start < 1 || end < start {
+		return nil, nil
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var messages []provider.Message
+	lineNum := 0
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		lineNum++
+		if lineNum < start {
+			continue
+		}
+		if lineNum > end {
+			break
+		}
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var raw map[string]interface{}
+		if err := json.Unmarshal(line, &raw); err != nil {
+			continue
+		}
+		event := NormalizeHistoryEntry(raw)
+		messages = append(messages, provider.Message{
+			Type:      event.Type,
+			Timestamp: str(raw, "timestamp"),
+			Message:   event.Message,
+		})
+	}
+	return messages, scanner.Err()
 }
 
 func (d *Driver) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]provider.Message, error) {
-	return nil, nil
+	return map[string][]provider.Message{}, nil
 }
 
 func nextRequestID() int {

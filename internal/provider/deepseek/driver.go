@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
 	"ropcode/internal/provider"
@@ -12,7 +13,14 @@ import (
 
 var _ provider.ProviderDriver = (*Driver)(nil)
 
-type Driver struct{}
+type Driver struct {
+	cacheMu   sync.Mutex
+	cacheKey  string
+	cacheData []provider.Message
+	cacheTime time.Time
+}
+
+const cacheTTL = 30 * time.Second
 
 func (d *Driver) ID() string         { return "deepseek" }
 func (d *Driver) BinaryName() string { return "deepseek" }
@@ -179,13 +187,53 @@ func (d *Driver) ListProjectSessionsLimit(projectPath string, limit int) (provid
 }
 
 func (d *Driver) GetMessageIndex(projectID, sessionID string) ([]int, error) {
-	return nil, nil
+	messages, err := d.cachedMessages(projectID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	index := make([]int, len(messages))
+	for i := range messages {
+		index[i] = i + 1
+	}
+	return index, nil
 }
 
 func (d *Driver) GetMessagesRange(projectID, sessionID string, start, end int) ([]provider.Message, error) {
-	return nil, nil
+	messages, err := d.cachedMessages(projectID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if start < 1 {
+		start = 1
+	}
+	startIdx := start - 1
+	if startIdx >= len(messages) {
+		return nil, nil
+	}
+	if end > len(messages) {
+		end = len(messages)
+	}
+	return messages[startIdx:end], nil
+}
+
+func (d *Driver) cachedMessages(projectID, sessionID string) ([]provider.Message, error) {
+	d.cacheMu.Lock()
+	defer d.cacheMu.Unlock()
+
+	if d.cacheKey == sessionID && time.Since(d.cacheTime) < cacheTTL && d.cacheData != nil {
+		return d.cacheData, nil
+	}
+
+	messages, err := d.LoadSessionHistory(projectID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	d.cacheKey = sessionID
+	d.cacheData = messages
+	d.cacheTime = time.Now()
+	return messages, nil
 }
 
 func (d *Driver) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]provider.Message, error) {
-	return nil, nil
+	return map[string][]provider.Message{}, nil
 }
