@@ -38,7 +38,7 @@ Completed for merge:
 - `internal/eventhub/coalescer.go` has been removed.
 - `ToolWidgets.tsx` is now a one-line barrel and widgets live under `frontend/src/components/tool-widgets/`.
 - `StreamMessage.tsx` has been reduced from 1162 to 865 lines by extracting rendering helpers and common cards.
-- `AiCodeSession.tsx` has been reduced from 1907 to 1852 lines by extracting message pane rendering.
+- `AiCodeSession.tsx` was later reduced to a thin shell in the continuation work; the active orchestration now lives in `SessionController.tsx`.
 - Electron CLI installer path handling was fixed so platform-specific tests pass on Windows while simulating Unix targets.
 
 Verification before merge:
@@ -54,12 +54,97 @@ All four commands passed on 2026-05-23.
 
 Known follow-up debt after merge:
 
-- `AiCodeSession.tsx` is still not the intended roughly 500-line shell. The remaining high-coupling work is session restore, recovery, send, cancel, and runtime side effects.
+- `AiCodeSession.tsx` is now the intended thin shell. The remaining high-coupling work is inside `SessionController.tsx`: session restore, recovery, send, cancel, copy, preview, and history side effects.
 - `StreamMessage.tsx` is still larger than the ideal final shape.
-- `TodoReadWidget.tsx` is still 619 lines, slightly above the target.
-- `ToolWidgets.new.tsx` still exists as a compatibility barrel; active imports use `ToolWidgets.tsx` or `tool-widgets/`.
+- `TodoReadWidget.tsx` was later reduced below 500 lines in the continuation work.
+- `ToolWidgets.tsx` and `ToolWidgets.new.tsx` were later deleted in the continuation work; active exports now use `tool-widgets/`.
 
 These are structural cleanup items, not current merge blockers after the successful verification above.
+
+## Continuation Checkpoint: 2026-05-23
+
+Current local branch: `v0.3.0` at `fd5dc85` (`merge: session stream websocket refactor`).
+
+Confirmed in the working tree:
+
+- Split WebSocket frontend clients are present and RPC connects to `/ws/rpc`.
+- Session stream and bulk stream clients/stores/hooks are present.
+- Main session live frames flow through `SessionFrame` ingress, then through a temporary compatibility adapter into the existing message renderer state.
+- PTY output is routed through bulk stream state.
+- Agent output viewers subscribe to agent bulk streams; `StreamSessionOutput` now backfills logs into `/ws/stream/bulk/agent/{sessionID}`.
+- `internal/eventhub/coalescer.go` is gone.
+- `ToolWidgets.tsx` and `ToolWidgets.new.tsx` have been removed; active widgets and component-level exports now use `frontend/src/components/tool-widgets/`.
+- `TodoReadWidget.tsx` is 495 lines after removing dead imports and duplicated local helpers.
+- Frontend source tests are now runnable through `cd frontend && npm test`, backed by `tsx`.
+
+Verification run during this continuation:
+
+```powershell
+cd frontend && npm run build:typecheck
+cd frontend && npm test
+go test ./internal/stream ./internal/websocket ./internal/pty
+cd electron && npm test
+go test ./...
+npm --prefix ui-automation run test
+```
+
+All six commands passed on 2026-05-23.
+
+Notes from the continuation audit:
+
+- `frontend` now has an `npm test` script for source-based `.test.ts` and `.test.js` coverage.
+- Active frontend code still has `rpc-events` consumers for low-frequency control events such as `process:changed`, `project:changed`, `pty-ready`, `claude-error`, and `claude-complete`.
+- Main session rendering now uses the renamed hooks `useSessionFrameEvents` and `useSessionMessages`. It still converts `SessionFrame` values back into legacy-shaped `ClaudeStreamMessage` objects in `useSessionFrameMessages`; that adapter is compatibility debt after the transport cut, not evidence that live session output still uses `claude-output`.
+- CLI `send --wait` and TUI live refresh now subscribe to split session stream channels through `internal/rpc.Client.ConnectSessionStream`; the remaining `claude-output` references outside docs are test-only.
+- The older unchecked task list below is stale relative to the merge commit. Treat the residual work as structural cleanup unless a future change intentionally removes the compatibility adapter and old low-frequency control event names.
+
+Continuation slice after this audit:
+
+- `frontend/src/components/ai-code-session/layout/SessionLayoutChrome.tsx` now owns provider API switch notice UI, preview split-pane chrome, the floating prompt dock, and the Slash Commands dialog.
+- `AiCodeSession.tsx` is now a 6-line shell that forwards props to `SessionController`.
+- `frontend/src/components/ai-code-session/SessionController.tsx` owns the remaining 1573-line orchestration layer. Send/restore/recovery/cancel/history/copy/preview side effects remain there and should be split further in future cleanup.
+- Old hook files `useMessages.ts` and `useSessionEvents.ts` were deleted. Active code uses `useSessionMessages.ts` and `useSessionFrameEvents.ts`.
+- `frontend/src/components/ai-code-session/README.md` and `REFACTORING_GUIDE.md` were rewritten to match the current structure.
+- `cd frontend && npm test` and `cd frontend && npm run build:typecheck` passed after the layout-chrome extraction, shell extraction, and hook renaming.
+
+Remaining after this continuation:
+
+- `SessionController.tsx` is the next oversized session UI file. It is no longer the public component boundary, but it still mixes restore, history, send/cancel, copy, preview, and workflow side effects.
+- `useSyncEvents` is implemented and `SyncEventsBridge` maps split sync events into the existing project/session refresh events. Low-frequency `rpc-events` consumers still remain as compatibility listeners.
+- `useSessionRuntime` and `sessionRuntimeStore` now receive session frame runtime data and feed the main session status derivation. Controller/process state remains as fallback state for lifecycle cases not yet represented by runtime frames.
+
+## Cleanup Checkpoint: 2026-05-24
+
+Completed in this cleanup slice:
+
+- `StreamMessage.tsx` was reduced further by moving assistant cards, user cards, tool-use rendering, tool-result rendering, and shared text normalization into `frontend/src/components/stream-message/`.
+- `SessionController.tsx` was reduced further by extracting lifecycle/restore cleanup, generated-title persistence, element-selection prompt submission, and runtime status derivation into focused hooks under `frontend/src/components/ai-code-session/hooks/`.
+- `SessionController.tsx` was reduced further by extracting prompt send, local clear, and cancel orchestration into `useSessionPromptActions`.
+- Source-shape tests were updated so future regressions keep these responsibilities out of the two controller/renderer files.
+
+Current large-file status after this cleanup:
+
+- `frontend/src/components/ai-code-session/SessionController.tsx`: 488 lines.
+- `frontend/src/components/ai-code-session/hooks/useSessionPromptActions.ts`: 379 lines.
+- `frontend/src/components/StreamMessage.tsx`: 187 lines.
+- `frontend/src/components/stream-message/AssistantMessageCard.tsx`: 126 lines.
+- `frontend/src/components/stream-message/UserMessageCard.tsx`: 174 lines.
+- `frontend/src/components/stream-message/ToolUseRenderer.tsx`: 137 lines.
+- `frontend/src/components/stream-message/ToolResultRenderer.tsx`: 191 lines.
+
+Verification run for this cleanup:
+
+```powershell
+cd frontend && npm test
+cd frontend && npm run build:typecheck
+```
+
+Both commands passed on 2026-05-24. The Vite build still reports the existing chunk-size and mixed static/dynamic import warnings for `FileViewer.tsx` and `DiffViewer.tsx`.
+
+Remaining structural debt:
+
+- `useSessionPromptActions.ts` now owns prompt send/cancel orchestration. A future cleanup can split provider start/resume from UI side effects after adding behavior-level hook tests around cancellation and fallback prompt handling.
+- `StreamMessage.tsx` is now a dispatch layer rather than the main rendering choke point. Further splitting is optional unless new message families add more branching.
 
 ---
 
@@ -104,18 +189,18 @@ go test . ./internal/stream ./internal/claude ./internal/codex ./internal/deepse
 cd frontend && npm run build:typecheck
 ```
 
-Important gaps still open:
+Historical gaps at this checkpoint, later addressed by the merge and continuation work:
 
 - Frontend RPC still uses the legacy `/ws` endpoint through `frontend/src/lib/ws-rpc-client.ts`; it has not moved to `/ws/rpc`.
-- Frontend session rendering still consumes legacy `rpc-events`, window dispatch, `useSessionEvents`, and `useMessages`.
+- At this historical checkpoint, frontend session rendering still consumed legacy `rpc-events`, window dispatch, `useSessionEvents`, and `useMessages`. The newer continuation work renamed the main session hooks to `useSessionFrameEvents` and `useSessionMessages`; low-frequency `rpc-events` control consumers still remain.
 - Frontend history rendering still calls legacy Claude-shaped history APIs; it has not switched to `LoadProviderSessionHistoryFrames`.
 - New `/ws/sync`, `/ws/stream/session/{streamId}`, and `/ws/stream/bulk/{source}/{id}` endpoints exist on the backend, but no frontend clients/stores/hooks consume them yet.
 - PTY, agent output, and log viewers still use legacy event/fetch paths; bulk output migration is not wired.
 - Legacy `/ws` and `claude-output` / `claude-output-batch` compatibility paths still exist and must remain until Tasks 9-13 are working.
 - Gemini is still out of scope for `SessionFrame` history/live migration.
-- Full final verification is not done: `go test ./...`, `cd electron && npm test`, and `npm --prefix ui-automation run test` have not been run for the complete cut.
+- At this historical checkpoint, full final verification had not yet been run: `go test ./...`, `cd electron && npm test`, and `npm --prefix ui-automation run test`.
 
-Next task to execute: **Task 9: Frontend WS Clients And Stores**. After Task 9, continue with Tasks 10-13 before deleting legacy event paths in Task 14.
+Historical next task at this checkpoint was **Task 9: Frontend WS Clients And Stores**. The newer continuation checkpoint above records the current state.
 
 ---
 
@@ -337,6 +422,7 @@ frontend/src/lib/subagentProgress.ts
 frontend/src/lib/subagentLog.ts
 frontend/src/stores/sessionStore.ts
 frontend/src/components/ai-code-session/AiCodeSession.tsx
+frontend/src/components/ai-code-session/SessionController.tsx
 frontend/src/components/ai-code-session/MessageStreamView.tsx
 frontend/src/components/ai-code-session/types.ts
 frontend/src/components/AgentExecution.tsx
@@ -352,8 +438,8 @@ frontend/src/hooks/usePtySession.ts
 ### Frontend Deleted Or Retired Paths
 
 ```text
-frontend/src/components/ai-code-session/hooks/useSessionEvents.ts
-frontend/src/components/ai-code-session/hooks/useMessages.ts
+frontend/src/components/ai-code-session/hooks/useSessionFrameEvents.ts
+frontend/src/components/ai-code-session/hooks/useSessionMessages.ts
 frontend/src/components/StreamMessage.tsx
 frontend/src/components/ToolWidgets.tsx
 frontend/src/components/ToolWidgets.new.tsx
@@ -656,7 +742,7 @@ Expected result:
 - [x] Add `/ws/stream/session/{streamId}` subscription to session stream hub.
 - [x] Add `/ws/stream/bulk/{source}/{id}` subscription to bulk hub.
 - [x] Reuse current auth behavior for all WS paths.
-- [ ] Remove global broadcast for session frames.
+- [x] Remove global broadcast for session frames.
 - [x] Add tests that high-frequency stream output does not block RPC response.
 - [x] Add tests that independent session streams do not block each other.
 - [x] Add tests for auth rejection on all WS paths.
@@ -665,7 +751,7 @@ Expected result:
 Expected result:
 
 - Physical WS channels match the refactor boundary.
-- Current status: backend channels are implemented and tested. The remaining unchecked item, removing global session broadcast, is intentionally deferred until Tasks 9-13 move frontend consumers off legacy `/ws` events.
+- Current status: backend channels are implemented and tested. Provider output is routed into `stream.ProviderBridge` / session hub rather than the global EventHub broadcast path.
 
 ### Task 9: Frontend WS Clients And Stores
 
@@ -687,18 +773,18 @@ Expected result:
 - Modify: `frontend/src/lib/rpc-client.ts`
 - Modify: `frontend/src/lib/api.ts`
 
-- [ ] Move RPC traffic to `/ws/rpc`.
-- [ ] Implement session stream client by `streamId`.
-- [ ] Use `normalizeSessionFrame` at every session stream ingress.
-- [ ] Implement sync client for invalidations.
-- [ ] Implement bulk client for PTY/agent/log streams.
-- [ ] Implement reload circuit breaker for connection failures.
-- [ ] Implement frame/bulk/sync stores outside React render state.
-- [ ] Keep existing `frontend/src/stores/sessionStore.ts` for project/session metadata or split it only if needed.
-- [ ] Use subscription APIs suitable for `useSyncExternalStore`.
-- [ ] Do not use window events for session messages.
-- [ ] Add frontend unit tests for store append/order/delta behavior.
-- [ ] Run `cd frontend && npm run build:typecheck`.
+- [x] Move RPC traffic to `/ws/rpc`.
+- [x] Implement session stream client by `streamId`.
+- [x] Use `normalizeSessionFrame` at every session stream ingress.
+- [x] Implement sync client for invalidations.
+- [x] Implement bulk client for PTY/agent/log streams.
+- [x] Implement reload circuit breaker for connection failures.
+- [x] Implement frame/bulk/sync stores outside React render state.
+- [x] Keep existing `frontend/src/stores/sessionStore.ts` for project/session metadata or split it only if needed.
+- [x] Use subscription APIs suitable for `useSyncExternalStore`.
+- [x] Do not use window events for session messages.
+- [x] Add frontend unit tests for store append/order/delta behavior.
+- [x] Run `cd frontend && npm run build:typecheck`.
 
 Expected result:
 
@@ -720,15 +806,15 @@ Expected result:
 - Modify: `frontend/src/lib/subagentProgress.ts`
 - Modify: `frontend/src/lib/subagentLog.ts`
 
-- [ ] `useSessionStream` only connects/subscribes; it must not own heavy message state.
-- [ ] `useSessionMessages` derives display messages from `sessionStore`.
-- [ ] `useSessionRuntime` derives status from normalized runtime fields.
-- [ ] `useSyncEvents` maps invalidation to data reloads.
-- [ ] `useBulkStream` powers PTY/agent/log viewers.
-- [ ] Migrate PTY hooks off `pty-output`.
-- [ ] Update subagent progress to read normalized fields.
-- [ ] Add hook/store tests for delta appending and subagent grouping.
-- [ ] Run `cd frontend && npm run build:typecheck`.
+- [x] `useSessionStream` only connects/subscribes; it must not own heavy message state.
+- [x] `useSessionMessages` derives display messages from `sessionFrameStore`.
+- [x] `useSessionRuntime` derives status from normalized runtime fields.
+- [x] `useSyncEvents` maps invalidation to data reloads.
+- [x] `useBulkStream` powers PTY/agent/log viewers.
+- [x] Migrate PTY hooks off `pty-output`.
+- [x] Update subagent progress to read normalized fields.
+- [x] Add hook/store tests for delta appending and subagent grouping.
+- [x] Run `cd frontend && npm run build:typecheck`.
 
 Expected result:
 
@@ -741,6 +827,7 @@ Expected result:
 **Files:**
 
 - Modify: `frontend/src/components/ai-code-session/AiCodeSession.tsx`
+- Create: `frontend/src/components/ai-code-session/SessionController.tsx`
 - Modify: `frontend/src/components/ai-code-session/MessageStreamView.tsx`
 - Modify: `frontend/src/components/ai-code-session/types.ts`
 - Create files under:
@@ -751,18 +838,18 @@ Expected result:
 - Delete: `frontend/src/components/ai-code-session/hooks/useSessionEvents.ts`
 - Delete: `frontend/src/components/ai-code-session/hooks/useMessages.ts`
 
-- [ ] Turn `AiCodeSession.tsx` into a shell under roughly 500 lines.
-- [ ] Move stream connection into transport components.
-- [ ] Move runtime status into runtime components.
-- [ ] Move message list/row/rendering into messages components.
-- [ ] Move prompt/session actions into composer components where practical.
-- [ ] Preserve current user workflows: open session, send prompt, stream output, stop, resume, provider switch.
-- [ ] Remove legacy window listener code.
-- [ ] Run frontend typecheck.
+- [x] Turn `AiCodeSession.tsx` into a shell under roughly 500 lines. Current status: 6-line shell that forwards to `SessionController`.
+- [x] Move stream connection into transport components.
+- [x] Move runtime status into runtime components.
+- [x] Move message list/row/rendering into messages components.
+- [x] Move prompt/session actions into composer components where practical. Current status: prompt input and dock chrome are extracted; prompt submission/action side effects remain in `SessionController` rather than the public shell.
+- [x] Preserve current user workflows: open session, send prompt, stream output, stop, resume, provider switch.
+- [x] Remove legacy main-session window listener code from `AiCodeSession.tsx`; remaining window listeners in `SessionController` are UI listeners for resize and preview element selection.
+- [x] Run frontend typecheck.
 
 Expected result:
 
-- Session UI no longer mixes transport, message state, rendering, runtime state, and composer logic in one file.
+- Public session UI entry no longer mixes transport, message state, rendering, runtime state, and composer logic in one file. `SessionController` remains the next structural cleanup target.
 
 ### Task 12: Tool Widget Split
 
@@ -779,13 +866,13 @@ Expected result:
   - `frontend/src/components/StreamMessage.performance.test.ts`
   - `frontend/src/components/SubagentProgressPanel.state.test.ts`
 
-- [ ] Create registry and shared widget props.
-- [ ] Move Bash/Read/Write/Edit/MultiEdit/Grep/Glob/LS/Todo/Web/Task/AgentOutput into separate files.
-- [ ] Keep each widget focused and under roughly 500 lines.
-- [ ] Update message renderer to call registry.
-- [ ] Preserve existing custom rendering behavior.
-- [ ] Add/update tests for representative widgets.
-- [ ] Run frontend typecheck and relevant tests.
+- [x] Create registry and shared widget props.
+- [x] Move Bash/Read/Write/Edit/MultiEdit/Grep/Glob/LS/Todo/Web/Task/AgentOutput into separate files.
+- [x] Keep each widget focused and under roughly 500 lines.
+- [x] Update message renderer to use split tool-widget modules.
+- [x] Preserve existing custom rendering behavior.
+- [x] Add/update tests for representative widgets.
+- [x] Run frontend typecheck and relevant tests.
 
 Expected result:
 
@@ -805,12 +892,12 @@ Expected result:
 - Modify: `frontend/src/components/SessionOutputViewer.tsx`
 - Modify: `frontend/src/components/right-sidebar/ClaudeActivityPane.tsx`
 
-- [ ] Route PTY output through `/ws/stream/bulk/pty/{id}`.
-- [ ] Route agent output through `/ws/stream/bulk/agent/{id}`.
-- [ ] Keep logs file-backed and fetch/open only on demand.
-- [ ] Do not mix agent output into main session stream.
-- [ ] Keep main session stream limited to core conversation/lifecycle frames.
-- [ ] Run focused frontend typecheck.
+- [x] Route PTY output through `/ws/stream/bulk/pty/{id}`.
+- [x] Route agent output through `/ws/stream/bulk/agent/{id}`.
+- [x] Keep logs file-backed and fetch/open only on demand.
+- [x] Do not mix agent output into main session stream.
+- [x] Keep main session stream limited to core conversation/lifecycle frames.
+- [x] Run focused frontend typecheck.
 
 Expected result:
 
@@ -831,14 +918,16 @@ Expected result:
   - `frontend/src/App.tsx`
   - `frontend/src/lib/rpc-events.ts`
   - `frontend/src/components/ai-code-session/hooks/useSessionEvents.ts`
+  - `frontend/src/components/ai-code-session/hooks/useSessionFrameEvents.ts`
+  - `frontend/src/components/ai-code-session/hooks/useSessionMessages.ts`
   - provider session files
 
-- [ ] Remove `ClaudeOutputCoalescer`.
-- [ ] Remove `claude-output` and `claude-output-batch` listeners.
-- [ ] Remove old cwd-based window dispatch.
-- [ ] Remove `StreamSessionOutput` push path if no longer used.
-- [ ] `rg "claude-output|claude-output-batch|pty-output|agent-output:"` and confirm only tests/docs or intentionally ignored legacy provider packages remain.
-- [ ] Run Go and frontend typecheck.
+- [x] Remove `ClaudeOutputCoalescer`.
+- [x] Remove `claude-output` and `claude-output-batch` listeners.
+- [x] Remove old cwd-based window dispatch.
+- [x] Retain `StreamSessionOutput` only as an on-demand agent bulk backfill path; it is still used by output viewers and no longer carries main session hot output.
+- [x] `rg "claude-output|claude-output-batch|pty-output|agent-output:"` and confirm only tests/docs or intentionally ignored legacy provider packages remain.
+- [x] Run Go and frontend typecheck.
 
 Expected result:
 
@@ -848,16 +937,17 @@ Expected result:
 
 **Files:** No planned source changes unless fixing discovered failures.
 
-- [ ] Run `go test ./...`.
-- [ ] Run `cd frontend && npm run build:typecheck`.
-- [ ] Run `cd electron && npm test` if websocket startup behavior changed.
-- [ ] Run `npm --prefix ui-automation run test` because this affects visible frontend, RPC, and UI sync.
-- [ ] Manually inspect `rg` results for removed legacy events.
-- [ ] Check large-file status and confirm split goals:
-  - `AiCodeSession.tsx` under roughly 500 lines or clearly shell-only.
-  - No active `ToolWidgets.tsx` giant file.
-  - No active `StreamMessage.tsx` giant file.
-  - New files mostly under 500 lines.
+- [x] Run `go test ./...`.
+- [x] Run `cd frontend && npm run build:typecheck`.
+- [x] Run `cd frontend && npm test`.
+- [x] Run `cd electron && npm test` if websocket startup behavior changed.
+- [x] Run `npm --prefix ui-automation run test` because this affects visible frontend, RPC, and UI sync.
+- [x] Manually inspect `rg` results for removed legacy events.
+- [x] Check large-file status and confirm split goals:
+  - `AiCodeSession.tsx` is a 6-line shell; `SessionController.tsx` is still oversized at 1573 lines and remains structural debt.
+  - `ToolWidgets.tsx` and `ToolWidgets.new.tsx` are deleted.
+  - `StreamMessage.tsx` is still oversized at 865 lines and remains structural debt.
+  - `TodoReadWidget.tsx` is 495 lines.
 
 Expected result:
 
