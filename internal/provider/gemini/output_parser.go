@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"encoding/json"
+	"strings"
 
 	"ropcode/internal/provider"
 )
@@ -25,37 +26,28 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 			Message: raw,
 		}
 	case "message":
-		role, _ := raw["role"].(string)
-		if role == "user" {
-			return &provider.OutputEvent{
-				Type:    "user",
-				Message: raw,
-			}
-		}
-		return &provider.OutputEvent{
-			Type:    "assistant",
-			Message: raw,
-		}
+		return d.parseMessage(raw)
 	case "tool_use":
-		return &provider.OutputEvent{
-			Type:    "tool_use",
-			Message: raw,
-		}
+		return d.parseToolUse(raw)
 	case "tool_result":
-		return &provider.OutputEvent{
-			Type:    "tool_result",
-			Message: raw,
-		}
+		return d.parseToolResult(raw)
 	case "result":
 		return &provider.OutputEvent{
-			Type:    "system",
-			Subtype: "session_complete",
-			Message: raw,
+			Type:    "assistant",
+			Subtype: "result",
+			Message: map[string]interface{}{
+				"type":    "result",
+				"result":  stringVal(raw, "result"),
+				"subtype": "success",
+			},
 		}
 	case "error", "turn.failed":
 		return &provider.OutputEvent{
-			Type:    "error",
-			Message: raw,
+			Type: "error",
+			Message: map[string]interface{}{
+				"type":    "error",
+				"message": stringVal(raw, "message"),
+			},
 		}
 	default:
 		return &provider.OutputEvent{
@@ -65,9 +57,126 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 	}
 }
 
-func (d *Driver) ParseStderr(line []byte) *provider.StderrEvent {
-	return &provider.StderrEvent{
-		Level:   "error",
-		Message: string(line),
+func (d *Driver) parseMessage(raw map[string]interface{}) *provider.OutputEvent {
+	role, _ := raw["role"].(string)
+	text, _ := raw["content"].(string)
+
+	if role == "user" {
+		return &provider.OutputEvent{
+			Type: "user",
+			Message: map[string]interface{}{
+				"type": "user",
+				"message": map[string]interface{}{
+					"role": "user",
+					"content": []map[string]interface{}{
+						{"type": "text", "text": text},
+					},
+				},
+			},
+		}
 	}
+
+	return &provider.OutputEvent{
+		Type: "assistant",
+		Message: map[string]interface{}{
+			"type": "assistant",
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []map[string]interface{}{
+					{"type": "text", "text": text},
+				},
+			},
+		},
+	}
+}
+
+func (d *Driver) parseToolUse(raw map[string]interface{}) *provider.OutputEvent {
+	name, _ := raw["name"].(string)
+	id, _ := raw["id"].(string)
+	args, _ := raw["args"].(map[string]interface{})
+	if args == nil {
+		args, _ = raw["input"].(map[string]interface{})
+	}
+
+	claudeName, claudeInput := adaptGeminiTool(name, args)
+
+	return &provider.OutputEvent{
+		Type: "assistant",
+		Message: map[string]interface{}{
+			"type": "assistant",
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []map[string]interface{}{
+					{"type": "tool_use", "id": id, "name": claudeName, "input": claudeInput},
+				},
+			},
+		},
+	}
+}
+
+func (d *Driver) parseToolResult(raw map[string]interface{}) *provider.OutputEvent {
+	id, _ := raw["id"].(string)
+	if id == "" {
+		id, _ = raw["tool_use_id"].(string)
+	}
+	output, _ := raw["output"].(string)
+	status, _ := raw["status"].(string)
+	isError := status == "error"
+
+	return &provider.OutputEvent{
+		Type: "user",
+		Message: map[string]interface{}{
+			"type": "user",
+			"message": map[string]interface{}{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{"type": "tool_result", "tool_use_id": id, "content": output, "is_error": isError},
+				},
+			},
+		},
+	}
+}
+
+func adaptGeminiTool(name string, params map[string]interface{}) (string, interface{}) {
+	if params == nil {
+		params = map[string]interface{}{}
+	}
+	switch name {
+	case "run_shell_command":
+		return "Bash", map[string]interface{}{"command": stringVal(params, "command")}
+	case "read_file":
+		input := map[string]interface{}{"file_path": stringVal(params, "file_path")}
+		if v, ok := params["offset"]; ok {
+			input["offset"] = v
+		}
+		if v, ok := params["limit"]; ok {
+			input["limit"] = v
+		}
+		return "Read", input
+	case "write_file":
+		return "Write", map[string]interface{}{"file_path": stringVal(params, "file_path"), "content": stringVal(params, "content")}
+	case "replace":
+		return "Edit", params
+	case "google_web_search":
+		return "WebSearch", map[string]interface{}{"query": stringVal(params, "query")}
+	default:
+		return name, params
+	}
+}
+
+func (d *Driver) ParseStderr(line []byte) *provider.StderrEvent {
+	message := strings.TrimSpace(string(line))
+	level := "error"
+	if strings.Contains(message, "WARN") {
+		level = "warning"
+	}
+	return &provider.StderrEvent{
+		Level:   level,
+		Message: message,
+	}
+}
+
+func stringVal(m map[string]interface{}, key string) string {
+	v, _ := m[key].(string)
+	return v
 }

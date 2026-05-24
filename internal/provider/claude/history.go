@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"ropcode/internal/provider"
-	"ropcode/internal/stream"
 )
 
 // maxScanCapacity is the maximum buffer size for bufio.Scanner.
@@ -313,50 +312,32 @@ func ReadAllMessages(filePath string) ([]Message, error) {
 	return messages, nil
 }
 
-// LoadSessionHistoryFrames loads Claude JSONL history as stable frontend session frames.
-func LoadSessionHistoryFrames(claudeDir, projectID, sessionID, projectPath string) ([]stream.SessionFrame, error) {
-	filePath, err := FindSessionFile(claudeDir, projectID, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	return ReadAllMessageFrames(filePath, sessionID, projectPath)
-}
-
-// ReadAllMessageFrames reads Claude JSONL history and adapts each entry through the stream adapter.
-func ReadAllMessageFrames(filePath, runtimeSessionID, projectPath string) ([]stream.SessionFrame, error) {
+// ReadAllHistoryEntries reads Claude JSONL history and returns raw entries for frame conversion.
+func ReadAllHistoryEntries(filePath string) ([]map[string]interface{}, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	var frames []stream.SessionFrame
+	var entries []map[string]interface{}
 	scanner := bufio.NewScanner(file)
 	buf := make([]byte, maxScanCapacity)
 	scanner.Buffer(buf, maxScanCapacity)
 
-	seq := int64(1)
 	for scanner.Scan() {
 		var raw map[string]interface{}
 		if err := json.Unmarshal(scanner.Bytes(), &raw); err != nil {
 			continue
 		}
-		frame, err := stream.AdaptClaudeHistoryEntry(stream.ProviderOutputContext{
-			RuntimeSessionID: runtimeSessionID,
-			ProjectPath:      projectPath,
-		}, raw, seq)
-		if err != nil {
-			return nil, err
-		}
-		frames = append(frames, frame)
-		seq++
+		entries = append(entries, raw)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error scanning file: %w", err)
 	}
 
-	return frames, nil
+	return entries, nil
 }
 
 // countLines counts the number of lines in a file by counting newline bytes.

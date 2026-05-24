@@ -77,11 +77,22 @@ func (h *HistoryManager) LoadSessionHistoryFrames(projectID, sessionID string) (
 		return nil, fmt.Errorf("failed to find session file: %w", err)
 	}
 
-	frames, err := claude.ReadAllMessageFrames(filePath, sessionID, projectID)
+	entries, err := claude.ReadAllHistoryEntries(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read message frames: %w", err)
+		return nil, fmt.Errorf("failed to read history entries: %w", err)
 	}
 
+	var frames []stream.SessionFrame
+	for i, raw := range entries {
+		frame, err := stream.AdaptClaudeHistoryEntry(stream.ProviderOutputContext{
+			RuntimeSessionID: sessionID,
+			ProjectPath:      projectID,
+		}, raw, int64(i+1))
+		if err != nil {
+			return nil, err
+		}
+		frames = append(frames, frame)
+	}
 	return frames, nil
 }
 

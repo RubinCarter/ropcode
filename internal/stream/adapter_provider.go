@@ -44,35 +44,7 @@ func (b *ProviderBridge) FrameFromProviderOutput(ctx ProviderOutputContext, even
 
 	streamID := StreamIDForSession(providerID, runtimeSessionID)
 	seq := b.nextSeq(streamID)
-	if providerID == "claude" {
-		return AdaptClaudeOutput(ctx, event, seq)
-	}
-	if providerID == "codex" {
-		return AdaptCodexOutput(ctx, event, seq)
-	}
-	if providerID == "deepseek" {
-		return AdaptDeepSeekOutput(ctx, event, seq)
-	}
-	frame := SessionFrame{
-		StreamID:          streamID,
-		FrameID:           nextFrameID(streamID, seq),
-		Provider:          providerID,
-		RuntimeSessionID:  runtimeSessionID,
-		ProviderSessionID: ctx.ProviderSessionID,
-		Cwd:               ctx.Cwd,
-		ProjectPath:       ctx.ProjectPath,
-		Seq:               seq,
-		Timestamp:         nowTimestamp(),
-		Kind:              kindFromProviderOutput(event),
-		Role:              roleFromProviderOutput(event),
-		Subtype:           event.Subtype,
-		Content:           []ContentBlock{},
-		Meta:              Meta{Raw: copyRaw(event.Message)},
-	}
-	if event.Raw != "" {
-		frame.Meta.Raw["raw"] = event.Raw
-	}
-	return frame, nil
+	return AdaptUnifiedOutput(ctx, event, seq)
 }
 
 func (b *ProviderBridge) nextSeq(streamID string) int64 {

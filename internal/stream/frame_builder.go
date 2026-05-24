@@ -6,8 +6,8 @@ import (
 	"ropcode/internal/provider"
 )
 
-func AdaptClaudeOutput(ctx ProviderOutputContext, event provider.OutputEvent, seq int64) (SessionFrame, error) {
-	providerID := firstNonEmpty(ctx.Provider, event.Provider, "claude")
+func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, seq int64) (SessionFrame, error) {
+	providerID := firstNonEmpty(ctx.Provider, event.Provider)
 	runtimeSessionID := firstNonEmpty(ctx.RuntimeSessionID, event.SessionID)
 	if runtimeSessionID == "" {
 		return SessionFrame{}, ErrMissingProviderRuntimeSession
@@ -31,7 +31,7 @@ func AdaptClaudeOutput(ctx ProviderOutputContext, event provider.OutputEvent, se
 		Kind:              kindFromProviderOutput(event),
 		Role:              roleFromProviderOutput(event),
 		Subtype:           firstNonEmpty(event.Subtype, stringFromMap(event.Message, "subtype")),
-		Content:           claudeContentBlocks(event.Message),
+		Content:           extractContentBlocks(event.Message),
 		ParentToolUseID:   stringFromMap(event.Message, "parent_tool_use_id"),
 		TaskID:            stringFromMap(event.Message, "task_id"),
 		ToolUseID:         stringFromMap(event.Message, "tool_use_id"),
@@ -42,17 +42,49 @@ func AdaptClaudeOutput(ctx ProviderOutputContext, event provider.OutputEvent, se
 	if frame.TaskID != "" {
 		frame.AgentID = frame.TaskID
 	}
-	frame.applyClaudeRuntimeState(event.Message)
-	frame.applyClaudeTaskProgress(event.Message)
-	frame.applyClaudeToolUseResult(event.Message)
-	frame.applyClaudeResult(event.Message)
+
+	// Claude-specific metadata enrichment (no-op for other providers)
+	frame.applyRuntimeState(event.Message)
+	frame.applyTaskProgress(event.Message)
+	frame.applyToolUseResult(event.Message)
+
+	// Unified result/error handling
+	frame.applyResult(event.Message)
+	frame.applyErrorContent(event)
+
 	if frame.Usage == nil {
-		frame.Usage = claudeUsage(firstMap(mapFromAny(event.Message["usage"]), mapFromAny(mapFromAny(event.Message["message"])["usage"])))
+		frame.Usage = extractUsage(firstMap(mapFromAny(event.Message["usage"]), mapFromAny(mapFromAny(event.Message["message"])["usage"])))
 	}
 	return frame, nil
 }
 
-func (f *SessionFrame) applyClaudeRuntimeState(raw map[string]any) {
+func (f *SessionFrame) applyErrorContent(event provider.OutputEvent) {
+	if event.Type != "error" {
+		return
+	}
+	f.Kind = FrameKindError
+	f.IsError = true
+	success := false
+	f.Success = &success
+	if msg := stringFromMap(event.Message, "message"); msg != "" && len(f.Content) == 0 {
+		f.Error = msg
+		f.Content = []ContentBlock{{Type: ContentError, Text: msg}}
+	}
+}
+
+func AdaptClaudeOutput(ctx ProviderOutputContext, event provider.OutputEvent, seq int64) (SessionFrame, error) {
+	return AdaptUnifiedOutput(ctx, event, seq)
+}
+
+func AdaptCodexOutput(ctx ProviderOutputContext, event provider.OutputEvent, seq int64) (SessionFrame, error) {
+	return AdaptUnifiedOutput(ctx, event, seq)
+}
+
+func AdaptDeepSeekOutput(ctx ProviderOutputContext, event provider.OutputEvent, seq int64) (SessionFrame, error) {
+	return AdaptUnifiedOutput(ctx, event, seq)
+}
+
+func (f *SessionFrame) applyRuntimeState(raw map[string]any) {
 	debugMeta := mapFromAny(raw["debug_meta"])
 	runtimeState := mapFromAny(debugMeta["runtime_state"])
 	phase := stringFromMap(runtimeState, "phase")
@@ -70,7 +102,7 @@ func (f *SessionFrame) applyClaudeRuntimeState(raw map[string]any) {
 	}
 }
 
-func claudeContentBlocks(raw map[string]any) []ContentBlock {
+func extractContentBlocks(raw map[string]any) []ContentBlock {
 	message := mapFromAny(raw["message"])
 	content := sliceFromAny(message["content"])
 	if len(content) == 0 {
@@ -102,7 +134,7 @@ func claudeContentBlocks(raw map[string]any) []ContentBlock {
 			blocks = append(blocks, ContentBlock{
 				Type:      ContentToolResult,
 				ToolUseID: stringFromMap(block, "tool_use_id"),
-				Text:      textFromClaudeToolResult(block["content"]),
+				Text:      textFromToolResult(block["content"]),
 				Output:    block["content"],
 				IsError:   boolFromAny(block["is_error"]),
 			})
@@ -111,11 +143,11 @@ func claudeContentBlocks(raw map[string]any) []ContentBlock {
 	return blocks
 }
 
-func (f *SessionFrame) applyClaudeTaskProgress(raw map[string]any) {
+func (f *SessionFrame) applyTaskProgress(raw map[string]any) {
 	if f.Subtype != "task_progress" && f.Subtype != "task_started" && f.Subtype != "task_notification" {
 		return
 	}
-	usage := claudeUsage(mapFromAny(raw["usage"]))
+	usage := extractUsage(mapFromAny(raw["usage"]))
 	f.Usage = usage
 	if usage != nil && usage.ToolUseCount > 0 {
 		f.Runtime = &RuntimeSnapshot{
@@ -133,7 +165,7 @@ func (f *SessionFrame) applyClaudeTaskProgress(raw map[string]any) {
 	}
 }
 
-func (f *SessionFrame) applyClaudeToolUseResult(raw map[string]any) {
+func (f *SessionFrame) applyToolUseResult(raw map[string]any) {
 	result := mapFromAny(raw["tool_use_result"])
 	if len(result) == 0 {
 		return
@@ -150,7 +182,7 @@ func (f *SessionFrame) applyClaudeToolUseResult(raw map[string]any) {
 	}
 }
 
-func (f *SessionFrame) applyClaudeResult(raw map[string]any) {
+func (f *SessionFrame) applyResult(raw map[string]any) {
 	if stringFromMap(raw, "type") != "result" {
 		return
 	}
@@ -166,7 +198,7 @@ func (f *SessionFrame) applyClaudeResult(raw map[string]any) {
 	}
 }
 
-func claudeUsage(raw map[string]any) *Usage {
+func extractUsage(raw map[string]any) *Usage {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -180,7 +212,7 @@ func claudeUsage(raw map[string]any) *Usage {
 	}
 }
 
-func textFromClaudeToolResult(value any) string {
+func textFromToolResult(value any) string {
 	switch v := value.(type) {
 	case string:
 		return v
@@ -234,6 +266,13 @@ func sliceFromAny(value any) []any {
 	}
 	if s, ok := value.([]any); ok {
 		return s
+	}
+	if s, ok := value.([]map[string]interface{}); ok {
+		result := make([]any, len(s))
+		for i, v := range s {
+			result[i] = v
+		}
+		return result
 	}
 	return nil
 }

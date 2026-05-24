@@ -1,6 +1,12 @@
 package stream
 
-import "testing"
+import (
+	"testing"
+
+	_ "ropcode/internal/provider/claude"
+	_ "ropcode/internal/provider/codex"
+	_ "ropcode/internal/provider/deepseek"
+)
 
 func TestAdaptClaudeHistoryEntryUsesClaudeOutputAdapter(t *testing.T) {
 	frame, err := AdaptClaudeHistoryEntry(ProviderOutputContext{
@@ -68,8 +74,8 @@ func TestAdaptCodexHistoryEventUsesCodexOutputAdapter(t *testing.T) {
 	if len(frame.Content) != 1 || frame.Content[0].Type != ContentThinking || frame.Content[0].Text != "thinking from history" {
 		t.Fatalf("unexpected content: %#v", frame.Content)
 	}
-	if frame.Meta.Raw["payload"] == nil {
-		t.Fatalf("expected raw codex payload in meta: %#v", frame.Meta.Raw)
+	if frame.Meta.Raw["message"] == nil {
+		t.Fatalf("expected normalized message in meta: %#v", frame.Meta.Raw)
 	}
 }
 
@@ -106,7 +112,7 @@ func TestAdaptDeepSeekHistoryDocumentRecoversToolsAndPreservesRaw(t *testing.T) 
 	if frames[3].Content[0].Type != ContentText || frames[3].Content[0].Text != "raw-only text" {
 		t.Fatalf("expected fallback text frame, got %#v", frames[3])
 	}
-	if frames[3].Meta.Raw["content"] == nil {
-		t.Fatalf("expected raw fallback fragment in meta: %#v", frames[3].Meta.Raw)
+	if frames[3].Meta.Raw["message"] == nil {
+		t.Fatalf("expected normalized message in meta: %#v", frames[3].Meta.Raw)
 	}
 }

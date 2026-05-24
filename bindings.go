@@ -33,7 +33,7 @@ import (
 	"ropcode/internal/openin"
 	"ropcode/internal/pathutil"
 	"ropcode/internal/plugin"
-	"ropcode/internal/provider"
+	providerPkg "ropcode/internal/provider"
 	"ropcode/internal/provider/codex"
 	"ropcode/internal/provider/deepseek"
 	"ropcode/internal/provider/gemini"
@@ -654,14 +654,33 @@ func (a *App) LoadProviderSessionHistoryFrames(sessionID, projectID, provider st
 		if err != nil {
 			return []stream.SessionFrame{}, fmt.Errorf("failed to get codex directory: %w", err)
 		}
-		return codex.LoadSessionHistoryFrames(codexDir, projectID, sessionID)
+		entries, err := codex.ReadAllHistoryEntries(codexDir, sessionID)
+		if err != nil {
+			return []stream.SessionFrame{}, err
+		}
+		var events []providerPkg.OutputEvent
+		for _, raw := range entries {
+			events = append(events, providerPkg.NormalizeHistoryEntry("codex", raw))
+		}
+		return stream.FramesFromEvents("codex", stream.ProviderOutputContext{
+			RuntimeSessionID: sessionID,
+			ProjectPath:      projectID,
+		}, events)
 
 	case "deepseek":
 		deepseekDir, err := deepseek.DeepSeekDir()
 		if err != nil {
 			return []stream.SessionFrame{}, fmt.Errorf("failed to get deepseek directory: %w", err)
 		}
-		return deepseek.LoadSessionHistoryFrames(deepseekDir, projectID, sessionID)
+		raw, err := deepseek.ReadHistoryDocument(deepseekDir, sessionID)
+		if err != nil {
+			return []stream.SessionFrame{}, err
+		}
+		events := providerPkg.NormalizeHistoryDocument("deepseek", raw)
+		return stream.FramesFromEvents("deepseek", stream.ProviderOutputContext{
+			RuntimeSessionID: sessionID,
+			ProjectPath:      projectID,
+		}, events)
 
 	case "gemini":
 		return []stream.SessionFrame{}, fmt.Errorf("session frame history is not implemented for provider: %s", provider)
@@ -713,7 +732,7 @@ type LiveProviderSession struct {
 }
 
 type claudeActivityControlSender struct {
-	mgr       *provider.Manager
+	mgr       *providerPkg.Manager
 	sessionID string
 }
 
@@ -1786,9 +1805,9 @@ func (a *App) ExecuteClaudeCode(projectPath, prompt, model string, sessionID, pr
 	return a.providerManager.StartSession("claude", config)
 }
 
-// buildUnifiedConfig constructs a provider.SessionConfig with API credentials resolved.
-func (a *App) buildUnifiedConfig(providerID, projectPath, prompt, model, providerApiID, reasoningEffort, sessionID string, resume bool) provider.SessionConfig {
-	config := provider.SessionConfig{
+// buildUnifiedConfig constructs a providerPkg.SessionConfig with API credentials resolved.
+func (a *App) buildUnifiedConfig(providerID, projectPath, prompt, model, providerApiID, reasoningEffort, sessionID string, resume bool) providerPkg.SessionConfig {
+	config := providerPkg.SessionConfig{
 		ProjectPath:     projectPath,
 		Prompt:          prompt,
 		Model:           model,
@@ -2139,7 +2158,7 @@ func (a *App) IsClaudeSessionRunningForProject(projectPath string, providerOrSes
 }
 
 // ListRunningClaudeSessions returns all running sessions
-func (a *App) ListRunningClaudeSessions() []*provider.SessionStatus {
+func (a *App) ListRunningClaudeSessions() []*providerPkg.SessionStatus {
 	if a.providerManager == nil {
 		return nil
 	}

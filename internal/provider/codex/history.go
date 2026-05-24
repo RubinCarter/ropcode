@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"ropcode/internal/provider"
-	"ropcode/internal/stream"
+
 )
 
 // CodexDir returns the Codex config directory. Honours $CODEX_HOME (set by
@@ -115,8 +115,8 @@ func LoadSessionHistory(codexDir, projectID, sessionID string) ([]provider.Messa
 	return messages, nil
 }
 
-// LoadSessionHistoryFrames loads Codex JSONL history as stable frontend session frames.
-func LoadSessionHistoryFrames(codexDir, projectPath, sessionID string) ([]stream.SessionFrame, error) {
+// ReadAllHistoryEntries reads Codex JSONL history and returns raw entries for frame conversion.
+func ReadAllHistoryEntries(codexDir, sessionID string) ([]map[string]interface{}, error) {
 	filePath, err := FindSessionFile(codexDir, sessionID)
 	if err != nil {
 		return nil, err
@@ -128,52 +128,27 @@ func LoadSessionHistoryFrames(codexDir, projectPath, sessionID string) ([]stream
 	}
 	defer file.Close()
 
-	var frames []stream.SessionFrame
+	var entries []map[string]interface{}
 	scanner := bufio.NewScanner(file)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
-	seq := int64(1)
-	providerSessionID := ""
-	cwd := projectPath
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
 			continue
 		}
-
 		var raw map[string]interface{}
 		if err := json.Unmarshal([]byte(line), &raw); err != nil {
 			continue
 		}
-		if payload, ok := raw["payload"].(map[string]interface{}); ok {
-			if providerSessionID == "" {
-				providerSessionID, _ = payload["id"].(string)
-			}
-			if cwd == "" {
-				cwd, _ = payload["cwd"].(string)
-			}
-		}
-		frame, err := stream.AdaptCodexHistoryEvent(stream.ProviderOutputContext{
-			RuntimeSessionID:  sessionID,
-			ProviderSessionID: providerSessionID,
-			Cwd:               cwd,
-			ProjectPath:       projectPath,
-		}, raw, seq)
-		if err != nil {
-			return nil, err
-		}
-		if frame.ProviderSessionID != "" {
-			providerSessionID = frame.ProviderSessionID
-		}
-		frames = append(frames, frame)
-		seq++
+		entries = append(entries, raw)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading session file: %w", err)
 	}
-	return frames, nil
+	return entries, nil
 }
 
 // codexEventToClaudeHistory converts a Codex event to Claude history format

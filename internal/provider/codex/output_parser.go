@@ -37,20 +37,32 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 		}
 	case "turn/completed":
 		return &provider.OutputEvent{
-			Type:    "system",
-			Subtype: "turn_completed",
-			Message: params,
+			Type:    "assistant",
+			Subtype: "result",
+			Message: map[string]interface{}{
+				"type":    "result",
+				"subtype": "success",
+			},
 		}
 	case "item/started":
 		return d.parseItemEvent(params, "started")
 	case "item/completed":
 		return d.parseItemEvent(params, "completed")
 	case "item/agentMessage/delta":
+		delta, _ := params["delta"].(string)
 		return &provider.OutputEvent{
 			Type:    "assistant",
 			Subtype: "delta",
 			IsDelta: true,
-			Message: params,
+			Message: map[string]interface{}{
+				"type": "assistant",
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{"type": "text", "text": delta},
+					},
+				},
+			},
 		}
 	case "thread/started":
 		return &provider.OutputEvent{
@@ -68,7 +80,10 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 		return &provider.OutputEvent{
 			Type:    "system",
 			Subtype: "token_usage",
-			Message: params,
+			Message: map[string]interface{}{
+				"type":  "system",
+				"usage": codexTokenUsage(params),
+			},
 		}
 	case "mcpServer/startupStatus/updated":
 		return &provider.OutputEvent{
@@ -144,13 +159,8 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 
 	itemType, _ := item["type"].(string)
 
-	// Only emit completed items as full messages (started items are just status)
 	if phase == "started" {
-		return &provider.OutputEvent{
-			Type:    "system",
-			Subtype: itemType + "_started",
-			Message: params,
-		}
+		return d.parseItemStarted(item, itemType, params)
 	}
 
 	switch itemType {
@@ -183,15 +193,13 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 			},
 		}
 	case "reasoning":
-		return &provider.OutputEvent{
-			Type:    "assistant",
-			Subtype: "reasoning",
-			Message: params,
-		}
-	case "functionCall", "localShellExec":
-		name, _ := item["name"].(string)
-		if name == "" {
-			name, _ = item["command"].(string)
+		text := codexReasoningText(item)
+		if text == "" {
+			return &provider.OutputEvent{
+				Type:    "system",
+				Subtype: "reasoning_completed",
+				Message: params,
+			}
 		}
 		return &provider.OutputEvent{
 			Type: "assistant",
@@ -200,21 +208,45 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 				"message": map[string]interface{}{
 					"role": "assistant",
 					"content": []map[string]interface{}{
-						{"type": "tool_use", "name": name, "input": item},
+						{"type": "thinking", "thinking": text},
+					},
+				},
+			},
+		}
+	case "commandExecution":
+		return d.parseCommandExecution(item, params)
+	case "functionCall", "localShellExec":
+		name, _ := item["name"].(string)
+		if name == "" {
+			name, _ = item["command"].(string)
+		}
+		id, _ := item["id"].(string)
+		return &provider.OutputEvent{
+			Type: "assistant",
+			Message: map[string]interface{}{
+				"type": "assistant",
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{"type": "tool_use", "id": id, "name": name, "input": item},
 					},
 				},
 			},
 		}
 	case "functionCallOutput", "localShellOutput":
 		output, _ := item["output"].(string)
+		callID, _ := item["call_id"].(string)
+		if callID == "" {
+			callID, _ = item["id"].(string)
+		}
 		return &provider.OutputEvent{
-			Type: "tool_result",
+			Type: "user",
 			Message: map[string]interface{}{
-				"type": "tool_result",
+				"type": "user",
 				"message": map[string]interface{}{
-					"role": "tool",
+					"role": "user",
 					"content": []map[string]interface{}{
-						{"type": "text", "text": output},
+						{"type": "tool_result", "tool_use_id": callID, "content": output},
 					},
 				},
 			},
@@ -222,9 +254,115 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 	default:
 		return &provider.OutputEvent{
 			Type:    "system",
-			Subtype: itemType + "_" + phase,
+			Subtype: itemType + "_completed",
 			Message: params,
 		}
+	}
+}
+
+func (d *Driver) parseItemStarted(item map[string]interface{}, itemType string, params map[string]interface{}) *provider.OutputEvent {
+	if itemType == "commandExecution" {
+		id, _ := item["id"].(string)
+		command := extractShellCommand(item)
+		return &provider.OutputEvent{
+			Type: "assistant",
+			Message: map[string]interface{}{
+				"type": "assistant",
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]interface{}{"command": command}},
+					},
+				},
+			},
+		}
+	}
+	return &provider.OutputEvent{
+		Type:    "system",
+		Subtype: itemType + "_started",
+		Message: params,
+	}
+}
+
+func (d *Driver) parseCommandExecution(item map[string]interface{}, params map[string]interface{}) *provider.OutputEvent {
+	id, _ := item["id"].(string)
+	output, _ := item["aggregatedOutput"].(string)
+	exitCode, _ := item["exitCode"].(float64)
+	isError := int(exitCode) != 0
+
+	return &provider.OutputEvent{
+		Type: "user",
+		Message: map[string]interface{}{
+			"type": "user",
+			"message": map[string]interface{}{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{"type": "tool_result", "tool_use_id": id, "content": output, "is_error": isError},
+				},
+			},
+		},
+	}
+}
+
+func extractShellCommand(item map[string]interface{}) string {
+	command, _ := item["command"].(string)
+	// Strip shell wrapper like "/bin/zsh -lc 'actual command'"
+	if actions, ok := item["commandActions"].([]interface{}); ok && len(actions) > 0 {
+		if action, ok := actions[0].(map[string]interface{}); ok {
+			if cmd, ok := action["command"].(string); ok && cmd != "" {
+				return cmd
+			}
+		}
+	}
+	return command
+}
+
+func codexReasoningText(item map[string]interface{}) string {
+	if text, ok := item["text"].(string); ok && text != "" {
+		return text
+	}
+	for _, s := range sliceVal(item["summary"]) {
+		if block, ok := s.(map[string]interface{}); ok {
+			if text, ok := block["text"].(string); ok && text != "" {
+				return text
+			}
+		}
+	}
+	for _, c := range sliceVal(item["content"]) {
+		if block, ok := c.(map[string]interface{}); ok {
+			if text, ok := block["text"].(string); ok && text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func sliceVal(v interface{}) []interface{} {
+	if s, ok := v.([]interface{}); ok {
+		return s
+	}
+	return nil
+}
+
+func codexTokenUsage(params map[string]interface{}) map[string]interface{} {
+	tokenUsage, _ := params["tokenUsage"].(map[string]interface{})
+	if tokenUsage == nil {
+		return nil
+	}
+	last, _ := tokenUsage["last"].(map[string]interface{})
+	if last == nil {
+		last, _ = tokenUsage["total"].(map[string]interface{})
+	}
+	if last == nil {
+		return nil
+	}
+	return map[string]interface{}{
+		"input_tokens":               last["inputTokens"],
+		"output_tokens":              last["outputTokens"],
+		"cache_read_input_tokens":    last["cachedInputTokens"],
+		"cache_creation_input_tokens": last["cachedOutputTokens"],
+		"total_tokens":               last["totalTokens"],
 	}
 }
 
@@ -261,7 +399,7 @@ func (d *Driver) parseBatchEvent(raw map[string]interface{}) *provider.OutputEve
 		return d.parseBatchItemCompleted(raw)
 	case "turn.completed":
 		return &provider.OutputEvent{
-			Type:    "result",
+			Type:    "assistant",
 			Subtype: "result",
 			Message: map[string]interface{}{
 				"type":    "result",
@@ -270,7 +408,7 @@ func (d *Driver) parseBatchEvent(raw map[string]interface{}) *provider.OutputEve
 		}
 	case "thread.completed", "thread.cancelled":
 		return &provider.OutputEvent{
-			Type:    "result",
+			Type:    "assistant",
 			Subtype: "result",
 			Message: map[string]interface{}{
 				"type":    "result",
@@ -287,10 +425,19 @@ func (d *Driver) parseBatchEvent(raw map[string]interface{}) *provider.OutputEve
 			},
 		}
 	case "message.delta":
+		delta, _ := raw["delta"].(string)
 		return &provider.OutputEvent{
 			Type:    "assistant",
 			IsDelta: true,
-			Message: raw,
+			Message: map[string]interface{}{
+				"type": "assistant",
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{"type": "text", "text": delta},
+					},
+				},
+			},
 		}
 	default:
 		return &provider.OutputEvent{
@@ -341,13 +488,13 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 	case "function_call_output", "local_shell_output":
 		output, _ := item["output"].(string)
 		return &provider.OutputEvent{
-			Type: "tool_result",
+			Type: "user",
 			Message: map[string]interface{}{
-				"type": "tool_result",
+				"type": "user",
 				"message": map[string]interface{}{
-					"role": "tool",
+					"role": "user",
 					"content": []map[string]interface{}{
-						{"type": "text", "text": output},
+						{"type": "tool_result", "content": output},
 					},
 				},
 			},
@@ -395,13 +542,13 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 	case "function_call_output":
 		output, _ := payload["output"].(string)
 		return &provider.OutputEvent{
-			Type: "tool_result",
+			Type: "user",
 			Message: map[string]interface{}{
-				"type": "tool_result",
+				"type": "user",
 				"message": map[string]interface{}{
-					"role": "tool",
+					"role": "user",
 					"content": []map[string]interface{}{
-						{"type": "text", "text": output},
+						{"type": "tool_result", "content": output},
 					},
 				},
 			},

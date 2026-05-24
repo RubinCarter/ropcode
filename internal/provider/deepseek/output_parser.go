@@ -19,19 +19,53 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 
 	switch eventType {
 	case "content":
+		text, _ := raw["content"].(string)
 		return &provider.OutputEvent{
 			Type:    "assistant",
-			Message: raw,
+			IsDelta: true,
+			Message: map[string]interface{}{
+				"type": "assistant",
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{"type": "text", "text": text},
+					},
+				},
+			},
 		}
 	case "tool_use":
+		id, _ := raw["id"].(string)
+		name, _ := raw["name"].(string)
+		input, _ := raw["input"].(map[string]interface{})
+		claudeName, claudeInput := adaptDeepSeekTool(name, input)
 		return &provider.OutputEvent{
-			Type:    "tool_use",
-			Message: raw,
+			Type: "assistant",
+			Message: map[string]interface{}{
+				"type": "assistant",
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{"type": "tool_use", "id": id, "name": claudeName, "input": claudeInput},
+					},
+				},
+			},
 		}
 	case "tool_result":
+		id, _ := raw["id"].(string)
+		output, _ := raw["output"].(string)
+		status, _ := raw["status"].(string)
+		isError := status == "error"
 		return &provider.OutputEvent{
-			Type:    "tool_result",
-			Message: raw,
+			Type: "user",
+			Message: map[string]interface{}{
+				"type": "user",
+				"message": map[string]interface{}{
+					"role": "user",
+					"content": []map[string]interface{}{
+						{"type": "tool_result", "tool_use_id": id, "content": output, "is_error": isError},
+					},
+				},
+			},
 		}
 	case "session_capture":
 		return &provider.OutputEvent{
@@ -47,14 +81,21 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 		}
 	case "done":
 		return &provider.OutputEvent{
-			Type:    "system",
-			Subtype: "session_complete",
-			Message: raw,
+			Type:    "assistant",
+			Subtype: "result",
+			Message: map[string]interface{}{
+				"type":    "result",
+				"subtype": "success",
+			},
 		}
 	case "error":
+		msg, _ := raw["message"].(string)
 		return &provider.OutputEvent{
-			Type:    "error",
-			Message: raw,
+			Type: "error",
+			Message: map[string]interface{}{
+				"type":    "error",
+				"message": msg,
+			},
 		}
 	default:
 		return &provider.OutputEvent{
@@ -64,9 +105,34 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 	}
 }
 
+func adaptDeepSeekTool(name string, input map[string]interface{}) (string, interface{}) {
+	if input == nil {
+		input = map[string]interface{}{}
+	}
+	switch name {
+	case "exec_shell":
+		cmd, _ := input["command"].(string)
+		if cmd == "" {
+			cmd, _ = input["cmd"].(string)
+		}
+		return "Bash", map[string]interface{}{"command": cmd}
+	case "read_file":
+		return "Read", map[string]interface{}{"file_path": stringVal(input, "path")}
+	case "write_file":
+		return "Write", map[string]interface{}{"file_path": stringVal(input, "path"), "content": stringVal(input, "content")}
+	default:
+		return name, input
+	}
+}
+
 func (d *Driver) ParseStderr(line []byte) *provider.StderrEvent {
 	return &provider.StderrEvent{
 		Level:   "error",
 		Message: string(line),
 	}
+}
+
+func stringVal(m map[string]interface{}, key string) string {
+	v, _ := m[key].(string)
+	return v
 }
