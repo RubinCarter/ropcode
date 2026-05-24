@@ -53,7 +53,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
 
-  // Virtuoso 自带 atBottom / followOutput，不再需要手工 hasUserScrolled + onScroll + scrollIntoView
+  // Virtuoso has built-in atBottom / followOutput, no need for manual hasUserScrolled + onScroll + scrollIntoView
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const fullscreenVirtuosoRef = useRef<VirtuosoHandle>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
@@ -132,8 +132,8 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     return map;
   }, [messages]);
 
-  // Auto-scroll: Virtuoso 的 followOutput 会在新消息到来 + 用户处于底部时自动追加跟随，
-  // 离开底部时返回 false，框架自动停跟。无需我们维护 hasUserScrolled / scrollIntoView。
+  // Auto-scroll: Virtuoso followOutput auto-follows when new messages arrive and user is at bottom,
+  // returns false when leaving bottom, framework auto-stops. No need to maintain hasUserScrolled / scrollIntoView.
   const followOutput = useCallback(
     (isAtBottom: boolean) => (isAtBottom ? ('smooth' as const) : false),
     []
@@ -146,7 +146,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     };
   }, []);
 
-  // Auto-scroll 现在交给 Virtuoso 的 followOutput 接管，原 useEffect 删除。
+  // Auto-scroll now handled by Virtuoso followOutput, original useEffect removed.
 
 
   const loadOutput = async (skipCache = false) => {
@@ -526,7 +526,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
               </div>
             ) : (
               <div className="h-full flex flex-col">
-                {/* SubagentProgressPanel 提到 Virtuoso 外面常驻，避免 components.Header 引用变化导致 panel 内部 expand state 被 remount 重置。 */}
+                {/* SubagentProgressPanel stays mounted outside Virtuoso to avoid expand state reset from Header ref changes. */}
                 {subagentProgress.subagents.length > 0 && (
                   <div className="px-6 pt-6 pb-2 shrink-0">
                     <SubagentProgressPanel

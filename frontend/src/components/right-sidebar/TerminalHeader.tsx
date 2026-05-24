@@ -27,7 +27,7 @@ export const TerminalHeader: React.FC<TerminalHeaderProps> = ({
   onSettings,
   commandHistory = [],
   onSelectHistory,
-  workspaceName = '终端',
+  workspaceName = 'terminal',
   className
 }) => {
   return (
@@ -43,29 +43,29 @@ export const TerminalHeader: React.FC<TerminalHeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-1">
-        {/* 新建终端 */}
+        {/* New terminal */}
         <Button
           variant="ghost"
           size="sm"
           onClick={onNewTerminal}
           className="h-7 w-7 p-0"
-          title="新建终端"
+          title="New terminal"
         >
           <Plus className="h-3.5 w-3.5" />
         </Button>
 
-        {/* 打开 WebView 浏览器 */}
+        {/* Open WebView browser */}
         <Button
           variant="ghost"
           size="sm"
           onClick={onOpenWebView}
           className="h-7 w-7 p-0"
-          title="打开浏览器"
+          title="Open browser"
         >
           <Globe className="h-3.5 w-3.5" />
         </Button>
 
-        {/* 命令历史 */}
+        {/* Command history */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -96,24 +96,24 @@ export const TerminalHeader: React.FC<TerminalHeaderProps> = ({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* 设置 */}
+        {/* Settings */}
         <Button
           variant="ghost"
           size="sm"
           onClick={onSettings}
           className="h-7 w-7 p-0"
-          title="终端设置"
+          title="Terminal settings"
         >
           <Settings className="h-3.5 w-3.5" />
         </Button>
 
-        {/* 折叠侧边栏 */}
+        {/* Collapse sidebar */}
         <Button
           variant="ghost"
           size="sm"
           onClick={onToggle}
           className="h-7 w-7 p-0"
-          title="折叠侧边栏"
+          title="Collapse sidebar"
         >
           <svg
             stroke="currentColor"

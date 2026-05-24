@@ -33,8 +33,8 @@ export class TabPersistenceService {
    */
   static isEnabled(): boolean {
     const enabled = localStorage.getItem(PERSISTENCE_ENABLED_KEY);
-    // 🔥 修复：默认启用 Tab 持久化，避免 session 信息丢失
-    // 只有明确设置为 'false' 才禁用
+    // Fix: Enable tab persistence by default to avoid losing session info
+    // Only disable when explicitly set to 'false'
     return enabled !== 'false';
   }
 

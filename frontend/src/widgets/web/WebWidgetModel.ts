@@ -1,64 +1,64 @@
 /**
  * Web Widget Model
  *
- * 管理 Web 浏览器 Widget 的状态和行为
- * 提供 URL 导航、历史记录管理和键盘快捷键支持
+ * Manages Web browser widget state and behavior.
+ * Provides URL navigation, history management, and keyboard shortcut support.
  */
 
 import { BaseWidgetModel, widgetRegistry } from '../base';
 import type { WebWidgetConfig } from '../types';
 
 /**
- * Web Widget 模型类
+ * Web Widget model class
  *
- * 功能：
- * - URL 管理和导航
- * - 浏览器历史记录（后退/前进）
- * - 键盘快捷键支持
- * - iframe 聚焦控制
+ * Features:
+ * - URL management and navigation
+ * - Browser history (back/forward)
+ * - Keyboard shortcut support
+ * - iframe focus control
  */
 export class WebWidgetModel extends BaseWidgetModel {
-  /** 当前显示的 URL */
+  /** Currently displayed URL */
   url: string;
 
-  /** 主页 URL，用于重置或默认导航 */
+  /** Homepage URL, used for reset or default navigation */
   homepageUrl: string;
 
-  /** Web Widget 配置 */
+  /** Web Widget config */
   private config: WebWidgetConfig;
 
   /**
-   * 构造函数
+   * Constructor
    *
-   * @param config - Web Widget 配置
+   * @param config - Web Widget config
    */
   constructor(config?: WebWidgetConfig) {
     super('web', config);
     this.config = config ?? {};
 
-    // 初始化 URL 配置
+    // Initialize URL config
     this.url = this.config.initialParams?.initialUrl ?? 'about:blank';
     this.homepageUrl = this.config.initialParams?.homepageUrl ?? 'about:blank';
 
-    // 确保 URL 有正确的协议
+    // Ensure URL has correct protocol
     this.url = WebWidgetModel.ensureScheme(this.url);
     this.homepageUrl = WebWidgetModel.ensureScheme(this.homepageUrl);
   }
 
   /**
-   * 确保 URL 有正确的协议前缀
+   * Ensure URL has correct protocol prefix
    *
-   * 如果 URL 没有协议前缀，自动添加 https://
-   * 支持的协议：http://, https://, file://, about:, data:
+   * If URL has no protocol prefix, auto-adds https://
+   * Supported protocols: http://, https://, file://, about:, data:
    *
-   * @param url - 要检查的 URL
-   * @returns 带有协议前缀的 URL
+   * @param url - URL to check
+   * @returns URL with protocol prefix
    *
    * @example
    * ```typescript
-   * ensureScheme('google.com') // 返回 'https://google.com'
-   * ensureScheme('http://example.com') // 返回 'http://example.com'
-   * ensureScheme('about:blank') // 返回 'about:blank'
+   * ensureScheme('google.com') // returns 'https://google.com'
+   * ensureScheme('http://example.com') // returns 'http://example.com'
+   * ensureScheme('about:blank') // returns 'about:blank'
    * ```
    */
   static ensureScheme(url: string): string {
@@ -68,21 +68,21 @@ export class WebWidgetModel extends BaseWidgetModel {
 
     const trimmedUrl = url.trim();
 
-    // 检查是否已有协议
+    // Check if protocol already exists
     const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmedUrl);
 
     if (hasScheme) {
       return trimmedUrl;
     }
 
-    // 没有协议则添加 https://
+    // Add https:// if no protocol
     return `https://${trimmedUrl}`;
   }
 
   /**
-   * 导航到指定 URL
+   * Navigate to specified URL
    *
-   * @param url - 目标 URL
+   * @param url - Target URL
    */
   navigateTo(url: string): void {
     if (this.isDisposed) {
@@ -94,14 +94,14 @@ export class WebWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 导航到主页
+   * Navigate to homepage
    */
   goHome(): void {
     this.navigateTo(this.homepageUrl);
   }
 
   /**
-   * 刷新当前页面
+   * Refresh current page
    */
   refresh(): void {
     if (this.isDisposed) {
@@ -109,17 +109,17 @@ export class WebWidgetModel extends BaseWidgetModel {
       return;
     }
 
-    // 触发 iframe 刷新
+    // Trigger iframe refresh
     const iframe = this.getIframe();
     if (iframe) {
       try {
         iframe.contentWindow?.location.reload();
       } catch (error) {
-        // 跨域时可能失败，尝试重新加载
+        // May fail cross-origin, try reloading
         console.warn('Failed to reload iframe, reloading by src:', error);
         const currentSrc = iframe.src;
         iframe.src = 'about:blank';
-        // 使用 setTimeout 确保浏览器有时间处理 about:blank
+        // Use setTimeout to ensure browser has time to process about:blank
         setTimeout(() => {
           iframe.src = currentSrc;
         }, 0);
@@ -128,7 +128,7 @@ export class WebWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 后退到上一页
+   * Go back to previous page
    */
   goBack(): void {
     if (this.isDisposed) {
@@ -146,7 +146,7 @@ export class WebWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 前进到下一页
+   * Go forward to next page
    */
   goForward(): void {
     if (this.isDisposed) {
@@ -164,9 +164,9 @@ export class WebWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 获取 iframe 元素
+   * Get iframe element
    *
-   * @returns iframe 元素或 null
+   * @returns iframe element or null
    */
   private getIframe(): HTMLIFrameElement | null {
     if (!this.containerRef) {
@@ -177,9 +177,9 @@ export class WebWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 获取 URL 输入框元素
+   * Get URL input element
    *
-   * @returns URL 输入框元素或 null
+   * @returns URL input element or null
    */
   private getUrlInput(): HTMLInputElement | null {
     if (!this.containerRef) {
@@ -190,42 +190,42 @@ export class WebWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 初始化 Widget
+   * Initialize Widget
    *
    * @protected
    */
   protected async onInitialize(): Promise<void> {
-    // 注册到全局 Widget 注册表
+    // Register to global Widget registry
     widgetRegistry.register(this);
 
     console.log(`WebWidget ${this.widgetId} initialized with URL: ${this.url}`);
   }
 
   /**
-   * 清理 Widget 资源
+   * Clean up Widget resources
    *
    * @protected
    */
   protected onDispose(): void {
-    // 从全局 Widget 注册表注销
+    // Unregister from global Widget registry
     widgetRegistry.unregister(this.widgetId);
 
     console.log(`WebWidget ${this.widgetId} disposed`);
   }
 
   /**
-   * 获取焦点
+   * Get focus
    *
-   * 优先尝试聚焦到 iframe，如果失败则聚焦到 URL 输入框
+   * Tries to focus the iframe first; falls back to URL input on failure.
    *
-   * @returns 是否成功获取焦点
+   * @returns Whether focus was successfully acquired
    */
   giveFocus(): boolean {
     if (!this.containerRef || this.isDisposed) {
       return false;
     }
 
-    // 优先尝试聚焦 iframe
+    // Try focusing iframe first
     const iframe = this.getIframe();
     if (iframe) {
       try {
@@ -236,49 +236,49 @@ export class WebWidgetModel extends BaseWidgetModel {
       }
     }
 
-    // 如果 iframe 聚焦失败，尝试聚焦 URL 输入框
+    // If iframe focus fails, try focusing URL input
     const urlInput = this.getUrlInput();
     if (urlInput) {
       urlInput.focus();
       return true;
     }
 
-    // 最后尝试聚焦容器
+    // Finally try focusing container
     return super.giveFocus();
   }
 
   /**
-   * 键盘事件处理
+   * Keyboard event handler
    *
-   * 支持的快捷键：
-   * - Alt + Left: 后退
-   * - Alt + Right: 前进
-   * - Ctrl/Cmd + L: 聚焦到 URL 输入框
-   * - Ctrl/Cmd + R: 刷新页面
+   * Supported shortcuts:
+   * - Alt + Left: Go back
+   * - Alt + Right: Go forward
+   * - Ctrl/Cmd + L: Focus URL input
+   * - Ctrl/Cmd + R: Refresh page
    *
-   * @param event - 键盘事件
-   * @returns 是否已处理该事件
+   * @param event - Keyboard event
+   * @returns Whether the event was handled
    */
   keyDownHandler(event: KeyboardEvent): boolean {
     if (this.isDisposed) {
       return false;
     }
 
-    // Alt + Left: 后退
+    // Alt + Left: go back
     if (event.altKey && event.key === 'ArrowLeft') {
       event.preventDefault();
       this.goBack();
       return true;
     }
 
-    // Alt + Right: 前进
+    // Alt + Right: go forward
     if (event.altKey && event.key === 'ArrowRight') {
       event.preventDefault();
       this.goForward();
       return true;
     }
 
-    // Ctrl/Cmd + L: 聚焦到 URL 输入框
+    // Ctrl/Cmd + L: Focus URL input
     if ((event.ctrlKey || event.metaKey) && event.key === 'l') {
       event.preventDefault();
       const urlInput = this.getUrlInput();
@@ -289,7 +289,7 @@ export class WebWidgetModel extends BaseWidgetModel {
       return true;
     }
 
-    // Ctrl/Cmd + R: 刷新页面
+    // Ctrl/Cmd + R: Refresh page
     if ((event.ctrlKey || event.metaKey) && event.key === 'r') {
       event.preventDefault();
       this.refresh();

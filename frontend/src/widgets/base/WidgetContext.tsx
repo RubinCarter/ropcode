@@ -1,36 +1,36 @@
 /**
  * Widget Context Provider
  *
- * 在 React 组件树中共享 Widget 状态和注册表访问
- * 借鉴 waveterm 模式，但适配 React 18 + TypeScript
+ * Shares widget state and registry access across the React component tree.
+ * Inspired by waveterm's model, adapted for React 18 + TypeScript.
  */
 
 import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 import { BaseWidgetModel, widgetRegistry } from './WidgetModel';
 
 /**
- * Widget Context 接口
+ * Widget Context interface
  */
 interface WidgetContextType {
-  /** 当前活跃的 Widget ID */
+  /** Currently active widget ID */
   activeWidgetId: string | null;
 
-  /** 设置活跃 Widget */
+  /** Set active Widget */
   setActiveWidget: (widgetId: string | null) => void;
 
-  /** 获取指定 Widget */
+  /** Get a specific widget */
   getWidget: (widgetId: string) => BaseWidgetModel | undefined;
 
-  /** 获取所有 Widget */
+  /** Get all Widgets */
   getAllWidgets: () => BaseWidgetModel[];
 
-  /** 注册 Widget */
+  /** Register Widget */
   registerWidget: (widget: BaseWidgetModel) => void;
 
-  /** 注销 Widget */
+  /** Unregister Widget */
   unregisterWidget: (widgetId: string) => void;
 
-  /** 获取当前活跃 Widget */
+  /** Get the currently active widget */
   getActiveWidget: () => BaseWidgetModel | undefined;
 }
 
@@ -44,48 +44,48 @@ const WidgetContext = createContext<WidgetContextType | undefined>(undefined);
  */
 interface WidgetProviderProps {
   children: ReactNode;
-  /** 初始活跃 Widget ID */
+  /** Initial active widget ID */
   initialActiveWidgetId?: string | null;
 }
 
 /**
- * Widget Provider 组件
+ * Widget Provider component
  *
- * 提供 Widget 状态管理和注册表访问
+ * Provides widget state management and registry access.
  */
 export function WidgetProvider({ children, initialActiveWidgetId = null }: WidgetProviderProps) {
   const [activeWidgetId, setActiveWidgetId] = useState<string | null>(initialActiveWidgetId);
 
-  // 设置活跃 Widget
+  // Set active widget
   const setActiveWidget = useCallback((widgetId: string | null) => {
     setActiveWidgetId(widgetId);
   }, []);
 
-  // 获取指定 Widget
+  // Get specified widget
   const getWidget = useCallback((widgetId: string) => {
     return widgetRegistry.get(widgetId);
   }, []);
 
-  // 获取所有 Widget
+  // Get all widgets
   const getAllWidgets = useCallback(() => {
     return widgetRegistry.getAll();
   }, []);
 
-  // 注册 Widget
+  // Register Widget
   const registerWidget = useCallback((widget: BaseWidgetModel) => {
     widgetRegistry.register(widget);
   }, []);
 
-  // 注销 Widget
+  // Unregister Widget
   const unregisterWidget = useCallback((widgetId: string) => {
     widgetRegistry.unregister(widgetId);
-    // 如果注销的是当前活跃 Widget，清除活跃状态
+    // If unregistering the active Widget, clear active state
     if (activeWidgetId === widgetId) {
       setActiveWidgetId(null);
     }
   }, [activeWidgetId]);
 
-  // 获取当前活跃 Widget
+  // Get currently active widget
   const getActiveWidget = useCallback(() => {
     return activeWidgetId ? widgetRegistry.get(activeWidgetId) : undefined;
   }, [activeWidgetId]);
@@ -109,8 +109,8 @@ export function WidgetProvider({ children, initialActiveWidgetId = null }: Widge
 /**
  * useWidgetContext Hook
  *
- * 访问 Widget Context
- * @throws 如果不在 WidgetProvider 内使用
+ * Access the Widget Context.
+ * @throws If used outside of a WidgetProvider
  */
 function useWidgetContext(): WidgetContextType {
   const context = useContext(WidgetContext);
@@ -123,9 +123,9 @@ function useWidgetContext(): WidgetContextType {
 /**
  * useWidget Hook
  *
- * 获取指定 Widget 实例
+ * Get a specific widget instance.
  * @param widgetId Widget ID
- * @returns Widget 实例或 undefined
+ * @returns Widget instance or undefined
  */
 export function useWidget(widgetId: string | null | undefined): BaseWidgetModel | undefined {
   const { getWidget } = useWidgetContext();
@@ -137,18 +137,18 @@ export function useWidget(widgetId: string | null | undefined): BaseWidgetModel 
 /**
  * useActiveWidget Hook
  *
- * 获取当前活跃的 Widget
+ * Get the currently active widget.
  */
 export function useActiveWidget() {
   const { activeWidgetId, setActiveWidget, getActiveWidget } = useWidgetContext();
 
   return useMemo(
     () => ({
-      /** 活跃 Widget ID */
+      /** Active Widget ID */
       widgetId: activeWidgetId,
-      /** 活跃 Widget 实例 */
+      /** Active Widget instance */
       widget: getActiveWidget(),
-      /** 设置活跃 Widget */
+      /** Set active Widget */
       setActive: setActiveWidget,
     }),
     [activeWidgetId, getActiveWidget, setActiveWidget]
@@ -158,20 +158,20 @@ export function useActiveWidget() {
 /**
  * useWidgetRegistry Hook
  *
- * 访问 Widget 注册表操作
+ * Access widget registry operations.
  */
 export function useWidgetRegistry() {
   const { registerWidget, unregisterWidget, getWidget, getAllWidgets } = useWidgetContext();
 
   return useMemo(
     () => ({
-      /** 注册 Widget */
+      /** Register Widget */
       register: registerWidget,
-      /** 注销 Widget */
+      /** Unregister Widget */
       unregister: unregisterWidget,
-      /** 获取 Widget */
+      /** Get Widget */
       get: getWidget,
-      /** 获取所有 Widget */
+      /** Get all Widgets */
       getAll: getAllWidgets,
     }),
     [registerWidget, unregisterWidget, getWidget, getAllWidgets]

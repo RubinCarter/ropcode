@@ -93,10 +93,10 @@ export function useDiffWorker(): DiffWorkerResult {
     const { chunkSize = 1000, useChunking = false } = options;
 
     if (useChunking && (oldLines.length > chunkSize || newLines.length > chunkSize)) {
-      // 分块处理
+      // Process in chunks
       computeChunkedDiff(oldLines, newLines, chunkSize);
     } else {
-      // 一次性处理
+      // Process all at once
       workerRef.current.postMessage({
         type: 'compute-diff',
         oldLines,
@@ -105,7 +105,7 @@ export function useDiffWorker(): DiffWorkerResult {
     }
   }, []);
 
-  // 分块计算 diff
+  // Compute diff in chunks
   const computeChunkedDiff = useCallback(async (
     oldLines: string[],
     newLines: string[],

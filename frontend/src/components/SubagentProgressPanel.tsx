@@ -7,9 +7,9 @@ import { formatCompactNumber, type ClaudeStreamMessageLike, type SubagentProgres
 import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { ErrorBoundary } from "./ErrorBoundary";
 
-// transcript 长度超过这个阈值就走 Virtuoso 虚拟化，避免一次性同步 mount
-// N 个 StreamMessage 阻塞主线程（每条都要 markdown / 代码高亮 / mermaid 渲染）。
-// 短 transcript 保持普通 map，避免短列表里出现固定高度滚动框的视觉违和。
+// When transcript exceeds this threshold, use Virtuoso virtualization to avoid sync mounting
+// N StreamMessages blocking main thread (each needs markdown/code highlight/mermaid rendering).
+// Short transcripts use plain map to avoid fixed-height scroll container visual mismatch.
 const VIRTUALIZE_THRESHOLD = 30;
 
 interface SubagentProgressPanelProps {

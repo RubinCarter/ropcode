@@ -25,7 +25,7 @@ interface TerminalTabsProps {
   commandHistory?: string[];
   onSelectHistory?: (command: string) => void;
   className?: string;
-  // 新增：Run tab 相关
+  // Run tab related
   showRunTab?: boolean;
   onSelectRunTab?: () => void;
 }
@@ -49,7 +49,7 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
       "flex items-center gap-1 px-2 py-1 border-b bg-background/50 overflow-x-auto scrollbar-thin",
       className
     )}>
-      {/* Run Tab - 常驻在最前面 */}
+      {/* Run Tab - always at the front */}
       <div
         className={cn(
           "group flex items-center gap-1.5 px-3 py-1.5 rounded-md cursor-pointer transition-colors",
@@ -85,7 +85,7 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
                 e.stopPropagation();
                 onCloseSession?.(session.id);
               }}
-              title="关闭终端"
+              title="Close terminal"
             >
               <X className="h-3 w-3" />
             </Button>
@@ -93,18 +93,18 @@ export const TerminalTabs: React.FC<TerminalTabsProps> = ({
         </div>
       ))}
 
-      {/* 新建终端按钮 */}
+      {/* New terminal button */}
       <Button
         variant="ghost"
         size="sm"
         onClick={onNewTerminal}
         className="h-7 w-7 p-0 ml-1"
-        title="新建终端"
+        title="New terminal"
       >
         <Plus className="h-3.5 w-3.5" />
       </Button>
 
-      {/* 命令历史按钮 */}
+      {/* Command history button */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

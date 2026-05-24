@@ -33,7 +33,7 @@ interface TabPanelProps {
 const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
   const { updateTab, closeTab } = useTabState();
 
-  // 🚀 性能优化：判断是否需要保持挂载
+  // Performance: determine if tab should stay mounted
   const keepMounted = shouldKeepTabMounted(tab.type);
 
   // Track screen when tab becomes active
@@ -150,13 +150,13 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
     }
   };
 
-  // 🚀 性能优化：条件渲染 vs CSS hidden
-  // 对于无状态的 Tab，非活动时直接返回 null（卸载组件）
+  // Performance: conditional render vs CSS hidden
+  // For stateless tabs, return null when inactive (unmount component)
   if (!isActive && !keepMounted) {
     return null;
   }
 
-  // 对于有状态的 Tab，使用 CSS hidden 控制显示
+  // For stateful tabs, use CSS hidden to control visibility
   const panelVisibilityClass = isActive ? "" : "hidden";
 
   const renderContent = () => {
@@ -235,7 +235,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
         );
 
       case 'diff':
-        // 支持 filePath 和 diffFilePath 两种字段名（向后兼容）
+        // Support both filePath and diffFilePath field names (backward compat)
         const diffPath = tab.diffFilePath || tab.filePath;
         if (!diffPath || !tab.projectPath) {
           return (
@@ -385,13 +385,13 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
 }, (prevProps, nextProps) => {
   const keepMounted = shouldKeepTabMounted(nextProps.tab.type);
 
-  // 🚀 性能优化：精细化比较逻辑
+  // Performance: fine-grained comparison logic
   if (!keepMounted) {
-    // 无状态 Tab：简单的比较
+    // Stateless tab: simple comparison
     return prevProps.tab.id === nextProps.tab.id &&
            prevProps.isActive === nextProps.isActive;
   } else {
-    // 有状态 Tab：需要比较更深的属性
+    // Stateful tab: needs deeper property comparison
     return prevProps.tab.id === nextProps.tab.id &&
            prevProps.isActive === nextProps.isActive &&
            prevProps.tab.sessionData?.id === nextProps.tab.sessionData?.id &&

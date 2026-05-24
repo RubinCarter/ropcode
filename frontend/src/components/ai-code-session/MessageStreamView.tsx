@@ -215,11 +215,11 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     ),
   }), [error]);
 
-  // 把 items 构建包成 useMemo：依赖项是 useMessages 内部 memo 化输出的稳定引用，
-  // displayableMessageIndexes / subagentProgress 在 structuralVersion 变化时才会换引用。
-  // 流式 setState 风暴下，没结构变化时这块就完全跳过；以前的注释说「全 view 每帧
-  // 重渲染是 list 形状变化的合理代理」，事实是 rAF batching 后每秒 60 次重建 N 长度
-  // 的 items 数组，纯粹浪费——useMemo 的开销远小于这次遍历 + 分配。
+  // Wrap items construction in useMemo: deps are stable refs from useMessages internal memoized output,
+  // displayableMessageIndexes / subagentProgress only change refs when structuralVersion changes.
+  // Under streaming setState storms, this is completely skipped when no structural changes;
+  // previously commented "full view re-render is reasonable proxy for list shape changes",
+  // but rebuilding N-length items array 60 times/sec after rAF batching is pure waste — useMemo cost is far less.
   const messages = messagesState.messagesRef.current;
   const items = useMemo(() => {
     // Group subagents by their launcher's assistant message id so each turn
@@ -279,8 +279,8 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     }
 
     return built;
-    // messages 经过 messagesRef 引用读取，结构变化由 displayableMessageIndexes 引用变化驱动；
-    // isStreamingTail 真正的实时刷新走 subscribeTailUpdate，那条路径不依赖这个 memo。
+    // messages read via messagesRef, structural changes driven by displayableMessageIndexes ref changes;
+    // isStreamingTail real-time refresh uses subscribeTailUpdate, that path doesn't depend on this memo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messagesState.subagentProgress, messagesState.displayableMessageIndexes, isLoading]);
 

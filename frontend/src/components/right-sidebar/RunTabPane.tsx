@@ -27,9 +27,9 @@ export const RunTabPane: React.FC<RunTabPaneProps> = ({
   return (
     <ScrollArea className={cn("flex-1 h-full", className)}>
       <div className="p-4 space-y-2">
-        {/* 顶部按钮区 */}
+        {/* Top button area */}
         <div className="flex gap-2">
-          {/* 打开浏览器按钮 */}
+          {/* Open browser button */}
           {onOpenWebView && (
             <Button
               variant="outline"
@@ -46,7 +46,7 @@ export const RunTabPane: React.FC<RunTabPaneProps> = ({
             </Button>
           )}
 
-          {/* Actions Configure 按钮 */}
+          {/* Actions Configure button */}
           {onActionsConfig && (
             <Button
               variant="outline"
@@ -65,7 +65,7 @@ export const RunTabPane: React.FC<RunTabPaneProps> = ({
           )}
         </div>
 
-        {/* Actions 列表 */}
+        {/* Actions list */}
         {actions.length === 0 ? (
           <div className="py-8 text-center text-muted-foreground">
             <Play className="h-8 w-8 mx-auto opacity-50 mb-2" />
@@ -75,14 +75,14 @@ export const RunTabPane: React.FC<RunTabPaneProps> = ({
         ) : (
           actions.map((action) => {
             const isRunning = runningActionId === action.id;
-            const actionType = action.actionType || 'script'; // 默认为 script
+            const actionType = action.actionType || 'script'; // Default is script
             const isWebAction = actionType === 'web';
 
-            // 根据 actionType 选择图标
+            // Select icon based on actionType
             const ActionIcon = isWebAction ? Globe : Play;
             const Icon = isRunning ? Loader2 : ActionIcon;
 
-            // 显示内容统一使用 command 字段
+            // Display content uses the command field
             const displayContent = action.command;
 
             return (
@@ -95,7 +95,7 @@ export const RunTabPane: React.FC<RunTabPaneProps> = ({
                 className={cn(
                   "w-full h-auto min-h-[60px] flex flex-col items-start gap-2 p-4",
                   "hover:bg-muted/50 transition-colors",
-                  // Web action 添加特殊样式
+                  // Web action: add special styling
                   actionType === 'web' && "border-green-500/30 bg-green-500/5"
                 )}
               >

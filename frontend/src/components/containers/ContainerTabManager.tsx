@@ -9,35 +9,35 @@ interface ContainerTabManagerProps {
 }
 
 /**
- * ContainerTabManager - 根据当前激活的容器类型显示对应的 TabManager
+ * ContainerTabManager - Shows the corresponding TabManager based on current active container type
  *
- * - activeType === 'system' 时显示 SystemTabManager
- * - activeType === 'workspace' 时显示 WorkspaceTabManager
+ * - Shows SystemTabManager when activeType === 'system'
+ * - Shows WorkspaceTabManager when activeType === 'workspace'
  *
- * 注意：WorkspaceTabManager 需要在 WorkspaceTabProvider 内部才能工作，
- * 所以它需要从 WorkspaceContainer 内部渲染。这里我们使用一个 portal 或事件机制
- * 来协调。
+ * Note: WorkspaceTabManager must be inside WorkspaceTabProvider to work,
+ * so it needs to render from inside WorkspaceContainer. We use a portal or event mechanism
+ * to coordinate.
  *
- * 由于 WorkspaceTabContext 是在每个 WorkspaceContainer 内部创建的，
- * 而 CustomTitlebar 在外部，我们需要一个不同的方法：
- * 1. 将 TabManager 放在各自的容器内
- * 2. 或者使用一个全局注册机制
+ * Since WorkspaceTabContext is created inside each WorkspaceContainer,
+ * and CustomTitlebar is outside, we need a different approach:
+ * 1. Render TabManager inside their respective containers
+ * 2. Or use a global registration mechanism
  *
- * 这里我们选择方案 1：各容器内部渲染自己的 TabManager，
- * 然后通过 portal 或绝对定位将其显示在标题栏位置。
+ * We choose approach 1: each container renders its own TabManager,
+ * then via portal or absolute positioning renders it in the titlebar position.
  *
- * 但为了简化，这里暂时只渲染 SystemTabManager，
- * WorkspaceTabManager 由各 WorkspaceContainer 内部处理。
+ * For simplicity, we only render SystemTabManager here,
+ * WorkspaceTabManager is handled inside each WorkspaceContainer.
  */
 export const ContainerTabManager: React.FC<ContainerTabManagerProps> = ({ className }) => {
   const { activeType } = useContainerContext();
 
-  // 当 activeType 是 'system' 时，显示 SystemTabManager
-  // 当 activeType 是 'workspace' 时，WorkspaceTabManager 会从 WorkspaceContainer 内部显示
-  // 这里返回 null，由 WorkspaceContainer 内部处理
+  // When activeType is 'system', show SystemTabManager
+  // When activeType is 'workspace', WorkspaceTabManager is shown from inside WorkspaceContainer
+  // Return null here, handled inside WorkspaceContainer
   if (activeType === 'workspace') {
-    // WorkspaceTabManager 需要在 WorkspaceTabProvider 内部
-    // 所以这里返回一个占位符，实际由 WorkspaceContainer 通过 portal 渲染
+    // WorkspaceTabManager must be inside WorkspaceTabProvider
+    // Return a placeholder here, actual rendering done by WorkspaceContainer via portal
     return <div id="workspace-tab-manager-slot" className={cn("flex items-stretch", className)} />;
   }
 

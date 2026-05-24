@@ -1,13 +1,13 @@
 /**
  * Event Subscription Hooks
  *
- * 提供基于 WebSocket RPC 事件系统的 React hooks，用于订阅后端推送的事件。
+ * Provides React hooks based on WebSocket RPC event system for subscribing to backend-pushed events.
  */
 
 import { useEffect, useCallback, useRef } from 'react';
 import { EventsOn, EventsOff } from '@/lib/rpc-events';
 
-// ============ 事件类型定义 ============
+// ============ Event Type Definitions ============
 
 export interface GitChangedEvent {
   path: string;
@@ -42,13 +42,13 @@ export interface WorktreeChangedEvent {
   worktrees: WorktreeInfo[];
 }
 
-// ============ 基础 Hook ============
+// ============ Base Hook ============
 
 /**
- * 通用事件订阅 hook
+ * Generic event subscription hook
  *
- * 使用 queueMicrotask 延迟回调执行，避免在 React 渲染周期内触发状态更新
- * 导致的 flushSync 警告（特别是当组件使用 @tanstack/react-virtual 时）
+ * Uses queueMicrotask to defer callback execution, avoiding state updates during React render cycle
+ * that cause flushSync warnings (especially when components use @tanstack/react-virtual)
  */
 export function useEventSubscription<T>(
   eventName: string,
@@ -62,8 +62,8 @@ export function useEventSubscription<T>(
     if (!enabled) return;
 
     const wrappedHandler = (event: T) => {
-      // 使用 queueMicrotask 延迟到下一个微任务队列
-      // 避免在当前渲染周期内触发状态更新
+      // Use queueMicrotask to defer to next microtask queue
+      // Avoid triggering state update in current render cycle
       queueMicrotask(() => {
         handlerRef.current(event);
       });
@@ -77,12 +77,12 @@ export function useEventSubscription<T>(
   }, [eventName, enabled]);
 }
 
-// ============ Git 事件 ============
+// ============ Git Events ============
 
 /**
- * 订阅 Git 变化事件
- * @param path 要监听的工作区路径，如果为 undefined 则监听所有
- * @param callback 变化回调
+ * Subscribe to Git change events
+ * @param path Workspace path to listen for, listens to all if undefined
+ * @param callback Change callback
  */
 export function useGitChanged(
   path: string | undefined,
@@ -100,12 +100,12 @@ export function useGitChanged(
   useEventSubscription('git:changed', stableCallback, true);
 }
 
-// ============ 进程事件 ============
+// ============ Process Events ============
 
 /**
- * 订阅进程状态变化事件
- * @param cwd 要监听的工作目录，如果为 undefined 则监听所有
- * @param callback 变化回调
+ * Subscribe to process state change events
+ * @param cwd Working directory to listen for, listens to all if undefined
+ * @param callback Change callback
  */
 export function useProcessChanged(
   cwd: string | undefined,
@@ -123,12 +123,12 @@ export function useProcessChanged(
   useEventSubscription('process:changed', stableCallback, true);
 }
 
-// ============ 会话事件 ============
+// ============ Session Events ============
 
 /**
- * 订阅 AI 会话状态变化事件
- * @param cwd 要监听的工作目录，如果为 undefined 则监听所有
- * @param callback 变化回调
+ * Subscribe to AI session state change events
+ * @param cwd Working directory to listen for, listens to all if undefined
+ * @param callback Change callback
  */
 export function useSessionChanged(
   cwd: string | undefined,
@@ -146,12 +146,12 @@ export function useSessionChanged(
   useEventSubscription('session:changed', stableCallback, true);
 }
 
-// ============ Worktree 事件 ============
+// ============ Worktree Events ============
 
 /**
- * 订阅 Worktree 变化事件
- * @param path 要监听的仓库路径，如果为 undefined 则监听所有
- * @param callback 变化回调
+ * Subscribe to Worktree change events
+ * @param path Repository path to listen for, listens to all if undefined
+ * @param callback Change callback
  */
 export function useWorktreeChanged(
   path: string | undefined,

@@ -1,12 +1,12 @@
 /**
- * Terminal Widget 模块导出
+ * Terminal Widget module exports
  */
 
-// 导出 TermWrap 类
+// Export TermWrap class
 export { TermWrap, type TermWrapOptions } from './TermWrap';
 
-// 导出 Zustand store
+// Export Zustand store
 export { useTerminalStore } from './TerminalModel';
 
-// 导出主题
+// Export themes
 export { getTheme, themeNames, themes } from './themes';

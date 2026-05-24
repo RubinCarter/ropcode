@@ -380,14 +380,14 @@ export function filterDisplayableMessages(
 }
 
 /**
- * 增量版本：append-only 流式场景下复用上次结果，避免每条新消息都 5 次全表扫。
+ * Incremental version: reuses previous results in append-only streaming, avoids 5 full-table scans per new message.
  *
- * 仅做 append + 复用：
- * - messages 长度缩水 / hiddenIndexes ref 变化 → 触发完整 rebuild
- * - 否则按 processedCount 起继续推进，O(new) 工作 + 偶尔 O(prev list of same msgId)
+ * Only append + reuse:
+ * - messages length shrinks / hiddenIndexes ref changes → trigger full rebuild
+ * - Otherwise continue from processedCount, O(new) work + occasional O(prev list of same msgId)
  *
- * 接口约定与 getDisplayableMessages 完全一致——同一 messages + hiddenIndexes
- * 输入下，apply() 返回的 indexes / messages 必须与 stateless 版本逐元素相等。
+ * Interface contract identical to getDisplayableMessages — same messages + hiddenIndexes
+ * input, apply() returned indexes / messages must be element-wise equal to stateless version.
  */
 export interface DisplayableMessagesAccumulator {
   apply(
@@ -404,8 +404,8 @@ interface AccumulatorCache {
   supersededByMessageId: Set<number>;
   supersededTransientIndexes: Set<number>;
   lastTransientIndex: number | null;
-  // Set 插入顺序 = 升序（我们一定按 i 递增插入，删除不会反向重插），
-  // Array.from(set) 即得已排序结果。
+  // Set insertion order = ascending (we always insert by increasing i, deletions don't re-insert),
+  // Array.from(set) gives sorted results.
   displayableIndexes: Set<number>;
 }
 
@@ -442,7 +442,7 @@ function ingestRange(
   for (let i = fromIndex; i < messages.length; i++) {
     const msg = messages[i];
 
-    // 1) toolUseNamesById：assistant 消息里所有 tool_use 的 id → name
+    // 1) toolUseNamesById: all tool_use id → name in assistant messages
     const contentBlocks = msg.message?.content;
     if (msg.type === 'assistant' && Array.isArray(contentBlocks)) {
       for (const c of contentBlocks as any[]) {
@@ -453,7 +453,7 @@ function ingestRange(
     }
 
     // 2) indexesByMessageId / supersededByMessageId
-    //    新 i 共享 msgId 时：若 i 属于 hidden，则更早的同 msgId 项被 supersede。
+    //    When new i shares msgId: if i is hidden, earlier items with same msgId are superseded.
     const msgId = (msg as any).message?.id;
     if (msgId && msg.type === 'assistant') {
       let list = cache.indexesByMessageId.get(msgId);
@@ -472,7 +472,7 @@ function ingestRange(
       list.push(i);
     }
 
-    // 3) 显示资格 + transient 序列
+    // 3) Display eligibility + transient sequence
     if (cache.supersededByMessageId.has(i)) continue;
     if (!isDisplayableMessage(msg, i, hiddenIndexes, cache.toolUseNamesById)) continue;
     if (isCollapsibleTransientMessage(msg)) {
@@ -506,7 +506,7 @@ export function createDisplayableMessagesAccumulator(): DisplayableMessagesAccum
       } else if (messages.length > cache.processedCount) {
         ingestRange(cache, messages, hiddenIndexes, cache.processedCount);
       }
-      // messages.length === processedCount && hidden ref 相同 → 直接用缓存
+      // messages.length === processedCount && hidden ref same → use cache directly
 
       const indexes: number[] = Array.from(cache.displayableIndexes);
       const out: ClaudeStreamMessage[] = new Array(indexes.length);

@@ -473,25 +473,25 @@ const PROVIDERS: Provider[] = [
     id: "claude",
     name: "Claude",
     description: "Anthropic Claude AI",
-    icon: <ClaudeIcon className="h-3.5 w-3.5" />,  // Claude 官方图标
+    icon: <ClaudeIcon className="h-3.5 w-3.5" />,  // Claude official icon
     shortName: "C",
-    color: "text-[#C15F3C]"  // Claude 官方颜色 (Crail 橙)
+    color: "text-[#C15F3C]"  // Claude official color (Crail orange)
   },
   {
     id: "codex",
     name: "Codex",
     description: "OpenAI Codex",
-    icon: <OpenAIIcon className="h-3.5 w-3.5" />,  // OpenAI 官方六边结
+    icon: <OpenAIIcon className="h-3.5 w-3.5" />,  // OpenAI official hexagon
     shortName: "X",
-    color: "text-emerald-500"  // OpenAI 品牌色系
+    color: "text-emerald-500"  // OpenAI brand colors
   },
   {
     id: "gemini",
     name: "Gemini",
     description: "Google Gemini",
-    icon: <GeminiIcon className="h-3.5 w-3.5" />,  // Google Gemini 图标
+    icon: <GeminiIcon className="h-3.5 w-3.5" />,  // Google Gemini icon
     shortName: "G",
-    color: "text-blue-500"  // Google 品牌色系
+    color: "text-blue-500"  // Google brand colors
   },
   {
     id: "deepseek",
@@ -1618,7 +1618,7 @@ const FloatingPromptInputInner = (
       if (error instanceof UploadError) {
         setUploadError(error.message);
       } else {
-        setUploadError('上传失败，请重试');
+        setUploadError('Upload failed, please retry');
       }
       // Clear error after 5 seconds
       setTimeout(() => setUploadError(null), 5000);

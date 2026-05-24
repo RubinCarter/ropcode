@@ -1,7 +1,7 @@
 /**
- * Shell 操作
+ * Shell operations
  *
- * 在 Web 模式下使用 window.open
+ * In Web mode, uses window.open.
  */
 
 export async function open(path: string): Promise<void> {

@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { FileText, Save, Eye, Pencil } from 'lucide-react';
 import { basename } from '@/lib/pathUtils';
 
-// 使用本地 monaco-editor 而非 CDN，避免 404 错误
+// Use local monaco-editor instead of CDN to avoid 404 errors
 loader.config({ monaco });
 
 interface FileViewerProps {
@@ -16,11 +16,11 @@ interface FileViewerProps {
   onUnsavedChangesChange?: (hasChanges: boolean) => void;
 }
 
-// 配置常量
+// Config constants
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 /**
- * 语言映射 - 将文件扩展名映射到 Monaco 支持的语言标识符
+ * Language mapping - maps file extensions to Monaco language identifiers
  */
 const LANGUAGE_MAP: Record<string, string> = {
   '.js': 'javascript',
@@ -76,7 +76,7 @@ const LANGUAGE_MAP: Record<string, string> = {
 };
 
 /**
- * 获取语言标识符
+ * Get language identifier
  */
 const getLanguage = (filePath: string): string => {
   const extension = filePath.substring(filePath.lastIndexOf('.')).toLowerCase();
@@ -84,7 +84,7 @@ const getLanguage = (filePath: string): string => {
     return LANGUAGE_MAP[extension];
   }
 
-  // 检查无扩展名的特殊文件
+  // Check special files without extension
   const filename = basename(filePath, filePath).toLowerCase();
   if (filename === 'dockerfile') return 'dockerfile';
   if (filename === 'makefile') return 'makefile';
@@ -93,7 +93,7 @@ const getLanguage = (filePath: string): string => {
 };
 
 /**
- * FileViewer 组件 - 支持预览和编辑模式
+ * FileViewer component - supports preview and edit mode
  */
 export const FileViewer: React.FC<FileViewerProps> = ({
   filePath,
@@ -101,7 +101,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
   className,
   onUnsavedChangesChange,
 }) => {
-  // 基础状态
+  // Base state
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState<string>('');
@@ -110,7 +110,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
   const [isLargeFile, setIsLargeFile] = useState(false);
   const [isWritable, setIsWritable] = useState(false);
 
-  // 编辑模式状态
+  // edit modestate
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedContent, setEditedContent] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -119,15 +119,15 @@ export const FileViewer: React.FC<FileViewerProps> = ({
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const saveHandlerRef = useRef<(() => void) | null>(null);
 
-  // 计算是否有未保存的更改
+  // Compute whether there are unsaved changes
   const hasUnsavedChanges = editedContent !== null && editedContent !== content;
 
-  // 通知父组件未保存更改状态
+  // Notify parent component of unsaved changes state
   useEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges);
   }, [hasUnsavedChanges, onUnsavedChangesChange]);
 
-  // 获取文件内容和检查可写性
+  // Get file content and check writability
   useEffect(() => {
     const fetchContent = async () => {
       setLoading(true);
@@ -169,7 +169,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     fetchContent();
   }, [filePath, workspacePath]);
 
-  // 获取文件名和语言
+  // Get filename and language
   const fileName = useMemo(() => {
     return basename(filePath, filePath);
   }, [filePath]);
@@ -182,14 +182,14 @@ export const FileViewer: React.FC<FileViewerProps> = ({
   const handleEditorDidMount = useCallback((editor: monaco.editor.IStandaloneCodeEditor) => {
     editorRef.current = editor;
 
-    // 添加 Cmd+S / Ctrl+S 快捷键
+    // Add Cmd+S / Ctrl+S shortcut
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      // 使用 ref 来获取最新的 save handler，避免闭包问题
+      // Use ref to get latest save handler, avoiding closure issues
       saveHandlerRef.current?.();
     });
   }, []);
 
-  // 处理编辑器内容变化
+  // Process editor content changes
   const handleEditorChange = useCallback((value: string | undefined) => {
     if (isEditMode) {
       setEditedContent(value ?? '');
@@ -197,7 +197,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     }
   }, [isEditMode]);
 
-  // 保存文件
+  // Save file
   const handleSave = useCallback(async () => {
     if (!hasUnsavedChanges || editedContent === null) return;
 
@@ -217,12 +217,12 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     }
   }, [filePath, editedContent, hasUnsavedChanges]);
 
-  // 更新 saveHandlerRef 以便快捷键能获取最新的 handleSave
+  // Update saveHandlerRef so shortcut gets latest handleSave
   useEffect(() => {
     saveHandlerRef.current = handleSave;
   }, [handleSave]);
 
-  // 进入编辑模式
+  // Enter edit mode
   const enterEditMode = useCallback(() => {
     if (isWritable && !isBinary && !isLargeFile) {
       setIsEditMode(true);
@@ -230,10 +230,10 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     }
   }, [isWritable, isBinary, isLargeFile, content]);
 
-  // 退出编辑模式（预览模式）
+  // Exit edit mode (preview mode)
   const exitEditMode = useCallback(() => {
     if (hasUnsavedChanges) {
-      // 如果有未保存的更改，询问用户
+      // If unsaved changes, ask user
       const confirmed = window.confirm('You have unsaved changes. Discard them?');
       if (!confirmed) return;
     }
@@ -242,7 +242,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     setSaveError(null);
   }, [hasUnsavedChanges]);
 
-  // 恢复文件内容
+  // Restore file content
   const handleRevert = useCallback(() => {
     if (hasUnsavedChanges) {
       const confirmed = window.confirm('Revert all changes?');
@@ -252,7 +252,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     editorRef.current?.setValue(content);
   }, [content, hasUnsavedChanges]);
 
-  // 渲染二进制文件提示
+  // Render binary file notice
   const renderBinaryNotice = () => {
     return (
       <div className="flex-1 flex items-center justify-center text-foreground/40">
@@ -267,7 +267,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     );
   };
 
-  // 渲染大文件警告
+  // Render large file warning
   const renderLargeFileWarning = () => {
     const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
     return (
@@ -297,7 +297,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     );
   };
 
-  // 渲染头部按钮
+  // RenderHeaderbutton
   const renderHeaderButtons = () => {
     if (loading || error || isBinary || isLargeFile) {
       return null;
@@ -306,7 +306,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     if (isEditMode) {
       return (
         <div className="flex items-center gap-1.5">
-          {/* Save 按钮 */}
+          {/* Save button */}
           <button
             onClick={handleSave}
             disabled={!hasUnsavedChanges || isSaving}
@@ -320,7 +320,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
             <Save className="w-3 h-3" />
             {isSaving ? 'Saving...' : 'Save'}
           </button>
-          {/* Preview 按钮 */}
+          {/* Preview button */}
           <button
             onClick={exitEditMode}
             className="px-2.5 py-1 text-[11px] font-medium bg-neutral-700 text-neutral-200 border border-neutral-600 rounded flex items-center gap-1.5 hover:bg-neutral-600 transition-colors"
@@ -332,7 +332,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
       );
     }
 
-    // 预览模式
+    // preview mode
     if (isWritable) {
       return (
         <button
@@ -345,7 +345,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
       );
     }
 
-    // 只读文件
+    // Read-only file
     return (
       <span className="px-1.5 py-0.5 text-[10px] bg-yellow-500/20 text-yellow-400 rounded">
         Read-only
@@ -353,12 +353,12 @@ export const FileViewer: React.FC<FileViewerProps> = ({
     );
   };
 
-  // 当前显示的内容（编辑模式下使用 editedContent，否则使用 content）
+  // Currently shown content (editedContent in edit mode, otherwise content)
   const displayContent = isEditMode && editedContent !== null ? editedContent : content;
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* 头部 - waveterm 风格 */}
+      {/* Header - waveterm style */}
       <div className="px-3 py-1.5 border-b border-white/10 bg-black/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -384,7 +384,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
           </div>
           {renderHeaderButtons()}
         </div>
-        {/* 保存错误提示 */}
+        {/* Save error message */}
         {saveError && (
           <div className="mt-1 text-[11px] text-red-400">
             Save failed: {saveError}
@@ -392,7 +392,7 @@ export const FileViewer: React.FC<FileViewerProps> = ({
         )}
       </div>
 
-      {/* 内容区域 */}
+      {/* Content area */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-foreground/40">
           <div className="flex items-center gap-2">

@@ -28,11 +28,11 @@ test('does not append numeric model budgets to Claude prompts', async () => {
 
   const prompt = buildPromptWithThinking({
     provider: 'claude',
-    prompt: '今天似乎心情不太好，帮我调查一下为什么。',
+    prompt: 'I don't seem to be in a good mood today, help me investigate why.',
     phrase: '10000',
   });
 
-  assert.equal(prompt, '今天似乎心情不太好，帮我调查一下为什么。');
+  assert.equal(prompt, 'I don't seem to be in a good mood today, help me investigate why.');
 });
 
 test('only accepts known Claude prompt-thinking phrases', async () => {
@@ -49,12 +49,12 @@ test('appends known Claude prompt-thinking phrases only for Claude', async () =>
   const { buildPromptWithThinking } = await loadModule();
 
   assert.equal(
-    buildPromptWithThinking({ provider: 'claude', prompt: '检查这个问题', phrase: 'think hard' }),
-    '检查这个问题.\n\nthink hard.',
+    buildPromptWithThinking({ provider: 'claude', prompt: 'Check this issue', phrase: 'think hard' }),
+    'Check this issue.\n\nthink hard.',
   );
 
   assert.equal(
-    buildPromptWithThinking({ provider: 'gemini', prompt: '检查这个问题', phrase: 'think hard' }),
-    '检查这个问题',
+    buildPromptWithThinking({ provider: 'gemini', prompt: 'Check this issue', phrase: 'think hard' }),
+    'Check this issue',
   );
 });

@@ -27,7 +27,7 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
   const [currentBranch, setCurrentBranch] = useState<string>('');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
-  // 获取 git 状态
+  // Get git state
   const fetchGitStatus = useCallback(async () => {
     if (!workspacePath) {
       setFiles([]);
@@ -39,11 +39,11 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
     setError(null);
 
     try {
-      // 获取当前分支
+      // Get current branch
       const branch = await api.getCurrentBranch(workspacePath);
       setCurrentBranch(branch);
 
-      // 执行 git status --porcelain 获取文件状态
+      // Run git status --porcelain to get file status
       const result = await api.executeCommand('git -c core.quotepath=false status --porcelain', workspacePath);
 
       if (!result.success) {
@@ -52,7 +52,7 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
         return;
       }
 
-      // 解析 git status 输出
+      // Parse git status output
       const output = result.output || '';
       const parsedFiles: GitFileChange[] = [];
 
@@ -65,16 +65,16 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
         let status: GitFileChange['status'] = 'modified';
         let staged = false;
 
-        // 解析状态码
+        // Parse status code
         const stagedChar = statusCode[0];
         const unstagedChar = statusCode[1];
 
-        // 判断是否暂存
+        // Check if staged
         if (stagedChar !== ' ' && stagedChar !== '?') {
           staged = true;
         }
 
-        // 确定文件状态
+        // Determine file status
         if (statusCode === '??') {
           status = 'untracked';
         } else if (stagedChar === 'A' || unstagedChar === 'A') {
@@ -112,20 +112,20 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
     }
   }, [workspacePath]);
 
-  // 页面可见性轮询 - 定期刷新 Git 状态
+  // Page visibility polling - periodically refresh Git status
   usePageVisibilityPolling(
     async () => {
       if (!workspacePath) return;
       await fetchGitStatus();
     },
     {
-      interval: 3000, // 每 3 秒轮询一次
-      enabled: !!workspacePath, // 只在有工作区路径时启用
-      immediate: true, // 页面可见时立即执行一次
+      interval: 3000, // Poll every 3 seconds
+      enabled: !!workspacePath, // Only enable when workspace path exists
+      immediate: true, // Execute once immediately when page is visible
     }
   );
 
-  // 获取状态图标和颜色
+  // Get status icon and color
   const getStatusDisplay = (file: GitFileChange) => {
     switch (file.status) {
       case 'modified':
@@ -143,7 +143,7 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
     }
   };
 
-  // 处理文件点击
+  // Handle file click
   const handleFileClick = (file: GitFileChange) => {
     console.log('[GitStatusPane] File clicked:', file.path);
     setSelectedFile(file.path);
@@ -152,7 +152,7 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
 
   return (
     <div className={cn("flex flex-col h-full bg-background/95", className)}>
-      {/* 分支信息 */}
+      {/* Branch info */}
       {currentBranch && (
         <div className="px-4 py-2 text-xs bg-muted/20 border-b flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -163,7 +163,7 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
             <span className="font-mono font-medium">{currentBranch}</span>
           </div>
           <div className="flex items-center gap-1">
-            {/* 刷新按钮 */}
+            {/* Refresh button */}
             <button
               onClick={fetchGitStatus}
               className="p-1 hover:bg-muted rounded"
@@ -188,7 +188,7 @@ export const GitStatusPane: React.FC<GitStatusPaneProps> = ({
         </div>
       )}
 
-      {/* 内容区域 */}
+      {/* Content area */}
       <div className="flex-1 min-h-0">
         {error ? (
           <div className="p-4 text-sm text-red-500">

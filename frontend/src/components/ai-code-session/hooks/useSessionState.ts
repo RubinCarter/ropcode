@@ -38,33 +38,33 @@ export interface UseSessionStateReturn {
  * Compute the best project path from available sources
  */
 function computeProjectPath(session?: Session, initialProjectPath?: string): string {
-  // 优先使用 initialProjectPath（如果它存在且不为空）
+  // Prefer using initialProjectPath (if it exists and is non-empty)
   if (initialProjectPath && initialProjectPath.trim() !== "") {
     return initialProjectPath;
   }
-  // 其次使用 session.project_path
+  // Then use session.project_path
   if (session?.project_path && session.project_path.trim() !== "") {
     return session.project_path;
   }
-  // 最后使用 session.project_id（某些情况下可能有用）
+  // Finally use session.project_id (may be useful in some cases)
   if (session?.project_id) {
     return session.project_id;
   }
-  // 如果都没有，返回空字符串（这会在 AiCodeSession 中触发错误提示）
+  // If none available, return empty string (triggers error in AiCodeSession)
   return "";
 }
 
 /**
  * Hook to manage session state
- * 🔧 修复：响应 projectPath 变化，支持项目切换
+ * Fix: respond to projectPath changes, support project switching
  */
 export function useSessionState(options: UseSessionStateOptions): UseSessionStateReturn {
   const { session, initialProjectPath } = options;
 
-  // 🔧 修复：使用 useState 并响应 prop 变化
+  // Fix: use useState and respond to prop changes
   const [projectPath, setProjectPath] = useState(() => computeProjectPath(session, initialProjectPath));
 
-  // 当 initialProjectPath 或 session 变化时，更新 projectPath
+  // When initialProjectPath or session changes, update projectPath
   useEffect(() => {
     const newPath = computeProjectPath(session, initialProjectPath);
     if (newPath && newPath !== projectPath) {

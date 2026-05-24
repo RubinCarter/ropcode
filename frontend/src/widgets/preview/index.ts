@@ -1,14 +1,14 @@
 /**
- * Preview Widget 模块导出
+ * Preview Widget module exports
  */
 
-// 导出 Widget Model
+// Export Widget Model
 export { PreviewWidgetModel } from './PreviewWidgetModel';
 
-// 导出 Zustand store
+// Export Zustand store
 export { usePreviewStore } from './PreviewModel';
 
-// 导出 MIME 工具
+// Export MIME utilities
 export {
   isTextFile,
   isStreamingType,

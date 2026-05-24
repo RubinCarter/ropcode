@@ -41,13 +41,13 @@ export const VerticalResizeHandle: React.FC<VerticalResizeHandleProps> = ({
     <div
       className={cn(
         "h-2 cursor-ns-resize hover:bg-primary/20 transition-colors relative group",
-        "py-0.5", // 增加内边距，让视觉指示器更明显
+        "py-0.5", // Increase padding for more visible indicator
         isDragging && "bg-primary/30",
         className
       )}
       onMouseDown={handleMouseDown}
     >
-      {/* 拖动指示器 */}
+      {/* Drag indicator */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className={cn(
           "w-12 h-1 rounded-full bg-border transition-colors",

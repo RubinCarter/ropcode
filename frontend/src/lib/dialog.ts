@@ -1,8 +1,8 @@
 /**
- * 对话框功能
+ * Dialog features
  *
- * 在 Electron 模式下，使用 Electron 的 dialog API
- * 在 Web 模式下，使用原生 HTML5 对话框
+ * In Electron mode, uses Electron's dialog API.
+ * In Web mode, uses native HTML5 dialog.
  */
 
 export interface FileFilter {
@@ -28,22 +28,22 @@ export interface SaveReturnValue {
   filePath?: string;
 }
 
-// electronAPI 类型已在 vite-env.d.ts 中声明
+// electronAPI type declared in vite-env.d.ts
 
 /**
- * 检查是否在 Electron 环境中
+ * Check if running in Electron environment
  */
 function isElectron(): boolean {
   return typeof window !== 'undefined' && window.electronAPI?.openDirectory !== undefined;
 }
 
 /**
- * 打开文件或目录选择对话框
+ * Open file or directory selection dialog
  */
 export async function open(options: OpenOptions = {}): Promise<OpenReturnValue> {
   const { directory = false, multiple = false } = options;
 
-  // 在 Electron 环境中使用 Electron 的 dialog API
+  // In Electron environment, use Electron's dialog API
   if (isElectron()) {
     if (directory) {
       return await window.electronAPI!.openDirectory!();
@@ -52,7 +52,7 @@ export async function open(options: OpenOptions = {}): Promise<OpenReturnValue> 
     }
   }
 
-  // Web 模式：使用 HTML5 file input
+  // Web mode: use HTML5 file input
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = directory ? 'webkitdirectory' : 'file';
@@ -88,9 +88,9 @@ export async function open(options: OpenOptions = {}): Promise<OpenReturnValue> 
 }
 
 /**
- * 保存文件对话框
+ * Save file dialog
  */
 export async function save(options: { title?: string; defaultPath?: string; filters?: FileFilter[] } = {}): Promise<SaveReturnValue> {
-  // 在 Web 模式下简化处理，直接返回
+  // Simplified handling in Web mode, return canceled
   return { canceled: true };
 }

@@ -43,8 +43,8 @@ export const AttachmentButton: React.FC<AttachmentButtonProps> = ({
       <button
         onClick={handleClick}
         disabled={disabled}
-        title="添加附件"
-        aria-label="添加附件"
+        title="Add attachment"
+        aria-label="Add attachment"
         className={cn(
           'inline-flex items-center justify-center h-8 w-8 rounded-md text-sm font-medium transition-colors',
           'text-muted-foreground hover:bg-accent hover:text-accent-foreground',

@@ -1,35 +1,35 @@
 /**
- * Preview Widget 模型实现
+ * Preview Widget model implementation
  *
- * 负责文件预览/编辑 Widget 的业务逻辑和状态管理
+ * Handles business logic and state management for the file preview/edit widget.
  */
 
 import { BaseWidgetModel, widgetRegistry } from '../base';
 import { PreviewWidgetConfig } from '../types';
 
 /**
- * Preview Widget 模型类
+ * Preview Widget model class
  *
- * 提供文件预览和编辑的核心功能：
- * - 文件内容预览
- * - 编辑模式切换
- * - 文件保存
- * - 键盘快捷键支持
- * - 焦点管理
+ * Provides core file preview and editing features:
+ * - File content preview
+ * - Edit mode toggle
+ * - File save
+ * - Keyboard shortcut support
+ * - Focus management
  */
 export class PreviewWidgetModel extends BaseWidgetModel {
-  /** 要预览的文件路径 */
+  /** File path to preview */
   private filePath: string;
 
-  /** 是否开启编辑模式 */
+  /** Whether edit mode is enabled */
   private editMode: boolean;
 
   /**
-   * 创建 Preview Widget 实例
+   * Create Preview Widget instance
    *
-   * @param config - Widget 配置
-   * @param config.initialParams.filePath - 要预览的文件路径，默认为空字符串
-   * @param config.initialParams.editMode - 是否以编辑模式打开，默认为 false
+   * @param config - Widget config
+   * @param config.initialParams.filePath - File path to preview, defaults to empty string
+   * @param config.initialParams.editMode - Whether to open in edit mode, defaults to false
    *
    * @example
    * ```typescript
@@ -45,24 +45,24 @@ export class PreviewWidgetModel extends BaseWidgetModel {
   constructor(config?: PreviewWidgetConfig) {
     super('preview', config);
 
-    // 初始化配置参数
+    // Initialize config params
     this.filePath = config?.initialParams?.filePath ?? '';
     this.editMode = config?.initialParams?.editMode ?? false;
   }
 
   /**
-   * 初始化 Widget
+   * Initialize Widget
    *
-   * 执行以下操作：
-   * 1. 验证文件路径是否有效
-   * 2. 注册到全局 Widget 注册表
-   * 3. 设置 Widget 就绪状态
+   * Performs the following operations:
+   * 1. Validate file path
+   * 2. Register to global widget registry
+   * 3. Set widget ready state
    *
-   * @throws {Error} 如果初始化失败
+   * @throws {Error} If initialization fails
    * @protected
    */
   protected async onInitialize(): Promise<void> {
-    // 注册到全局注册表
+    // Register to global registry
     widgetRegistry.register(this);
 
     console.log(
@@ -71,28 +71,28 @@ export class PreviewWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 清理 Widget 资源
+   * Clean up Widget resources
    *
-   * 执行以下操作：
-   * 1. 从全局 Widget 注册表注销
-   * 2. 清理预览/编辑器相关资源
-   * 3. 释放 DOM 引用
+   * Performs the following operations:
+   * 1. Unregister from global widget registry
+   * 2. Clean up preview/editor related resources
+   * 3. Release DOM references
    *
    * @protected
    */
   protected onDispose(): void {
-    // 从全局注册表注销
+    // Unregister from global registry
     widgetRegistry.unregister(this.widgetId);
 
     console.log(`PreviewWidget ${this.widgetId} disposed`);
   }
 
   /**
-   * 获取焦点
+   * Get focus
    *
-   * 将焦点设置到预览/编辑器容器，以便接收键盘输入
+   * Sets focus to the preview/editor container to receive keyboard input.
    *
-   * @returns 是否成功获取焦点
+   * @returns Whether focus was successfully acquired
    *
    * @example
    * ```typescript
@@ -106,7 +106,7 @@ export class PreviewWidgetModel extends BaseWidgetModel {
       return false;
     }
 
-    // 尝试聚焦到预览容器
+    // Try focusing preview container
     const previewElement = this.containerRef.querySelector<HTMLElement>(
       '[data-preview-content]'
     );
@@ -116,24 +116,24 @@ export class PreviewWidgetModel extends BaseWidgetModel {
       return true;
     }
 
-    // 回退到容器本身
+    // Fall back to container itself
     this.containerRef.focus();
     return true;
   }
 
   /**
-   * 处理键盘事件
+   * Handle keyboard event
    *
-   * 支持的键盘操作：
-   * - Ctrl/Cmd + S: 保存文件
-   * - Ctrl/Cmd + E: 切换编辑模式
+   * Supported keyboard operations:
+   * - Ctrl/Cmd + S: Save file
+   * - Ctrl/Cmd + E: Toggle edit mode
    *
-   * @param event - 键盘事件
-   * @returns true 表示事件已处理，阻止冒泡；false 表示未处理
+   * @param event - Keyboard event
+   * @returns true if event was handled (stops propagation); false otherwise
    *
    * @example
    * ```typescript
-   * // 在 React 组件中使用
+   * // Usage in React component
    * <div onKeyDown={(e) => model.keyDownHandler?.(e.nativeEvent)}>
    *   ...
    * </div>
@@ -147,14 +147,14 @@ export class PreviewWidgetModel extends BaseWidgetModel {
     const { key, ctrlKey, metaKey } = event;
     const modKey = ctrlKey || metaKey;
 
-    // Ctrl/Cmd + S: 保存文件
+    // Ctrl/Cmd + S: Save file
     if (modKey && key === 's') {
-      event.preventDefault(); // 阻止浏览器默认保存行为
+      event.preventDefault(); // Prevent browser default save behavior
       this.saveFile();
       return true;
     }
 
-    // Ctrl/Cmd + E: 切换编辑模式
+    // Ctrl/Cmd + E: Toggle edit mode
     if (modKey && key === 'e') {
       event.preventDefault();
       this.toggleEditMode();
@@ -165,47 +165,47 @@ export class PreviewWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 获取文件路径
+   * Get file path
    *
-   * @returns 当前预览的文件路径
+   * @returns Current file path being previewed
    */
   getFilePath(): string {
     return this.filePath;
   }
 
   /**
-   * 设置文件路径
+   * Set file path
    *
-   * @param path - 新的文件路径
+   * @param path - New file path
    */
   setFilePath(path: string): void {
     this.filePath = path;
     console.log(`PreviewWidget ${this.widgetId} filePath changed to: ${path}`);
-    // TODO: 触发文件重新加载
+    // TODO: trigger file reload
   }
 
   /**
-   * 获取编辑模式状态
+   * Get edit mode state
    *
-   * @returns 是否处于编辑模式
+   * @returns Whether the widget is in edit mode
    */
   getEditMode(): boolean {
     return this.editMode;
   }
 
   /**
-   * 切换编辑模式
+   * Toggle edit mode
    *
    * @private
    */
   private toggleEditMode(): void {
     this.editMode = !this.editMode;
     console.log(`PreviewWidget ${this.widgetId} editMode toggled to: ${this.editMode}`);
-    // TODO: 触发 UI 更新，切换预览/编辑视图
+    // TODO: trigger UI update, switch preview/edit view
   }
 
   /**
-   * 保存文件
+   * Save file
    *
    * @private
    */
@@ -221,9 +221,9 @@ export class PreviewWidgetModel extends BaseWidgetModel {
     }
 
     console.log(`PreviewWidget ${this.widgetId}: Saving file ${this.filePath}`);
-    // TODO: 实现实际的文件保存逻辑
-    // 1. 获取编辑器内容
-    // 2. 调用后端 API 保存文件
-    // 3. 处理保存成功/失败状态
+    // TODO: implement actual file save logic
+    // 1. Get editor content
+    // 2. Call backend API to save file
+    // 3. Handle save success/failure state
   }
 }

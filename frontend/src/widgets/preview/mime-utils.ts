@@ -1,5 +1,5 @@
 /**
- * MIME 类型工具函数
+ * MIME type utility functions
  */
 
 const textApplicationMimetypes = [
@@ -14,7 +14,7 @@ const textApplicationMimetypes = [
 ];
 
 /**
- * 判断是否为文本文件
+ * Determine if a file is a text file
  */
 export function isTextFile(mimeType: string): boolean {
   if (!mimeType) return false;
@@ -28,7 +28,7 @@ export function isTextFile(mimeType: string): boolean {
 }
 
 /**
- * 判断是否为流媒体类型
+ * Determine if a MIME type is a streaming type
  */
 export function isStreamingType(mimeType: string): boolean {
   if (!mimeType) return false;
@@ -41,7 +41,7 @@ export function isStreamingType(mimeType: string): boolean {
 }
 
 /**
- * 预览类型
+ * Preview type
  */
 export type PreviewType =
   | 'code'
@@ -55,7 +55,7 @@ export type PreviewType =
   | 'unknown';
 
 /**
- * 根据 MIME 类型检测预览类型
+ * Detect preview type based on MIME type
  */
 export function detectPreviewType(mimeType: string): PreviewType {
   if (!mimeType) return 'unknown';
@@ -71,7 +71,7 @@ export function detectPreviewType(mimeType: string): PreviewType {
 }
 
 /**
- * 根据 MIME 类型获取文件图标名称
+ * Get file icon name based on MIME type
  */
 export function iconForFile(mimeType: string): string {
   const type = detectPreviewType(mimeType);
@@ -90,7 +90,7 @@ export function iconForFile(mimeType: string): string {
 }
 
 /**
- * MIME 类型到语言标识符映射
+ * MIME type to language identifier mapping
  */
 const mimeToLanguage: Record<string, string> = {
   'application/javascript': 'javascript',
@@ -123,17 +123,17 @@ const mimeToLanguage: Record<string, string> = {
 };
 
 /**
- * 根据 MIME 类型获取语言标识符
+ * Based on MIME typeGet language identifier
  */
 export function getLanguageFromMime(mimeType: string): string {
   if (!mimeType) return 'text';
 
-  // 直接匹配
+  // Direct match
   if (mimeToLanguage[mimeType]) {
     return mimeToLanguage[mimeType];
   }
 
-  // 基于 MIME 类型前缀推断
+  // Infer from MIME type prefix
   if (mimeType.includes('javascript')) return 'javascript';
   if (mimeType.includes('typescript')) return 'typescript';
   if (mimeType.includes('json')) return 'json';

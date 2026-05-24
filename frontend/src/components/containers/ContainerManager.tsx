@@ -8,10 +8,10 @@ export const ContainerManager: React.FC = () => {
 
   return (
     <div className="flex-1 h-full relative">
-      {/* 系统容器 */}
+      {/* System container */}
       <SystemContainer visible={activeType === 'system'} />
 
-      {/* Workspace 容器们 */}
+      {/* Workspace containers */}
       {openWorkspaces.map(workspaceId => (
         <WorkspaceContainer
           key={workspaceId}

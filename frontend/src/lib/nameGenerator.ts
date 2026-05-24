@@ -6,8 +6,8 @@ import {
 } from 'unique-names-generator';
 
 /**
- * 生成适合用作 branch 名称的简短随机单词
- * 格式：形容词-动物（例如：clever-tiger、brave-falcon、swift-dolphin）
+ * Generate short random words suitable for branch names
+ * Format: adjective-animal (e.g.: clever-tiger, brave-falcon, swift-dolphin)
  */
 export function generateBranchName(): string {
   const config: Config = {
@@ -21,8 +21,8 @@ export function generateBranchName(): string {
 }
 
 /**
- * 生成适合用作 workspace 名称的随机名字
- * 格式：形容词-动物（例如：clever-tiger）
+ * Generate random names suitable for workspace names
+ * Format: adjective-animal (e.g.: clever-tiger)
  */
 export function generateWorkspaceName(): string {
   const config: Config = {
@@ -36,8 +36,8 @@ export function generateWorkspaceName(): string {
 }
 
 /**
- * 生成较短的名称（两个单词）
- * 格式：形容词-动物（例如：brave-falcon）
+ * Generate shorter names (two words)
+ * Format: adjective-animal (e.g.: brave-falcon)
  */
 export function generateShortName(): string {
   const config: Config = {

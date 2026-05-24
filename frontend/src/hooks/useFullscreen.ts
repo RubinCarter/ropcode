@@ -1,22 +1,22 @@
 /**
  * useFullscreen Hook
  *
- * 提供 macOS 原生全屏功能的 React hook
- * 使用 Electron IPC 事件推送全屏状态变化（而非 resize 轮询）
+ * React hook for macOS native fullscreen features
+ * Uses Electron IPC events to push fullscreen state changes (instead of resize polling)
  */
 
 import { useState, useEffect, useCallback } from 'react';
 
 interface UseFullscreenReturn {
-  /** 当前是否处于全屏状态 */
+  /** Whether currently in fullscreen state */
   isFullscreen: boolean;
-  /** 切换全屏状态 */
+  /** Toggle fullscreen state */
   toggleFullscreen: () => Promise<void>;
-  /** 进入全屏 */
+  /** Enter fullscreen */
   enterFullscreen: () => Promise<void>;
-  /** 退出全屏 */
+  /** Exit fullscreen */
   exitFullscreen: () => Promise<void>;
-  /** 是否支持全屏（仅 macOS） */
+  /** Whether fullscreen is supported (macOS only) */
   isSupported: boolean;
 }
 
@@ -33,16 +33,16 @@ export function useFullscreen(): UseFullscreenReturn {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
 
-  // 检查是否支持全屏（仅 macOS）
+  // Check if fullscreen is supported (macOS only)
   useEffect(() => {
     const isMac = navigator.platform.toLowerCase().includes('mac') ||
                   navigator.userAgent.toLowerCase().includes('mac');
     setIsSupported(isMac);
   }, []);
 
-  // 监听全屏状态变化
+  // Listen for fullscreen state changes
   useEffect(() => {
-    // 初始化状态
+    // Initialize state
     const initState = async () => {
       if (window.electronAPI?.isFullscreen) {
         try {
@@ -57,7 +57,7 @@ export function useFullscreen(): UseFullscreenReturn {
     };
     initState();
 
-    // 优先使用 Electron 主进程推送的全屏事件（无 IPC 延迟）
+    // Prefer fullscreen events pushed from Electron main process (no IPC delay)
     if (window.electronAPI?.onFullscreenChanged) {
       const unlisten = window.electronAPI.onFullscreenChanged((fullscreen) => {
         setIsFullscreen(fullscreen);
@@ -66,7 +66,7 @@ export function useFullscreen(): UseFullscreenReturn {
       return unlisten;
     }
 
-    // 回退：监听 resize 事件（非 Electron 环境）
+    // Fallback: listen for resize events (non-Electron)
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
     const handleResize = () => {
       if (resizeTimeout) clearTimeout(resizeTimeout);

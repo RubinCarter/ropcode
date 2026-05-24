@@ -19,7 +19,7 @@ interface TerminalPaneProps {
 export const TerminalPane: React.FC<TerminalPaneProps> = ({
   outputs,
   isRunning = false,
-  workspacePath: _workspacePath, // 保留以备将来使用
+  workspacePath: _workspacePath, // Reserved for future use
   className
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);

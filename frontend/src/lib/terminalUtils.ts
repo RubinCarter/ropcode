@@ -1,10 +1,10 @@
 /**
- * Terminal 工具函数
+ * Terminal utility functions
  */
 
 /**
- * 生成唯一的 Terminal ID
- * 使用时间戳 + 随机字符串确保唯一性
+ * Generate unique Terminal ID
+ * Uses timestamp + random string to ensure uniqueness
  */
 export function generateTerminalId(): string {
   const timestamp = Date.now();
@@ -13,35 +13,35 @@ export function generateTerminalId(): string {
 }
 
 /**
- * 生成 Terminal 标题
+ * Generate Terminal title
  */
 export function generateTerminalTitle(index: number): string {
   return `Terminal ${index}`;
 }
 
 /**
- * 解析 workspace 路径，获取存储键
+ * Parse workspace path, get storage key
  */
 export function getWorkspaceStorageKey(workspacePath: string | undefined): string {
   return workspacePath || 'default';
 }
 
 /**
- * 本地存储键前缀
+ * Local storage key prefix
  */
 const STORAGE_PREFIX = 'ropcode-terminal-state';
 
 /**
- * 保存 workspace 的 terminal 状态到本地存储
+ * Save workspace terminal state to local storage
  */
 export function saveTerminalState(workspaceKey: string, state: any): void {
   try {
     const key = `${STORAGE_PREFIX}-${workspaceKey}`;
-    // 只保存必要的数据
+    // Only save necessary data
     const stateToSave = {
       sessions: state.sessions,
       activeSessionId: state.activeSessionId,
-      commandHistory: state.commandHistory.slice(0, 50), // 只保存最近 50 条历史
+      commandHistory: state.commandHistory.slice(0, 50), // Only keep last 50 history entries
     };
     localStorage.setItem(key, JSON.stringify(stateToSave));
   } catch (error) {
@@ -50,7 +50,7 @@ export function saveTerminalState(workspaceKey: string, state: any): void {
 }
 
 /**
- * 从本地存储加载 workspace 的 terminal 状态
+ * Load workspace terminal state from local storage
  */
 export function loadTerminalState(workspaceKey: string): any | null {
   try {
@@ -59,7 +59,7 @@ export function loadTerminalState(workspaceKey: string): any | null {
     if (!saved) return null;
 
     const state = JSON.parse(saved);
-    // 验证数据完整性
+    // Validate data integrity
     if (!state.sessions || !Array.isArray(state.sessions)) {
       return null;
     }
@@ -72,7 +72,7 @@ export function loadTerminalState(workspaceKey: string): any | null {
 }
 
 /**
- * 清除 workspace 的 terminal 状态
+ * Clear workspace terminal state
  */
 export function clearTerminalState(workspaceKey: string): void {
   try {

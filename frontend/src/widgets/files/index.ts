@@ -1,9 +1,9 @@
 /**
- * Files Widget 模块导出
+ * Files Widget module exports
  */
 
-// 导出 Widget Model
+// Export Widget Model
 export { FilesWidgetModel } from './FilesWidgetModel';
 
-// 导出 Zustand store
+// Export Zustand store
 export { useFilesStore } from './FilesModel';

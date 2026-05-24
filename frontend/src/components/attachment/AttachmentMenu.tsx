@@ -77,7 +77,7 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
         className={menuItemClass}
       >
         <FolderOpen className="h-4 w-4 shrink-0" />
-        浏览文件
+        Browse files
       </button>
 
       {/* Camera capture (mobile only) */}
@@ -90,7 +90,7 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
           className={cn(menuItemClass, 'border-t border-border')}
         >
           <Camera className="h-4 w-4 shrink-0" />
-          拍照上传
+          Take photo
         </button>
       )}
 
@@ -104,7 +104,7 @@ export const AttachmentMenu: React.FC<AttachmentMenuProps> = ({
           className={cn(menuItemClass, 'border-t border-border')}
         >
           <Image className="h-4 w-4 shrink-0" />
-          相册选择
+          Choose from gallery
         </button>
       )}
 

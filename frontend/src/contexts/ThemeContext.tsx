@@ -108,12 +108,12 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Load theme preference and custom colors from storage
   useEffect(() => {
     const loadTheme = async () => {
-      // 等待 WebSocket 连接就绪
+      // Wait for WebSocket connection to be ready
       if (!wsClient.isConnected()) {
         try {
           await wsClient.waitForConnection(5000);
         } catch {
-          // 连接超时，使用默认主题
+          // Connection timeout, use default theme
           setIsLoading(false);
           return;
         }

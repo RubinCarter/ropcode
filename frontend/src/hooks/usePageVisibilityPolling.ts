@@ -1,21 +1,21 @@
 /**
  * Page Visibility Polling Hook
  *
- * 提供基于页面可见性的轮询机制。只在页面激活时进行轮询，页面隐藏时自动停止。
- * 休眠唤醒时通过随机 jitter 错开各 hook 的首次轮询，避免 thundering herd。
+ * Provides page-visibility-based polling. Only polls when page is active, auto-stops when hidden.
+ * Uses random jitter on wake to stagger first polls across hooks, avoiding thundering herd.
  */
 
 import { useEffect, useRef, useCallback } from 'react';
 import { wsClient } from '@/lib/ws-rpc-client';
 
 export interface PollingOptions {
-  /** 轮询间隔（毫秒），默认 3000ms */
+  /** Polling interval (ms), default 3000ms */
   interval?: number;
-  /** 是否启用轮询，默认 true */
+  /** Whether to enable polling, default true */
   enabled?: boolean;
-  /** 页面可见时是否立即执行一次，默认 true */
+  /** Whether to execute once immediately when page visible, default true */
   immediate?: boolean;
-  /** 轮询函数返回值，用于判断是否需要继续轮询 */
+  /** Poll function return value, used to determine if polling should continue */
   shouldContinue?: (result: unknown) => boolean;
 }
 
@@ -24,7 +24,7 @@ export interface PollingOptions {
 let jitterCounter = 0;
 
 /**
- * 基于页面可见性的轮询 Hook
+ * Page-visibility-based polling hook
  */
 export function usePageVisibilityPolling<T>(
   pollFn: () => Promise<T> | T,
@@ -131,17 +131,17 @@ export function usePageVisibilityPolling<T>(
 }
 
 /**
- * 检查页面是否可见的工具函数
+ * Utility function to check if page is visible
  */
 export function isPageVisible(): boolean {
   return !document.hidden;
 }
 
 /**
- * 页面可见性变化监听 Hook
+ * Page visibility change listener hook
  *
- * @param callback 页面可见性变化时的回调
- * @param immediate 初始化时是否立即调用一次回调
+ * @param callback Callback when page visibility changes
+ * @param immediate Whether to call callback once immediately on init
  *
  * @example
  * ```tsx
@@ -164,7 +164,7 @@ export function usePageVisibility(
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // 立即调用一次
+    // Call once immediately
     if (immediate) {
       callbackRef.current(!document.hidden);
     }

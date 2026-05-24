@@ -23,7 +23,7 @@ export async function uploadAttachment(
 ): Promise<UploadResult> {
   // Validate file size
   if (file.size > MAX_FILE_SIZE) {
-    throw new UploadError(`文件大小不能超过 50MB（当前大小：${(file.size / 1024 / 1024).toFixed(1)}MB）`);
+    throw new UploadError(`File size cannot exceed 50MB (current: ${(file.size / 1024 / 1024).toFixed(1)}MB）`);
   }
 
   const formData = new FormData();
@@ -44,16 +44,16 @@ export async function uploadAttachment(
 
     if (!response.ok) {
       const text = await response.text().catch(() => 'Unknown error');
-      throw new UploadError(`上传失败：${response.status} ${text}`);
+      throw new UploadError(`Upload failed: ${response.status} ${text}`);
     }
 
     return await response.json() as UploadResult;
   } catch (error) {
     if (error instanceof UploadError) throw error;
     if ((error as Error).name === 'AbortError') {
-      throw new UploadError('上传超时，请检查网络连接后重试');
+      throw new UploadError('Upload timed out, please check network and retry');
     }
-    throw new UploadError(`上传失败：${(error as Error).message}`);
+    throw new UploadError(`Upload failed: ${(error as Error).message}`);
   } finally {
     clearTimeout(timeoutId);
   }

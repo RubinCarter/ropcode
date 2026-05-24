@@ -1,126 +1,126 @@
 /**
  * Preview Widget Zustand Store
  *
- * 管理文件预览的状态，包括文件内容、编辑模式、加载状态等
+ * Manages file preview state including file content, edit mode, loading state, etc.
  */
 
 import { create } from 'zustand';
 import type { FileInfo } from '../types';
 
 /**
- * 预览类型枚举
- * 根据文件类型决定使用哪种预览器
+ * Preview type enum
+ * Determines which previewer to use based on file type
  */
 export type PreviewType =
-  | 'code'       // 代码文件
-  | 'markdown'   // Markdown 文档
-  | 'image'      // 图片
-  | 'video'      // 视频
-  | 'audio'      // 音频
-  | 'pdf'        // PDF 文档
-  | 'csv'        // CSV 表格
-  | 'directory'  // 目录
-  | 'unknown';   // 未知类型
+  | 'code'       // Code file
+  | 'markdown'   // Markdown document
+  | 'image'      // Image
+  | 'video'      // Video
+  | 'audio'      // Audio
+  | 'pdf'        // PDF document
+  | 'csv'        // CSV table
+  | 'directory'  // Directory
+  | 'unknown';   // Unknown type
 
 /**
- * Preview Store 状态接口
+ * Preview Store state interface
  */
 interface PreviewState {
-  /** 当前预览的文件路径 */
+  /** Current file path being previewed */
   filePath: string;
 
-  /** 文件信息 */
+  /** File info */
   fileInfo: FileInfo | null;
 
-  /** 文件内容 */
+  /** File content */
   content: string | null;
 
-  /** 是否为编辑模式 */
+  /** Whether in edit mode */
   editMode: boolean;
 
-  /** 内容是否被修改 */
+  /** Whether content has been modified */
   isDirty: boolean;
 
-  /** 加载状态 */
+  /** Loading state */
   isLoading: boolean;
 
-  /** 错误信息 */
+  /** Error message */
   error: string | null;
 
-  /** 预览类型 */
+  /** Preview type */
   previewType: PreviewType;
 }
 
 /**
- * Preview Store Actions 接口
+ * Preview Store Actions interface
  */
 interface PreviewActions {
   /**
-   * 设置文件路径
-   * @param path 文件路径
+   * Set file path
+   * @param path File path
    */
   setFilePath: (path: string) => void;
 
   /**
-   * 设置文件信息
-   * @param info 文件信息对象
+   * Set file info
+   * @param info File info object
    */
   setFileInfo: (info: FileInfo | null) => void;
 
   /**
-   * 设置文件内容
-   * @param content 文件内容字符串
+   * Set file content
+   * @param content File content string
    */
   setContent: (content: string | null) => void;
 
   /**
-   * 切换编辑模式
+   * Toggle edit mode
    */
   toggleEditMode: () => void;
 
   /**
-   * 设置编辑模式
-   * @param mode 是否开启编辑模式
+   * Set edit mode
+   * @param mode Whether to enable edit mode
    */
   setEditMode: (mode: boolean) => void;
 
   /**
-   * 设置内容修改状态
-   * @param dirty 是否已修改
+   * Set content modified state
+   * @param dirty Whether content has been modified
    */
   setDirty: (dirty: boolean) => void;
 
   /**
-   * 设置加载状态
-   * @param loading 是否正在加载
+   * Set loading state
+   * @param loading Whether currently loading
    */
   setLoading: (loading: boolean) => void;
 
   /**
-   * 设置错误信息
-   * @param error 错误信息字符串
+   * Set error message
+   * @param error Error message string
    */
   setError: (error: string | null) => void;
 
   /**
-   * 设置预览类型
-   * @param type 预览类型
+   * Set preview type
+   * @param type Preview type
    */
   setPreviewType: (type: PreviewType) => void;
 
   /**
-   * 重置到初始状态
+   * Reset to initial state
    */
   reset: () => void;
 }
 
 /**
- * Preview Store 完整类型
+ * Preview Store complete type
  */
 type PreviewStore = PreviewState & PreviewActions;
 
 /**
- * 初始状态
+ * Initial state
  */
 const initialState: PreviewState = {
   filePath: '',
@@ -150,7 +150,7 @@ const initialState: PreviewState = {
  * ```
  */
 export const usePreviewStore = create<PreviewStore>((set) => ({
-  // 初始状态
+  // Initial state
   ...initialState,
 
   // Actions

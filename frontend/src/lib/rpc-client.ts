@@ -1,14 +1,14 @@
 /**
- * RPC 客户端
+ * RPC Client
  *
- * 提供 Go 后端方法的 WebSocket RPC 调用封装。
- * 所有方法都通过 WebSocket RPC 客户端调用后端。
+ * Provides WebSocket RPC call wrappers for Go backend methods.
+ * All methods call the backend via the WebSocket RPC client.
  */
 
 import { wsClient } from './ws-rpc-client';
 import type { SessionFrame } from './session-frame/types';
 
-// 通用类型定义
+// Common type definitions
 export type CommandType = 'claude' | 'codex';
 
 export interface ClaudeCapability {
@@ -29,7 +29,7 @@ export interface ClaudeCapabilityLayers {
   fetched_at: string;
 }
 
-// 类型定义 - 与 Go 后端保持一致
+// Type definitions - consistent with Go backend
 export namespace ssh {
   export interface SshConnection {
     name: string;
@@ -504,7 +504,7 @@ export type PluginSkill = plugin.PluginSkill;
 export type PluginCommand = plugin.PluginCommand;
 export type PluginHook = plugin.PluginHook;
 
-// ==================== PTY 管理 ====================
+// ==================== PTY Management ====================
 
 export function CreatePtySession(sessionId: string, cwd: string, rows: number, cols: number, shell: string): Promise<main.PtySessionInfo> {
   return wsClient.call('CreatePtySession', sessionId, cwd, rows, cols, shell);
@@ -530,7 +530,7 @@ export function IsPtySessionAlive(sessionId: string): Promise<boolean> {
   return wsClient.call('IsPtySessionAlive', sessionId);
 }
 
-// ==================== 进程管理 ====================
+// ==================== Process Management ====================
 
 export function SpawnProcess(
   sessionId: string,
@@ -562,7 +562,7 @@ export function KillCommand(sessionId: string): Promise<void> {
   return wsClient.call('KillCommand', sessionId);
 }
 
-// ==================== 窗口控制 ====================
+// ==================== Window Control ====================
 
 export function ToggleFullscreen(): Promise<void> {
   return wsClient.call('ToggleFullscreen');
@@ -572,7 +572,7 @@ export function IsFullscreen(): Promise<boolean> {
   return wsClient.call('IsFullscreen');
 }
 
-// ==================== 配置管理 ====================
+// ==================== Config Management ====================
 
 export function SaveSetting(key: string, value: string): Promise<void> {
   return wsClient.call('SaveSetting', key, value);
@@ -637,7 +637,7 @@ export function GetHomeDirectory(): Promise<string> {
   return wsClient.call('GetHomeDirectory');
 }
 
-// ==================== Provider API 配置 ====================
+// ==================== Provider API Config ====================
 
 export function CreateProviderApiConfig(config: database.ProviderApiConfig): Promise<void> {
   return wsClient.call('CreateProviderApiConfig', config);
@@ -683,7 +683,7 @@ export function SaveProviderSystemPrompt(providerName: string, prompt: string): 
   return wsClient.call('SaveProviderSystemPrompt', providerName, prompt);
 }
 
-// ==================== 项目管理 ====================
+// ==================== Project Management ====================
 
 export function ListProjects(): Promise<database.ProjectIndex[]> {
   return wsClient.call('ListProjects');
@@ -757,7 +757,7 @@ export function UpdateGlobalActions(actions: main.Action[]): Promise<void> {
   return wsClient.call('UpdateGlobalActions', actions);
 }
 
-// ==================== Workspace 管理 ====================
+// ==================== Workspace Management ====================
 
 export function CreateWorkspace(projectPath: string, branch: string, sessionId: string): Promise<void> {
   return wsClient.call('CreateWorkspace', projectPath, branch, sessionId);
@@ -791,7 +791,7 @@ export function UpdateWorkspaceActions(workspaceId: string, actions: main.Action
   return wsClient.call('UpdateWorkspaceActions', workspaceId, actions);
 }
 
-// ==================== Claude 会话 ====================
+// ==================== Claude Sessions ====================
 
 export function ExecuteClaudeCode(
   projectPath: string,
@@ -1000,7 +1000,7 @@ export function ReadClaudeSubagentLog(
   return wsClient.call('ReadClaudeSubagentLog', sessionId, activityId, since);
 }
 
-// ==================== Claude 设置 ====================
+// ==================== Claude Settings ====================
 
 export function GetClaudeSettings(): Promise<Record<string, any>> {
   return wsClient.call('GetClaudeSettings');
@@ -1034,7 +1034,7 @@ export function ListClaudeInstallations(): Promise<main.ClaudeInstallation[]> {
   return wsClient.call('ListClaudeInstallations');
 }
 
-// ==================== Git 操作 ====================
+// ==================== Git Operations ====================
 
 export function GetGitStatus(projectPath: string): Promise<main.GitRepoStatus> {
   return wsClient.call('GetGitStatus', projectPath);
@@ -1092,7 +1092,7 @@ export function NotifyBranchRenamed(projectPath: string, oldBranch: string): Pro
   return wsClient.call('NotifyBranchRenamed', projectPath, oldBranch);
 }
 
-// ==================== 文件操作 ====================
+// ==================== File Operations ====================
 
 export function ListDirectoryContents(path: string): Promise<main.FileEntry[]> {
   return wsClient.call('ListDirectoryContents', path);
@@ -1146,7 +1146,7 @@ export function SavePastedImage(projectPath: string, imageData: string): Promise
   return wsClient.call('SavePastedImage', projectPath, imageData);
 }
 
-// ==================== Model 配置 ====================
+// ==================== Model Config ====================
 
 export function GetAllModelConfigs(): Promise<database.ModelConfig[]> {
   return wsClient.call('GetAllModelConfigs');
@@ -1204,7 +1204,7 @@ export function GetDefaultThinkingLevel(providerName: string): Promise<database.
   return wsClient.call('GetDefaultThinkingLevel', providerName);
 }
 
-// ==================== Agent 管理 ====================
+// ==================== Agent Management ====================
 
 export function ListAgents(): Promise<database.Agent[]> {
   return wsClient.call('ListAgents');
@@ -1306,7 +1306,7 @@ export function LoadAgentSessionHistory(sessionId: string): Promise<claude.Messa
   return wsClient.call('LoadAgentSessionHistory', sessionId);
 }
 
-// ==================== MCP 管理 ====================
+// ==================== MCP Management ====================
 
 export function ListMcpServers(): Promise<mcp.MCPServer[]> {
   return wsClient.call('ListMcpServers');
@@ -1422,7 +1422,7 @@ export function DeleteSlashCommand(projectPath: string, name: string, command: s
   return wsClient.call('DeleteSlashCommand', projectPath, name, command);
 }
 
-// ==================== SSH 管理 ====================
+// ==================== SSH Management ====================
 
 export function ListGlobalSshConnections(): Promise<ssh.SshConnection[]> {
   return wsClient.call('ListGlobalSshConnections');
@@ -1558,7 +1558,7 @@ export function StorageResetDatabase(): Promise<void> {
   return wsClient.call('StorageResetDatabase');
 }
 
-// ==================== Claude 配置 Agents ====================
+// ==================== Claude Config Agents ====================
 
 export function ListClaudeConfigAgents(projectPath: string): Promise<claude.ClaudeAgent[]> {
   return wsClient.call('ListClaudeConfigAgents', projectPath);
@@ -1576,7 +1576,7 @@ export function DeleteClaudeConfigAgent(projectPath: string, category: string, n
   return wsClient.call('DeleteClaudeConfigAgent', projectPath, category, name);
 }
 
-// ==================== Claude.md 文件 ====================
+// ==================== Claude.md file ====================
 
 export function FindClaudeMdFiles(projectPath: string): Promise<claude.ClaudeMdFile[]> {
   return wsClient.call('FindClaudeMdFiles', projectPath);
@@ -1590,7 +1590,7 @@ export function SaveClaudeMdFile(path: string, content: string): Promise<void> {
   return wsClient.call('SaveClaudeMdFile', path, content);
 }
 
-// ==================== Claude Agents (外部) ====================
+// ==================== Claude Agents (External) ====================
 
 export function ListClaudeAgents(): Promise<main.ClaudeAgentEntry[]> {
   return wsClient.call('ListClaudeAgents');
@@ -1610,7 +1610,7 @@ export function SkillGet(projectPath: string, skillName: string): Promise<main.S
   return wsClient.call('SkillGet', projectPath, skillName);
 }
 
-// ==================== 命令执行 ====================
+// ==================== Command Execution ====================
 
 export function ExecuteCommand(command: string, cwd: string): Promise<main.CommandResult> {
   return wsClient.call('ExecuteCommand', command, cwd);
@@ -1624,7 +1624,7 @@ export function ExecuteCommandAsync(cwd: string, args: string[], env: string): P
   return wsClient.call('ExecuteCommandAsync', cwd, args, env);
 }
 
-// ==================== 其他工具 ====================
+// ==================== Other Tools ====================
 
 export function OpenUrl(url: string): Promise<void> {
   return wsClient.call('OpenUrl', url);

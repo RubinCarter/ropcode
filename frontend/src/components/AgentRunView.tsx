@@ -59,7 +59,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
 
-  // Virtuoso ref + followOutput：替代以前 plain map + 每条 motion.div 入场动画。
+  // Virtuoso ref + followOutput: replaces previous plain map + per-item motion.div animations.
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const followOutput = useCallback(
     (isAtBottom: boolean) => (isAtBottom ? ('smooth' as const) : false),

@@ -33,24 +33,24 @@ interface RightSidebarProps {
   isOpen?: boolean;
   onToggle?: () => void;
   visible?: boolean;
-  defaultWidthPercent?: number; // 默认宽度百分比
+  defaultWidthPercent?: number; // Default width percentage
   className?: string;
-  currentProjectPath?: string; // 当前 workspace/project 路径
+  currentProjectPath?: string; // Current workspace/project path
 }
 
-// 每个 workspace 的终端状态
+// Terminal state per workspace
 interface WorkspaceTerminalState {
   sessions: TerminalSession[];
   activeSessionId: string;
   outputs: Record<string, TerminalOutput[]>;
   commandHistory: string[];
-  // 命令ID到会话ID的映射，用于将输出路由到正确的会话
+  // Command ID to session ID mapping for routing output
   commandToSessionMap: Map<string, string>;
-  // 每个会话的运行状态：会话ID -> 是否正在运行命令
+  // Run state per session: sessionID -> isRunning
   sessionRunningState: Map<string, boolean>;
-  // 每个会话当前运行的命令ID：会话ID -> 命令ID
+  // Current command per session: sessionID -> commandID
   sessionCommandId: Map<string, string>;
-  // 命令开始时间戳，用于超时检测：命令ID -> 时间戳
+  // Command start timestamps for timeout: commandID -> timestamp
   commandStartTime: Map<string, number>;
 }
 
@@ -109,7 +109,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [activitySnapshot, setActivitySnapshot] = useState<main.ClaudeActivitySnapshot | null>(null);
   const activityCount = activityBadgeCount(activitySnapshot);
 
-  // 广播右侧栏宽度变化
+  // Broadcast right sidebar width change
   useEffect(() => {
     if (!visible) return;
     window.dispatchEvent(new CustomEvent('right-sidebar-width-changed', {
@@ -124,7 +124,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     }));
   }, [isOpen, visible, currentProjectPath]);
 
-  // 检测 Git 支持
+  // Detect Git support
   useEffect(() => {
     if (!currentProjectPath) {
       setHasGitSupport(false);
@@ -144,7 +144,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     checkGitSupport();
   }, [currentProjectPath]);
 
-  const [gitPaneHeight, setGitPaneHeight] = useState(250); // Git 面板高度
+  const [gitPaneHeight, setGitPaneHeight] = useState(250); // Git panel height
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const { tabs, activeTabId, addTab, updateTab, setActiveTab } = useWorkspaceTabContext();
   const activeWorkspaceTab = tabs.find(tab => tab.id === activeTabId);
@@ -153,18 +153,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       ? activeWorkspaceTab
       : undefined;
 
-  // 创建 Diff Tab（与 File Tab 共用同一个 slot）
+  // Create Diff Tab (shares slot with File Tab)
   const createDiffTab = useCallback((filePath: string, projectPath: string, gitStatus?: GitFileChange['status']): string | null => {
     const fileName = basename(filePath, filePath);
 
-    // 查找现有的 file 或 diff tab
+    // Find existing file or diff tab
     const existingTab = tabs.find(tab =>
       (tab.type === 'diff' || tab.type === 'file') &&
       tab.projectPath === projectPath
     );
 
     if (existingTab) {
-      // 更新现有 tab 为 diff
+      // Update existing tab to diff
       updateTab(existingTab.id, {
         type: 'diff',
         title: `Diff: ${fileName}`,
@@ -179,7 +179,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       return existingTab.id;
     }
 
-    // 创建新 tab
+    // Create new tab
     return addTab({
       type: 'diff',
       title: `Diff: ${fileName}`,
@@ -192,18 +192,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     });
   }, [tabs, addTab, updateTab, setActiveTab]);
 
-  // 创建 File Tab（与 Diff Tab 共用同一个 slot）
+  // Create File Tab (shares slot with Diff Tab)
   const createFileTab = useCallback((filePath: string, projectPath: string): string | null => {
     const fileName = basename(filePath, filePath);
 
-    // 查找现有的 file 或 diff tab
+    // Find existing file or diff tab
     const existingTab = tabs.find(tab =>
       (tab.type === 'file' || tab.type === 'diff') &&
       tab.projectPath === projectPath
     );
 
     if (existingTab) {
-      // 更新现有 tab 为 file
+      // Update existing tab to file
       updateTab(existingTab.id, {
         type: 'file',
         title: fileName,
@@ -218,7 +218,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       return existingTab.id;
     }
 
-    // 创建新 tab
+    // Create new tab
     return addTab({
       type: 'file',
       title: fileName,
@@ -230,7 +230,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     });
   }, [tabs, addTab, updateTab, setActiveTab]);
 
-  // 创建 WebViewer Tab
+  // Create WebViewer Tab
   const createWebViewerTab = useCallback((url: string, projectPath: string): string | null => {
     let displayName = 'Web';
     try {
@@ -240,7 +240,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       displayName = 'Web';
     }
 
-    // 查找现有的 webview tab
+    // Find existing webview tab
     const existingTab = tabs.find(tab =>
       tab.type === 'webview' &&
       tab.projectPath === projectPath
@@ -268,33 +268,33 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     });
   }, [tabs, addTab, updateTab, setActiveTab]);
 
-  // Actions 状态
+  // Actions state
   const [actions, setActions] = useState<Action[]>([]);
   const [runningActionId, setRunningActionId] = useState<string>();
   const [showActionsConfig, setShowActionsConfig] = useState(false);
 
-  // Run Tab 状态
+  // Run Tab state
   const [isRunTabActive, setIsRunTabActive] = useState(false);
 
-  // 处理打开 WebView 浏览器
+  // Handle opening WebView browser
   const handleOpenWebView = useCallback(() => {
     if (!currentProjectPath) return;
     createWebViewerTab('https://www.google.com', currentProjectPath);
   }, [currentProjectPath, createWebViewerTab]);
 
-  // 使用 Map 存储每个 workspace 的状态
+  // Use Map to store state per workspace
   const workspaceStates = useRef<Map<string, WorkspaceTerminalState>>(new Map());
 
-  // 获取当前 workspace 的状态
+  // Get current workspace state
   const getCurrentState = useCallback((): WorkspaceTerminalState => {
     const key = getWorkspaceStorageKey(currentProjectPath);
 
     if (!workspaceStates.current.has(key)) {
-      // 尝试从本地存储加载
+      // Try to load from local storage
       const savedState = loadTerminalState(key);
 
       if (savedState && savedState.sessions.length > 0) {
-        // 使用保存的状态
+        // Use saved state
         console.log('[RightSidebar] Loading workspace terminal state from local storage:', key);
         const outputs: Record<string, TerminalOutput[]> = {};
         savedState.sessions.forEach((session: TerminalSession) => {
@@ -312,7 +312,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           commandStartTime: new Map()
         });
       } else {
-        // 创建默认状态
+        // Create default state
         console.log('[RightSidebar] Creating new workspace terminal state:', key);
         const firstTerminalId = generateTerminalId();
         workspaceStates.current.set(key, {
@@ -331,13 +331,13 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     return workspaceStates.current.get(key)!;
   }, [currentProjectPath]);
 
-  // 强制更新组件
+  // Force update component
   const [, forceUpdate] = useState({});
   const triggerUpdate = () => forceUpdate({});
 
   const state = getCurrentState();
 
-  // 监听 workspace 切换
+  // Watch workspace changes
   const prevProjectPathRef = useRef<string | undefined>();
   useEffect(() => {
     const key = currentProjectPath || 'default';
@@ -353,14 +353,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         historyCount: currentState.commandHistory.length
       });
 
-      // 强制更新组件以显示新 workspace 的状态
+      // Force update to show new workspace state
       triggerUpdate();
     }
 
     prevProjectPathRef.current = currentProjectPath;
   }, [currentProjectPath, getCurrentState]);
 
-  // 从路径中提取 projectName 和 workspaceName
+  // Extract projectName and workspaceName from path
   const parseProjectPath = useCallback((path: string | undefined) => {
     if (!path) return null;
 
@@ -368,19 +368,19 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     const ropcodeIndex = parts.findIndex(p => p === '.ropcode');
 
     if (ropcodeIndex > 0) {
-      // Workspace 路径: /path/to/project/.ropcode/workspace-name
+      // Workspace path: /path/to/project/.ropcode/workspace-name
       return {
         projectName: parts[ropcodeIndex - 1],
         workspaceName: parts[ropcodeIndex + 1]
       };
     } else {
-      // Project 路径: /path/to/project (取最后一个非空部分)
+      // Project path: /path/to/project (last non-empty segment)
       const projectName = parts.filter(p => p).pop();
       return projectName ? { projectName, workspaceName: undefined } : null;
     }
   }, []);
 
-  // 加载 Actions
+  // Load Actions
   const loadActions = useCallback(async () => {
     if (!currentProjectPath) {
       setActions([]);
@@ -408,12 +408,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     }
   }, [currentProjectPath, parseProjectPath]);
 
-  // 监听 currentProjectPath 变化，加载 actions
+  // Watch currentProjectPath changes, load actions
   useEffect(() => {
     loadActions();
   }, [loadActions]);
 
-  // 创建新终端会话
+  // Create new terminal session
   const handleNewTerminal = useCallback(() => {
     const currentState = getCurrentState();
     const newId = generateTerminalId();
@@ -428,7 +428,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     currentState.outputs[newId] = [];
     currentState.activeSessionId = newId;
 
-    // 保存到本地存储
+    // Save to local storage
     const key = getWorkspaceStorageKey(currentProjectPath);
     saveTerminalState(key, currentState);
 
@@ -436,7 +436,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     triggerUpdate();
   }, [getCurrentState, currentProjectPath]);
 
-  // 处理 Git 文件点击 - 创建 Diff Tab
+  // Handle Git file click - create Diff Tab
   const handleGitFileClick = useCallback((file: GitFileChange) => {
     if (!currentProjectPath) return;
 
@@ -444,7 +444,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     createDiffTab(file.path, currentProjectPath, file.status);
   }, [currentProjectPath, createDiffTab]);
 
-  // 处理文件树点击 - 创建 File Tab
+  // Handle file tree click - create File Tab
   const handleFileTreeClick = useCallback((filePath: string) => {
     if (!currentProjectPath) return;
 
@@ -452,17 +452,17 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     createFileTab(filePath, currentProjectPath);
   }, [currentProjectPath, createFileTab]);
 
-  // 关闭终端会话
+  // Close terminal session
   const handleCloseSession = useCallback(async (id: string) => {
     const currentState = getCurrentState();
     if (currentState.sessions.length === 1) {
       console.log('[RightSidebar] Cannot close the last terminal');
-      return; // 至少保留一个会话
+      return; // Keep at least one session
     }
 
     console.log('[RightSidebar] Closing terminal:', id);
 
-    // 清理 PTY 会话
+    // Clean up PTY session
     try {
       await api.closePtySession(id);
       console.log('[RightSidebar] PTY session closed:', id);
@@ -470,11 +470,11 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       console.error('[RightSidebar] Failed to close PTY session:', id, error);
     }
 
-    // 从状态中移除
+    // Remove from state
     currentState.sessions = currentState.sessions.filter(s => s.id !== id);
     delete currentState.outputs[id];
 
-    // 清理相关的运行状态
+    // Clean up related run state
     currentState.sessionRunningState.delete(id);
     const commandId = currentState.sessionCommandId.get(id);
     if (commandId) {
@@ -483,19 +483,19 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       currentState.sessionCommandId.delete(id);
     }
 
-    // 如果关闭的是当前激活的会话，切换到第一个
+    // If closing active session, switch to first
     if (currentState.activeSessionId === id) {
       currentState.activeSessionId = currentState.sessions[0]?.id || '';
     }
 
-    // 保存到本地存储
+    // Save to local storage
     const key = getWorkspaceStorageKey(currentProjectPath);
     saveTerminalState(key, currentState);
 
     triggerUpdate();
   }, [getCurrentState, currentProjectPath]);
 
-  // 执行命令
+  // Execute command
   const handleSubmitCommand = useCallback(async (command: string) => {
     const currentState = getCurrentState();
     const sessionId = currentState.activeSessionId;
@@ -503,10 +503,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
     if (!sessionId) return;
 
-    // 添加到历史记录
+    // Add to history
     currentState.commandHistory = [command, ...currentState.commandHistory].slice(0, 50);
 
-    // 添加命令输出
+    // Add command output
     const commandOutput: TerminalOutput = {
       id: `${Date.now()}-cmd`,
       type: 'command',
@@ -517,25 +517,25 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     currentState.outputs[sessionId].push(commandOutput);
     triggerUpdate();
 
-    // 生成唯一的命令 ID
+    // Generate unique command ID
     const commandId = `cmd-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-    // 设置会话级别的运行状态
+    // Set session-level run state
     currentState.sessionRunningState.set(sessionId, true);
     currentState.sessionCommandId.set(sessionId, commandId);
 
-    // 记录命令ID和会话ID的映射，确保输出到正确的会话
+    // Map command ID to session ID for correct output routing
     currentState.commandToSessionMap.set(commandId, sessionId);
-    // 记录命令开始时间
+    // Record command start time
     currentState.commandStartTime.set(commandId, Date.now());
     console.log('[RightSidebar] Recording command mapping:', { commandId, sessionId, command: command.substring(0, 50) });
 
     try {
-      // 使用异步流式 API 执行命令
+      // Execute command via async streaming API
       await api.executeCommandAsync(commandId, command, projectPath);
 
-      // 命令已开始执行,输出会通过事件流式传入
-      // 不需要在这里处理结果
+      // Command started, output streams via events
+      // No need to handle result here
     } catch (error) {
       const errorOutput: TerminalOutput = {
         id: `${Date.now()}-error`,
@@ -547,22 +547,22 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       currentState.outputs[sessionId].push(errorOutput);
       triggerUpdate();
 
-      // 清理会话运行状态
+      // Clean up session run state
       currentState.sessionRunningState.set(sessionId, false);
       currentState.sessionCommandId.delete(sessionId);
-      // 清理映射和时间戳
+      // Clean up mappings and timestamps
       currentState.commandToSessionMap.delete(commandId);
       currentState.commandStartTime.delete(commandId);
     }
   }, [getCurrentState, currentProjectPath]);
 
-  // 执行 Action
+  // Execute Action
   const handleExecuteAction = useCallback(async (action: Action) => {
-    // 判断 action 类型：默认为 'script'
+    // Determine action type: defaults to 'script'
     const actionType = action.actionType || 'script';
 
     if (actionType === 'web') {
-      // Web action: 打开 WebViewer Tab
+      // Web action: open WebViewer Tab
       if (!action.command) {
         console.error('[RightSidebar] Web action has no URL:', action);
         return;
@@ -581,41 +581,41 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       return;
     }
 
-    // Script action: 执行命令
+    // Script action: Execute command
     setRunningActionId(action.id);
 
-    // 切换到第一个 Terminal
+    // Switch to first Terminal
     const currentState = getCurrentState();
     const firstTerminal = currentState.sessions[0];
     if (firstTerminal) {
       currentState.activeSessionId = firstTerminal.id;
-      setIsRunTabActive(false); // 关闭 Run tab
+      setIsRunTabActive(false); // Close Run tab
       triggerUpdate();
 
-      // 等待 UI 更新
+      // Wait for UI update
       await new Promise(resolve => setTimeout(resolve, 100));
 
       try {
-        // 如果是 PTY 终端，直接写入命令
+        // If PTY terminal, write command directly
         if (firstTerminal.isPty) {
-          // 检查 PTY 会话是否存活
+          // Check if PTY session is alive
           const isAlive = await api.isPtySessionAlive(firstTerminal.id);
           if (isAlive) {
             await api.writeToPty(firstTerminal.id, action.command + '\n');
           } else {
             console.warn('[RightSidebar] PTY session not ready yet:', firstTerminal.id);
-            // 等待一下再重试
+            // Wait briefly then retry
             await new Promise(resolve => setTimeout(resolve, 500));
             await api.writeToPty(firstTerminal.id, action.command + '\n');
           }
         } else {
-          // 旧的命令执行方式
+          // Legacy command execution method
           await handleSubmitCommand(action.command);
         }
       } catch (error) {
         console.error('[RightSidebar] Failed to execute action:', error);
       } finally {
-        // 延迟清除运行状态
+        // Delay clearing run state
         setTimeout(() => {
           setRunningActionId(undefined);
         }, 500);
@@ -623,7 +623,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     }
   }, [handleSubmitCommand, getCurrentState, triggerUpdate, createWebViewerTab, currentProjectPath]);
 
-  // 停止当前运行的命令
+  // Stop currently running command
   const handleStopCommand = useCallback(async () => {
     const currentState = getCurrentState();
     const sessionId = currentState.activeSessionId;
@@ -634,7 +634,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     try {
       await api.killCommand(commandId);
 
-      // 添加停止消息
+      // Add stop message
       const stopOutput: TerminalOutput = {
         id: `${Date.now()}-stop`,
         type: 'error',
@@ -647,10 +647,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     } catch (error) {
       console.error('Failed to kill command:', error);
     } finally {
-      // 清理会话运行状态
+      // Clean up session run state
       currentState.sessionRunningState.set(sessionId, false);
       currentState.sessionCommandId.delete(sessionId);
-      // 清理命令映射和时间戳
+      // Clean up command mappings and timestamps
       if (commandId) {
         currentState.commandToSessionMap.delete(commandId);
         currentState.commandStartTime.delete(commandId);
@@ -658,18 +658,18 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     }
   }, [getCurrentState]);
 
-  // 从历史记录选择命令
+  // Select command from history
   const handleSelectHistory = useCallback((command: string) => {
     handleSubmitCommand(command);
   }, [handleSubmitCommand]);
 
-  // 切换会话
+  // Switch session
   const handleSelectSession = useCallback((id: string) => {
     const currentState = getCurrentState();
     currentState.activeSessionId = id;
-    setIsRunTabActive(false); // 切换到终端 tab 时关闭 Run tab
+    setIsRunTabActive(false); // Close Run tab when switching to terminal
 
-    // 保存到本地存储
+    // Save to local storage
     const key = getWorkspaceStorageKey(currentProjectPath);
     saveTerminalState(key, currentState);
 
@@ -678,12 +678,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   }, [getCurrentState, currentProjectPath]);
 
   
-  // 切换到 Run tab
+  // Switch to Run tab
   const handleSelectRunTab = useCallback(() => {
     setIsRunTabActive(true);
   }, []);
 
-  // 监听终端输出事件
+  // Listen for terminal output events
   useEffect(() => {
     const unlisten = listen('terminal-output', (payload: {
       command_id: string;
@@ -694,7 +694,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       const { command_id, output_type, content, exit_code } = payload;
       const currentState = getCurrentState();
 
-        // 根据命令ID找到对应的会话ID
+        // Find session ID by command ID
         const sessionId = currentState.commandToSessionMap.get(command_id);
 
         if (!sessionId) {
@@ -704,31 +704,31 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
         console.log('[RightSidebar] Routing output to session:', { command_id, sessionId, output_type, exit_code });
 
-        // 检测 ANSI 清屏序列 (clear 命令的输出)
+        // Detect ANSI clear screen sequence (clear command output)
         const clearScreenPattern = /\x1b\[(?:2J|3J|H)/;
         if (clearScreenPattern.test(content)) {
-          // 清空当前会话的输出
+          // Clear current session output
           currentState.outputs[sessionId] = [];
           triggerUpdate();
 
-          // 如果是退出事件,标记命令执行完成
+          // If exit event, mark command as completed
           if (output_type === 'exit') {
             currentState.sessionRunningState.set(sessionId, false);
             currentState.sessionCommandId.delete(sessionId);
             currentState.commandToSessionMap.delete(command_id);
           }
-          return; // 不添加清屏序列本身
+          return; // Skip the clear sequence itself
         }
 
-        // 移除其他 ANSI 转义序列（颜色、光标控制等）
+        // Strip other ANSI escape sequences (colors, cursor control, etc.)
         const cleanContent = content.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
 
-        // 如果清理后内容为空，跳过
+        // Skip if content is empty after cleanup
         if (!cleanContent.trim() && output_type !== 'exit') {
           return;
         }
 
-        // 添加输出到当前会话
+        // Add output to current session
         const output: TerminalOutput = {
           id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
           type: output_type === 'stderr' ? 'error' : 'output',
@@ -739,12 +739,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         currentState.outputs[sessionId].push(output);
         triggerUpdate();
 
-        // 如果是退出事件,标记命令执行完成
+        // If exit event, mark command as completed
         if (output_type === 'exit') {
-          // 清理会话运行状态
+          // Clean up session run state
           currentState.sessionRunningState.set(sessionId, false);
           currentState.sessionCommandId.delete(sessionId);
-          // 清理命令映射和时间戳
+          // Clean up command mappings and timestamps
           currentState.commandToSessionMap.delete(command_id);
           currentState.commandStartTime.delete(command_id);
           console.log('[RightSidebar] Cleared command mapping and running state:', command_id, sessionId);
@@ -754,30 +754,30 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     return unlisten;
   }, [getCurrentState]);
 
-  // 注意：不再需要轮询清理僵死的命令状态
-  // terminal-output 事件的 exit 处理（line 670-677）已经负责清理会话运行状态
-  // 如果出现异常情况，应该通过事件机制处理，而不是依赖轮询
+  // Note: polling for stale command cleanup is no longer needed
+  // terminal-output exit handling (line 670-677) already cleans up session run state
+  // Abnormal cases should be handled via events, not polling
 
-  // 先定义所有变量和回调（在任何条件 return 之前）
+  // Define all variables and callbacks before any conditional returns
   const currentOutputs = state.outputs[state.activeSessionId] || [];
   const isCurrentSessionRunning = state.sessionRunningState.get(state.activeSessionId) || false;
   const currentSession = state.sessions.find(s => s.id === state.activeSessionId);
 
-  // 处理垂直调整大小
+  // Handle vertical resize
   const handleVerticalResize = useCallback((deltaY: number) => {
     setGitPaneHeight(prev => {
       const newHeight = prev + deltaY;
-      // 限制最小和最大高度
+      // Clamp min and max height
       return Math.max(150, Math.min(newHeight, 600));
     });
   }, []);
 
-  // 监听全局快捷键 - 使用 capture 阶段确保优先处理
+  // Listen for global shortcuts - use capture phase for priority
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const modKey = usesMetaKeyForAppShortcuts() ? e.metaKey : e.ctrlKey;
 
-      // Cmd/Ctrl+J: 切换终端显示
+      // Cmd/Ctrl+J: toggle terminal visibility
       if (modKey && e.key === 'j') {
         e.preventDefault();
         e.stopPropagation();
@@ -785,8 +785,8 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         return;
       }
 
-      // Ctrl+C: 停止当前命令（macOS 和其他平台都使用 Ctrl）
-      // 必须在终端打开且有命令运行时才拦截
+      // Ctrl+C: stop current command (all platforms use Ctrl)
+      // Only intercept when terminal is open and command is running
       const currentState = getCurrentState();
       const sessionId = currentState.activeSessionId;
       const isCurrentSessionRunning = currentState.sessionRunningState.get(sessionId) || false;
@@ -800,7 +800,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       }
     };
 
-    // 使用 capture 阶段确保在其他事件处理器之前捕获
+    // Use capture phase to intercept before other handlers
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [onToggle, isOpen, handleStopCommand, getCurrentState]);
@@ -836,21 +836,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
       >
         {isOpen && (
           <div className="relative h-full min-w-0 flex flex-1 flex-col overflow-hidden">
-            {/* 水平调整大小手柄 */}
+            {/* Horizontal resize handle */}
             <ResizeHandle
               onResize={(newWidth) => {
-                // 将像素宽度转换为百分比，扣除固定 rail 宽度
+                // Convert pixel width to percentage, subtract fixed rail width
                 const panelWidth = Math.max(0, newWidth - RIGHT_SIDEBAR_RAIL_WIDTH);
                 const percent = (panelWidth / window.innerWidth) * 100;
-                // 限制在 15% - 50% 之间
+                // Clamp between 15% - 50%
                 setWidthPercent(Math.max(15, Math.min(50, percent)));
               }}
             />
 
-      {/* Tab 内容 - Console */}
+      {/* Tab content - Console */}
       {activeRightTab === 'console' && (
         <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Git 状态面板 - 只在有 Git 支持时显示 */}
+              {/* Git status panel - only show with Git support */}
           {hasGitSupport && (
             <>
               <div
@@ -863,14 +863,14 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                 />
               </div>
 
-              {/* 垂直调整大小手柄 */}
+              {/* Vertical resize handle */}
               <VerticalResizeHandle onResize={handleVerticalResize} />
             </>
           )}
 
-          {/* 终端区域 */}
+          {/* Terminal area */}
           <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Tab 管理 */}
+        {/* Tab management */}
         <TerminalTabs
           sessions={state.sessions}
           activeSessionId={isRunTabActive ? undefined : state.activeSessionId}
@@ -883,7 +883,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           onSelectRunTab={handleSelectRunTab}
         />
 
-        {/* 根据 isRunTabActive 显示 Run Tab 或 Terminal */}
+        {/* Show Run Tab or Terminal based on isRunTabActive */}
         {isRunTabActive ? (
           <RunTabPane
             actions={actions}
@@ -896,7 +896,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           />
         ) : (
           <div className="flex-1 relative">
-            {/* 渲染所有 PTY 终端 - Linus 简化版 */}
+            {/* Render all PTY terminals */}
             {state.sessions.map((session) => (
               session.isPty ? (
                 <XtermTerminal
@@ -910,10 +910,10 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
               ) : null
             ))}
 
-            {/* 旧的非 PTY 终端（如果有的话） */}
+            {/* Legacy non-PTY terminals (if any) */}
             {currentSession && !currentSession.isPty && (
               <div className="absolute inset-0 flex flex-col" style={{ zIndex: 1 }}>
-                {/* 终端输出面板 */}
+                {/* Terminal output panel */}
                 <TerminalPane
                   outputs={currentOutputs}
                   isRunning={isCurrentSessionRunning}
@@ -921,7 +921,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   workspacePath={currentProjectPath}
                 />
 
-                {/* 命令输入框 */}
+                {/* Command input */}
                 <TerminalInput
                   onSubmit={handleSubmitCommand}
                   commandHistory={state.commandHistory}
@@ -937,7 +937,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         </div>
       )}
 
-      {/* Tab 内容 - Files */}
+      {/* Tab content - Files */}
       {activeRightTab === 'files' && (
         <div className="flex-1 flex flex-col overflow-hidden">
           <FileTreeBrowser
@@ -962,9 +962,9 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         </div>
       )}
 
-      {/* Actions 配置对话框 */}
+      {/* Actions config dialog */}
       {(() => {
-        // 只在对话框需要打开时才检查和输出警告
+        // Only check and warn when dialog needs to open
         if (!showActionsConfig) {
           return null;
         }

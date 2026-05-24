@@ -1,12 +1,12 @@
 /**
- * TermWrap - xterm.js Terminal 封装类
+ * TermWrap - xterm.js Terminal wrapper class
  *
- * 提供完整的终端功能，包括：
- * - WebGL GPU 加速渲染
- * - 搜索功能
- * - 序列化/反序列化
- * - Web 链接支持
- * - 自适应大小调整
+ * Provides full terminal functionality including:
+ * - WebGL GPU-accelerated rendering
+ * - Search functionality
+ * - Serialization/deserialization
+ * - Web link support
+ * - Auto-fit resizing
  */
 
 import { Terminal, ITerminalOptions, ITerminalInitOnlyOptions } from '@xterm/xterm';
@@ -18,16 +18,16 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 
 /**
- * 缓存 WebGL 支持检测结果
+ * Cache WebGL support detection result
  */
 let webglSupportCached: boolean | null = null;
 
 /**
- * 检测浏览器是否支持 WebGL（结果会被缓存）
- * @returns 如果支持 WebGL 返回 true，否则返回 false
+ * Detect whether the browser supports WebGL (result is cached)
+ * @returns true if WebGL is supported, false otherwise
  */
 function detectWebGLSupport(): boolean {
-  // 返回缓存的结果，避免重复创建 WebGL 上下文
+  // Return cached result to avoid recreating WebGL context
   if (webglSupportCached !== null) {
     return webglSupportCached;
   }
@@ -35,7 +35,7 @@ function detectWebGLSupport(): boolean {
   try {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('webgl') || canvas.getContext('webgl2');
-    // 立即释放上下文
+    // Release context immediately
     if (ctx) {
       const ext = ctx.getExtension('WEBGL_lose_context');
       if (ext) {
@@ -52,63 +52,63 @@ function detectWebGLSupport(): boolean {
 }
 
 /**
- * TermWrap 配置选项
+ * TermWrap configuration options
  */
 export interface TermWrapOptions {
-  /** 是否启用 WebGL 渲染（需要浏览器支持） */
+  /** Whether to enable WebGL rendering (requires browser support) */
   useWebGL?: boolean;
-  /** 是否延迟加载 WebGL（在后台异步加载，避免阻塞 UI） */
+  /** Whether to lazy-load WebGL (loads asynchronously in background to avoid blocking UI) */
   lazyWebGL?: boolean;
-  /** 链接点击处理器 */
+  /** Link click handler */
   onLinkClick?: (event: MouseEvent, uri: string) => void;
-  /** 数据发送处理器 */
+  /** Data send handler */
   onData?: (data: string) => void;
-  /** 自定义键盘事件处理器 */
+  /** Custom keyboard event handler */
   onKey?: (event: KeyboardEvent) => boolean;
 }
 
 /**
- * TermWrap - xterm.js Terminal 的封装类
+ * TermWrap - xterm.js Terminal wrapper class
  *
- * 封装了 xterm.js Terminal 及其常用 addons，提供统一的接口和优雅的错误处理
+ * Wraps xterm.js Terminal and its common addons, providing a unified interface with graceful error handling
  */
 export class TermWrap {
-  /** xterm.js Terminal 实例 */
+  /** xterm.js Terminal instance */
   public readonly terminal: Terminal;
 
-  /** FitAddon - 自适应大小 */
+  /** FitAddon - auto-fit sizing */
   private readonly fitAddon: FitAddon;
 
-  /** SearchAddon - 搜索功能 */
+  /** SearchAddon - search functionality */
   private readonly searchAddon: SearchAddon;
 
-  /** SerializeAddon - 序列化功能 */
+  /** SerializeAddon - serialization functionality */
   private readonly serializeAddon: SerializeAddon;
 
-  /** WebLinksAddon - Web 链接支持 */
+  /** WebLinksAddon - web link support */
   private readonly webLinksAddon: WebLinksAddon;
 
-  /** WebglAddon - GPU 加速渲染（可选） */
+  /** WebglAddon - GPU-accelerated rendering (optional) */
   private webglAddon?: WebglAddon;
 
-  /** Unicode11Addon - 正确处理 Unicode 字符宽度 */
+  /** Unicode11Addon - correct Unicode character width handling */
   private readonly unicode11Addon: Unicode11Addon;
 
-  /** 容器元素 */
+  /** Container element */
   private readonly container: HTMLDivElement;
 
-  /** 配置选项 */
+  /** Configuration options */
   private readonly options: TermWrapOptions;
 
-  /** WebGL 是否已成功加载 */
+  /** Whether WebGL has been successfully loaded */
   private webglLoaded: boolean = false;
 
   /**
-   * 创建 TermWrap 实例
+   * Create a TermWrap instance
    *
-   * @param container - 终端挂载的 DOM 容器
-   * @param terminalOptions - xterm.js Terminal 配置选项
-   * @param wrapOptions - TermWrap 配置选项
+   * @param container - DOM container to mount the terminal
+   * @param terminalOptions - xterm.js Terminal configuration options
+   * @param wrapOptions - TermWrap configuration options
    */
   constructor(
     container: HTMLDivElement,
@@ -118,49 +118,49 @@ export class TermWrap {
     this.container = container;
     this.options = wrapOptions || {};
 
-    // 创建 Terminal 实例
+    // Create Terminal instance
     console.log('[TermWrap] Creating Terminal instance');
     this.terminal = new Terminal(terminalOptions);
 
-    // 初始化 FitAddon
+    // Initialize FitAddon
     this.fitAddon = new FitAddon();
     this.terminal.loadAddon(this.fitAddon);
 
-    // 初始化 SearchAddon
+    // Initialize SearchAddon
     this.searchAddon = new SearchAddon();
     this.terminal.loadAddon(this.searchAddon);
 
-    // 初始化 SerializeAddon
+    // Initialize SerializeAddon
     this.serializeAddon = new SerializeAddon();
     this.terminal.loadAddon(this.serializeAddon);
 
-    // 初始化 WebLinksAddon
+    // Initialize WebLinksAddon
     this.webLinksAddon = new WebLinksAddon(this.handleLinkClick.bind(this));
     this.terminal.loadAddon(this.webLinksAddon);
 
-    // 初始化 Unicode11Addon - 正确处理 Powerline 符号等 Unicode 字符宽度
+    // Initialize Unicode11Addon - correct width handling for Powerline symbols and other Unicode chars
     this.unicode11Addon = new Unicode11Addon();
     this.terminal.loadAddon(this.unicode11Addon);
     this.terminal.unicode.activeVersion = '11';
 
-    // 尝试加载 WebGL addon（如果支持且启用）
+    // Try to load WebGL addon (if supported and enabled)
     if (this.options.useWebGL !== false && detectWebGLSupport()) {
       if (this.options.lazyWebGL) {
-        // 延迟加载：在后台异步加载，不阻塞初始化
+        // Lazy load: load asynchronously in background without blocking initialization
         const idle = typeof requestIdleCallback === 'function' ? requestIdleCallback : (cb: () => void) => setTimeout(cb, 100);
         idle(() => this.loadWebGLAddon());
       } else {
-        // 同步加载（默认行为）
+        // Synchronous load (default behavior)
         this.loadWebGLAddon();
       }
     } else if (this.options.useWebGL === true && !detectWebGLSupport()) {
       console.warn('WebGL is not supported in this browser, falling back to canvas renderer');
     }
 
-    // 打开 Terminal 到容器
+    // Open Terminal to container
     this.terminal.open(this.container);
 
-    // 设置事件处理器
+    // Set up event handlers
     if (this.options.onData) {
       this.terminal.onData(this.options.onData);
     }
@@ -171,14 +171,14 @@ export class TermWrap {
   }
 
   /**
-   * 加载 WebGL addon（带错误处理）
+   * Load WebGL addon (with error handling)
    * @private
    */
   private loadWebGLAddon(): void {
     try {
       this.webglAddon = new WebglAddon();
 
-      // 监听 WebGL context 丢失事件
+      // Listen for WebGL context loss event
       this.webglAddon.onContextLoss(() => {
         console.warn('WebGL context lost, disposing WebGL addon');
         this.webglAddon?.dispose();
@@ -197,52 +197,52 @@ export class TermWrap {
   }
 
   /**
-   * 处理链接点击事件
+   * Handle link click event
    * @private
    */
   private handleLinkClick(event: MouseEvent, uri: string): void {
     if (this.options.onLinkClick) {
       this.options.onLinkClick(event, uri);
     } else {
-      // 默认行为：在新标签页打开链接
+      // Default behavior: open link in new tab
       event.preventDefault();
       window.open(uri, '_blank', 'noopener,noreferrer');
     }
   }
 
   /**
-   * 获取 WebGL 支持状态
-   * @returns 如果浏览器支持 WebGL 返回 true
+   * Get WebGL support status
+   * @returns true if the browser supports WebGL
    */
   public static detectWebGLSupport(): boolean {
     return detectWebGLSupport();
   }
 
   /**
-   * 检查 WebGL 是否已成功加载
-   * @returns 如果 WebGL addon 已加载返回 true
+   * Check if WebGL has been successfully loaded
+   * @returns true if WebGL addon is loaded
    */
   public isWebGLLoaded(): boolean {
     return this.webglLoaded;
   }
 
   /**
-   * 搜索文本
+   * Search text
    *
-   * @param query - 搜索关键词
-   * @param options - 搜索选项（大小写敏感、正则表达式等）
-   * @returns 是否找到匹配项
+   * @param query - Search keyword
+   * @param options - Search options (case sensitivity, regex, etc.)
+   * @returns Whether a match was found
    */
   public search(query: string, options?: Parameters<SearchAddon['findNext']>[1]): boolean {
     return this.searchAddon.findNext(query, options);
   }
 
   /**
-   * 查找下一个匹配项
+   * Find next match
    *
-   * @param query - 搜索关键词
-   * @param options - 搜索选项
-   * @returns 是否找到匹配项
+   * @param query - Search keyword
+   * @param options - Search options
+   * @returns Whether a match was found
    */
   public searchNext(query?: string, options?: any): boolean {
     if (query) {
@@ -252,11 +252,11 @@ export class TermWrap {
   }
 
   /**
-   * 查找上一个匹配项
+   * Find previous match
    *
-   * @param query - 搜索关键词
-   * @param options - 搜索选项
-   * @returns 是否找到匹配项
+   * @param query - Search keyword
+   * @param options - Search options
+   * @returns Whether a match was found
    */
   public searchPrevious(query?: string, options?: any): boolean {
     if (query) {
@@ -266,34 +266,34 @@ export class TermWrap {
   }
 
   /**
-   * 清除搜索结果高亮
+   * Clear search result highlights
    */
   public clearSearch(): void {
     this.searchAddon.clearDecorations();
   }
 
   /**
-   * 序列化终端内容
+   * Serialize terminal content
    *
-   * @returns 序列化后的终端内容（可用于保存和恢复）
+   * @returns Serialized terminal content (can be used for save and restore)
    */
   public serialize(): string {
     return this.serializeAddon.serialize();
   }
 
   /**
-   * 自适应调整终端大小以适应容器
+   * Auto-fit terminal size to container
    *
-   * 调用此方法会自动调整终端的行数和列数以适应容器尺寸
+   * Calling this method automatically adjusts terminal rows and columns to fit the container
    */
   public fit(): void {
     this.fitAddon.fit();
   }
 
   /**
-   * 获取当前终端尺寸
+   * Get current terminal dimensions
    *
-   * @returns 终端的行数和列数
+   * @returns Terminal rows and columns
    */
   public getDimensions(): { cols: number; rows: number } {
     return {
@@ -303,61 +303,61 @@ export class TermWrap {
   }
 
   /**
-   * 写入数据到终端
+   * Write data to terminal
    *
-   * @param data - 要写入的数据
-   * @param callback - 写入完成后的回调函数
+   * @param data - Data to write
+   * @param callback - Callback after write completes
    */
   public write(data: string | Uint8Array, callback?: () => void): void {
     this.terminal.write(data, callback);
   }
 
   /**
-   * 清空终端内容
+   * Clear terminal content
    */
   public clear(): void {
     this.terminal.clear();
   }
 
   /**
-   * 重置终端状态
+   * Reset terminal state
    */
   public reset(): void {
     this.terminal.reset();
   }
 
   /**
-   * 获取终端当前选中的文本
+   * Get currently selected text in terminal
    *
-   * @returns 选中的文本内容
+   * @returns Selected text content
    */
   public getSelection(): string {
     return this.terminal.getSelection();
   }
 
   /**
-   * 获取 Terminal 实例
+   * Get Terminal instance
    *
-   * @returns Terminal 实例
+   * @returns Terminal instance
    */
   public getTerminal(): Terminal {
     return this.terminal;
   }
 
   /**
-   * 聚焦到终端
+   * Focus the terminal
    */
   public focus(): void {
     this.terminal.focus();
   }
 
   /**
-   * 销毁终端实例
+   * Dispose the terminal instance
    *
-   * 清理所有 addon 和事件监听器，释放资源
+   * Cleans up all addons and event listeners, releases resources
    */
   public dispose(): void {
-    // 销毁 WebGL addon（如果已加载）
+    // Dispose WebGL addon (if loaded)
     if (this.webglAddon) {
       try {
         this.webglAddon.dispose();
@@ -368,7 +368,7 @@ export class TermWrap {
       this.webglLoaded = false;
     }
 
-    // 销毁 Terminal 实例（会自动清理所有 addons）
+    // Dispose Terminal instance (automatically cleans up all addons)
     this.terminal.dispose();
   }
 }

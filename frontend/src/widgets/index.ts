@@ -1,8 +1,8 @@
 /**
- * Widget 系统统一导出
+ * Widget system unified exports
  */
 
-// 导出所有类型
+// Export all types
 export type {
   WidgetType,
   WidgetStatus,
@@ -17,10 +17,10 @@ export type {
   WebWidgetConfig,
 } from './types';
 
-// 导出工具函数
+// Export utility functions
 export { generateWidgetId } from './types';
 
-// 导出基础模块
+// Export base modules
 export {
   BaseWidgetModel,
   widgetRegistry,
@@ -30,14 +30,14 @@ export {
   useWidgetRegistry,
 } from './base';
 
-// 导出 Terminal Widget
+// Export Terminal Widget
 export { TermWrap, useTerminalStore, getTheme, themeNames, themes } from './terminal';
 export type { TermWrapOptions } from './terminal';
 
-// 导出 Files Widget
+// Export Files Widget
 export { FilesWidgetModel, useFilesStore } from './files';
 
-// 导出 Preview Widget
+// Export Preview Widget
 export {
   PreviewWidgetModel,
   usePreviewStore,
@@ -48,5 +48,5 @@ export {
 } from './preview';
 export type { PreviewType } from './preview';
 
-// 导出 Web Widget
+// Export Web Widget
 export { WebWidgetModel, useWebStore } from './web';

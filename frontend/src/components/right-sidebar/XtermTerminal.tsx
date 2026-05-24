@@ -7,18 +7,18 @@ import { useThemeContext } from '@/contexts/ThemeContext';
 import type { TermWrap } from '@/widgets/terminal/TermWrap';
 
 /**
- * 将 CSS 颜色值转换为 hex 格式
- * xterm.js 不支持 oklch 等现代颜色格式，需要转换
+ * Convert CSS color values to hex format
+ * xterm.js does not support modern color formats like oklch, conversion needed
  */
 function cssColorToHex(cssColor: string): string {
-  // 创建临时元素来解析颜色
+  // Create temp element to parse color
   const tempEl = document.createElement('div');
   tempEl.style.color = cssColor;
   document.body.appendChild(tempEl);
   const computedColor = getComputedStyle(tempEl).color;
   document.body.removeChild(tempEl);
 
-  // 解析 rgb/rgba 格式
+  // Parse rgb/rgba format
   const match = computedColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
   if (match) {
     const r = parseInt(match[1], 10);
@@ -27,7 +27,7 @@ function cssColorToHex(cssColor: string): string {
     return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
   }
 
-  // 如果解析失败，返回原值
+  // If parse fails, return original value
   return cssColor;
 }
 
@@ -41,9 +41,9 @@ interface XtermTerminalProps {
 }
 
 /**
- * XtermTerminal 组件
+ * XtermTerminal component
  *
- * 使用 TermWrap 管理终端实例
+ * using TermWrap manageterminalinstance
  */
 export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   sessionId,
@@ -57,10 +57,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   const { theme, systemTheme, customColors } = useThemeContext();
   const [attachedTermWrap, setAttachedTermWrap] = useState<TermWrap | null>(null);
 
-  // 获取 manager key
+  // Get manager key
   const { managerKey } = useTerminalInstance(workspaceId, sessionId);
 
-  // 附加 Terminal 到容器，创建 TermWrap
+  // Attach Terminal to container, create TermWrap
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -68,7 +68,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     setAttachedTermWrap(termWrap);
 
     if (termWrap) {
-      // 附加后尝试延迟适配
+      // Try delayed fit after attach
       const tryFit = () => {
         try {
           termWrap.fit();
@@ -85,10 +85,10 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     }
   }, [managerKey, sessionId, workspaceId]);
 
-  // 获取 terminal 实例供 PTY 使用
+  // Get terminal instance for PTY use
   const terminal = attachedTermWrap?.getTerminal() || null;
 
-  // PTY 会话管理
+  // PTY session management
   const { isReady } = usePtySession({
     sessionId,
     workspaceId,
@@ -99,22 +99,22 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     onExit,
   });
 
-  // 应用主题背景色到 Terminal
+  // Apply theme background color to Terminal
   useEffect(() => {
     if (!attachedTermWrap || !containerRef.current) return;
 
     const applyTheme = () => {
       const terminal = attachedTermWrap.getTerminal();
 
-      // 从 CSS 变量获取当前主题的背景色和前景色
-      // 注意：CSS 变量使用 oklch 格式，但 xterm.js 不支持，需要转换为 hex
+      // Get current theme bg/fg colors from CSS variables
+      // Note: CSS vars use oklch format but xterm.js needs hex conversion
       const styles = getComputedStyle(document.documentElement);
       const rawBackground = styles.getPropertyValue('--color-background').trim() || '#1e1e1e';
       const rawForeground = styles.getPropertyValue('--color-foreground').trim() || '#d4d4d4';
       const background = cssColorToHex(rawBackground);
       const foreground = cssColorToHex(rawForeground);
 
-      // 判断是否为浅色主题（基于实际应用的 CSS 类）
+      // Determine if light theme (based on applied CSS classes)
       const rootClasses = document.documentElement.classList;
       const isLightTheme = rootClasses.contains('theme-light');
 
@@ -157,13 +157,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       }
     };
 
-    // 延迟执行以确保 CSS 变量已更新
+    // Delay execution to ensure CSS variables are updated
     requestAnimationFrame(() => {
       applyTheme();
     });
   }, [attachedTermWrap, theme, systemTheme, customColors]);
 
-  // 当变为活动时，重新 fit
+  // Re-fit when becoming active
   useEffect(() => {
     if (isActive && attachedTermWrap && containerRef.current) {
       requestAnimationFrame(() => {
@@ -180,7 +180,7 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     }
   }, [isActive, attachedTermWrap, sessionId]);
 
-  // 监听窗口尺寸变化
+  // Listen for window size changes
   useEffect(() => {
     if (!attachedTermWrap || !isActive) return;
 

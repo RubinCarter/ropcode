@@ -10,8 +10,8 @@ import "./assets/shimmer.css";
 import "./styles.css";
 import AppIcon from "./assets/nfo/asterisk-logo.png";
 
-// Monaco Editor Web Worker 配置
-// 使用 Vite 的 ?worker 导入语法来正确打包 worker
+// Monaco Editor Web Worker config
+// Use Vite's ?worker import syntax for proper worker bundling
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";

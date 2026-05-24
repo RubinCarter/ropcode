@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useCallback } from 'react';
 
-// System Tab 类型（全局工具）
+// System Tab types (global tools)
 export type SystemTabType = 'agents' | 'usage' | 'mcp' | 'settings' | 'claude-md' | 'create-agent' | 'import-agent';
 
 export interface SystemTab {
@@ -25,7 +25,7 @@ interface SystemTabContextType {
 
 const SystemTabContext = createContext<SystemTabContextType | undefined>(undefined);
 
-// Tab 配置映射
+// Tab config mapping
 const TAB_CONFIG: Record<SystemTabType, { title: string; icon: string }> = {
   'agents': { title: 'Agents', icon: 'bot' },
   'usage': { title: 'Usage', icon: 'bar-chart' },
@@ -37,18 +37,18 @@ const TAB_CONFIG: Record<SystemTabType, { title: string; icon: string }> = {
 };
 
 export const SystemTabProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // 只有一个共用的 Tab slot
+  // Only one shared Tab slot
   const [currentTab, setCurrentTab] = useState<SystemTab | null>(null);
 
   const generateTabId = () => {
     return `systab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   };
 
-  // 激活系统 Tab（所有工具 Tab 共用同一个 slot，切换时替换内容）
+  // Activate system Tab (all tool Tabs share one slot, content replaced on switch)
   const activateTab = useCallback((type: SystemTabType): string => {
     const config = TAB_CONFIG[type];
 
-    // 如果当前已有 Tab，更新其内容
+    // If Tab already exists, update its content
     if (currentTab) {
       const updatedTab: SystemTab = {
         ...currentTab,
@@ -61,7 +61,7 @@ export const SystemTabProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return updatedTab.id;
     }
 
-    // 首次创建 Tab
+    // Create Tab for the first time
     const newTab: SystemTab = {
       id: generateTabId(),
       type,
@@ -76,12 +76,12 @@ export const SystemTabProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return newTab.id;
   }, [currentTab]);
 
-  // 关闭当前 Tab
+  // Close current Tab
   const closeTab = useCallback(() => {
     setCurrentTab(null);
   }, []);
 
-  // 兼容性：tabs 数组只有一个元素或为空
+  // Compatibility: tabs array has one element or is empty
   const tabs = currentTab ? [currentTab] : [];
   const activeTabId = currentTab?.id || null;
 

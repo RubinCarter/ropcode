@@ -1,9 +1,9 @@
 /**
- * Web Widget 模块导出
+ * Web Widget module exports
  */
 
-// 导出 Widget Model
+// Export Widget Model
 export { WebWidgetModel } from './WebWidgetModel';
 
-// 导出 Zustand store
+// Export Zustand store
 export { useWebStore } from './WebModel';

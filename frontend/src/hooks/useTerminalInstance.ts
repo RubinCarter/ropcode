@@ -3,19 +3,19 @@ import '@xterm/xterm/css/xterm.css';
 import { TermWrap } from '@/widgets/terminal/TermWrap';
 
 /**
- * Terminal 实例管理器
- * 使用 TermWrap 管理所有 Terminal 实例
+ * Terminal instance manager
+ * Uses TermWrap to manage all Terminal instances
  */
 class TerminalInstanceManager {
   private instances = new Map<string, {
-    termWrap: TermWrap | null;  // 在 attach 时创建
+    termWrap: TermWrap | null;  // Created on attach
     container: HTMLDivElement | null;
     refCount: number;
   }>();
 
   /**
-   * 获取或创建 Terminal 实例占位
-   * 实际的 TermWrap 在 attach 时创建（需要容器元素）
+   * Get or create a Terminal instance placeholder
+   * The actual TermWrap is created on attach (requires container element)
    */
   getOrCreate(key: string): { termWrap: TermWrap | null } {
     let instance = this.instances.get(key);
@@ -39,7 +39,7 @@ class TerminalInstanceManager {
   }
 
   /**
-   * 将 Terminal 附加到容器，创建 TermWrap
+   * Attach Terminal to a container, creating TermWrap
    */
   attach(key: string, container: HTMLDivElement): TermWrap | null {
     const instance = this.instances.get(key);
@@ -48,7 +48,7 @@ class TerminalInstanceManager {
       return null;
     }
 
-    // 如果还没有创建 TermWrap，则创建
+    // If TermWrap hasn't been created yet, create it
     if (!instance.termWrap) {
       console.log('[TerminalManager] Creating TermWrap:', key);
       instance.termWrap = new TermWrap(
@@ -69,7 +69,7 @@ class TerminalInstanceManager {
       instance.container = container;
       console.log('[TerminalManager] TermWrap created, WebGL:', instance.termWrap.isWebGLLoaded());
     } else {
-      // TermWrap 已存在，处理容器变更
+      // TermWrap already exists, handle container change
       const terminal = instance.termWrap.getTerminal();
       const currentElement = (terminal as any)?.element as HTMLElement | null;
 
@@ -80,7 +80,7 @@ class TerminalInstanceManager {
       }
     }
 
-    // 适配尺寸
+    // Fit to container size
     try {
       if (container.offsetWidth > 0 && instance.termWrap) {
         instance.termWrap.fit();
@@ -93,7 +93,7 @@ class TerminalInstanceManager {
   }
 
   /**
-   * 从容器分离 Terminal（但不销毁实例）
+   * Detach Terminal from container (without destroying the instance)
    */
   detach(key: string): void {
     const instance = this.instances.get(key);
@@ -104,7 +104,7 @@ class TerminalInstanceManager {
   }
 
   /**
-   * 释放引用
+   * Release reference
    */
   release(key: string): void {
     const instance = this.instances.get(key);
@@ -115,7 +115,7 @@ class TerminalInstanceManager {
   }
 
   /**
-   * 销毁 Terminal 实例
+   * Destroy Terminal instance
    */
   destroy(key: string): void {
     const instance = this.instances.get(key);
@@ -131,7 +131,7 @@ class TerminalInstanceManager {
   }
 
   /**
-   * 获取实例（如果存在）
+   * Get instance (if it exists)
    */
   get(key: string): { termWrap: TermWrap | null } | undefined {
     const instance = this.instances.get(key);
@@ -143,14 +143,14 @@ class TerminalInstanceManager {
   }
 
   /**
-   * 检查实例是否存在
+   * Check if instance exists
    */
   has(key: string): boolean {
     return this.instances.has(key);
   }
 
   /**
-   * 清理所有实例
+   * Clear all instances
    */
   clear(): void {
     console.log('[TerminalManager] Clearing all instances');
@@ -160,15 +160,15 @@ class TerminalInstanceManager {
   }
 }
 
-// 全局单例
+// Global singleton
 const terminalManager = new TerminalInstanceManager();
 
 /**
- * Terminal 实例管理 Hook
+ * Terminal instance management Hook
  *
  * @param workspaceId - Workspace ID
  * @param terminalId - Terminal ID
- * @returns TermWrap 实例
+ * @returns TermWrap instance
  */
 export function useTerminalInstance(
   workspaceId: string,
@@ -177,7 +177,7 @@ export function useTerminalInstance(
   const key = `${workspaceId}::${terminalId}`;
   const [termWrap, setTermWrap] = useState<TermWrap | null>(null);
 
-  // 创建/获取实例
+  // Create/get instance
   useEffect(() => {
     console.log('[useTerminalInstance] Initializing:', { key });
     const inst = terminalManager.getOrCreate(key);
@@ -194,5 +194,5 @@ export function useTerminalInstance(
   };
 }
 
-// 导出管理器以供其他地方使用
+// Export manager for use elsewhere
 export { terminalManager };

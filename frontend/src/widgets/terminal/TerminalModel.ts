@@ -2,10 +2,10 @@ import { create } from 'zustand';
 import type { StateCreator } from 'zustand';
 
 /**
- * Terminal Widget 配置状态
+ * Terminal Widget configstate
  */
 interface TerminalState {
-  // Terminal 配置
+  // Terminal config
   fontSize: number;
   themeName: string;
   transparency: number;
@@ -25,7 +25,7 @@ interface TerminalState {
 }
 
 /**
- * 默认配置
+ * defaultconfig
  */
 const DEFAULT_CONFIG = {
   fontSize: 14,

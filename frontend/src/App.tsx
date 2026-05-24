@@ -26,17 +26,17 @@ const SIDEBAR_MAX_WIDTH = 640;
 
 const clampSidebarWidth = (width: number) => Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
 
-// WebSocket 连接配置
-// 页面由 Go 后端 serve，location.port 就是 Go 端口
-// 优先级: Electron preload > Go 注入全局变量 > location.port > URL 参数
+// WebSocket connection config
+// Page is served by Go backend, location.port is the Go port
+// Priority: Electron preload > Go injected globals > location.port > URL params
 mergeInstancesFromUrl();
 
 const { port: wsPort, authKey } = getInitialWebSocketConfig(window);
 
-// WebSocket 连接 Promise（用于组件等待连接完成）
+// WebSocket connection promise (for components to await connection)
 let wsConnectionPromise: Promise<void> | null = null;
 
-// 初始化 WebSocket 连接（仅在 Electron 或有配置时）
+// Initialize WebSocket connection (only in Electron or when configured)
 if (wsPort) {
   wsConnectionPromise = wsClient.connect(parseInt(String(wsPort), 10), authKey || undefined)
     .then(() => console.log('[App] WebSocket connected'))
@@ -46,7 +46,7 @@ if (wsPort) {
     });
 }
 
-// 导出等待连接的方法供其他组件使用
+// Export connection-wait method for other components
 export const waitForWebSocket = async (timeout: number = 10000): Promise<void> => {
   if (!wsPort) {
     return;
@@ -107,7 +107,7 @@ function AppContent() {
 
     const handleRightSidebarStateChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ isOpen: boolean; shouldShow?: boolean }>;
-      // 使用 shouldShow（如果有），否则回退到 isOpen
+      // Use shouldShow if available, otherwise fall back to isOpen
       setRightSidebarOpen(customEvent.detail.shouldShow ?? customEvent.detail.isOpen);
     };
 

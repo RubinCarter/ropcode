@@ -1,164 +1,164 @@
 /**
- * Widget 系统类型定义
+ * Widget system type definitions
  *
- * 借鉴 waveterm 的 ViewModel 模式，但适配到 ropcode 的 Zustand 架构
+ * Inspired by waveterm's ViewModel pattern, adapted to ropcode's Zustand architecture
  */
 
-// Widget 类型枚举
+// Widget type enum
 export type WidgetType = 'terminal' | 'files' | 'preview' | 'web';
 
-// Widget 状态
+// Widget status
 export type WidgetStatus = 'initializing' | 'ready' | 'error' | 'disposed';
 
 /**
- * Widget 基础接口
- * 所有 widget 都需要实现这个接口
+ * Widget base interface
+ * All widgets must implement this interface
  */
 export interface WidgetModel {
-  /** Widget 类型标识 */
+  /** Widget type identifier */
   widgetType: WidgetType;
 
-  /** Widget 唯一 ID */
+  /** Widget unique ID */
   widgetId: string;
 
-  /** Widget 当前状态 */
+  /** Widget current status */
   status: WidgetStatus;
 
   /**
-   * 初始化 Widget
-   * 在 Widget 挂载时调用
+   * Initialize Widget
+   * Called when Widget mounts
    */
   initialize(): Promise<void>;
 
   /**
-   * 销毁 Widget
-   * 在 Widget 卸载时调用，释放资源
+   * Dispose Widget
+   * Called when Widget unmounts, releases resources
    */
   dispose(): void;
 
   /**
-   * 获取焦点
-   * @returns 是否成功获取焦点
+   * Give focus
+   * @returns Whether focus was successfully acquired
    */
   giveFocus(): boolean;
 
   /**
-   * 键盘事件处理
-   * @param event 键盘事件
-   * @returns 是否已处理该事件（阻止冒泡）
+   * Keyboard event handler
+   * @param event Keyboard event
+   * @returns Whether the event was handled (prevents bubbling)
    */
   keyDownHandler?(event: KeyboardEvent): boolean;
 }
 
 /**
- * 文件信息类型
- * 对应 Go 后端的 FileInfo 结构
+ * File info type
+ * Corresponds to Go backend's FileInfo struct
  */
 export interface FileInfo {
-  /** 文件名 */
+  /** File name */
   name: string;
-  /** 完整路径 */
+  /** Full path */
   path: string;
-  /** 所在目录 */
+  /** Parent directory */
   dir: string;
-  /** 文件大小（字节） */
+  /** File size (bytes) */
   size: number;
-  /** 权限字符串 (e.g., "drwxr-xr-x") */
+  /** Permission string (e.g., "drwxr-xr-x") */
   modestr: string;
-  /** 修改时间 (ISO 8601) */
+  /** Modified time (ISO 8601) */
   modtime: string;
-  /** 是否为目录 */
+  /** Whether it's a directory */
   isdir: boolean;
-  /** MIME 类型 */
+  /** MIME type */
   mimetype: string;
-  /** 是否只读 */
+  /** Whether read-only */
   readonly: boolean;
 }
 
 /**
- * 文件数据类型
- * 用于读取文件内容
+ * File data type
+ * Used for reading file content
  */
 export interface FileData {
-  /** 文件路径 */
+  /** File path */
   path: string;
-  /** 文件内容 (文本文件为字符串) */
+  /** File content (string for text files) */
   content: string;
-  /** MIME 类型 */
+  /** MIME type */
   mimetype: string;
 }
 
 /**
- * 文件列表选项
+ * File list options
  */
 export interface FileListOptions {
-  /** 是否显示隐藏文件 */
+  /** Whether to show hidden files */
   showHidden: boolean;
 }
 
 /**
- * Widget 配置接口
- * 用于创建 Widget 时传入配置
+ * Widget config interface
+ * Passed when creating a Widget
  */
 export interface WidgetConfig {
-  /** Widget ID，不传则自动生成 */
+  /** Widget ID, auto-generated if not provided */
   id?: string;
-  /** 初始化参数，根据 Widget 类型不同而不同 */
+  /** Init params, varies by Widget type */
   initialParams?: Record<string, unknown>;
 }
 
 /**
- * Terminal Widget 特有配置
+ * Terminal Widget specific config
  */
 export interface TerminalWidgetConfig extends WidgetConfig {
   initialParams?: {
-    /** 字体大小 */
+    /** Font size */
     fontSize?: number;
-    /** 主题名称 */
+    /** Theme name */
     themeName?: string;
-    /** 透明度 (0-1) */
+    /** Transparency (0-1) */
     transparency?: number;
   };
 }
 
 /**
- * Files Widget 特有配置
+ * Files Widget specific config
  */
 export interface FilesWidgetConfig extends WidgetConfig {
   initialParams?: {
-    /** 初始路径 */
+    /** Initial path */
     initialPath?: string;
-    /** 是否显示隐藏文件 */
+    /** Whether to show hidden files */
     showHidden?: boolean;
   };
 }
 
 /**
- * Preview Widget 特有配置
+ * Preview Widget specific config
  */
 export interface PreviewWidgetConfig extends WidgetConfig {
   initialParams?: {
-    /** 要预览的文件路径 */
+    /** File path to preview */
     filePath?: string;
-    /** 是否以编辑模式打开 */
+    /** Whether to open in edit mode */
     editMode?: boolean;
   };
 }
 
 /**
- * Web Widget 特有配置
+ * Web Widget specific config
  */
 export interface WebWidgetConfig extends WidgetConfig {
   initialParams?: {
-    /** 初始 URL */
+    /** Initial URL */
     initialUrl?: string;
-    /** 主页 URL */
+    /** Homepage URL */
     homepageUrl?: string;
   };
 }
 
 /**
- * 生成唯一 Widget ID
+ * Generate unique Widget ID
  */
 export function generateWidgetId(type: WidgetType): string {
   return `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;

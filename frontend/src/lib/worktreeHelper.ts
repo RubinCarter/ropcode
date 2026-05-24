@@ -1,6 +1,6 @@
 /**
- * Worktree 辅助工具
- * 用于检测和处理 Git worktree 相关功能
+ * Worktree helper utilities
+ * Detects and handles Git worktree related features.
  */
 
 import { api, type main } from "./api";
@@ -9,18 +9,18 @@ import { api, type main } from "./api";
 export type WorktreeInfo = main.WorktreeInfo;
 
 /**
- * 检测当前项目是否为 Git worktree 子分支
- * @param projectPath 项目路径
- * @returns Worktree 信息
+ * Detect if current project is a Git worktree child branch
+ * @param projectPath Project path
+ * @returns Worktree info
  */
 export async function detectWorktree(projectPath: string): Promise<WorktreeInfo> {
   try {
-    // 调用 Go 后端获取 worktree 信息
+    // Call Go backend to get worktree info
     const info = await api.detectWorktree(projectPath);
     return info;
   } catch (error) {
     console.error("Failed to detect worktree:", error);
-    // 返回默认值表示不是 worktree
+    // Return default value indicating not a worktree
     return {
       current_path: projectPath,
       root_path: projectPath,
@@ -31,10 +31,10 @@ export async function detectWorktree(projectPath: string): Promise<WorktreeInfo>
 }
 
 /**
- * 包装用户第一条消息，添加 Worktree 指令
- * @param worktreeInfo Worktree 信息
- * @param userMessage 用户的第一条消息
- * @returns 格式化的包装消息
+ * Wrap user first message, add Worktree instructions
+ * @param worktreeInfo Worktree info
+ * @param userMessage User first message
+ * @returns Formatted wrapped message
  */
 export function wrapFirstMessageWithWorktreeInstructions(
   worktreeInfo: WorktreeInfo,
@@ -64,11 +64,11 @@ Do not repeat the prefix (ropcode/ or username/) in the branch name.
 }
 
 /**
- * 检查是否需要包装第一条消息
- * @param projectPath 项目路径
- * @param userMessage 用户消息
- * @param isFirstPrompt 是否为第一条消息
- * @returns 如果需要包装则返回包装后的消息，否则返回原消息
+ * Check if first message needs wrapping
+ * @param projectPath Project path
+ * @param userMessage User message
+ * @param isFirstPrompt Whether this is the first message
+ * @returns Returns wrapped message if wrapping is needed, otherwise returns original message
  */
 export async function maybeWrapFirstMessage(
   projectPath: string,
@@ -77,7 +77,7 @@ export async function maybeWrapFirstMessage(
 ): Promise<string> {
   console.log('[Worktree] maybeWrapFirstMessage called:', { projectPath, isFirstPrompt });
 
-  // 只在第一条消息时检查
+  // Only check on first message
   if (!isFirstPrompt) {
     console.log('[Worktree] Skipping wrap: not first prompt');
     return userMessage;

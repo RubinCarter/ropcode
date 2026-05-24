@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext, useCallback } from 'react';
 
-// Workspace 内的 Tab 类型（只包含 workspace 专属的）
+// Tab types within a workspace (workspace-specific only)
 export type WorkspaceTabType = 'chat' | 'diff' | 'file' | 'webview' | 'agent-execution' | 'agent' | 'claude-file';
 
 export interface WorkspaceTab {
@@ -113,7 +113,7 @@ export const WorkspaceTabProvider: React.FC<WorkspaceTabProviderProps> = ({ work
     setTabs(prev => {
       const filtered = prev.filter(tab => tab.id !== id);
 
-      // 如果删除的是当前激活的 tab，切换到其他
+      // If deleting the active tab, switch to another
       if (activeTabId === id && filtered.length > 0) {
         setActiveTabId(filtered[filtered.length - 1].id);
       } else if (filtered.length === 0) {

@@ -83,7 +83,7 @@ class WSRpcClient {
   private connecting = false;
 
   /**
-   * 初始化连接
+   * Initialize connection
    */
   async connect(port: number, authKey?: string): Promise<void> {
     this.wsUrl = buildWebSocketUrl(port, '/ws/rpc', authKey, window.location);
@@ -114,11 +114,11 @@ class WSRpcClient {
   }
 
   /**
-   * 等待连接就绪
-   * 如果已连接，立即返回；如果正在连接，等待连接完成
+   * Wait for connection to be ready.
+   * Returns immediately if connected; waits for connection if connecting.
    */
   async waitForConnection(timeout: number = 10000): Promise<void> {
-    // 如果已经连接，直接返回
+    // If already connected, return directly
     if (this.isConnected()) {
       return;
     }
@@ -237,7 +237,7 @@ class WSRpcClient {
           this.connecting = false;
           console.log('[WSRpc] Connected');
           this.reconnectAttempts = 0;
-          // 通知所有等待连接的 resolvers
+          // Notify all waiting connection resolvers
           this.connectResolvers.forEach(r => r.resolve());
           this.connectResolvers = [];
           // Fire onConnect callbacks (e.g. to reload data after reconnect)
@@ -368,7 +368,7 @@ class WSRpcClient {
   }
 
   /**
-   * 发送 RPC 调用
+   * Send RPC call
    * Automatically retries once on transient WebSocket errors (force reconnect / disconnected).
    */
   async call<T = any>(method: string, ...params: any[]): Promise<T> {
@@ -409,7 +409,7 @@ class WSRpcClient {
       const pending: PendingRequest = { resolve, reject };
       this.pending.set(id, pending);
 
-      // 设置超时（默认 30 秒）
+      // Set timeout (default 30s)
       const timeout = getRpcTimeout(method);
       pending.timeoutId = setTimeout(() => {
         if (this.pending.has(id)) {
@@ -423,7 +423,7 @@ class WSRpcClient {
   }
 
   /**
-   * 监听事件
+   * Listen for events
    */
   on(eventType: string, handler: EventHandler): () => void {
     if (!this.eventListeners.has(eventType)) {
@@ -431,14 +431,14 @@ class WSRpcClient {
     }
     this.eventListeners.get(eventType)!.add(handler);
 
-    // 返回取消监听函数
+    // Return unsubscribe function
     return () => {
       this.eventListeners.get(eventType)?.delete(handler);
     };
   }
 
   /**
-   * 移除事件监听
+   * Remove event listener
    */
   off(eventType: string, handler?: EventHandler) {
     if (handler) {
@@ -449,15 +449,15 @@ class WSRpcClient {
   }
 
   /**
-   * 关闭连接
+   * Close connection
    */
   close() {
-    this.maxReconnectAttempts = 0; // 防止重连
+    this.maxReconnectAttempts = 0; // Prevent reconnection
     this.ws?.close();
   }
 
   /**
-   * 检查是否已连接
+   * Check if connected
    */
   isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
@@ -475,5 +475,5 @@ class WSRpcClient {
 
 export { getRpcTimeout };
 
-// 单例导出
+// Singleton export
 export const wsClient = new WSRpcClient();

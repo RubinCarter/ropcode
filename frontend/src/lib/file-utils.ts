@@ -1,15 +1,15 @@
 /**
- * 文件路径工具函数
+ * File path utility functions
  */
 
 /**
- * 将文件路径转换为可加载的 URL
- * 统一使用 /local-file/<path> HTTP 路径，由 Go server 处理
- * 兼容 dev 模式（Go server 反向代理到 Vite，Vite 插件处理）
- * 兼容 prod/iOS 模式（Go server 直接读取本地文件返回）
+ * Convert a file path to a loadable URL.
+ * Uses /local-file/<path> HTTP path, handled by Go server.
+ * Compatible with dev mode (Go server reverse-proxies to Vite, Vite plugin handles it)
+ * and prod/iOS mode (Go server reads local file and returns it directly).
  */
 export function convertFileSrc(filePath: string): string {
-  // 如果已经是有效的 URL，直接返回
+  // If already a valid URL, return directly
   if (filePath && (
     filePath.startsWith('file://') ||
     filePath.startsWith('http://') ||
@@ -21,6 +21,6 @@ export function convertFileSrc(filePath: string): string {
     return filePath;
   }
 
-  // 统一使用 /local-file/ HTTP 路径，Go server 和 Vite 都支持此路径
+  // Use /local-file/ HTTP path, supported by both Go server and Vite
   return `/local-file/${encodeURIComponent(filePath)}`;
 }

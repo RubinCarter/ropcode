@@ -1,13 +1,13 @@
 /**
  * Web Widget Zustand Store (Enhanced for Webview)
  *
- * 管理 Web 浏览器 Widget 的状态，支持 Electron webview 特性
+ * Manages Web browser widget state with Electron webview support.
  */
 
 import { create } from 'zustand';
 
 /**
- * 选中元素信息
+ * Selected element info
  */
 export interface SelectedElement {
   tagName: string;
@@ -18,72 +18,72 @@ export interface SelectedElement {
 }
 
 /**
- * User Agent 类型
+ * User Agent type
  */
 export type UserAgentType = 'default' | 'mobile:iphone' | 'mobile:android';
 
 /**
- * Web Widget 状态接口
+ * Web Widget state interface
  */
 interface WebState {
-  /** 当前 URL */
+  /** current URL */
   url: string;
 
-  /** URL 输入框的值 */
+  /** URL input value */
   inputUrl: string;
 
-  /** 主页 URL */
+  /** homepage URL */
   homepageUrl: string;
 
-  /** 加载状态 */
+  /** loading state */
   isLoading: boolean;
 
-  /** DOM 是否就绪 */
+  /** Whether DOM is ready */
   domReady: boolean;
 
-  /** 是否可以后退 */
+  /** Whether back navigation is available */
   canGoBack: boolean;
 
-  /** 是否可以前进 */
+  /** Whether forward navigation is available */
   canGoForward: boolean;
 
-  /** 错误信息 */
+  /** error info */
   error: string | null;
 
-  /** 页面标题 */
+  /** page title */
   title: string;
 
-  /** User Agent 类型 */
+  /** User Agent type */
   userAgentType: UserAgentType;
 
-  /** 缩放比例 */
+  /** Zoom factor */
   zoomFactor: number;
 
-  /** 媒体正在播放 */
+  /** Media is playing */
   mediaPlaying: boolean;
 
-  /** 媒体已静音 */
+  /** Media is muted */
   mediaMuted: boolean;
 
-  /** 页内搜索是否打开 */
+  /** Whether in-page search is open */
   searchOpen: boolean;
 
-  /** 搜索查询 */
+  /** Search query */
   searchQuery: string;
 
-  /** 搜索结果索引 */
+  /** Search result index */
   searchResultIndex: number;
 
-  /** 搜索结果总数 */
+  /** Search result total count */
   searchResultCount: number;
 
-  /** 是否正在选择元素 */
+  /** Whether element selection is active */
   isSelectingElement: boolean;
 
-  /** 选中的元素 */
+  /** Selected element */
   selectedElement: SelectedElement | null;
 
-  /** 用户消息（发送到聊天） */
+  /** User message (sent to chat) */
   userMessage: string;
 
   /** WebContents ID */
@@ -91,7 +91,7 @@ interface WebState {
 }
 
 /**
- * Web Widget Actions 接口
+ * Web Widget Actions interface
  */
 interface WebActions {
   setUrl: (url: string) => void;
@@ -169,14 +169,14 @@ export const useWebStore = create<WebStore>((set) => ({
   reset: () => set(initialState),
 }));
 
-// User Agent 常量
+// User Agent constants
 export const USER_AGENTS = {
   default: undefined,
   'mobile:iphone': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   'mobile:android': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36',
 } as const;
 
-// 移动设备视口宽度 (用于容器宽度限制)
+// Mobile device viewport width (used for container width constraint)
 export const MOBILE_VIEWPORT_WIDTH = {
   'mobile:iphone': 390,
   'mobile:android': 412,

@@ -26,7 +26,7 @@ test('classifies skill preamble text as collapsed by default', async () => {
 test('does not collapse short plain user text', async () => {
   const { classifyCollapsibleText } = await loadModule();
 
-  const result = classifyCollapsibleText('继续');
+  const result = classifyCollapsibleText('Continue');
 
   assert.equal(result.collapsible, false);
   assert.equal(result.kind, 'plain_text');

@@ -1,34 +1,34 @@
 /**
- * Files Widget 模型实现
+ * Files Widget model implementation
  *
- * 负责文件浏览器 Widget 的业务逻辑和状态管理
+ * Handles business logic and state management for the file browser widget.
  */
 
 import { BaseWidgetModel, widgetRegistry } from '../base';
 import { FilesWidgetConfig } from '../types';
 
 /**
- * Files Widget 模型类
+ * Files Widget model class
  *
- * 提供文件浏览器的核心功能：
- * - 文件/目录浏览
- * - 隐藏文件显示控制
- * - 键盘导航支持
- * - 焦点管理
+ * Provides core file browser features:
+ * - File/directory browsing
+ * - Hidden file visibility control
+ * - Keyboard navigation support
+ * - Focus management
  */
 export class FilesWidgetModel extends BaseWidgetModel {
-  /** 当前路径 */
+  /** Current path */
   private initialPath: string;
 
-  /** 是否显示隐藏文件 */
+  /** whether to show hidden files */
   private showHidden: boolean;
 
   /**
-   * 创建 Files Widget 实例
+   * Create Files Widget instance
    *
-   * @param config - Widget 配置
-   * @param config.initialParams.initialPath - 初始路径，默认为用户主目录
-   * @param config.initialParams.showHidden - 是否显示隐藏文件，默认为 false
+   * @param config - Widget config
+   * @param config.initialParams.initialPath - Initial path, defaults to user home directory
+   * @param config.initialParams.showHidden - Whether to show hidden files, defaults to false
    *
    * @example
    * ```typescript
@@ -44,24 +44,24 @@ export class FilesWidgetModel extends BaseWidgetModel {
   constructor(config?: FilesWidgetConfig) {
     super('files', config);
 
-    // 初始化配置参数
+    // Initialize config params
     this.initialPath = config?.initialParams?.initialPath ?? '~';
     this.showHidden = config?.initialParams?.showHidden ?? false;
   }
 
   /**
-   * 初始化 Widget
+   * Initialize Widget
    *
-   * 执行以下操作：
-   * 1. 验证初始路径是否有效
-   * 2. 注册到全局 Widget 注册表
-   * 3. 设置 Widget 就绪状态
+   * Performs the following operations:
+   * 1. Validate if initial path is valid
+   * 2. Register to global widget registry
+   * 3. Set widget ready state
    *
-   * @throws {Error} 如果初始化失败
+   * @throws {Error} If initialization fails
    * @protected
    */
   protected async onInitialize(): Promise<void> {
-    // 注册到全局注册表
+    // Register to global registry
     widgetRegistry.register(this);
 
     console.log(
@@ -70,28 +70,28 @@ export class FilesWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 清理 Widget 资源
+   * Clean up Widget resources
    *
-   * 执行以下操作：
-   * 1. 从全局 Widget 注册表注销
-   * 2. 清理文件浏览器相关资源
-   * 3. 释放 DOM 引用
+   * Performs the following operations:
+   * 1. Unregister from global widget registry
+   * 2. Clean up file browser related resources
+   * 3. Release DOM references
    *
    * @protected
    */
   protected onDispose(): void {
-    // 从全局注册表注销
+    // Unregister from global registry
     widgetRegistry.unregister(this.widgetId);
 
     console.log(`FilesWidget ${this.widgetId} disposed`);
   }
 
   /**
-   * 获取焦点
+   * Get focus
    *
-   * 将焦点设置到文件列表容器，以便接收键盘输入
+   * Sets focus to the file list container to receive keyboard input.
    *
-   * @returns 是否成功获取焦点
+   * @returns Whether focus was successfully acquired
    *
    * @example
    * ```typescript
@@ -105,7 +105,7 @@ export class FilesWidgetModel extends BaseWidgetModel {
       return false;
     }
 
-    // 尝试聚焦到文件列表容器
+    // Try focusing file list container
     const fileListElement = this.containerRef.querySelector<HTMLElement>(
       '[data-files-list]'
     );
@@ -115,27 +115,27 @@ export class FilesWidgetModel extends BaseWidgetModel {
       return true;
     }
 
-    // 回退到容器本身
+    // Fall back to container itself
     this.containerRef.focus();
     return true;
   }
 
   /**
-   * 处理键盘事件
+   * Handle keyboard event
    *
-   * 支持的键盘操作：
-   * - ArrowUp: 选择上一个文件/目录
-   * - ArrowDown: 选择下一个文件/目录
-   * - Enter: 打开选中的文件/目录
-   * - Backspace: 返回上级目录
-   * - h: 切换隐藏文件显示（Ctrl/Cmd + h）
+   * Supported keyboard operations:
+   * - ArrowUp: Select previous file/directory
+   * - ArrowDown: Select next file/directory
+   * - Enter: Open selected file/directory
+   * - Backspace: Return to parent directory
+   * - h: Toggle hidden file visibility (Ctrl/Cmd + h)
    *
-   * @param event - 键盘事件
-   * @returns true 表示事件已处理，阻止冒泡；false 表示未处理
+   * @param event - Keyboard event
+   * @returns true if event was handled (stops propagation); false otherwise
    *
    * @example
    * ```typescript
-   * // 在 React 组件中使用
+   * // Usage in React component
    * <div onKeyDown={(e) => model.keyDownHandler?.(e.nativeEvent)}>
    *   ...
    * </div>
@@ -148,7 +148,7 @@ export class FilesWidgetModel extends BaseWidgetModel {
 
     const { key, ctrlKey, metaKey } = event;
 
-    // Ctrl/Cmd + h: 切换隐藏文件显示
+    // Ctrl/Cmd + h: Toggle hidden file visibility
     if ((ctrlKey || metaKey) && key === 'h') {
       this.toggleShowHidden();
       return true;
@@ -156,22 +156,22 @@ export class FilesWidgetModel extends BaseWidgetModel {
 
     switch (key) {
       case 'ArrowUp':
-        // 选择上一个文件
+        // Select previous file
         this.selectPrevious();
         return true;
 
       case 'ArrowDown':
-        // 选择下一个文件
+        // Select next file
         this.selectNext();
         return true;
 
       case 'Enter':
-        // 打开选中的文件/目录
+        // Open selected file/directory
         this.openSelected();
         return true;
 
       case 'Backspace':
-        // 返回上级目录
+        // Go to parent directory
         if (!event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey) {
           this.navigateUp();
           return true;
@@ -184,71 +184,71 @@ export class FilesWidgetModel extends BaseWidgetModel {
   }
 
   /**
-   * 获取初始路径
+   * Get initial path
    *
-   * @returns 初始路径字符串
+   * @returns Initial path string
    */
   getInitialPath(): string {
     return this.initialPath;
   }
 
   /**
-   * 获取隐藏文件显示状态
+   * Get hidden file visibility state
    *
-   * @returns 是否显示隐藏文件
+   * @returns whether to show hidden files
    */
   getShowHidden(): boolean {
     return this.showHidden;
   }
 
   /**
-   * 切换隐藏文件显示状态
+   * Toggle hidden file visibility
    *
    * @private
    */
   private toggleShowHidden(): void {
     this.showHidden = !this.showHidden;
     console.log(`Toggle showHidden: ${this.showHidden}`);
-    // TODO: 触发文件列表刷新
+    // TODO: trigger file list refresh
   }
 
   /**
-   * 选择上一个文件/目录
+   * Select previous file/directory
    *
    * @private
    */
   private selectPrevious(): void {
     console.log('Select previous file');
-    // TODO: 实现选择上一个文件的逻辑
+    // TODO: implement select previous file
   }
 
   /**
-   * 选择下一个文件/目录
+   * Select next file/directory
    *
    * @private
    */
   private selectNext(): void {
     console.log('Select next file');
-    // TODO: 实现选择下一个文件的逻辑
+    // TODO: implement select next file
   }
 
   /**
-   * 打开选中的文件/目录
+   * Open selected file/directory
    *
    * @private
    */
   private openSelected(): void {
     console.log('Open selected file/directory');
-    // TODO: 实现打开文件/目录的逻辑
+    // TODO: implement open file/directory
   }
 
   /**
-   * 导航到上级目录
+   * Navigate to parent directory
    *
    * @private
    */
   private navigateUp(): void {
     console.log('Navigate to parent directory');
-    // TODO: 实现导航到上级目录的逻辑
+    // TODO: implement navigate to parent directory
   }
 }

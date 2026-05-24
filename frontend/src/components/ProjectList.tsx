@@ -451,10 +451,10 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return () => clearInterval(interval);
   }, [allWorkspacePathsKey]);
 
-  // 临时注释：避免 process:changed → ListSpaceSessions 联动卡死 App
-  // 每次后端 process:changed 事件都会触发 ListSpaceSessions RPC（同步扫描 JSONL），
-  // 与 PTY/Claude 输出共用 256 容量的 WebSocket Send channel，导致按钮 RPC 响应排不进去。
-  // running 状态仍由 listRunningProviderSessions 5 秒轮询维持。
+  // Temp comment: avoid process:changed → ListSpaceSessions blocking the App
+  // Each backend process:changed event triggers ListSpaceSessions RPC (sync JSONL scan),
+  // sharing the 256-capacity WebSocket Send channel with PTY/Claude output, blocking button RPC responses.
+  // Running state is still maintained by listRunningProviderSessions 5s polling.
   /*
   useProcessChanged(undefined, (event) => {
     // Update running state based on event
@@ -762,7 +762,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
       // Generate a temporary ID for the creating workspace
       const tempId = `creating-${Date.now()}`;
       const { generateWorkspaceName } = await import('@/lib/nameGenerator');
-      const workspaceName = generateWorkspaceName(); // 形容词-动物格式用于显示，如：clever-tiger
+      const workspaceName = generateWorkspaceName(); // adjective-animal format for display, e.g.: clever-tiger
 
       // Add to creating workspaces immediately
       setCreatingWorkspaces(prev => {
@@ -788,15 +788,15 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   };
 
   const handleDeleteClick = (workspaceId: string, workspacePath: string) => {
-    // 检查是否已经在待删除状态
+    // Check if already in pending-delete state
     if (pendingDeleteWorkspaces.has(workspaceId)) {
-      // 第二次点击，执行真正的删除
+      // Second click, perform actual deletion
       handleRemoveWorkspace(workspaceId, workspacePath);
     } else {
-      // 第一次点击，标记为待删除
+      // First click, mark as pending-delete
       setPendingDeleteWorkspaces(prev => new Set(prev).add(workspaceId));
 
-      // 3秒后自动取消待删除状态
+      // Auto-cancel pending-delete state after 3s
       setTimeout(() => {
         setPendingDeleteWorkspaces(prev => {
           const newSet = new Set(prev);

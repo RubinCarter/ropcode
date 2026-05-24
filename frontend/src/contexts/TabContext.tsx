@@ -32,7 +32,7 @@ interface TabContextType {
   tabs: Tab[];
   activeTabId: string | null;
   currentWorkspaceId: string | null; // Current active workspace/project identifier
-  lastActiveChatTabId: string | null; // 最后一个活动的 Chat Tab ID，用于侧边栏保持选中状态
+  lastActiveChatTabId: string | null; // Last active Chat Tab ID, used to keep sidebar selection state
   addTab: (tab: Omit<Tab, 'id' | 'order' | 'createdAt' | 'updatedAt'>) => string;
   removeTab: (id: string) => void;
   updateTab: (id: string, updates: Partial<Tab>) => void;
@@ -43,7 +43,7 @@ interface TabContextType {
   closeAllTabs: () => void;
   getTabsByType: (type: 'chat' | 'agent') => Tab[];
   getTabsByWorkspace: (workspaceId: string | null) => Tab[]; // Get tabs for specific workspace
-  getActiveChatTab: () => Tab | undefined; // 获取当前活动的 Chat Tab
+  getActiveChatTab: () => Tab | undefined; // Get the currently active Chat Tab
 }
 
 const TabContext = createContext<TabContextType | undefined>(undefined);
@@ -84,7 +84,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const isInitialized = useRef(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout>();
 
-  // 修改：禁用启动时自动恢复 tabs，让软件打开时不自动打开任何项目
+  // Disable auto-restore of tabs on startup so no project opens automatically
   useEffect(() => {
     if (isInitialized.current) return;
     isInitialized.current = true;
@@ -92,7 +92,7 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Migrate from old format if needed (still needed for cleanup)
     TabPersistenceService.migrateFromOldFormat();
 
-    // 清空保存的 tabs，确保软件启动时不自动打开任何项目
+    // Clear saved tabs to ensure no project opens automatically on startup
     console.log('[TabContext] Initializing: clearing saved tabs and starting blank...');
     TabPersistenceService.clearTabs();
     setTabs([]);
@@ -100,19 +100,19 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setLastActiveChatTabId(null);
   }, []);
 
-  // === 核心：监听 activeTabId 变化，更新 lastActiveChatTabId 和 currentWorkspaceId ===
+  // Core: watch activeTabId changes, update lastActiveChatTabId and currentWorkspaceId
   useEffect(() => {
     if (!activeTabId) return;
 
     const activeTab = tabs.find(t => t.id === activeTabId);
 
-    // 如果激活的是 Chat Tab，更新 lastActiveChatTabId
+    // If the active tab is a Chat Tab, update lastActiveChatTabId
     if (activeTab?.type === 'chat') {
       setLastActiveChatTabId(activeTabId);
     }
-    // 如果激活的是其他类型 Tab，lastActiveChatTabId 保持不变
+    // If the active tab is another type, lastActiveChatTabId stays unchanged
 
-    // 更新 currentWorkspaceId：如果 Tab 有 workspaceId，切换到该工作区
+    // Update currentWorkspaceId: if the tab has a workspaceId, switch to that workspace
     if (activeTab?.workspaceId) {
       setCurrentWorkspaceId(activeTab.workspaceId);
     }
@@ -297,12 +297,12 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return tabs.filter(tab => tab.type === type);
   }, [tabs]);
 
-  // === 核心：获取当前活动的 Chat Tab ===
+  // Core: get the currently active Chat Tab
   const getActiveChatTab = useCallback((): Tab | undefined => {
     return tabs.find(t => t.id === lastActiveChatTabId);
   }, [tabs, lastActiveChatTabId]);
 
-  // === 新增：根据工作区获取 Tabs ===
+  // Get tabs by workspace
   const getTabsByWorkspace = useCallback((workspaceId: string | null): Tab[] => {
     return tabs.filter(tab => {
       // Global utility tabs (no workspaceId) are visible in all workspaces
@@ -314,16 +314,16 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [tabs]);
 
-  // === 新增：设置当前工作区 ===
+  // Set current workspace
   const setCurrentWorkspace = useCallback((workspaceId: string | null) => {
     setCurrentWorkspaceId(workspaceId);
 
-    // 当切换工作区时，尝试激活该工作区的第一个 Tab
+    // When switching workspace, try to activate the first tab in that workspace
     const workspaceTabs = tabs.filter(tab => tab.workspaceId === workspaceId);
     if (workspaceTabs.length > 0) {
       setActiveTabId(workspaceTabs[0].id);
     } else {
-      // 如果该工作区没有 Tab，激活第一个全局工具 Tab
+      // If the workspace has no tabs, activate the first global utility tab
       const globalTabs = tabs.filter(tab => !tab.workspaceId);
       if (globalTabs.length > 0) {
         setActiveTabId(globalTabs[0].id);

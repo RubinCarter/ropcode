@@ -1,7 +1,7 @@
 /**
- * RPC 事件系统
+ * RPC event system
  *
- * 通过 WebSocket 接收后端事件。
+ * Receives backend events via WebSocket.
  */
 
 import { wsClient } from './ws-rpc-client';
@@ -11,21 +11,21 @@ export interface UnlistenFn {
 }
 
 /**
- * 监听��件
+ * Listen for events
  */
 export function EventsOn(eventName: string, handler: (data: any) => void): UnlistenFn {
   return wsClient.on(eventName, handler);
 }
 
 /**
- * 移除事件监听
+ * Remove event listener
  */
 export function EventsOff(eventName: string, handler?: (data: any) => void): void {
   wsClient.off(eventName, handler);
 }
 
 /**
- * 监听事件一次
+ * Listen for events once
  */
 export function EventsOnce(eventName: string, handler: (data: any) => void): UnlistenFn {
   const unlisten = wsClient.on(eventName, (data) => {
@@ -36,7 +36,7 @@ export function EventsOnce(eventName: string, handler: (data: any) => void): Unl
 }
 
 /**
- * 发送事件（前端到前端，不经过后端）
+ * Send events (frontend to frontend, not routed through backend)
  */
 export function EventsEmit(eventName: string, ...data: any[]): void {
   const event = new CustomEvent(eventName, { detail: data.length === 1 ? data[0] : data });
@@ -44,7 +44,7 @@ export function EventsEmit(eventName: string, ...data: any[]): void {
 }
 
 /**
- * Tauri 兼容的 listen 函数
+ * Tauri-compatible listen function
  */
 export async function listen<T = any>(
   event: string,
@@ -54,7 +54,7 @@ export async function listen<T = any>(
 }
 
 /**
- * Tauri 兼容的 once 函数
+ * Tauri-compatible once function
  */
 export async function once<T = any>(
   event: string,
@@ -64,14 +64,14 @@ export async function once<T = any>(
 }
 
 /**
- * Tauri 兼容的 emit 函数
+ * Tauri-compatible emit function
  */
 export function emit(event: string, payload?: any): void {
   EventsEmit(event, payload);
 }
 
 /**
- * 解除指定事件的所有监听器
+ * Remove all listeners for a specific event
  */
 export function unlisten(event: string): void {
   EventsOff(event);

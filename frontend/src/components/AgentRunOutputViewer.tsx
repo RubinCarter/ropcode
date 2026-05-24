@@ -70,8 +70,8 @@ export function AgentRunOutputViewer({
   const [refreshing, setRefreshing] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [copyPopoverOpen, setCopyPopoverOpen] = useState(false);
-  // hasUserScrolled / scrollAreaRef / outputEndRef / handleScroll 等手工 auto-scroll
-  // 状态全部交给 Virtuoso 的 followOutput 接管。下面只保留 Virtuoso ref 用于程序化 scroll。
+  // hasUserScrolled / scrollAreaRef / outputEndRef / handleScroll manual auto-scroll
+  // All state handed to Virtuoso followOutput. Only Virtuoso ref kept for programmatic scroll.
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const fullscreenVirtuosoRef = useRef<VirtuosoHandle>(null);
   const followOutput = useCallback(
@@ -185,8 +185,8 @@ export function AgentRunOutputViewer({
     { enabled: run?.status === 'running', skipInitial: true },
   );
 
-  // Auto-scroll 由 Virtuoso 的 followOutput 接管，原 isAtBottom / scrollToBottom
-  // / 手工 useEffect / handleScroll 全部删除。
+  // Auto-scroll handled by Virtuoso followOutput, replacing isAtBottom / scrollToBottom
+  // Manual useEffect / handleScroll all removed.
 
   // Load agent run on mount
   useEffect(() => {
@@ -219,7 +219,7 @@ export function AgentRunOutputViewer({
     };
   }, []);
 
-  // Auto-scroll 由 Virtuoso followOutput 接管，原 useEffect 删除。
+  // Auto-scroll handled by Virtuoso followOutput, original useEffect removed.
 
   const loadOutput = async (skipCache = false) => {
     if (!run?.id) return;
@@ -426,7 +426,7 @@ export function AgentRunOutputViewer({
     }
   };
 
-  // handleScroll 已被 Virtuoso atBottomStateChange 替代，删除。
+  // handleScroll replaced by Virtuoso atBottomStateChange, removed.
 
   // Load output on mount
   useEffect(() => {

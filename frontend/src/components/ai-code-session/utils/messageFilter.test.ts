@@ -107,8 +107,8 @@ test('display filter collapses consecutive transient runtime errors into the lat
   assert.deepEqual(displayable.indexes, [0, 3, 4, 5]);
 });
 
-// 增量 accumulator 跟 stateless getDisplayableMessages 必须 100% 等价：
-// 任意 prefix 上 apply 出的 indexes / messages 都应等于直接对该 prefix 调用 stateless 的结果。
+// Incremental accumulator must be 100% equivalent to stateless getDisplayableMessages:
+// Indexes/messages from apply on any prefix should equal calling stateless on that prefix.
 test('incremental accumulator matches stateless getDisplayableMessages on every prefix', () => {
   const messages = [
     { type: 'system', subtype: 'init' },
@@ -142,11 +142,11 @@ test('incremental accumulator matches stateless when hiddenIndexes ref changes m
 
   const acc = createDisplayableMessagesAccumulator();
 
-  // 第一次：无 hidden
+  // First: no hidden
   const first = acc.apply(messages.slice(0, 3) as any);
   assert.deepEqual(first.indexes, getDisplayableMessages(messages.slice(0, 3) as any).indexes);
 
-  // 第二次：把 launcher (index 2) 标 hidden，应触发 rebuild + supersede 同 msgId 的 0,1
+  // Second: mark launcher (index 2) hidden, should trigger rebuild + supersede same msgId 0,1
   const hidden1 = new Set([2]);
   const second = acc.apply(messages.slice(0, 3) as any, hidden1);
   assert.deepEqual(
@@ -154,11 +154,11 @@ test('incremental accumulator matches stateless when hiddenIndexes ref changes m
     getDisplayableMessages(messages.slice(0, 3) as any, hidden1).indexes,
   );
 
-  // 第三次：append 新消息，hidden ref 不变，走增量分支
+  // Third: append new message, hidden ref unchanged, takes incremental path
   const third = acc.apply(messages as any, hidden1);
   assert.deepEqual(third.indexes, getDisplayableMessages(messages as any, hidden1).indexes);
 
-  // 第四次：hidden ref 换成新空 Set，rebuild
+  // Fourth: hidden ref replaced with new empty Set, rebuild
   const hidden2 = new Set<number>();
   const fourth = acc.apply(messages as any, hidden2);
   assert.deepEqual(fourth.indexes, getDisplayableMessages(messages as any, hidden2).indexes);

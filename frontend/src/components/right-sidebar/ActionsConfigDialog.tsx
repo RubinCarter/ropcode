@@ -95,7 +95,7 @@ export const ActionsConfigDialog: React.FC<ActionsConfigDialogProps> = ({
       command: '',
       type,
       shared: type === 'project' ? true : undefined,
-      actionType: 'script' // 默认为 script 类型
+      actionType: 'script' // Default is script type
     };
     setEditingAction(newAction);
   };

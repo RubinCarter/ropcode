@@ -1,7 +1,7 @@
 /**
- * Provider 配置和 API
+ * Provider config and API
  *
- * 导出 provider 相关的常量、类型和 API 方法
+ * Exports provider-related constants, types, and API methods.
  */
 
 import { ListProviderSessions, LoadProviderSessionHistory, LoadProviderSessionHistoryFrames } from './rpc-client';
@@ -30,7 +30,7 @@ export interface ProviderInfo {
   enabledModels?: string[];
 }
 
-// 通用 providers 列表
+// Common providers list
 export const providerConfigs: ProviderInfo[] = [
   {
     id: 'anthropic',
@@ -48,17 +48,17 @@ export const providerConfigs: ProviderInfo[] = [
   },
 ];
 
-// Provider API 对象（用于向后兼容）
+// Provider API object (backward compat)
 export const providers = {
   /**
-   * 列出项目的 provider 会话
+   * List provider sessions for a project
    */
   listSessions: async (projectPath: string, providerName: string) => {
     return ListProviderSessions(projectPath, providerName);
   },
 
   /**
-   * 加载 provider 会话历史
+   * Load provider session history
    */
   loadHistory: async (sessionId: string, projectId: string, providerName: string): Promise<ProviderHistoryMessage[]> => {
     return LoadProviderSessionHistory(projectId, sessionId, providerName) as Promise<ProviderHistoryMessage[]>;
@@ -69,5 +69,5 @@ export const providers = {
   },
 };
 
-// 兼容旧代码的导出
+// Backward-compatible export
 export { providerConfigs as providersList };

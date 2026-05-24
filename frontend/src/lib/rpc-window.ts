@@ -1,7 +1,7 @@
 /**
- * RPC 窗口控制
+ * RPC window control
  *
- * 通过 Electron IPC 调用主进程窗口控制。
+ * Calls main process window control via Electron IPC.
  */
 
 export function WindowMinimise(): void {
@@ -117,4 +117,4 @@ export function Quit(): void {
   window.electronAPI?.quit?.();
 }
 
-// electronAPI 类型已在 vite-env.d.ts 中声明
+// electronAPI type declared in vite-env.d.ts

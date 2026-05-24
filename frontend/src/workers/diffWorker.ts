@@ -28,8 +28,8 @@ interface DiffResponse {
 }
 
 /**
- * 使用 Myers diff 算法计算单栏显示的 diff
- * 添加了复杂度保护和进度报告
+ * Computes single-pane diff using Myers diff algorithm.
+ * Includes complexity protection and progress reporting.
  */
 function computeSinglePaneDiff(
   oldLines: string[],
@@ -39,11 +39,11 @@ function computeSinglePaneDiff(
   const n = oldLines.length;
   const m = newLines.length;
 
-  // 如果文件太大,使用简化算法
+  // If file is too large, use simplified algorithm
   const MAX_COMPLEXITY = 10000000; // 10M operations
   if (n * m > MAX_COMPLEXITY) {
     console.warn('File too large for full diff computation, using simplified mode');
-    // 返回简化的 diff: 逐行对比
+    // Return simplified diff: line-by-line comparison
     const result: DiffLine[] = [];
     const maxLen = Math.max(n, m);
     for (let i = 0; i < maxLen; i++) {
@@ -66,12 +66,12 @@ function computeSinglePaneDiff(
     return result;
   }
 
-  // 构建 LCS 动态规划表
+  // Build LCS dynamic programming table
   const dp: number[][] = Array(n + 1).fill(0).map(() => Array(m + 1).fill(0));
 
   for (let i = 1; i <= n; i++) {
     if (progressCallback && i % 100 === 0) {
-      progressCallback((i / n) * 50); // 前 50% 进度
+      progressCallback((i / n) * 50); // First 50% progress
     }
     for (let j = 1; j <= m; j++) {
       if (oldLines[i - 1] === newLines[j - 1]) {
@@ -82,7 +82,7 @@ function computeSinglePaneDiff(
     }
   }
 
-  // 回溯构建 diff 结果
+  // Backtrack to build diff result
   const result: DiffLine[] = [];
   let i = n, j = m;
 
@@ -119,7 +119,7 @@ function computeSinglePaneDiff(
     }
   }
 
-  // 合并连续的 delete + add 为 modify
+  // Merge consecutive delete + add into modify
   const mergedOps: Array<{
     type: 'add' | 'delete' | 'modify' | 'context';
     oldContent?: string;
@@ -130,13 +130,13 @@ function computeSinglePaneDiff(
 
   while (k < operations.length) {
     if (progressCallback && k % 100 === 0) {
-      progressCallback(50 + (k / operations.length) * 50); // 后 50% 进度
+      progressCallback(50 + (k / operations.length) * 50); // Last 50% progress
     }
 
     const op = operations[k];
 
     if (op.type === 'delete') {
-      // 收集连续的删除
+      // Collect consecutive deletions
       const deleteOps = [op];
       let nextIdx = k + 1;
       while (nextIdx < operations.length && operations[nextIdx].type === 'delete') {
@@ -144,7 +144,7 @@ function computeSinglePaneDiff(
         nextIdx++;
       }
 
-      // 收集紧随的添加
+      // Collect following additions
       const addOps = [];
       while (nextIdx < operations.length && operations[nextIdx].type === 'add') {
         addOps.push(operations[nextIdx]);
@@ -152,10 +152,10 @@ function computeSinglePaneDiff(
       }
 
       if (addOps.length > 0) {
-        // 有删除和添加,标记为修改
+        // Has deletions and additions, mark as modified
         const minLen = Math.min(deleteOps.length, addOps.length);
 
-        // 配对的部分标记为 modify
+        // Paired parts marked as modify
         for (let p = 0; p < minLen; p++) {
           mergedOps.push({
             type: 'modify',
@@ -165,19 +165,19 @@ function computeSinglePaneDiff(
           });
         }
 
-        // 多余的删除
+        // Extra deletions
         for (let p = minLen; p < deleteOps.length; p++) {
           mergedOps.push(deleteOps[p]);
         }
 
-        // 多余的添加
+        // Extra additions
         for (let p = minLen; p < addOps.length; p++) {
           mergedOps.push(addOps[p]);
         }
 
         k = nextIdx;
       } else {
-        // 只有删除
+        // Only deletions
         mergedOps.push(...deleteOps);
         k = nextIdx;
       }
@@ -187,7 +187,7 @@ function computeSinglePaneDiff(
     }
   }
 
-  // 转换为 DiffLine
+  // Convert to DiffLine
   for (const op of mergedOps) {
     if (op.type === 'context') {
       result.push({
@@ -225,13 +225,13 @@ function computeSinglePaneDiff(
   return result;
 }
 
-// Worker 消息处理
+// Worker message handling
 self.addEventListener('message', (event: MessageEvent<DiffRequest>) => {
   const { type, oldLines, newLines, chunkStart, chunkEnd } = event.data;
 
   if (type === 'compute-diff') {
     try {
-      // 如果是分块请求,只处理指定范围
+      // If chunked request, only process specified range
       const linesToProcess = (chunkStart !== undefined && chunkEnd !== undefined)
         ? {
             oldLines: oldLines.slice(chunkStart, chunkEnd),
@@ -239,7 +239,7 @@ self.addEventListener('message', (event: MessageEvent<DiffRequest>) => {
           }
         : { oldLines, newLines };
 
-      // 计算 diff,并报告进度
+      // Compute diff and report progress
       const lines = computeSinglePaneDiff(
         linesToProcess.oldLines,
         linesToProcess.newLines,
@@ -254,7 +254,7 @@ self.addEventListener('message', (event: MessageEvent<DiffRequest>) => {
         }
       );
 
-      // 发送结果
+      // Send results
       const response: DiffResponse = {
         type: 'diff-result',
         lines,

@@ -1,5 +1,5 @@
 /**
- * Widget 基础模块导出
+ * Widget base module exports
  */
 
 export { BaseWidgetModel, widgetRegistry } from './WidgetModel';

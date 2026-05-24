@@ -1,13 +1,13 @@
 /**
- * API 模块
+ * API Module
  *
- * 导出所有 RPC 客户端方法和事件监听器
+ * Exports all RPC client methods and event listeners.
  */
 
-// 导出所有 RPC 方法
+// Export all RPC methods
 export * from './rpc-client';
 
-// 类型别名：用于向后兼容
+// Type aliases for backward compatibility
 import type { ClaudeCapability, ClaudeCapabilityLayers, database, claude, main, mcp } from './rpc-client';
 export type Agent = database.Agent;
 export type AgentRunMetrics = database.AgentRunMetrics;
@@ -122,10 +122,10 @@ export interface GitCloneProgress { [key: string]: any; }
 export interface GitHubAgentFile { [key: string]: any; }
 export interface AgentExport { [key: string]: any; }
 
-// 导出事件函数
+// Export event functions
 export { EventsOn, EventsOff, EventsEmit, EventsOnce } from './rpc-events';
 
-// 导出窗口控制函数
+// Export window control functions
 export {
   WindowMinimise,
   WindowToggleMaximise,
@@ -135,30 +135,30 @@ export {
   Quit
 } from './rpc-window';
 
-// 创建便捷的 api 对象（用于兼容现有代码）
+// Create convenience api object (for backward compatibility with existing code)
 import * as rpcMethods from './rpc-client';
 import { EventsOn } from './rpc-events';
 
-// 将所有方法作为属性导出，并自动添加小写别名
+// Export all methods as properties with auto-added lowercase aliases
 const api = new Proxy({ ...rpcMethods }, {
   get(target, prop) {
-    // 如果属性存在，直接返回
+    // If property exists, return directly
     if (prop in target) {
       return target[prop];
     }
 
-    // 尝试将小写属性名转换为大写形式
+    // Try converting lowercase property name to uppercase form
     const key = String(prop);
 
-    // 首字母大写的驼峰命名
+    // PascalCase conversion
     const pascalCase = key.charAt(0).toUpperCase() + key.slice(1);
 
     if (pascalCase in target) {
       return target[pascalCase];
     }
 
-    // 尝试其他常见的命名转换
-    // 添加前缀 "Get" 或 "List" 等
+    // Try other common naming conversions
+    // Add prefix like "Get" or "List"
     const withGet = 'Get' + pascalCase;
     if (withGet in target) {
       return target[withGet];
@@ -169,9 +169,9 @@ const api = new Proxy({ ...rpcMethods }, {
       return target[withList];
     }
 
-    // 处理一些特殊的命名模式
+    // Handle some special naming patterns
     const mappings: Record<string, string> = {
-      // SSH 相关
+      // SSH related
       listGlobalSshConnections: 'ListGlobalSshConnections',
       getHomeDirectory: 'GetHomeDirectory',
       syncFromSSH: 'SyncFromSSH',
@@ -328,7 +328,7 @@ const api = new Proxy({ ...rpcMethods }, {
 
 export { api };
 
-// 导出 listen 函数（兼容旧代码）
+// Export listen function (backward compatibility)
 export function listen(eventName: string, callback: (payload: any) => void): () => void {
   return EventsOn(eventName, callback);
 }

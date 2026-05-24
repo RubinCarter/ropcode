@@ -27,19 +27,19 @@ export function useElementSelectionPrompt({
         return;
       }
 
-      const formattedMessage = `## 网页元素选择
+      const formattedMessage = `## Web Element Selection
 
-**页面 URL**: ${element.url}
-**元素类型**: ${element.tagName}
-${element.selector ? `**CSS 选择器**: \`${element.selector}\`` : ''}
+**Page URL**: ${element.url}
+**Element Type**: ${element.tagName}
+${element.selector ? `**CSS Selector**: \`${element.selector}\`` : ''}
 
-${element.innerText ? `**元素文本**:\n${element.innerText.substring(0, 300)}${element.innerText.length > 300 ? '...' : ''}\n` : ''}
-**HTML 结构**:
+${element.innerText ? `**Element Text**:\n${element.innerText.substring(0, 300)}${element.innerText.length > 300 ? '...' : ''}\n` : ''}
+**HTML Structure**:
 \`\`\`html
 ${element.outerHTML}
 \`\`\`
 
-${message ? `**说明**:\n${message}` : ''}`;
+${message ? `**Description**:\n${message}` : ''}`;
 
       if (!inputRef.current) {
         return;

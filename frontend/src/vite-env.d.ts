@@ -31,10 +31,10 @@ interface Window {
     setMaxSize: (width: number, height: number) => Promise<void>;
     setAlwaysOnTop: (flag: boolean) => Promise<void>;
     quit: () => Promise<void>;
-    // 文件对话框
+    // File dialog
     openDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
     openFile: (options?: { multiple?: boolean }) => Promise<{ canceled: boolean; filePaths?: string[] }>;
-    // Webview 相关
+    // Webview related
     getWebviewPreload: () => Promise<string>;
     setWebviewFocus: (webContentsId: number | null) => void;
     clearWebviewStorage: (webContentsId: number) => Promise<void>;

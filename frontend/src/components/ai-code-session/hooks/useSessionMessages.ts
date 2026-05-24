@@ -372,8 +372,8 @@ export function useSessionMessages(): UseSessionMessagesReturn {
     return next;
   }, [subagentProgress.subagentMessageIndexes]);
 
-  // 增量 accumulator：append-only 复用过去的 toolUseNamesById / supersededXxx 状态，
-  // 避免每条新消息都跑 5 趟全表扫。stateless getDisplayableMessages 仍保留供测试 / 次级 viewer 用。
+  // Incremental accumulator: append-only reuses past toolUseNamesById / supersededXxx state,
+  // avoids 5 full-table scans per new message. Stateless getDisplayableMessages kept for tests / secondary viewers.
   const displayableAccumulatorRef = useRef<DisplayableMessagesAccumulator | null>(null);
   if (displayableAccumulatorRef.current === null) {
     displayableAccumulatorRef.current = createDisplayableMessagesAccumulator();

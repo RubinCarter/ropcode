@@ -443,7 +443,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     return () => window.removeEventListener('open-new-session', handleOpenNewSession);
   }, [addTab, setActiveTab, tabs, workspaceId]);
 
-  // 判断 tab 是否需要保持挂载状态（有状态的 tab）
+  // Determine if tab should stay mounted (stateful tabs)
   const shouldKeepTabMounted = (tabType: string): boolean => {
     const STATEFUL_TAB_TYPES = new Set(['chat', 'agent-execution', 'claude-file', 'diff', 'file', 'webview']);
     return STATEFUL_TAB_TYPES.has(tabType);
@@ -566,7 +566,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         const isActive = tab.id === activeTabId;
         const keepMounted = shouldKeepTabMounted(tab.type);
 
-        // 对于有状态的 tab，使用 CSS hidden 控制显示；对于无状态的 tab，只渲染活动的
+        // For stateful tabs, use CSS hidden; for stateless tabs, only render active one
         if (!isActive && !keepMounted) {
           return null;
         }
@@ -584,14 +584,14 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
   );
 };
 
-// 将 WorkspaceTabManager 渲染到标题栏的 Portal 组件
+// Portal component that renders WorkspaceTabManager into titlebar
 const WorkspaceTabManagerPortal: React.FC<{ visible: boolean }> = ({ visible }) => {
   const [slot, setSlot] = React.useState<HTMLElement | null>(() =>
     visible ? document.getElementById('workspace-tab-manager-slot') : null
   );
 
-  // 每次渲染时同步检查 slot 是否仍然有效
-  // 无依赖数组 = 每次渲染后都执行，确保 slot 引用始终正确
+  // Synchronously check if slot is still valid on each render
+  // No dependency array = execute after every render, ensure slot ref is always correct
   React.useLayoutEffect(() => {
     if (!visible) {
       if (slot !== null) setSlot(null);
@@ -604,7 +604,7 @@ const WorkspaceTabManagerPortal: React.FC<{ visible: boolean }> = ({ visible }) 
     }
   });
 
-  // MutationObserver 处理 slot 元素被异步创建/销毁的情况
+  // MutationObserver handles async creation/destruction of slot elements
   React.useEffect(() => {
     if (!visible) return;
 
@@ -636,7 +636,7 @@ export const WorkspaceContainer: React.FC<WorkspaceContainerProps> = ({ workspac
   const [rightSidebarOpen, setRightSidebarOpen] = React.useState(true);
   const isMobile = useIsMobile();
 
-  // 监听全局 toggle-right-sidebar 事件
+  // Listen for global toggle-right-sidebar events
   React.useEffect(() => {
     const handleToggle = () => {
       if (visible) {
@@ -650,15 +650,15 @@ export const WorkspaceContainer: React.FC<WorkspaceContainerProps> = ({ workspac
 
   return (
     <WorkspaceTabProvider workspaceId={workspaceId}>
-      {/* Portal: 将 TabManager 渲染到标题栏 */}
+      {/* Portal: render TabManager into titlebar */}
       <WorkspaceTabManagerPortal visible={visible} />
 
       <div className={`h-full w-full flex ${visible ? '' : 'hidden'}`}>
-        {/* 中间栏 - 使用 flex-1 占据剩余空间 */}
+        {/* Middle section - flex-1 takes remaining space */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <WorkspaceContent workspaceId={workspaceId} />
         </div>
-        {/* 右侧栏 - 默认 35% 宽度 */}
+        {/* Right sidebar - default 35% width */}
         {!isMobile && (
           <RightSidebar
             isOpen={rightSidebarOpen}

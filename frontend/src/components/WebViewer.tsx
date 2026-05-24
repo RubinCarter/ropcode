@@ -24,14 +24,14 @@ interface SelectedElement {
 }
 
 /**
- * 判断是否为本地文件路径
+ * Check if URL is a local file path
  */
 function isLocalFile(url: string): boolean {
   return !url.startsWith('http://') && !url.startsWith('https://');
 }
 
 /**
- * 解析相对路径为绝对路径
+ * Resolve relative path to absolute path
  */
 function resolveFilePath(url: string, workspacePath?: string): string {
   if (!isLocalFile(url)) {
@@ -42,7 +42,7 @@ function resolveFilePath(url: string, workspacePath?: string): string {
 }
 
 /**
- * 处理 URL，如果是本地文件则使用 convertFileSrc 转换
+ * Process URL, use convertFileSrc for local files
  */
 async function processUrl(
   url: string,
@@ -51,15 +51,15 @@ async function processUrl(
 ): Promise<string> {
   if (isLocalFile(url)) {
     try {
-      // 首先解析相对路径
+      // First resolve relative path
       const absolutePath = resolveFilePath(url, workspacePath);
 
-      // 如果是 HTML 文件，读取内容并注入脚本
+      // If HTML file, read content and inject script
       if (absolutePath.toLowerCase().endsWith('.html') || absolutePath.toLowerCase().endsWith('.htm')) {
         try {
           console.log('[WebViewer] Reading local HTML file:', absolutePath);
 
-          // 使用 fetch 通过 asset:// 协议读取文件
+          // Use fetch via asset:// protocol to read file
           const assetUrl = convertFileSrc(absolutePath);
           console.log('[WebViewer] Fetching from:', assetUrl);
 
@@ -71,23 +71,23 @@ async function processUrl(
           const content = await response.text();
           console.log('[WebViewer] Successfully read HTML file, length:', content.length);
 
-          // 获取文件所在目录，用于设置 base href
+          // Get file directory for setting base href
           const baseHref = convertFileSrc(parentPath(absolutePath) + '/');
 
-          // 注入元素选择器脚本和 base 标签
+          // Inject element selector script and base tag
           const scriptTag = `<script>${getElementSelectorScript()}</script>`;
           const baseTag = `<base href="${baseHref}">`;
           let modifiedContent = content;
 
-          // 尝试在 </head> 之前注入（优先注入 base 标签，然后是脚本）
+          // Try injecting before </head> (base tag first, then script)
           if (content.includes('</head>')) {
             modifiedContent = content.replace('</head>', `${baseTag}${scriptTag}</head>`);
           }
-          // 如果没有 head，尝试在 <body> 之后注入
+          // If no head, try injecting after <body>
           else if (content.includes('<body')) {
             modifiedContent = content.replace(/<body([^>]*)>/, `<head>${baseTag}${scriptTag}</head><body$1>`);
           }
-          // 如果都没有，就在开头注入
+          // If neither exists, inject at the beginning
           else {
             modifiedContent = `<head>${baseTag}${scriptTag}</head>` + content;
           }
@@ -98,7 +98,7 @@ async function processUrl(
             setSrcdoc(modifiedContent);
           }
 
-          // 返回一个特殊标记，表示使用 srcdoc
+          // Return special marker indicating srcdoc usage
           return 'use-srcdoc';
         } catch (error) {
           console.error('[WebViewer] Failed to read HTML file, falling back to convertFileSrc:', error);
@@ -108,7 +108,7 @@ async function processUrl(
         }
       }
 
-      // 对于非 HTML 文件或读取失败的情况，使用 convertFileSrc
+      // For non-HTML files or read failures, use convertFileSrc
       if (setSrcdoc) {
         setSrcdoc(null);
       }
@@ -122,7 +122,7 @@ async function processUrl(
     }
   }
 
-  // 远程 URL 不需要特殊处理
+  // Remote URLs need no special processing
   if (setSrcdoc) {
     setSrcdoc(null);
   }
@@ -130,20 +130,20 @@ async function processUrl(
 }
 
 /**
- * 生成元素选择器注入脚本
- * 该脚本会在 iframe 内部运行，实现元素高亮和选择功能
+ * Generate element selector injection script
+ * This script runs inside the iframe to enable element highlighting and selection
  */
 function getElementSelectorScript(): string {
   return `
     (function() {
-      // 避免重复注入
+      // Prevent duplicate injection
       if (window.__elementSelectorInjected) return;
       window.__elementSelectorInjected = true;
 
       let isSelecting = false;
       let currentHighlight = null;
 
-      // 创建高亮覆盖层
+      // Create highlight overlay
       function createHighlightOverlay() {
         const overlay = document.createElement('div');
         overlay.id = '__element-selector-overlay';
@@ -160,7 +160,7 @@ function getElementSelectorScript(): string {
         return overlay;
       }
 
-      // 生成唯一的 CSS 选择器
+      // Generate unique CSS selector
       function getUniqueSelector(element) {
         if (element.id) {
           return '#' + element.id;
@@ -197,14 +197,14 @@ function getElementSelectorScript(): string {
         return path.join(' > ');
       }
 
-      // 高亮元素
+      // Highlight element
       function highlightElement(element) {
         if (!currentHighlight) {
           currentHighlight = createHighlightOverlay();
         }
 
         const rect = element.getBoundingClientRect();
-        // 使用 fixed 定位，直接使用 getBoundingClientRect 的值
+        // Use fixed positioning with getBoundingClientRect values
         currentHighlight.style.left = rect.left + 'px';
         currentHighlight.style.top = rect.top + 'px';
         currentHighlight.style.width = rect.width + 'px';
@@ -212,14 +212,14 @@ function getElementSelectorScript(): string {
         currentHighlight.style.display = 'block';
       }
 
-      // 隐藏高亮
+      // Hide highlight
       function hideHighlight() {
         if (currentHighlight) {
           currentHighlight.style.display = 'none';
         }
       }
 
-      // 鼠标移动事件处理
+      // Mouse move event handler
       function handleMouseOver(e) {
         if (!isSelecting) return;
         e.preventDefault();
@@ -231,13 +231,13 @@ function getElementSelectorScript(): string {
         highlightElement(target);
       }
 
-      // 鼠标移出事件处理
+      // Mouse out event handler
       function handleMouseOut(e) {
         if (!isSelecting) return;
-        // 不隐藏，保持高亮直到下一个元素
+        // Don't hide, keep highlight until next element
       }
 
-      // 点击事件处理
+      // Click event handler
       function handleClick(e) {
         if (!isSelecting) return;
         e.preventDefault();
@@ -246,7 +246,7 @@ function getElementSelectorScript(): string {
         const target = e.target;
         if (target.id === '__element-selector-overlay') return;
 
-        // 提取元素信息
+        // Extract element info
         const elementInfo = {
           tagName: target.tagName,
           innerText: target.innerText?.substring(0, 500) || '',
@@ -255,17 +255,17 @@ function getElementSelectorScript(): string {
           url: window.location.href
         };
 
-        // 发送消息到父窗口
+        // Send message to parent window
         window.parent.postMessage({
           type: 'element-selected',
           data: elementInfo
         }, '*');
 
-        // 停止选择模式
+        // Stop selection mode
         stopSelection();
       }
 
-      // 启动选择模式
+      // Start selection mode
       function startSelection() {
         isSelecting = true;
         document.body.style.cursor = 'crosshair';
@@ -274,7 +274,7 @@ function getElementSelectorScript(): string {
         document.addEventListener('click', handleClick, true);
       }
 
-      // 停止选择模式
+      // Stop selection mode
       function stopSelection() {
         isSelecting = false;
         document.body.style.cursor = '';
@@ -284,14 +284,14 @@ function getElementSelectorScript(): string {
         document.removeEventListener('click', handleClick, true);
       }
 
-      // 监听来自父窗口的消息
+      // Listen for messages from parent window
       window.addEventListener('message', function(event) {
         if (event.data.type === 'start-element-selection') {
           startSelection();
         } else if (event.data.type === 'stop-element-selection') {
           stopSelection();
         } else if (event.data.type === 'ping-element-selector') {
-          // 响应 ping 请求，确认脚本已注入
+          // Respond to ping, confirm script is injected
           window.parent.postMessage({
             type: 'element-selector-ready'
           }, '*');
@@ -300,7 +300,7 @@ function getElementSelectorScript(): string {
 
       console.log('[ElementSelector] Script injected successfully');
 
-      // 主动通知父窗口脚本已就绪
+      // Proactively notify parent that script is ready
       window.parent.postMessage({
         type: 'element-selector-ready'
       }, '*');
@@ -309,13 +309,13 @@ function getElementSelectorScript(): string {
 }
 
 /**
- * WebViewer 组件 - 使用 iframe 显示网页内容
+ * WebViewer component - displays web content via iframe
  *
- * 功能：
- * - 显示指定 URL 的网页内容
- * - 支持本地文件和远程 URL
- * - URL 输入框和刷新按钮
- * - 加载状态和错误处理
+ * Features:
+ * - Display web content for a given URL
+ * - Support local files and remote URLs
+ * - URL input and refresh button
+ * - Loading state and error handling
   */
 export const WebViewer: React.FC<WebViewerProps> = ({
   url,
@@ -339,16 +339,16 @@ export const WebViewer: React.FC<WebViewerProps> = ({
   const [inputUrl, setInputUrl] = useState(url);
   const [iframeKey, setIframeKey] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  // 保存原始 URL（用于在外部浏览器打开）
+  // Save original URL (for opening in external browser)
   const originalUrlRef = useRef<string>(url);
-  // 元素选择模式
+  // Element selection mode
   const [isSelectingElement, setIsSelectingElement] = useState(false);
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
-  // 用户消息输入
+  // User message input
   const [userMessage, setUserMessage] = useState('');
-  // 脚本注入状态
+  // Script injection state
   const [isScriptInjected, setIsScriptInjected] = useState(false);
-  // 用于本地 HTML 文件的 srcdoc 内容
+  // srcdoc content for local HTML files
   const [srcdocContent, setSrcdocContent] = useState<string | null>(null);
 
   // Cleanup on unmount
@@ -358,7 +358,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
     };
   }, []);
 
-  // 当外部 URL 变化时更新状态
+  // Update state when external URL changes
   useEffect(() => {
     const updateUrl = async () => {
       originalUrlRef.current = url;
@@ -373,24 +373,24 @@ export const WebViewer: React.FC<WebViewerProps> = ({
     updateUrl();
   }, [url, workspacePath]);
 
-  // 处理 iframe 加载完成
+  // Handle iframe load complete
   const handleIframeLoad = () => {
     setLoading(false);
     setError(null);
 
-    // 如果使用 srcdoc，脚本已经在 HTML 中，直接标记为已注入
+    // If using srcdoc, script is already in HTML, mark as injected
     if (srcdocContent) {
       console.log('[WebViewer] Using srcdoc, script pre-injected');
       setIsScriptInjected(true);
       return;
     }
 
-    // 否则，重置状态并尝试注入脚本
+    // Otherwise, reset state and try to inject script
     setIsScriptInjected(false);
     injectElementSelectorScript();
   };
 
-  // 注入元素选择器脚本到 iframe
+  // Inject element selector script into iframe
   const injectElementSelectorScript = () => {
     if (!iframeRef.current) return;
 
@@ -406,7 +406,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
           return;
         }
 
-        // 检查是否可以访问 iframe 的 document
+        // Check if iframe document is accessible
         const doc = iframeWindow.document;
         if (!doc) {
           console.warn('[WebViewer] Cannot access iframe document');
@@ -414,7 +414,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
           return;
         }
 
-        // 确保 head 和 body 都存在
+        // Ensure both head and body exist
         if (!doc.head || !doc.body) {
           console.warn('[WebViewer] Document not ready, retrying...', {
             hasHead: !!doc.head,
@@ -424,7 +424,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
 
           if (retryCount < maxRetries) {
             retryCount++;
-            setTimeout(attemptInject, 200 * retryCount); // 递增延迟
+            setTimeout(attemptInject, 200 * retryCount); // Incremental delay
             return;
           } else {
             console.error('[WebViewer] Failed to inject after retries - DOM not ready');
@@ -433,14 +433,14 @@ export const WebViewer: React.FC<WebViewerProps> = ({
           }
         }
 
-        // 创建并注入 script 标签
+        // Create and inject script tag
         const script = doc.createElement('script');
         script.textContent = getElementSelectorScript();
         doc.head.appendChild(script);
 
         console.log('[WebViewer] Element selector script injected successfully');
 
-        // 发送 ping 消息验证脚本是否成功加载
+        // Send ping to verify script loaded successfully
         setTimeout(() => {
           if (!isScriptInjected && iframeRef.current?.contentWindow) {
             console.log('[WebViewer] Sending ping to verify script injection');
@@ -454,11 +454,11 @@ export const WebViewer: React.FC<WebViewerProps> = ({
           }
         }, 200);
 
-        // 设置超时检查
+        // Set timeout check
         setTimeout(() => {
           if (!isScriptInjected) {
             console.warn('[WebViewer] Script injection verification timeout');
-            // 对于同源页面，即使没收到确认也可能是消息时序问题，再试一次 ping
+            // For same-origin pages, timing issue possible even without confirmation, retry ping
             if (iframeRef.current?.contentWindow) {
               try {
                 iframeRef.current.contentWindow.postMessage({
@@ -472,11 +472,11 @@ export const WebViewer: React.FC<WebViewerProps> = ({
         }, 500);
 
       } catch (err) {
-        // 跨域限制可能导致注入失败
+        // Cross-origin restrictions may cause injection failure
         console.error('[WebViewer] Failed to inject element selector script:', err);
         setIsScriptInjected(false);
 
-        // 只在真正的跨域错误时显示警告
+        // Only show warning for actual cross-origin errors
         if (err instanceof DOMException && err.name === 'SecurityError') {
           window.dispatchEvent(new CustomEvent('show-toast', {
             detail: {
@@ -488,17 +488,17 @@ export const WebViewer: React.FC<WebViewerProps> = ({
       }
     };
 
-    // 延迟一小段时间再注入，确保 iframe 加载完成
+    // Delay briefly before injection to ensure iframe is loaded
     setTimeout(attemptInject, 50);
   };
 
-  // 处理 iframe 加载错误
+  // Handle iframe load error
   const handleIframeError = () => {
     setLoading(false);
     setError('Failed to load webpage. Please check the URL and try again.');
   };
 
-  // 刷新页面
+  // Refresh page
   const handleRefresh = async () => {
     setLoading(true);
     setError(null);
@@ -507,12 +507,12 @@ export const WebViewer: React.FC<WebViewerProps> = ({
     setIframeKey(prev => prev + 1);
   };
 
-  // 导航到新 URL
+  // Navigate to new URL
   const handleNavigate = async () => {
     const trimmedUrl = inputUrl.trim();
     if (!trimmedUrl) return;
 
-    // 确保远程 URL 有协议前缀（本地文件保持原样）
+    // Ensure remote URL has protocol prefix (keep local files as-is)
     let normalizedUrl = trimmedUrl;
     if (!isLocalFile(trimmedUrl) &&
         !trimmedUrl.startsWith('http://') &&
@@ -528,13 +528,13 @@ export const WebViewer: React.FC<WebViewerProps> = ({
     setCurrentUrl(processedUrl);
     setIframeKey(prev => prev + 1);
 
-    // 通知父组件 URL 变化（使用原始 URL，不是处理后的）
+    // Notify parent of URL change (use original URL, not processed)
     if (onUrlChange) {
       onUrlChange(normalizedUrl);
     }
   };
 
-  // 处理 Enter 键
+  // Handle Enter key
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       handleNavigate();
@@ -542,13 +542,13 @@ export const WebViewer: React.FC<WebViewerProps> = ({
   };
 
   
-  // 复制 URL 到剪贴板
+  // Copy URL to clipboard
   const handleCopyUrl = async () => {
     try {
       const urlToCopy = originalUrlRef.current;
       await navigator.clipboard.writeText(urlToCopy);
 
-      // 触发成功事件，显示 toast 提示
+      // Trigger success event, show toast
       window.dispatchEvent(new CustomEvent('show-toast', {
         detail: { message: 'URL copied to clipboard', type: 'success' }
       }));
@@ -560,7 +560,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
     }
   };
 
-  // 切换元素选择模式
+  // Toggle element selection mode
   const toggleElementSelection = () => {
     if (!iframeRef.current?.contentWindow) {
       window.dispatchEvent(new CustomEvent('show-toast', {
@@ -569,7 +569,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
       return;
     }
 
-    // 检查脚本是否已注入
+    // Check if script is injected
     if (!isScriptInjected) {
       window.dispatchEvent(new CustomEvent('show-toast', {
         detail: {
@@ -583,7 +583,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
     const newState = !isSelectingElement;
     setIsSelectingElement(newState);
 
-    // 发送消息到 iframe
+    // Send message to iframe
     try {
       iframeRef.current.contentWindow.postMessage({
         type: newState ? 'start-element-selection' : 'stop-element-selection'
@@ -599,10 +599,10 @@ export const WebViewer: React.FC<WebViewerProps> = ({
     }
   };
 
-  // 监听来自 iframe 的消息
+  // Listen for messages from iframe
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // 过滤掉非目标消息
+      // Filter out non-target messages
       if (!event.data || typeof event.data.type !== 'string') return;
 
       console.log('[WebViewer] Received message:', event.data.type, event.origin);
@@ -614,12 +614,12 @@ export const WebViewer: React.FC<WebViewerProps> = ({
         setSelectedElement(elementData);
         setIsSelectingElement(false);
 
-        // 显示成功提示
+        // Show success toast
         window.dispatchEvent(new CustomEvent('show-toast', {
           detail: { message: 'Element selected successfully', type: 'success' }
         }));
       } else if (event.data.type === 'element-selector-ready') {
-        // 脚本已成功注入并就绪
+        // Script injected and ready
         console.log('[WebViewer] ✓ Element selector script is ready and confirmed');
         setIsScriptInjected(true);
       }
@@ -631,13 +631,13 @@ export const WebViewer: React.FC<WebViewerProps> = ({
 
   return (
     <div className={cn('flex flex-col h-full bg-background', className)}>
-      {/* 工具栏 */}
+      {/* Toolbar */}
       <div className="px-4 py-2 bg-muted/30 border-b">
         <div className="flex items-center gap-2">
-          {/* 图标 */}
+          {/* Icon */}
           <Globe className="w-4 h-4 text-muted-foreground flex-shrink-0" />
 
-          {/* URL 输入框 */}
+          {/* URL input */}
           <Input
             type="text"
             value={inputUrl}
@@ -648,7 +648,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             spellCheck={false}
           />
 
-          {/* 导航按钮 */}
+          {/* Navigate button */}
           <Button
             size="sm"
             variant="ghost"
@@ -659,7 +659,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             Go
           </Button>
 
-          {/* 刷新按钮 */}
+          {/* Refresh button */}
           <Button
             size="sm"
             variant="ghost"
@@ -671,7 +671,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin')} />
           </Button>
 
-          {/* 复制 URL 按钮 */}
+          {/* Copy URL button */}
           <Button
             size="sm"
             variant="ghost"
@@ -682,7 +682,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             <Copy className="w-4 h-4" />
           </Button>
 
-          {/* 元素选择按钮 */}
+          {/* Element selector button */}
           <Button
             size="sm"
             variant={isSelectingElement ? "default" : "ghost"}
@@ -702,9 +702,9 @@ export const WebViewer: React.FC<WebViewerProps> = ({
         </div>
       </div>
 
-      {/* 内容区域 */}
+      {/* Content area */}
       <div className="flex-1 relative">
-        {/* 加载指示器 */}
+        {/* Loading indicator */}
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
             <div className="flex items-center gap-2 text-muted-foreground">
@@ -726,7 +726,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
           </div>
         )}
 
-        {/* 错误提示 */}
+        {/* Error message */}
         {storeError && (
           <div className="absolute inset-0 flex items-center justify-center bg-background z-10">
             <div className="text-center p-8 max-w-md">
@@ -772,11 +772,11 @@ export const WebViewer: React.FC<WebViewerProps> = ({
           />
         )}
 
-        {/* 选中元素预览和消息输入面板 */}
+        {/* Selected element preview and message input panel */}
         {selectedElement && (
           <div className="absolute bottom-0 left-0 right-0 bg-background border-t shadow-lg max-h-96 overflow-auto z-20">
             <div className="p-4 space-y-4">
-              {/* 标题栏 */}
+              {/* Title bar */}
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold">Selected Element</h3>
                 <Button
@@ -793,7 +793,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                 </Button>
               </div>
 
-              {/* 元素信息预览 */}
+              {/* Element info preview */}
               <div className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-muted-foreground min-w-[60px]">Tag:</span>
@@ -826,7 +826,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                 </details>
               </div>
 
-              {/* 消息输入区域 */}
+              {/* Message input area */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">
                   Add a message (optional)
@@ -839,7 +839,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                 />
               </div>
 
-              {/* 操作按钮 */}
+              {/* Action buttons */}
               <div className="flex items-center justify-between pt-2 border-t">
                 <p className="text-xs text-muted-foreground">
                   This element will be sent to your current chat tab
@@ -860,7 +860,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                     onClick={() => {
                       if (!selectedElement) return;
 
-                      // 触发自定义事件，发送到 chat tab
+                      // Dispatch custom event, send to chat tab
                       window.dispatchEvent(new CustomEvent('webview-element-selected', {
                         detail: {
                           element: selectedElement,
@@ -869,11 +869,11 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                         }
                       }));
 
-                      // 清除选择状态
+                      // Clear selection state
                       setSelectedElement(null);
                       setUserMessage('');
 
-                      // 显示成功提示
+                      // Show success toast
                       window.dispatchEvent(new CustomEvent('show-toast', {
                         detail: { message: 'Element sent to chat successfully!', type: 'success' }
                       }));

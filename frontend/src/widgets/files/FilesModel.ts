@@ -3,72 +3,72 @@ import type { StateCreator } from 'zustand';
 import type { FileInfo } from '../types';
 
 /**
- * 排序字段类型
+ * Sort field type
  */
 export type FileSortBy = 'name' | 'size' | 'modtime' | 'modestr';
 
 /**
- * 排序方向类型
+ * Sort direction type
  */
 export type FileSortDirection = 'asc' | 'desc';
 
 /**
- * Files Widget 状态接口
+ * Files Widget state interface
  */
 interface FilesState {
-  // 状态
-  /** 当前目录路径 */
+  // state
+  /** Current directory path */
   currentPath: string;
-  /** 当前目录文件列表 */
+  /** Current directory file list */
   entries: FileInfo[];
-  /** 焦点索引 */
+  /** Focus index */
   focusIndex: number;
-  /** 搜索过滤文本 */
+  /** Search filter text */
   searchText: string;
-  /** 是否显示隐藏文件 */
+  /** Whether to show hidden files */
   showHidden: boolean;
-  /** 加载状态 */
+  /** Loading state */
   isLoading: boolean;
-  /** 错误信息 */
+  /** Error message */
   error: string | null;
-  /** 排序字段 */
+  /** Sort field */
   sortBy: FileSortBy;
-  /** 排序方向 */
+  /** Sort direction */
   sortDirection: FileSortDirection;
 
-  // 计算属性
-  /** 根据 searchText 过滤的文件列表 */
+  // Computed properties
+  /** File list filtered by searchText */
   filteredEntries: () => FileInfo[];
 
   // Actions
-  /** 设置当前目录路径 */
+  /** Set current directory path */
   setCurrentPath: (path: string) => void;
-  /** 设置文件列表 */
+  /** Set file list */
   setEntries: (entries: FileInfo[]) => void;
-  /** 设置焦点索引 */
+  /** Set focus index */
   setFocusIndex: (index: number) => void;
-  /** 焦点上移 */
+  /** Move focus up */
   moveFocusUp: () => void;
-  /** 焦点下移 */
+  /** Move focus down */
   moveFocusDown: () => void;
-  /** 设置搜索文本 */
+  /** Set search text */
   setSearchText: (text: string) => void;
-  /** 切换是否显示隐藏文件 */
+  /** Toggle hidden file visibility */
   toggleShowHidden: () => void;
-  /** 设置加载状态 */
+  /** Set loading state */
   setLoading: (loading: boolean) => void;
-  /** 设置错误信息 */
+  /** Set error message */
   setError: (error: string | null) => void;
-  /** 设置排序字段 */
+  /** Set sort field */
   setSortBy: (sortBy: FileSortBy) => void;
-  /** 切换排序方向 */
+  /** Toggle sort direction */
   toggleSortDirection: () => void;
-  /** 重置到初始状态 */
+  /** Reset to initial state */
   reset: () => void;
 }
 
 /**
- * 默认初始状态
+ * Default initial state
  */
 const DEFAULT_STATE = {
   currentPath: '',
@@ -85,8 +85,8 @@ const DEFAULT_STATE = {
 /**
  * Files Widget Store
  *
- * 管理文件浏览器的状态和交互逻辑
- * 包括目录导航、文件列表、搜索过滤、排序等功能
+ * Manages file browser state and interaction logic.
+ * Including directory navigation, file list, search filter, sorting, etc.
  */
 const filesStore: StateCreator<FilesState> = (set, get) => ({
   // Initial state
@@ -97,12 +97,12 @@ const filesStore: StateCreator<FilesState> = (set, get) => ({
     const { entries, searchText, showHidden } = get();
     let filtered = entries;
 
-    // 过滤隐藏文件
+    // Filter hidden files
     if (!showHidden) {
       filtered = filtered.filter((entry) => !entry.name.startsWith('.'));
     }
 
-    // 搜索过滤
+    // Search filter
     if (searchText.trim()) {
       const search = searchText.toLowerCase();
       filtered = filtered.filter((entry) =>
@@ -116,24 +116,24 @@ const filesStore: StateCreator<FilesState> = (set, get) => ({
   // Actions
 
   /**
-   * 设置当前目录路径
-   * @param path 目录路径
+   * Set current directory path
+   * @param path Directory path
    */
   setCurrentPath: (path: string) => {
     set({ currentPath: path, focusIndex: 0 });
   },
 
   /**
-   * 设置文件列表
-   * @param entries 文件列表
+   * Set file list
+   * @param entries File list
    */
   setEntries: (entries: FileInfo[]) => {
     set({ entries, focusIndex: 0 });
   },
 
   /**
-   * 设置焦点索引
-   * @param index 焦点索引
+   * Set focus index
+   * @param index Focus index
    */
   setFocusIndex: (index: number) => {
     const { filteredEntries } = get();
@@ -144,13 +144,13 @@ const filesStore: StateCreator<FilesState> = (set, get) => ({
       return;
     }
 
-    // 限制索引范围
+    // Clamp index to valid range
     const clampedIndex = Math.max(0, Math.min(index, filtered.length - 1));
     set({ focusIndex: clampedIndex });
   },
 
   /**
-   * 焦点上移
+   * Move focus up
    */
   moveFocusUp: () => {
     const { focusIndex } = get();
@@ -159,7 +159,7 @@ const filesStore: StateCreator<FilesState> = (set, get) => ({
   },
 
   /**
-   * 焦点下移
+   * Move focus down
    */
   moveFocusDown: () => {
     const { focusIndex, filteredEntries } = get();
@@ -169,15 +169,15 @@ const filesStore: StateCreator<FilesState> = (set, get) => ({
   },
 
   /**
-   * 设置搜索文本
-   * @param text 搜索文本
+   * Set search text
+   * @param text Search text
    */
   setSearchText: (text: string) => {
     set({ searchText: text, focusIndex: 0 });
   },
 
   /**
-   * 切换是否显示隐藏文件
+   * Toggle hidden file visibility
    */
   toggleShowHidden: () => {
     set((state) => ({
@@ -187,31 +187,31 @@ const filesStore: StateCreator<FilesState> = (set, get) => ({
   },
 
   /**
-   * 设置加载状态
-   * @param loading 是否正在加载
+   * Set loading state
+   * @param loading Whether currently loading
    */
   setLoading: (loading: boolean) => {
     set({ isLoading: loading });
   },
 
   /**
-   * 设置错误信息
-   * @param error 错误信息,null 表示清除错误
+   * Set error message
+   * @param error Error message, null to clear error
    */
   setError: (error: string | null) => {
     set({ error });
   },
 
   /**
-   * 设置排序字段
-   * @param sortBy 排序字段
+   * Set sort field
+   * @param sortBy Sort field
    */
   setSortBy: (sortBy: FileSortBy) => {
     set({ sortBy });
   },
 
   /**
-   * 切换排序方向
+   * Toggle sort direction
    */
   toggleSortDirection: () => {
     set((state) => ({
@@ -220,7 +220,7 @@ const filesStore: StateCreator<FilesState> = (set, get) => ({
   },
 
   /**
-   * 重置到初始状态
+   * Reset to initial state
    */
   reset: () => {
     set(DEFAULT_STATE);

@@ -34,9 +34,9 @@ const RIGHT_SIDEBAR_RAIL_WIDTH = 64;
 
 interface CustomTitlebarProps {
   sidebarCollapsed?: boolean;
-  sidebarWidth?: number; // 左侧栏像素宽度
+  sidebarWidth?: number; // Left sidebar pixel width
   rightSidebarOpen?: boolean;
-  rightSidebarWidthPercent?: number; // 右侧栏宽度百分比
+  rightSidebarWidthPercent?: number; // Right sidebar width percentage
 }
 
 const OPEN_IN_LABELS: Record<string, string> = {
@@ -69,7 +69,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   rightSidebarOpen: rightSidebarOpenProp = true,
   rightSidebarWidthPercent = 35
 }) => {
-  // 从 ContainerContext 获取当前 workspace 路径
+  // Get current workspace path from ContainerContext
   const { activeType, activeWorkspaceId } = useContainerContext();
   const currentProjectPath = activeType === 'workspace' ? activeWorkspaceId : undefined;
 
@@ -77,21 +77,21 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
   const [isHovered, setIsHovered] = useState(false);
   const [rightSidebarOpen, setRightSidebarOpen] = useState(rightSidebarOpenProp);
-  // 真实的右侧栏显示状态（考虑了 tab 类型等所有条件）
+  // Actual right sidebar visibility (considering tab type and all conditions)
   const [shouldShowRightSidebar, setShouldShowRightSidebar] = useState(rightSidebarOpenProp);
-  // 右侧栏宽度百分比
+  // Right sidebar width percentage
   const [currentWidthPercent, setCurrentWidthPercent] = useState(rightSidebarWidthPercent);
   const [rightSidebarRailWidth, setRightSidebarRailWidth] = useState(RIGHT_SIDEBAR_RAIL_WIDTH);
   const { toggleFullscreen, isSupported, isFullscreen } = useFullscreen();
 
-  // 双击标题栏最大化处理
+  // Double-click titlebar to maximize
   const handleDoubleClick = (e: React.MouseEvent) => {
-    // 确保不是在按钮或其他交互元素上双击
+    // Ensure not double-clicking on buttons or interactive elements
     const target = e.target as HTMLElement;
     if (target.closest('.window-no-drag') || target.closest('button')) {
       return;
     }
-    // 在 macOS 上使用原生全屏，其他平台使用最大化
+    // Use native fullscreen on macOS, maximize on other platforms
     if (isSupported) {
       toggleFullscreen();
     } else {
@@ -99,16 +99,16 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     }
   };
 
-  // Worktree 状态
+  // Worktree state
   const [unpushedCount, setUnpushedCount] = useState<number>(0);
   const [isPushing, setIsPushing] = useState(false);
   const [isWorktreeChild, setIsWorktreeChild] = useState(false);
 
-  // Project 推送到远程状态
+  // Push to remote state
   const [unpushedToRemoteCount, setUnpushedToRemoteCount] = useState<number>(0);
   const [isPushingToRemote, setIsPushingToRemote] = useState(false);
 
-  // 工作空间清理状态
+  // Workspace cleanup state
   const [isCleaning, setIsCleaning] = useState(false);
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
 
@@ -126,21 +126,21 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     return () => { cancelled = true; };
   }, []);
 
-  // Git 支持状态
+  // Git support state
   const [hasGitSupport, setHasGitSupport] = useState(false);
 
-  // 工作区和分支信息
+  // Workspace and branch info
   const [workspaceInfo, setWorkspaceInfo] = useState<{
     workspaceName: string;
     branchName: string;
   } | null>(null);
 
-  // 同步外部传入的右侧栏状态
+  // Sync external right sidebar state
   useEffect(() => {
     setRightSidebarOpen(rightSidebarOpenProp);
   }, [rightSidebarOpenProp]);
 
-  // 监听右侧栏状态变化（包括真实显示状态）
+  // Listen for right sidebar state changes (including actual visibility)
   useEffect(() => {
     const handleStateChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ isOpen: boolean; shouldShow: boolean; railWidth?: number; workspacePath?: string }>;
@@ -156,12 +156,12 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     };
   }, [currentProjectPath]);
 
-  // 同步外部传入的右侧栏宽度百分比
+  // Sync external right sidebar width percentage
   useEffect(() => {
     setCurrentWidthPercent(rightSidebarWidthPercent);
   }, [rightSidebarWidthPercent]);
 
-  // 监听右侧栏宽度百分比变化
+  // Listen for right sidebar width percentage changes
   useEffect(() => {
     const handleWidthChange = (event: Event) => {
       const customEvent = event as CustomEvent<{ widthPercent: number; railWidth?: number; isOpen?: boolean; workspacePath?: string }>;
@@ -179,7 +179,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     };
   }, [currentProjectPath]);
 
-  // 检测 Git 支持
+  // Detect Git support
   useEffect(() => {
     if (!currentProjectPath) {
       setHasGitSupport(false);
@@ -199,7 +199,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     checkGitSupport();
   }, [currentProjectPath]);
 
-  // 获取工作区和分支信息
+  // Get workspace and branch info
   useEffect(() => {
     if (!currentProjectPath || !hasGitSupport) {
       setWorkspaceInfo(null);
@@ -232,7 +232,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     updateWorkspaceInfo();
   }, [currentProjectPath, hasGitSupport]);
 
-  // 检测是否为 worktree 子分支（初始化）
+  // Detect if worktree child branch (init)
   useEffect(() => {
     if (!currentProjectPath || !hasGitSupport) {
       setIsWorktreeChild(false);
@@ -261,7 +261,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     checkWorktree();
   }, [currentProjectPath, hasGitSupport]);
 
-  // 检测未推送到远程的提交数（初始化）
+  // Detect unpushed-to-remote commit count (init)
   useEffect(() => {
     if (!currentProjectPath || !hasGitSupport) {
       setUnpushedToRemoteCount(0);
@@ -273,7 +273,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         const count = await api.getUnpushedToRemoteCount(currentProjectPath);
         setUnpushedToRemoteCount(count);
       } catch (error) {
-        // 静默处理错误，可能不是 git 仓库
+        // Silently handle error, may not be a git repo
         setUnpushedToRemoteCount(0);
       }
     };
@@ -281,29 +281,29 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     checkUnpushedToRemote();
   }, [currentProjectPath, hasGitSupport]);
 
-  // 页面可见性轮询 - 定期检查未推送的提交数量
-  // 只在页面激活时轮询，用于捕获外部 git 操作导致的变化
+  // Page visibility polling - periodically check unpushed commit count
+  // Only poll when page is active, to catch changes from external git operations
   usePageVisibilityPolling(
     async () => {
       if (!currentProjectPath || !hasGitSupport) return;
 
       try {
-        // 更新未推送到远程的提交数
+        // Update unpushed-to-remote commit count
         const unpushedToRemote = await api.getUnpushedToRemoteCount(currentProjectPath);
         setUnpushedToRemoteCount(unpushedToRemote);
 
-        // 如果是 worktree 子分支，同时更新 worktree 相关数据
+        // If worktree child branch, also update worktree data
         if (isWorktreeChild) {
           const unpushedToMain = await api.getUnpushedCommitsCount(currentProjectPath);
           setUnpushedCount(unpushedToMain);
         }
       } catch (error) {
-        // 静默处理错误，避免频繁的错误提示
+        // Silently handle error to avoid frequent error messages
         console.error('[CustomTitlebar] Polling git status error:', error);
       }
     },
     {
-      interval: 3000, // 每 3 秒轮询一次
+      interval: 3000, // Poll every 3 seconds
       enabled: !!currentProjectPath && hasGitSupport,
       immediate: true,
     }
@@ -311,7 +311,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
   if (isMobile) return null;
 
-  // 推送到主分支
+  // Push to main branch
   const handlePushToMain = async () => {
     if (!currentProjectPath || isPushing) return;
 
@@ -320,11 +320,11 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       const result = await api.pushToMainWorktree(currentProjectPath);
       console.log('Push successful:', result);
 
-      // 推送成功后重新检查提交数
+      // Re-check commit count after successful push
       const count = await api.getUnpushedCommitsCount(currentProjectPath);
       setUnpushedCount(count);
 
-      // 显示成功提示
+      // Show success toast
       window.dispatchEvent(new CustomEvent('show-toast', {
         detail: {
           message: 'Successfully merged to main branch',
@@ -334,7 +334,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     } catch (error) {
       console.error('Failed to push to main worktree:', error);
 
-      // 更友好的错误处理
+      // Better error handling
       const errorMessage = String(error);
       let message = '';
 
@@ -357,7 +357,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     }
   };
 
-  // 推送到远程
+  // Push to remote
   const handlePushToRemote = async () => {
     if (!currentProjectPath || isPushingToRemote) return;
 
@@ -366,11 +366,11 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       const result = await api.pushToRemote(currentProjectPath);
       console.log('Push to remote successful:', result);
 
-      // 推送成功后重新检查提交数
+      // Re-check commit count after successful push
       const count = await api.getUnpushedToRemoteCount(currentProjectPath);
       setUnpushedToRemoteCount(count);
 
-      // 显示成功提示
+      // Show success toast
       window.dispatchEvent(new CustomEvent('show-toast', {
         detail: {
           message: 'Successfully pushed to remote',
@@ -380,7 +380,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     } catch (error) {
       console.error('Failed to push to remote:', error);
 
-      // 更友好的错误处理
+      // Better error handling
       const errorMessage = String(error);
       let message = '';
 
@@ -405,7 +405,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     }
   };
 
-  // 清理工作空间
+  // Clean up workspace
   const handleCleanupWorkspace = async () => {
     if (!currentProjectPath || isCleaning) return;
 
@@ -415,7 +415,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       const result = await api.cleanupWorkspace(currentProjectPath);
       console.log('Workspace cleanup successful:', result);
 
-      // 清理成功后重新检查状态
+      // Re-check status after successful cleanup
       if (isWorktreeChild) {
         const count = await api.getUnpushedCommitsCount(currentProjectPath);
         setUnpushedCount(count);
@@ -424,7 +424,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         setUnpushedToRemoteCount(count);
       }
 
-      // ���示成功提示
+      // Show success toast
       window.dispatchEvent(new CustomEvent('show-toast', {
         detail: {
           message: 'Workspace cleaned successfully',
@@ -434,7 +434,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     } catch (error) {
       console.error('Failed to cleanup workspace:', error);
 
-      // 更友好的错误处理
+      // Better error handling
       const errorMessage = String(error);
       let message = '';
 
@@ -459,12 +459,12 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
     }
   };
 
-  // 处理清理按钮点击
+  // Handle cleanup button click
   const handleCleanupClick = () => {
     setShowCleanupDialog(true);
   };
 
-  // 处理取消清理
+  // Handle cleanup cancel
   const handleCleanupCancel = () => {
     setShowCleanupDialog(false);
   };
@@ -480,7 +480,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
 
   const handleMaximize = async () => {
     try {
-      // 在 macOS 上使用原生全屏，其他平台使用最大化
+      // Use native fullscreen on macOS, maximize on other platforms
       if (isSupported) {
         console.log('Toggling native fullscreen (macOS)');
         await toggleFullscreen();
@@ -503,7 +503,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   };
 
   const handleToggleRightSidebar = () => {
-    // 触发全局事件来切换右侧栏
+    // Dispatch global event to toggle right sidebar
     window.dispatchEvent(new CustomEvent('toggle-right-sidebar'));
   };
 
@@ -531,7 +531,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       onMouseLeave={() => setIsHovered(false)}
       onDoubleClick={handleDoubleClick}
     >
-      {/* 左侧区域 - 对应左侧边栏 */}
+      {/* Left area - corresponds to left sidebar */}
       <motion.div
         initial={false}
         animate={{
@@ -589,18 +589,18 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         )}
       </motion.div>
 
-      {/* 中间区域 - TabManager + Titlebar Controls */}
+      {/* Middle area - TabManager + Titlebar Controls */}
       <div className="flex-1 flex items-stretch gap-2 px-2 window-drag min-w-0">
-        {/* ContainerTabManager - 根据 activeType 显示对应的 TabManager */}
+        {/* ContainerTabManager - shows TabManager based on activeType */}
         <ContainerTabManager className="self-stretch" />
 
-        {/* 右侧 - Port + Workspace Name 和 Open in 按钮 */}
+        {/* Right side - Port + Workspace Name and Open in button */}
         <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
           {/* Instance Switcher (port indicator + dropdown) */}
           {typeof window !== 'undefined' && (window.location.port || (window as any).electronAPI?.wsPort || (window as any).__ROPCODE_WS_PORT__) && (
             <InstanceSwitcher />
           )}
-          {/* Workspace Name - 显示在 Open in 按钮左侧，点击打开文件管理器 */}
+          {/* Workspace Name - shown left of Open in button, click to open file manager */}
           {workspaceInfo && (
             <button
               onClick={(e) => {
@@ -641,7 +641,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
         </div>
       </div>
 
-      {/* 右侧区域 - 对应右侧边栏 */}
+      {/* Right area - corresponds to right sidebar */}
       <div
         className={`transition-none flex items-center justify-end window-drag overflow-hidden ${shouldShowRightSidebar ? 'border-l border-border/50' : ''}`}
         style={{
@@ -653,16 +653,16 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
           flexShrink: 0
         }}
       >
-        {/* Worktree 推送按钮组 - 只在是 worktree 子分支且有 Git 支持时显示 */}
+        {/* Worktree push buttons - only shown for worktree child branches with Git support */}
         {hasGitSupport && isWorktreeChild && shouldShowRightSidebar && rightSidebarOpen && (
           <div className="flex items-center gap-2 px-3">
-            {/* 未推送提交数量指示器 - 始终显示 */}
+            {/* Unpushed commit count indicator - always visible */}
             <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 text-primary">
               <GitBranch className="h-3 w-3" />
               <span className="text-xs font-medium">{unpushedCount}</span>
             </div>
 
-            {/* 推送到主分支按钮 */}
+            {/* Push to main branch button */}
             <Button
               variant="ghost"
               size="sm"
@@ -682,16 +682,16 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
           </div>
         )}
 
-        {/* Project 推送到远程按钮组 - 只在非 worktree 子分支且有 Git 支持时显示 */}
+        {/* Project push-to-remote buttons - only shown for non-worktree branches with Git support */}
         {hasGitSupport && !isWorktreeChild && shouldShowRightSidebar && rightSidebarOpen && (
           <div className="flex items-center gap-2 px-3">
-            {/* 未推送到远程的提交数量指示器 - 始终显示 */}
+            {/* Unpushed-to-remote commit count indicator - always visible */}
             <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10 text-primary">
               <GitBranch className="h-3 w-3" />
               <span className="text-xs font-medium">{unpushedToRemoteCount}</span>
             </div>
 
-            {/* 推送到远程按钮 */}
+            {/* Push to remote button */}
             <Button
               variant="ghost"
               size="sm"
@@ -711,7 +711,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
           </div>
         )}
 
-        {/* 工作空间清理按钮 - 只在右侧栏真正显示且有 Git 支持时显示 */}
+        {/* Workspace cleanup button - only shown when right sidebar is visible and Git is supported */}
         {hasGitSupport && shouldShowRightSidebar && rightSidebarOpen && (
           <div className="flex items-center gap-2 px-3 border-l pl-4 ml-2">
             <AlertDialog open={showCleanupDialog} onOpenChange={setShowCleanupDialog}>

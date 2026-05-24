@@ -180,7 +180,7 @@ export const Topbar: React.FC<TopbarProps> = ({
           size="sm"
           onClick={toggleFullscreen}
           className="h-8 w-8 p-0 hover:bg-accent"
-          title={isFullscreen ? "退出全屏 (绿色按钮)" : "进入全屏 (绿色按钮)"}
+          title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
         >
           {isFullscreen ? (
             <Minimize2 className="h-4 w-4" />

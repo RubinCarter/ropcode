@@ -13,25 +13,25 @@ interface PtyReadyEvent {
 }
 
 /**
- * PTY 会话管理器
- * 负责管理 PTY 会话的生命周期，确保每个 session 只创建一次
+ * PTY session manager
+ * Manages PTY session lifecycle, ensuring each session is created only once
  */
 class PtySessionManager {
   private sessions = new Map<string, {
     created: boolean;
-    pending: boolean; // 正在等待后端异步启动
-    ready: boolean; // 后端 PTY 已就绪
+    pending: boolean; // Waiting for backend async startup
+    ready: boolean; // Backend PTY is ready
     cwd: string | undefined;
     rows: number;
     cols: number;
-    listeners: Set<string>; // 监听器 ID 集合
+    listeners: Set<string>; // Listener ID set
     readyCallbacks: Array<(success: boolean, error?: string) => void>;
   }>();
 
   private readyUnsubscribe: (() => void) | null = null;
 
   constructor() {
-    // 监听 pty-ready 事件
+    // Listen for pty-ready event
     this.readyUnsubscribe = EventsOn('pty-ready', (payload: PtyReadyEvent) => {
       const { session_id, success, error } = payload;
       console.log('[PtyManager] Received pty-ready event:', { session_id, success, error });
@@ -40,7 +40,7 @@ class PtySessionManager {
       if (session) {
         session.pending = false;
         session.ready = success;
-        // 触发所有回调
+        // Trigger all callbacks
         session.readyCallbacks.forEach(cb => cb(success, error));
         session.readyCallbacks = [];
       }
@@ -48,8 +48,8 @@ class PtySessionManager {
   }
 
   /**
-   * 创建或获取 PTY 会话
-   * 现在是非阻塞的 - RPC 调用立即返回，实际 shell 启动在后台进行
+   * Create or get a PTY session
+   * Non-blocking - RPC call returns immediately, shell starts in background
    */
   async getOrCreate(
     sessionId: string,
@@ -64,13 +64,13 @@ class PtySessionManager {
       return;
     }
 
-    // 如果正在等待后端启动，直接返回（不阻塞）
+    // If already waiting for backend startup, return immediately (non-blocking)
     if (session?.pending) {
       console.log('[PtyManager] PTY session is already starting:', sessionId);
       return;
     }
 
-    // 保存会话信息
+    // Save session info
     this.sessions.set(sessionId, {
       created: true,
       pending: true,
@@ -85,7 +85,7 @@ class PtySessionManager {
     try {
       console.log('[PtyManager] Creating PTY session asynchronously:', { sessionId, cwd, rows, cols });
 
-      // RPC 调用现在会立即返回，不等待 shell 启动
+      // RPC call returns immediately without waiting for shell startup
       await api.createPtySession(
         sessionId,
         cwd || undefined,
@@ -103,7 +103,7 @@ class PtySessionManager {
   }
 
   /**
-   * 等待 PTY 就绪
+   * Wait for PTY to be ready
    */
   waitForReady(sessionId: string, timeoutMs: number = 10000): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -134,14 +134,14 @@ class PtySessionManager {
   }
 
   /**
-   * 检查 PTY 是否就绪
+   * Check if PTY is ready
    */
   isReady(sessionId: string): boolean {
     return this.sessions.get(sessionId)?.ready || false;
   }
 
   /**
-   * 调整 PTY 尺寸
+   * Resize PTY dimensions
    */
   async resize(sessionId: string, rows: number, cols: number): Promise<void> {
     const session = this.sessions.get(sessionId);
@@ -150,7 +150,7 @@ class PtySessionManager {
       return;
     }
 
-    // 如果 PTY 还没就绪，跳过 resize（后端会使用创建时的尺寸）
+    // If PTY is not ready yet, skip resize (backend will use dimensions from creation)
     if (!session.ready) {
       console.log('[PtyManager] PTY is not ready yet, skipping resize:', sessionId);
       session.rows = rows;
@@ -169,7 +169,7 @@ class PtySessionManager {
   }
 
   /**
-   * 关闭 PTY 会话
+   * Close PTY session
    */
   async close(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
@@ -184,13 +184,13 @@ class PtySessionManager {
       this.sessions.delete(sessionId);
     } catch (error) {
       console.error('[PtyManager] Failed to close PTY session:', sessionId, error);
-      // 即使失败也从管理器中移除
+      // Remove from manager even on failure
       this.sessions.delete(sessionId);
     }
   }
 
   /**
-   * 注册监听器
+   * Register listener
    */
   registerListener(sessionId: string, listenerId: string): void {
     const session = this.sessions.get(sessionId);
@@ -201,7 +201,7 @@ class PtySessionManager {
   }
 
   /**
-   * 注销监听器
+   * Unregister listener
    */
   unregisterListener(sessionId: string, listenerId: string): void {
     const session = this.sessions.get(sessionId);
@@ -212,21 +212,21 @@ class PtySessionManager {
   }
 
   /**
-   * 获取监听器数量
+   * Get listener count
    */
   getListenerCount(sessionId: string): number {
     return this.sessions.get(sessionId)?.listeners.size || 0;
   }
 
   /**
-   * 检查会话是否存在
+   * Check if session exists
    */
   has(sessionId: string): boolean {
     return this.sessions.get(sessionId)?.created || false;
   }
 
   /**
-   * 清理所有会话
+   * Clear all sessions
    */
   async clear(): Promise<void> {
     console.log('[PtyManager] Clearing all sessions');
@@ -235,7 +235,7 @@ class PtySessionManager {
   }
 }
 
-// 全局单例
+// Global singleton
 const ptySessionManager = new PtySessionManager();
 
 interface UsePtySessionOptions {
@@ -249,7 +249,7 @@ interface UsePtySessionOptions {
 }
 
 /**
- * PTY 会话管理 Hook
+ * PTY session management hook
  */
 export function usePtySession(options: UsePtySessionOptions) {
   const {
@@ -284,7 +284,7 @@ export function usePtySession(options: UsePtySessionOptions) {
     consumedBulkCountRef.current = bulkFrames.length;
   }, [bulkFrames, terminal]);
 
-  // 统一的初始化流程：先设置监听器，再创建 PTY 会话
+  // Unified init flow: set up listeners first, then create PTY session
   useEffect(() => {
     console.log('[usePtySession] useEffect triggered:', { sessionId, terminalExists: !!terminal, initialized: initializedRef.current });
     if (!terminal || initializedRef.current) return;
@@ -293,11 +293,11 @@ export function usePtySession(options: UsePtySessionOptions) {
       try {
         console.log('[usePtySession] Starting initialization:', sessionId);
 
-        // 1. 先设置 PTY 输出监听器（必须在 PTY 创建之前）
+        // 1. Set up PTY output listener (must be before PTY creation)
         const listenerId = listenerIdRef.current;
         ptySessionManager.registerListener(sessionId, listenerId);
 
-        // 监听 pty-ready 事件来更新 isReady 状态
+        // Listen for pty-ready event to update isReady state
         const readyUnsubscribe = EventsOn('pty-ready', (payload: PtyReadyEvent) => {
           if (payload.session_id === sessionId) {
             if (payload.success) {
@@ -313,7 +313,7 @@ export function usePtySession(options: UsePtySessionOptions) {
 
         console.log('[usePtySession] PTY bulk output listener is set:', { sessionId, listenerId });
 
-        // 2. 设置输入处理器
+        // 2. Set up input handler
         const handleData = async (data: string) => {
           try {
             await api.writeToPty(sessionId, data);
@@ -325,7 +325,7 @@ export function usePtySession(options: UsePtySessionOptions) {
         dataHandlerRef.current = handleData;
         inputDisposableRef.current = terminal.onData(handleData);
 
-        // 3. 创建 PTY 会话（现在是非阻塞的，立即返回）
+        // 3. Create PTY session (non-blocking, returns immediately)
         const dims = terminal.rows && terminal.cols
           ? { rows: terminal.rows, cols: terminal.cols }
           : { rows, cols };
@@ -357,7 +357,7 @@ export function usePtySession(options: UsePtySessionOptions) {
     };
   }, [sessionId, cwd, terminal, rows, cols, onExit]);
 
-  // 处理尺寸变化
+  // Handle size changes
   useEffect(() => {
     if (!terminal || !initializedRef.current) return;
 
@@ -367,10 +367,10 @@ export function usePtySession(options: UsePtySessionOptions) {
       }
     };
 
-    // 初始调整（在 PTY 创建后）
+    // Initial resize (after PTY creation)
     handleResize();
 
-    // 监听容器尺寸变化
+    // Observe container size changes
     let resizeRaf: number | null = null;
     const resizeObserver = new ResizeObserver(() => {
       if (resizeRaf === null) {
@@ -381,13 +381,13 @@ export function usePtySession(options: UsePtySessionOptions) {
       }
     });
 
-    // 找到 Terminal 的容器元素
+    // Find the Terminal's container element
     const container = (terminal as any).element?.parentElement;
     if (container) {
       resizeObserver.observe(container);
     }
 
-    // 监听窗口尺寸变化
+    // Listen for window resize
     window.addEventListener('resize', handleResize);
 
     return () => {
@@ -402,5 +402,5 @@ export function usePtySession(options: UsePtySessionOptions) {
   };
 }
 
-// 导出管理器以供其他地方使用
+// Export manager for use elsewhere
 export { ptySessionManager };

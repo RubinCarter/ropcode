@@ -9,7 +9,7 @@ import { getLanguageByFilename } from '@/lib/file-icons';
 import { getDiffFilePaths } from '@/lib/diffPath';
 import { basename } from '@/lib/pathUtils';
 
-// 使用本地 monaco-editor 而非 CDN
+// Use local monaco-editor instead of CDN
 loader.config({ monaco });
 
 export interface DiffLine {
@@ -26,11 +26,11 @@ interface DiffViewerProps {
   className?: string;
 }
 
-// 配置常量
+// Config constants
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 /**
- * DiffViewer 组件 - 使用 Monaco DiffEditor 显示代码差异
+ * DiffViewer component - uses Monaco DiffEditor to show code diffs
  */
 export const DiffViewer: React.FC<DiffViewerProps> = ({
   filePath,
@@ -51,7 +51,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const [currentChangeIndex, setCurrentChangeIndex] = useState(0);
   const diffEditorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null);
 
-  // 获取文件语言
+  // Getfilelanguage
   const language = getLanguageByFilename(filePath);
 
   // Handle editor mount and get changes
@@ -110,7 +110,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     diffEditorRef.current?.revealLineInCenter(targetLine);
   }, [changes, currentChangeIndex]);
 
-  // 获取文件的两个版本
+  // Get two versions of the file
   useEffect(() => {
     const fetchContent = async () => {
       setLoading(true);
@@ -161,7 +161,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     fetchContent();
   }, [filePath, workspacePath, gitStatus]);
 
-  // 渲染二进制文件提示
+  // Render binary file notice
   const renderBinaryNotice = () => (
     <div className="flex-1 flex items-center justify-center text-muted-foreground">
       <div className="text-center p-8">
@@ -186,7 +186,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
     </div>
   );
 
-  // 渲染大文件警告
+  // Render large file warning
   const renderLargeFileWarning = () => {
     const fileSizeMB = (fileSize / (1024 * 1024)).toFixed(2);
     return (
@@ -216,7 +216,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   return (
     <div className={cn('flex flex-col h-full bg-background', className)}>
-      {/* 头部 */}
+      {/* Header */}
       <div className="px-4 py-2 bg-muted/30 border-b">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -261,7 +261,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
         </div>
       </div>
 
-      {/* 内容区域 */}
+      {/* Content area */}
       {loading ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
           <div className="flex items-center gap-2">
@@ -312,7 +312,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
                 verticalScrollbarSize: 10,
                 horizontalScrollbarSize: 10,
               },
-              // 禁用编辑相关功能
+              // Disable editing features
               domReadOnly: true,
               cursorStyle: 'line',
               cursorBlinking: 'solid',
