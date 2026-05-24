@@ -114,7 +114,7 @@ func (s *Session) Start() error {
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
-	if err := cmd.Start(); err != nil {
+	if err := sessionproc.Start(cmd); err != nil {
 		s.mu.Lock()
 		s.state = StateFailed
 		s.mu.Unlock()
@@ -282,6 +282,7 @@ func (s *Session) extractProviderSessionID(event *OutputEvent) {
 
 func (s *Session) waitForExit() {
 	err := s.cmd.Wait()
+	sessionproc.Cleanup(s.cmd)
 	close(s.done)
 
 	exitCode := 0
@@ -472,37 +473,15 @@ func (s *Session) DeliverControlResponse(requestID string, data map[string]inter
 	return false
 }
 
-// MarkInitialized marks the session as initialized and emits a system init event.
+// MarkInitialized marks the session initialized. The visible system init frame
+// comes from Claude's own stdout; control_response only unblocks startup.
 func (s *Session) MarkInitialized() {
-	shouldEmit := false
-
 	s.mu.Lock()
 	if !s.initialized {
 		s.initialized = true
 		close(s.initDone)
-		shouldEmit = true
 	}
 	s.mu.Unlock()
-
-	if shouldEmit && s.emitter != nil {
-		message := map[string]interface{}{
-			"type":       "system",
-			"subtype":    "init",
-			"session_id": s.ID,
-			"cwd":        s.config.ProjectPath,
-			"provider":   s.driver.ID(),
-		}
-		s.emitter.Emit("provider-output", OutputEvent{
-			Type:              "system",
-			Subtype:           "init",
-			SessionID:         s.ID,
-			Provider:          s.driver.ID(),
-			ProjectPath:       s.config.ProjectPath,
-			Cwd:               s.config.ProjectPath,
-			ProviderSessionID: s.GetProviderSessionID(),
-			Message:           message,
-		})
-	}
 }
 
 // WaitForInit waits for the session to complete initialization.

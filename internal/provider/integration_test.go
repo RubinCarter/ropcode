@@ -92,7 +92,7 @@ func TestClaudeInteractiveSession_RealBinary(t *testing.T) {
 	providerOutputEvents := emitter.findEvents("provider-output")
 	t.Logf("Total provider-output events after init: %d", len(providerOutputEvents))
 
-	hasSystemInit := false
+	systemInitCount := 0
 	for i, ev := range providerOutputEvents {
 		if event, ok := outputEventFromTestEvent(ev); ok {
 			evType := event.Type
@@ -102,15 +102,15 @@ func TestClaudeInteractiveSession_RealBinary(t *testing.T) {
 				t.Logf("  Event[%d]: %s", i, summary)
 			}
 			if evType == "system" && evSubtype == "init" {
-				hasSystemInit = true
+				systemInitCount++
 			}
 		} else {
 			t.Logf("  Event[%d]: unexpected type %T", i, ev.data)
 		}
 	}
 
-	if !hasSystemInit {
-		t.Error("missing 'system init' event in provider-output emissions")
+	if systemInitCount != 0 {
+		t.Errorf("control_response init should not emit synthetic system init, got %d", systemInitCount)
 	}
 
 	// Send a message and verify response events are emitted
@@ -128,6 +128,7 @@ func TestClaudeInteractiveSession_RealBinary(t *testing.T) {
 	t.Logf("New provider-output events after message: %d", len(newEvents))
 
 	hasAssistant := false
+	systemInitCount = 0
 	for i, ev := range newEvents {
 		if event, ok := outputEventFromTestEvent(ev); ok {
 			evType := event.Type
@@ -139,11 +140,17 @@ func TestClaudeInteractiveSession_RealBinary(t *testing.T) {
 			if evType == "assistant" {
 				hasAssistant = true
 			}
+			if evType == "system" && evSubtype == "init" {
+				systemInitCount++
+			}
 		}
 	}
 
 	if len(newEvents) == 0 {
 		t.Error("NO events emitted after sending message - frontend won't see any response")
+	}
+	if systemInitCount != 1 {
+		t.Errorf("expected one real Claude system init after first message, got %d", systemInitCount)
 	}
 	if !hasAssistant {
 		t.Error("no 'assistant' type event found in response")

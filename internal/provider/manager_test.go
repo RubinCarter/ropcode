@@ -210,6 +210,30 @@ func TestMonitor_HealthTransitions(t *testing.T) {
 	}
 }
 
+func TestMarkInitializedDoesNotEmitSyntheticInit(t *testing.T) {
+	emitter := &mockEmitter{}
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&echoDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		emitter,
+		nil,
+		nil,
+	)
+
+	session.MarkInitialized()
+
+	if got := emitter.count("provider-output"); got != 0 {
+		t.Fatalf("expected no synthetic provider-output init, got %d", got)
+	}
+	select {
+	case <-session.initDone:
+	case <-time.After(time.Second):
+		t.Fatal("expected initDone to close")
+	}
+}
+
 // === Test Drivers ===
 
 // echoDriver uses "echo" command — runs and exits immediately.
@@ -246,7 +270,7 @@ func (d *echoDriver) UpdateEnvironmentVariables(session SessionHandle, vars map[
 	return nil
 }
 func (d *echoDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
-func (d *echoDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error               { return nil }
+func (d *echoDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error { return nil }
 func (d *echoDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {
 	if msg, ok := session.DequeueMessage(); ok {
 		config := session.GetConfig()
@@ -289,5 +313,5 @@ func (d *sleepDriver) UpdateEnvironmentVariables(session SessionHandle, vars map
 	return nil
 }
 func (d *sleepDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
-func (d *sleepDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error               { return nil }
-func (d *sleepDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {}
+func (d *sleepDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error { return nil }
+func (d *sleepDriver) OnProcessExit(session SessionHandle, exitCode int, err error)   {}
