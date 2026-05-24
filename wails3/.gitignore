@@ -1,5 +1,7 @@
 build/
 bin/ropcode-server
 bin/ropcode-server.exe
+!bin/
+!bin/.keep
 frontend/*
 !frontend/.keep
