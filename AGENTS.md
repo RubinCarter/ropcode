@@ -160,6 +160,7 @@ Windows Electron lessons from the 2026-05-21 UI sync validation:
 - When code must differ between Windows and Unix-like platforms, keep the Unix-like implementation in the original file name and move only Windows-specific code into a separate `win` file. In Go, use build tags with names such as `feature.go` for Unix-like/default behavior and `feature_win.go` for Windows behavior; avoid the longer `windows` suffix. Use the equivalent `win` platform module/file split in TypeScript/Electron code.
 - Use `rg` or `rg --files` for searches.
 - Prefer focused unit tests over full app bootstrap when changing code that does not need process-lifetime goroutines.
+- Never track local Graphify scratch files or stale Superpowers plan drafts: `.graphifyignore`, `graphify-out/`, and `docs/superpowers/plans/2026-05-22-pi-fifth-provider.md` must remain ignored/untracked.
 - `bindings.go` is large and reflection-exposed; inspect `frontend/src/lib/rpc-client.ts` and `frontend/src/lib/ws-rpc-client.ts` before changing public `App` methods.
 - Agent templates live in `internal/agents/examples/`.
 - Design notes live in `docs/plans/`; read the relevant plan before implementing a feature covered there.

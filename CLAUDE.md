@@ -136,6 +136,7 @@ Windows Electron lessons from the 2026-05-21 UI sync validation:
 - **Windows path layout**: project root is `E:\bit_master\ropcode`. Shell is Git Bash — use forward slashes and quote paths. Follow the Windows compat rules already in user-level `~/.claude/rules/*`.
 - **Build tags**: Only `server_main.go` has `//go:build server`. A plain `go build .` will **not** produce a runnable binary (no `main`). Always pass `-tags server` or build `./cmd/ropcode`.
 - **`app.go` assumes a process lifetime**: `Startup` launches background goroutines (capability prewarm, GitWatcher); tests that need to avoid these should use focused unit tests rather than `BootstrapRuntime`.
+- **Local scratch artifacts**: never track `.graphifyignore`, `graphify-out/`, or `docs/superpowers/plans/2026-05-22-pi-fifth-provider.md`; these are ignored local analysis/obsolete plan artifacts.
 - **`bindings.go` is huge (~4k lines) and reflection-exposed**: renaming methods or changing signatures is a breaking frontend change. Grep `frontend/src/lib/rpc-client.ts` and `frontend/src/lib/ws-rpc-client.ts` before touching a public `App` method.
 - **CLI lives in a separate module entry** but shares the same `internal/*` code — changes to RPC types must compile both the server and CLI targets.
 - **Agents / external tools**: the app is a GUI wrapper and expects `claude`, `gemini`, and `codex` to be installed and on PATH; agent templates live in `internal/agents/examples/`.
