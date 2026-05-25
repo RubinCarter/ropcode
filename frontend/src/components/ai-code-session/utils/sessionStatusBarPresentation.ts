@@ -72,7 +72,8 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
   const runtimeCanHaveRunningWork = runtime.phase !== 'idle' && runtime.phase !== 'completed' && runtime.phase !== 'failed' && runtime.phase !== 'cancelled';
   const active = isLoading || stopVisible || runtimeCanHaveRunningWork;
   const hasRunningSubagents = runtime.phase === 'tool_running' && subagentProgress.runningCount > 0;
-  const base = getPrimaryState({ runtime, runtimeCopy, stopVisible, hasRunningSubagents, currentTodoActiveForm });
+  const providerLabel = formatProviderLabel(promptConfig.provider);
+  const base = getPrimaryState({ runtime, runtimeCopy, stopVisible, hasRunningSubagents, currentTodoActiveForm, providerLabel });
   const metrics: SessionStatusBarItem[] = [];
   const hints: SessionStatusBarItem[] = [];
 
@@ -158,12 +159,14 @@ function getPrimaryState({
   stopVisible,
   hasRunningSubagents,
   currentTodoActiveForm,
+  providerLabel,
 }: {
   runtime: SessionRuntimeViewState;
   runtimeCopy: RuntimeStatusCopy;
   stopVisible: boolean;
   hasRunningSubagents: boolean;
   currentTodoActiveForm?: string | null;
+  providerLabel: string;
 }): Pick<SessionStatusBarModel, 'primary' | 'secondary' | 'glyph' | 'tone'> {
   if (stopVisible || runtime.phase === 'cancelled') {
     return { primary: stopVisible ? 'Stopping…' : 'Cancelled', secondary: runtimeCopy.secondary, glyph: 'warning', tone: 'warning' };
@@ -202,11 +205,11 @@ function getPrimaryState({
   }
 
   if (runtime.phase === 'initializing') {
-    return { primary: 'Starting Claude…', secondary: runtimeCopy.secondary, glyph: 'reconnect', tone: 'info' };
+    return { primary: `Starting ${providerLabel}…`, secondary: runtimeCopy.secondary, glyph: 'reconnect', tone: 'info' };
   }
 
   if (runtime.phase === 'waiting') {
-    return { primary: 'Waiting for Claude…', secondary: runtimeCopy.secondary, glyph: 'idle', tone: runtime.isStuckLikely ? 'warning' : 'neutral' };
+    return { primary: `Waiting for ${providerLabel}…`, secondary: runtimeCopy.secondary, glyph: 'idle', tone: runtime.isStuckLikely ? 'warning' : 'neutral' };
   }
 
   if (runtime.phase === 'failed') {
@@ -252,6 +255,15 @@ function ensureEllipsis(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return 'Working…';
   return /[.…]$/.test(trimmed) ? trimmed : `${trimmed}…`;
+}
+
+function formatProviderLabel(provider: string): string {
+  const normalized = provider.trim().toLowerCase();
+  if (normalized === 'claude') return 'Claude';
+  if (normalized === 'codex') return 'Codex';
+  if (normalized === 'deepseek') return 'DeepSeek';
+  if (normalized === 'gemini') return 'Gemini';
+  return provider.trim() || 'model';
 }
 
 function strongestTone(first: SessionStatusTone, second: RuntimeStatusCopy['tone']): SessionStatusTone {

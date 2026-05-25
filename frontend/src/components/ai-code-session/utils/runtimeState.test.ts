@@ -243,6 +243,44 @@ test('does not mark initialization slow before 10 seconds of loading elapsed', a
   assert.equal(state.detail, 'Waiting for Claude session ready');
 });
 
+test('existing interactive sessions wait for model output instead of reinitializing after tracker reset', async () => {
+  const { deriveRuntimeViewState } = await loadModule();
+
+  const state = deriveRuntimeViewState({
+    now: 25_000,
+    tracker: {
+      snapshot: null,
+      systemInitReceived: false,
+      lastUpdatedAt: null,
+      lastEventAt: null,
+      lastEventType: null,
+      lastEventSubtype: null,
+      lastTextGrowthAt: null,
+      lastPartialTextLength: 0,
+      lastToolChangeAt: null,
+      lastToolResultAt: null,
+      lastResultAt: null,
+      lastErrorAt: null,
+    },
+    local: {
+      isLoading: true,
+      interactiveSessionId: 'runtime-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+      loadingStartedAt: 0,
+    },
+  });
+
+  assert.equal(state.phase, 'waiting');
+  assert.equal(state.waitingReason, 'model');
+  assert.equal(state.label, 'Waiting');
+  assert.doesNotMatch(state.detail || '', /initialization/i);
+});
+
 
 test('flags stuck tool execution when tool state is stale without retry delay', async () => {
   const { deriveRuntimeViewState } = await loadModule();
@@ -367,6 +405,141 @@ test('reduces runtime tracker across init to tool to result sequence', async () 
   assert.equal(tracker.lastEventType, 'result');
   assert.equal(tracker.snapshot?.last_event_type, 'result');
   assert.equal(tracker.snapshot?.active_tool, '');
+});
+
+test('result messages without runtime snapshots clear stale active tool state', async () => {
+  const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
+
+  let tracker = createInitialRuntimeTracker();
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'system',
+    subtype: 'init',
+    debug_meta: {
+      runtime_state: {
+        processing: false,
+        retrying: false,
+        rate_limited: false,
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'system',
+        last_event_subtype: 'init',
+      },
+    },
+  }, 1_000);
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', name: 'Bash' }] },
+    debug_meta: {
+      runtime_state: {
+        processing: true,
+        retrying: false,
+        rate_limited: false,
+        active_tool: 'Bash',
+        active_tool_progress: {
+          tool_name: 'Bash',
+          description: 'Running command',
+        },
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'assistant',
+        last_event_subtype: 'tool_use',
+      },
+    },
+  }, 2_000);
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'result',
+    subtype: 'success',
+  }, 3_000);
+
+  const state = deriveRuntimeViewState({
+    now: 3_000,
+    tracker,
+    local: {
+      isLoading: false,
+      interactiveSessionId: 'runtime-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+    },
+  });
+
+  assert.equal(tracker.snapshot?.processing, false);
+  assert.equal(tracker.snapshot?.active_tool, '');
+  assert.equal(state.phase, 'completed');
+  assert.equal(state.activeTool, null);
+});
+
+test('assistant end_turn messages without runtime snapshots clear stale active tool state', async () => {
+  const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
+
+  let tracker = createInitialRuntimeTracker();
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'system',
+    subtype: 'init',
+    debug_meta: {
+      runtime_state: {
+        processing: false,
+        retrying: false,
+        rate_limited: false,
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'system',
+        last_event_subtype: 'init',
+      },
+    },
+  }, 1_000);
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', name: 'Bash' }] },
+    debug_meta: {
+      runtime_state: {
+        processing: true,
+        retrying: false,
+        rate_limited: false,
+        active_tool: 'Bash',
+        active_tool_progress: {
+          tool_name: 'Bash',
+          description: 'Running command',
+        },
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'assistant',
+        last_event_subtype: 'tool_use',
+      },
+    },
+  }, 2_000);
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'assistant',
+    message: { stop_reason: 'end_turn', content: [{ type: 'text' }] },
+  }, 3_000);
+
+  const state = deriveRuntimeViewState({
+    now: 3_000,
+    tracker,
+    local: {
+      isLoading: false,
+      interactiveSessionId: 'runtime-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+    },
+  });
+
+  assert.equal(tracker.snapshot?.processing, false);
+  assert.equal(tracker.snapshot?.active_tool, '');
+  assert.equal(tracker.lastResultAt, 3_000);
+  assert.equal(state.phase, 'completed');
+  assert.equal(state.activeTool, null);
 });
 
 test('does not treat api retry error detail as a failed runtime state', async () => {

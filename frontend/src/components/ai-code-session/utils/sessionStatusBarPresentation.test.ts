@@ -64,6 +64,61 @@ test('buildSessionStatusBarModel summarizes subagent activity without raw event 
   assert.doesNotMatch(source, /task_progress|claude-output/);
 });
 
+test('buildSessionStatusBarModel uses the selected provider in waiting labels', async () => {
+  const { buildSessionStatusBarModel } = await loadModule();
+
+  const model = buildSessionStatusBarModel({
+    runtime: {
+      phase: 'waiting',
+      label: 'Waiting',
+      detail: 'Waiting for model output',
+      severity: 'info',
+      activeTool: null,
+      toolProgressText: null,
+      retry: null,
+      rateLimited: false,
+      transportState: 'connected',
+      waitingReason: 'model',
+      isStuckLikely: false,
+      lastUpdatedAt: 10_000,
+    },
+    runtimeCopy: {
+      primary: 'Waiting',
+      secondary: 'Waiting for model output',
+      chips: [],
+      tone: 'info',
+    },
+    now: 20_000,
+    loadingStartedAt: 10_000,
+    tokenUsage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedOutputTokens: 0,
+      totalTokens: 0,
+    },
+    subagentProgress: {
+      subagents: [],
+      rootMessages: [],
+      rootMessageIndexes: new Set(),
+      subagentMessageIndexes: new Set(),
+      messageDepthByIndex: new Map(),
+      runningCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+      totalToolUseCount: 0,
+      totalTokenCount: 0,
+    },
+    promptConfig: { provider: 'deepseek', model: 'deepseek-v4' },
+    isLoading: true,
+    interactiveSessionId: 'runtime-1',
+    stopVisible: false,
+    queuedPromptsCount: 0,
+    thinkingStatus: null,
+  });
+
+  assert.equal(model.primary, 'Waiting for DeepSeek…');
+});
+
 test('buildSessionStatusBarModel treats cancelled sessions as terminal after stop completes', async () => {
   const { buildSessionStatusBarModel } = await loadModule();
 

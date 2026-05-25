@@ -19,6 +19,7 @@ import {
 import { clearInteractiveSessionIdAfterProcessExit } from "../utils/interactiveSessionState";
 import { useSessionFrameMessages } from "@/hooks/useSessionFrameMessages";
 import { EventsOn } from "@/lib/rpc-events";
+import { useProcessChanged } from "@/hooks/useEventSubscription";
 
 export interface UseSessionFrameEventsOptions {
   projectPath: string;
@@ -78,6 +79,8 @@ interface ClaudeCompletionPayload {
   session_id?: string;
   cwd?: string;
   provider?: string;
+  exit_code?: number;
+  exitCode?: number;
   timestamp?: string;
   runtime?: unknown;
   debug_meta?: {
@@ -102,12 +105,13 @@ function countCodeFencePairs(text: string): number {
 
 function isTextDeltaMessage(message: ClaudeStreamMessage): boolean {
   if (message.type !== 'assistant' || (message as any).is_delta !== true) return false;
+  if ((message as any).message?.stop_reason === 'end_turn' || (message as any).stop_reason === 'end_turn') return false;
   const content = message.message?.content;
   if (!Array.isArray(content)) return false;
   return content.every((block: any) => block?.type === 'text');
 }
 
-function coerceCompletionPayload(completion: boolean | string | ClaudeCompletionPayload): ClaudeCompletionPayload {
+export function coerceCompletionPayload(completion: boolean | string | ClaudeCompletionPayload): ClaudeCompletionPayload {
   if (typeof completion === 'boolean') {
     return { success: completion, status: completion ? 'completed' : 'failed' };
   }
@@ -125,10 +129,14 @@ function coerceCompletionPayload(completion: boolean | string | ClaudeCompletion
     }
   }
 
+  const exitCode = completion.exit_code ?? completion.exitCode;
+  const hasExplicitSuccess = typeof completion.success === 'boolean';
+  const success = hasExplicitSuccess ? completion.success : (typeof exitCode === 'number' ? exitCode === 0 : false);
+
   return {
     ...completion,
-    success: Boolean(completion.success),
-    status: completion.status || (completion.success ? 'completed' : 'failed'),
+    success,
+    status: completion.status || (success ? 'completed' : 'failed'),
   };
 }
 
@@ -202,6 +210,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
     messageCount: number;
   } | null>(null);
   const sessionSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completedRuntimeSessionsRef = useRef<Set<string>>(new Set());
 
   const flushRuntimeTracker = useCallback(() => {
     flushRuntimeMessages(projectPath);
@@ -404,15 +413,24 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
         trackError();
       }
 
-      // Handle result messages
-      if (message.type === 'result') {
+      const isAssistantEndTurn = message.type === 'assistant' &&
+        ((message as any).message?.stop_reason === 'end_turn' || (message as any).stop_reason === 'end_turn');
+
+      // Handle terminal turn messages. Interactive Claude streams may finish a
+      // turn with assistant/end_turn instead of a separate result message.
+      if (message.type === 'result' || isAssistantEndTurn) {
         flushRuntimeTracker();
         flushPendingSessionSave();
-        console.log('[useSessionFrameEvents] Result message received, session_id:', message.session_id);
+        const runtimeSessionId = (message as any).runtime_session_id || message.session_id;
+        const completionSessionId = runtimeSessionId ||
+          extractedSessionInfoRef.current?.runtimeSessionId ||
+          claudeSessionId ||
+          undefined;
+        console.log('[useSessionFrameEvents] Terminal turn message received, session_id:', completionSessionId);
         void onComplete?.({
           success: !(message as any).is_error,
-          status: (message as any).is_error ? 'failed' : 'completed',
-          session_id: message.session_id,
+          status: isAssistantEndTurn ? 'completed' : ((message as any).is_error ? 'failed' : 'completed'),
+          session_id: completionSessionId,
           cwd: (message as any).cwd,
           provider,
           timestamp: (message as any).timestamp,
@@ -423,12 +441,11 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
         // This ensures that when useProcessChanged fires (process still running),
         // interactiveSessionIdRef.current is already set, preventing it from
         // re-setting isLoading=true
-        const runtimeSessionId = (message as any).runtime_session_id || message.session_id;
         if (runtimeSessionId) {
           // Save the interactive session ID so we can send more messages to it
           setInteractiveSessionId(runtimeSessionId);
           // Don't clear hasActiveSessionRef - the process is still running
-        } else {
+        } else if (!isAssistantEndTurn) {
           // Batch mode: session is complete
           hasActiveSessionRef.current = false;
           setInteractiveSessionId(null);
@@ -493,6 +510,12 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
     flushRuntimeTracker();
     flushPendingSessionSave();
     const completePayload = coerceCompletionPayload(completion);
+    if (completePayload.session_id) {
+      if (completedRuntimeSessionsRef.current.has(completePayload.session_id)) {
+        return;
+      }
+      completedRuntimeSessionsRef.current.add(completePayload.session_id);
+    }
     hasActiveSessionRef.current = false;
     // Process terminated, clear interactive session (update ref immediately)
     clearInteractiveSessionIdAfterProcessExit(setInteractiveSessionId);
@@ -521,6 +544,20 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
       setWorkspaceStatus(currentProjectPath, 'idle');
     }
   }, [flushRuntimeTracker, flushPendingSessionSave, setIsLoading, hasActiveSessionRef, setInteractiveSessionId, onComplete, processNextInQueue, projectPathRef, setWorkspaceStatus, options.provider]);
+
+  useProcessChanged(projectPath, (event) => {
+    if (event.state !== "stopped") return;
+    const provider = event.provider_id || options.provider || "claude";
+    if (options.provider && provider !== options.provider) return;
+    void processComplete({
+      success: event.exitCode === undefined ? true : event.exitCode === 0,
+      status: event.exitCode === undefined || event.exitCode === 0 ? "completed" : "failed",
+      session_id: event.session_id,
+      cwd: event.cwd,
+      provider,
+      exitCode: event.exitCode,
+    });
+  });
 
   useSessionFrameMessages(streamId, handleStreamMessage, {
     skipInitial: messagesLengthRef.current > 0 && !hasActiveSessionRef.current,

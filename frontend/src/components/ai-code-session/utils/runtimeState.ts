@@ -13,10 +13,12 @@ interface RuntimeTrackerMessage {
   } | null;
   message?: {
     content?: Array<{ type?: string; name?: string }>;
+    stop_reason?: string;
   } | null;
   result?: string;
   is_error?: boolean;
   error?: string;
+  stop_reason?: string;
 }
 
 export interface RuntimeLocalState {
@@ -61,7 +63,8 @@ export function reduceRuntimeTracker(
   message: RuntimeTrackerMessage,
   now: number
 ): SessionRuntimeTracker {
-  const snapshot = normalizeSnapshot(message.debug_meta?.runtime_state ?? null);
+  const explicitSnapshot = normalizeSnapshot(message.debug_meta?.runtime_state ?? null);
+  const snapshot = explicitSnapshot ?? terminalSnapshot(message);
   const next: SessionRuntimeTracker = {
     ...tracker,
     snapshot: snapshot ?? tracker.snapshot,
@@ -103,7 +106,7 @@ export function reduceRuntimeTracker(
     }
   }
 
-  if (message.type === 'result') {
+  if (message.type === 'result' || isAssistantEndTurn(message)) {
     next.lastResultAt = now;
   }
 
@@ -189,7 +192,7 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     severity = 'info';
     waitingReason = 'recovery';
     detail = local.isRestoringSession ? 'Loading saved conversation state' : 'Recovering messages after reconnect';
-  } else if (local.isLoading && !tracker.systemInitReceived) {
+  } else if (local.isLoading && !tracker.systemInitReceived && !local.interactiveSessionId) {
     phase = 'initializing';
     label = 'Initializing';
     severity = 'info';
@@ -292,6 +295,32 @@ function normalizeSnapshot(snapshot: ClaudeRuntimeStateSnapshot | null): ClaudeR
     last_event_type: snapshot.last_event_type || '',
     last_event_subtype: snapshot.last_event_subtype || '',
   };
+}
+
+function terminalSnapshot(message: RuntimeTrackerMessage): ClaudeRuntimeStateSnapshot | null {
+  const assistantEndTurn = isAssistantEndTurn(message);
+  if (message.type !== 'result' && !assistantEndTurn) return null;
+  const status = assistantEndTurn ? 'completed' : (message.subtype || (message.is_error ? 'failed' : 'completed'));
+  const eventType = assistantEndTurn ? 'assistant' : 'result';
+  const eventSubtype = assistantEndTurn ? 'end_turn' : (message.subtype || (message.is_error ? 'failed' : 'success'));
+  return {
+    processing: false,
+    retrying: false,
+    rate_limited: false,
+    status,
+    active_tool: '',
+    active_tool_progress: null,
+    last_api_retry: null,
+    last_thinking_phase: '',
+    last_partial_text_length: 0,
+    last_event_type: eventType,
+    last_event_subtype: eventSubtype,
+  };
+}
+
+function isAssistantEndTurn(message: RuntimeTrackerMessage): boolean {
+  return message.type === 'assistant' &&
+    (message.message?.stop_reason === 'end_turn' || message.stop_reason === 'end_turn');
 }
 
 function getRetryState(snapshot: ClaudeRuntimeStateSnapshot | null): SessionRuntimeViewState['retry'] {
