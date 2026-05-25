@@ -40,15 +40,25 @@ export function useSessionFrameMessages(
   }, [options.skipInitial, streamId]);
 }
 
-function legacyPayloadFromFrame(frame: SessionFrame): string | null {
+export function legacyPayloadFromFrame(frame: SessionFrame): string | null {
   const raw = frame.meta?.raw as Record<string, unknown> | undefined;
   if (typeof raw?.raw === 'string') {
     return raw.raw;
   }
   if (raw && Object.keys(raw).length > 0) {
-    return JSON.stringify(raw);
+    return JSON.stringify(withFrameSemantics(frame, raw));
   }
-  return JSON.stringify(sessionFrameToLegacyMessage(frame));
+  return JSON.stringify(withFrameSemantics(frame, sessionFrameToLegacyMessage(frame)));
+}
+
+function withFrameSemantics(frame: SessionFrame, payload: Record<string, unknown>): Record<string, unknown> {
+  if (frame.kind !== 'delta') {
+    return payload;
+  }
+  return {
+    ...payload,
+    is_delta: true,
+  };
 }
 
 function sessionFrameToLegacyMessage(frame: SessionFrame): Record<string, unknown> {

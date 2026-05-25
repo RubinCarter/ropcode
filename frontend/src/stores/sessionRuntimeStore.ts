@@ -34,6 +34,10 @@ export function setSessionRuntimeConnected(streamId: string, connected: boolean)
 }
 
 export function applySessionRuntimeFrame(frame: SessionFrame): void {
+  if (frame.sidechain) {
+    return;
+  }
+
   const previous = getSessionRuntime(frame.streamId);
   states.set(frame.streamId, {
     ...previous,
