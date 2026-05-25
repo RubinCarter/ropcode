@@ -2,6 +2,7 @@ package deepseek
 
 import (
 	"encoding/json"
+	"strings"
 
 	"ropcode/internal/provider"
 )
@@ -126,9 +127,18 @@ func adaptDeepSeekTool(name string, input map[string]interface{}) (string, inter
 }
 
 func (d *Driver) ParseStderr(line []byte) *provider.StderrEvent {
+	message := strings.TrimSpace(string(line))
+	level := "warning"
+	upper := strings.ToUpper(message)
+	if strings.Contains(upper, "ERROR") ||
+		strings.Contains(upper, "FATAL") ||
+		strings.Contains(message, "Traceback") ||
+		strings.Contains(message, "panic:") {
+		level = "error"
+	}
 	return &provider.StderrEvent{
-		Level:   "error",
-		Message: string(line),
+		Level:   level,
+		Message: message,
 	}
 }
 
