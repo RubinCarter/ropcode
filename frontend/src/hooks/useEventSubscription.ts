@@ -22,6 +22,8 @@ export interface ProcessChangedEvent {
   cwd: string;
   state: 'running' | 'stopped';
   exitCode?: number;
+  provider_id?: string;
+  session_id?: string;
 }
 
 export interface SessionChangedEvent {
@@ -72,7 +74,7 @@ export function useEventSubscription<T>(
     EventsOn(eventName, wrappedHandler);
 
     return () => {
-      EventsOff(eventName);
+      EventsOff(eventName, wrappedHandler);
     };
   }, [eventName, enabled]);
 }
