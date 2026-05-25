@@ -90,6 +90,41 @@ func TestClaudeAdapterPreservesSubagentLifecycleFields(t *testing.T) {
 	}
 }
 
+func TestClaudeAdapterMarksSidechainJsonlEntriesAsSidechain(t *testing.T) {
+	frame, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "assistant",
+		SessionID: "runtime-1",
+		Provider:  "claude",
+		Message: map[string]any{
+			"type":        "assistant",
+			"isSidechain": true,
+			"agentId":     "agent-1",
+			"message": map[string]any{
+				"role": "assistant",
+				"content": []any{
+					map[string]any{"type": "tool_use", "id": "toolu_1", "name": "WebSearch", "input": map[string]any{"query": "深圳天气"}},
+				},
+			},
+			"debug_meta": map[string]any{
+				"runtime_state": map[string]any{
+					"phase":       "tool_running",
+					"active_tool": "WebSearch",
+				},
+			},
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !frame.Sidechain {
+		t.Fatalf("isSidechain JSONL entries must be marked sidechain: %#v", frame)
+	}
+	if frame.AgentID != "agent-1" {
+		t.Fatalf("expected agent id to be preserved, got %q", frame.AgentID)
+	}
+}
+
 func TestClaudeAdapterConvertsToolResultAndToolUseResult(t *testing.T) {
 	frame, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
 		Type:      "user",

@@ -38,7 +38,10 @@ func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, s
 		Meta:              Meta{Raw: raw},
 	}
 
-	frame.Sidechain = frame.ParentToolUseID != "" || frame.TaskID != ""
+	frame.Sidechain = boolFromAny(event.Message["isSidechain"]) || frame.ParentToolUseID != "" || frame.TaskID != ""
+	if agentID := stringFromMap(event.Message, "agentId"); agentID != "" {
+		frame.AgentID = agentID
+	}
 	if frame.TaskID != "" {
 		frame.AgentID = frame.TaskID
 	}
