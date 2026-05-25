@@ -231,6 +231,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   }, [switchToWorkspace]);
 
+  const handleOpenProjectSuccess = useCallback((project?: Project) => {
+    loadProjects();
+    if (project?.path) {
+      handleProjectClick(project);
+    }
+  }, [handleProjectClick, loadProjects]);
+
   const toggleCollapse = useCallback(() => {
     const newCollapsed = !isCollapsed;
     if (onCollapse) {
@@ -357,10 +364,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <OpenProjectDialog
         isOpen={showOpenDialog}
         onClose={() => setShowOpenDialog(false)}
-        onSuccess={(project) => {
-          loadProjects();
-          handleProjectClick(project);
-        }}
+        onSuccess={handleOpenProjectSuccess}
       />
 
       {!isCollapsed && (

@@ -8,6 +8,10 @@ export function findActiveClaudeSessionForProject(
   return sessions.find((session) => session.project_path === projectPath && session.status === 'running');
 }
 
+export function displayClaudeActivitySessionId(session: claude.SessionStatus): string | undefined {
+  return session.provider_session_id || session.session_id;
+}
+
 export function activityBadgeCount(snapshot?: main.ClaudeActivitySnapshot | null): number {
   if (!snapshot) return 0;
   return snapshot.running_count + snapshot.stopping_count + snapshot.failed_count;

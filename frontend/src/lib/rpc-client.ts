@@ -335,6 +335,7 @@ export namespace claude {
   }
   export interface SessionStatus {
     session_id?: string;
+    provider_session_id?: string;
     project_path: string;
     running?: boolean;
     id?: string;

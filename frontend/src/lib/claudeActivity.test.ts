@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   activityBadgeCount,
   activityStatusLabel,
+  displayClaudeActivitySessionId,
   findActiveClaudeSessionForProject,
   getExpandedLogActivities,
   normalizeClaudeActivitySnapshot,
@@ -16,6 +17,14 @@ describe('claudeActivity helpers', () => {
     ], 'E:/repo');
 
     assert.equal(session?.session_id, 'live');
+  });
+
+  it('prefers the Claude provider session id for activity display', () => {
+    assert.equal(displayClaudeActivitySessionId({
+      session_id: 'runtime-1',
+      provider_session_id: 'claude-1',
+      project_path: 'E:/repo',
+    }), 'claude-1');
   });
 
   it('counts task badge from active statuses', () => {

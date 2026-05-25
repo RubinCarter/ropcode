@@ -145,7 +145,7 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
       setCurrentOperation('Creating project...');
       setProgress(initGit ? 60 : 30);
 
-      const project = await api.createProject(selectedPath);
+      await api.createProject(selectedPath);
       setProgress(initGit ? 80 : 70);
 
       // Add to index
@@ -162,7 +162,7 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
 
       // Call success callback
       if (onSuccess) {
-        onSuccess(project);
+        onSuccess({ path: selectedPath } as Project);
       }
 
       // Close dialog after a short delay

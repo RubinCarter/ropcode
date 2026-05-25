@@ -8,6 +8,7 @@ import type { claude, main } from '@/lib/rpc-client';
 import {
   activityStatusLabel,
   canLoadActivityLog,
+  displayClaudeActivitySessionId,
   findActiveClaudeSessionForProject,
   normalizeClaudeActivitySnapshot,
 } from '@/lib/claudeActivity';
@@ -363,7 +364,7 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
           <div className="min-w-0">
             <div className="text-sm font-medium">Claude Tasks</div>
             <div className="text-xs text-muted-foreground truncate">
-              {activeSession ? activeSession.session_id.slice(0, 8) : 'No running Claude session'}
+              {activeSession ? displayClaudeActivitySessionId(activeSession)?.slice(0, 8) : 'No running Claude session'}
             </div>
           </div>
         </div>
