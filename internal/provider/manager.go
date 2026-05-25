@@ -225,6 +225,41 @@ func (m *Manager) GetRunningSessionForProject(providerID, projectPath string) st
 	}
 	return ""
 }
+
+// ResolveRunningSessionID returns the runtime session ID for an already-running
+// session. The input may be either the runtime ID or the provider-native ID
+// captured from the provider's init event.
+func (m *Manager) ResolveRunningSessionID(providerID, projectPath, sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if s, ok := m.sessions[sessionID]; ok {
+		state := s.GetState()
+		if state == StateRunning || state == StateStarting {
+			return s.ID
+		}
+	}
+	for _, s := range m.sessions {
+		if providerID != "" && s.driver.ID() != providerID {
+			continue
+		}
+		if projectPath != "" && s.config.ProjectPath != projectPath {
+			continue
+		}
+		state := s.GetState()
+		if state != StateRunning && state != StateStarting {
+			continue
+		}
+		if s.GetProviderSessionID() == sessionID {
+			return s.ID
+		}
+	}
+	return ""
+}
+
 func (m *Manager) IsRunning(sessionID string) bool {
 	m.mu.RLock()
 	session, ok := m.sessions[sessionID]

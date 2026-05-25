@@ -2,8 +2,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 
 	"ropcode/internal/claudeactivity"
@@ -94,9 +97,11 @@ func (a *App) startup(ctx context.Context) {
 
 	// Create event emitter that uses EventHub
 	eventEmitter := &eventEmitter{eventHub: a.eventHub}
+	a.claudeActivity = claudeactivity.NewService()
 	providerEmitter := &providerStreamEmitter{
-		eventHub: a.eventHub,
-		bridge:   stream.NewProviderBridge(a.sessionStreamHub),
+		eventHub:       a.eventHub,
+		bridge:         stream.NewProviderBridge(a.sessionStreamHub),
+		claudeActivity: a.claudeActivity,
 	}
 
 	// Initialize PTY manager with event emitter
@@ -113,9 +118,6 @@ func (a *App) startup(ctx context.Context) {
 	a.providerManager.RegisterDriver(&providerCodex.Driver{})
 	a.providerManager.RegisterDriver(&providerGemini.Driver{})
 	a.providerManager.RegisterDriver(&providerDeepseek.Driver{})
-
-	// Initialize Claude activity service
-	a.claudeActivity = claudeactivity.NewService()
 
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution
@@ -197,8 +199,9 @@ func (e *eventEmitter) Emit(eventName string, data interface{}) {
 // providerStreamEmitter routes unified provider output into the session stream
 // hub while preserving low-frequency process/session events on EventHub.
 type providerStreamEmitter struct {
-	eventHub *eventhub.EventHub
-	bridge   *stream.ProviderBridge
+	eventHub       *eventhub.EventHub
+	bridge         *stream.ProviderBridge
+	claudeActivity *claudeactivity.Service
 }
 
 func (e *providerStreamEmitter) Emit(eventName string, data interface{}) {
@@ -210,6 +213,9 @@ func (e *providerStreamEmitter) Emit(eventName string, data interface{}) {
 	event, ok := providerOutputEventFrom(data)
 	if !ok || e.bridge == nil {
 		return
+	}
+	if event.Provider == "claude" && e.claudeActivity != nil {
+		e.claudeActivity.ObserveClaudeEvent(event.SessionID, event.Message)
 	}
 	_ = e.bridge.EmitProviderOutput(stream.ProviderOutputContext{
 		RuntimeSessionID:  event.SessionID,
@@ -231,6 +237,21 @@ func providerOutputEventFrom(data interface{}) (provider.OutputEvent, bool) {
 		return *event, true
 	default:
 		return provider.OutputEvent{}, false
+	}
+}
+
+func replayClaudeActivityOutput(activity *claudeactivity.Service, sessionID, output string) {
+	if activity == nil || sessionID == "" || output == "" {
+		return
+	}
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024)
+	for scanner.Scan() {
+		var msg map[string]interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
+			continue
+		}
+		activity.ObserveClaudeEvent(sessionID, msg)
 	}
 }
 

@@ -1868,6 +1868,9 @@ func (a *App) SendClaudeMessage(projectPath, sessionID, prompt string) error {
 	if a.providerManager == nil {
 		return fmt.Errorf("provider manager not initialized")
 	}
+	if resolvedSessionID := a.providerManager.ResolveRunningSessionID("claude", projectPath, sessionID); resolvedSessionID != "" {
+		sessionID = resolvedSessionID
+	}
 	return a.providerManager.SendMessage(sessionID, prompt)
 }
 
@@ -1986,6 +1989,14 @@ func (a *App) GetClaudeSessionActivities(sessionID string) (claudeactivity.Snaps
 	if err != nil {
 		log.Printf("[GetClaudeSessionActivities] session=%s error=%v", sessionID, err)
 		return claudeactivity.Snapshot{}, err
+	}
+	if len(snapshot.Activities) == 0 && a.providerManager != nil {
+		if output, outputErr := a.providerManager.GetSessionOutput(sessionID); outputErr == nil && output != "" {
+			replayClaudeActivityOutput(a.claudeActivity, sessionID, output)
+			if replayed, replayErr := a.claudeActivity.GetSnapshot(sessionID); replayErr == nil {
+				snapshot = replayed
+			}
+		}
 	}
 	log.Printf(
 		"[GetClaudeSessionActivities] session=%s activities=%d subagents=%d background_tasks=%d other=%d running=%d stopping=%d failed=%d",

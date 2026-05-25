@@ -195,6 +195,57 @@ func TestLiveProviderSessionExposesProviderSessionID(t *testing.T) {
 	}
 }
 
+func writeFakeClaudeInteractiveBinary(t *testing.T) string {
+	t.Helper()
+
+	claudeID := "claude-provider-session"
+	initLine := `{"type":"system","subtype":"init","session_id":"` + claudeID + `"}`
+	controlLine := `{"type":"control_response","request_id":"init_1","response":{"subtype":"success","request_id":"init_1"}}`
+	if runtime.GOOS == "windows" {
+		binPath := filepath.Join(t.TempDir(), "fake-claude.cmd")
+		script := "@echo off\r\necho " + initLine + "\r\necho " + controlLine + "\r\n:loop\r\nset /p line=\r\nif errorlevel 1 goto end\r\necho {\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"" + claudeID + "\"}\r\ngoto loop\r\n:end\r\n"
+		if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+			t.Fatalf("WriteFile failed: %v", err)
+		}
+		return binPath
+	}
+
+	binPath := filepath.Join(t.TempDir(), "fake-claude.sh")
+	script := "#!/bin/sh\nprintf '%s\\n' '" + initLine + "'\nprintf '%s\\n' '" + controlLine + "'\nwhile IFS= read -r line; do printf '%s\\n' '{\"type\":\"result\",\"subtype\":\"success\",\"session_id\":\"" + claudeID + "\"}'; done\n"
+	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	return binPath
+}
+
+func TestSendClaudeMessageAcceptsProviderSessionIDForRunningSession(t *testing.T) {
+	app := newGeminiTestApp(t)
+	app.providerManager.SetBinaryPath("claude", writeFakeClaudeInteractiveBinary(t))
+	projectPath := t.TempDir()
+
+	sessionID, err := app.StartInteractiveClaudeSession(projectPath, "sonnet", "", "")
+	if err != nil {
+		t.Fatalf("StartInteractiveClaudeSession failed: %v", err)
+	}
+	defer func() { _ = app.StopProviderSession(sessionID) }()
+
+	waitUntil(t, 2*time.Second, func() bool {
+		return len(app.ListRunningProviderSessions()) == 1
+	})
+
+	session := app.providerManager.GetSession(sessionID)
+	if session == nil {
+		t.Fatal("expected running provider session")
+	}
+	if session.ProviderSessionID == "" {
+		t.Fatal("expected provider session id")
+	}
+
+	if err := app.SendClaudeMessage(projectPath, session.ProviderSessionID, "hello again"); err != nil {
+		t.Fatalf("SendClaudeMessage with provider session id failed: %v", err)
+	}
+}
+
 func TestGetProviderSessionOutputAndStopProviderSession(t *testing.T) {
 	app := newGeminiTestApp(t)
 	sessionID, err := app.StartProviderSession("gemini", t.TempDir(), "hello", "", "", "")
