@@ -590,9 +590,16 @@ func (a *App) LoadAgentSessionHistory(sessionID string) ([]claude.Message, error
 	return a.providerManager.LoadSessionHistory("claude", "", sessionID)
 }
 
-// LoadSubagentTranscripts loads sidechain subagent transcripts for a parent Claude session.
+// LoadSubagentTranscripts loads sidechain subagent transcripts for a session.
 func (a *App) LoadSubagentTranscripts(sessionID, projectID string) (map[string][]claude.Message, error) {
-	return a.providerManager.LoadSubagentTranscripts("claude", projectID, sessionID)
+	// Try each provider that supports subagent transcripts
+	for _, providerID := range []string{"claude", "codex"} {
+		transcripts, err := a.providerManager.LoadSubagentTranscripts(providerID, projectID, sessionID)
+		if err == nil && len(transcripts) > 0 {
+			return transcripts, nil
+		}
+	}
+	return map[string][]claude.Message{}, nil
 }
 
 // ProviderSession represents a session from any provider

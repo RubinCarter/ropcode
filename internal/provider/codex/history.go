@@ -69,14 +69,14 @@ func FindSessionFile(codexDir, sessionID string) (string, error) {
 	return foundPath, nil
 }
 
-// LoadSessionHistory loads the history for a Codex session
-func LoadSessionHistory(codexDir, projectID, sessionID string) ([]provider.Message, error) {
+// LoadHistoryEvents reads a Codex session JSONL and returns normalized OutputEvents
+// with cross-event state tracking (spawn → agent_id mapping for subagent association).
+// This is the single source of truth for stateful history normalization.
+func LoadHistoryEvents(codexDir, sessionID string) ([]provider.OutputEvent, error) {
 	filePath, err := FindSessionFile(codexDir, sessionID)
 	if err != nil {
 		return nil, err
 	}
-
-	log.Printf("[Codex History] Loading session from: %s", filePath)
 
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -84,10 +84,11 @@ func LoadSessionHistory(codexDir, projectID, sessionID string) ([]provider.Messa
 	}
 	defer file.Close()
 
-	var messages []provider.Message
+	var events []provider.OutputEvent
+	threadToSpawn := map[string]string{}
+	lsCallIDs := map[string]bool{}
+	lastSpawnCallID := ""
 	scanner := bufio.NewScanner(file)
-
-	// Increase buffer size for large lines
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
@@ -97,22 +98,223 @@ func LoadSessionHistory(codexDir, projectID, sessionID string) ([]provider.Messa
 			continue
 		}
 
-		var event map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
 			continue
 		}
 
-		// Convert Codex event to Claude message format
-		claudeMessages := codexEventToClaudeHistory(event, projectID)
-		messages = append(messages, claudeMessages...)
+		// Track spawn_agent → agent_id mapping and ls call_ids
+		if str(raw, "type") == "response_item" {
+			payload := mval(raw["payload"])
+			if str(payload, "type") == "function_call" {
+				name := str(payload, "name")
+				callID := str(payload, "call_id")
+				if name == "spawn_agent" {
+					lastSpawnCallID = callID
+				} else if name == "exec_command" {
+					argsStr := str(payload, "arguments")
+					var args map[string]interface{}
+					if json.Unmarshal([]byte(argsStr), &args) == nil {
+						cmd, _ := args["cmd"].(string)
+						if cmd == "" {
+							cmd, _ = args["command"].(string)
+						}
+						// Strip cd prefix
+						if idx := strings.Index(cmd, " && "); idx > 0 && strings.HasPrefix(cmd, "cd ") {
+							cmd = cmd[idx+4:]
+						}
+						if strings.HasPrefix(cmd, "ls") {
+							lsCallIDs[callID] = true
+						}
+					}
+				}
+			} else if str(payload, "type") == "function_call_output" && lastSpawnCallID != "" {
+				output := str(payload, "output")
+				var outputObj map[string]interface{}
+				if json.Unmarshal([]byte(output), &outputObj) == nil {
+					if agentID, ok := outputObj["agent_id"].(string); ok && agentID != "" {
+						threadToSpawn[agentID] = lastSpawnCallID
+					}
+				}
+				lastSpawnCallID = ""
+			} else if str(payload, "type") != "function_call" {
+				lastSpawnCallID = ""
+			}
+		}
+
+		ev := NormalizeHistoryEntry(raw)
+
+		// Fix parent_tool_use_id for subagent_notification using state map
+		if ev.Message != nil {
+			if parentID, _ := ev.Message["parent_tool_use_id"].(string); parentID != "" {
+				if spawnID, ok := threadToSpawn[parentID]; ok {
+					ev.Message["parent_tool_use_id"] = spawnID
+				}
+			}
+		}
+
+		// Format LS tool_result content as directory tree
+		if ev.Type == "user" && ev.Message != nil {
+			if inner, ok := ev.Message["message"].(map[string]interface{}); ok {
+				if content, ok := inner["content"].([]interface{}); ok && len(content) > 0 {
+					if block, ok := content[0].(map[string]interface{}); ok {
+						if block["type"] == "tool_result" {
+							if toolUseID, _ := block["tool_use_id"].(string); lsCallIDs[toolUseID] {
+								if text, _ := block["content"].(string); text != "" {
+									block["content"] = formatDirectoryListing(text)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		events = append(events, ev)
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading session file: %w", err)
 	}
+	return events, nil
+}
+
+// LoadSessionHistory loads history as []Message by converting OutputEvents.
+func LoadSessionHistory(codexDir, projectID, sessionID string) ([]provider.Message, error) {
+	events, err := LoadHistoryEvents(codexDir, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("[Codex History] Converting %d events to messages", len(events))
+
+	messages := make([]provider.Message, 0, len(events))
+	for _, ev := range events {
+		if ev.Message == nil {
+			continue
+		}
+
+		isSidechain, _ := ev.Message["isSidechain"].(bool)
+		msgContent := ev.Message
+		if inner, ok := ev.Message["message"].(map[string]interface{}); ok {
+			msgContent = inner
+		}
+		if _, hasParent := ev.Message["parent_tool_use_id"]; hasParent {
+			msgContent["parent_tool_use_id"] = ev.Message["parent_tool_use_id"]
+			isSidechain = true
+		}
+		if isSidechain {
+			msgContent["isSidechain"] = true
+		}
+
+		parentToolUseID, _ := ev.Message["parent_tool_use_id"].(string)
+
+		msg := provider.Message{
+			Type:            ev.Type,
+			IsSidechain:     isSidechain,
+			ParentToolUseID: parentToolUseID,
+			Cwd:             projectID,
+			Timestamp:       str(ev.Message, "timestamp"),
+			Message:         msgContent,
+		}
+		messages = append(messages, msg)
+	}
 
 	log.Printf("[Codex History] Loaded %d messages", len(messages))
 	return messages, nil
+}
+
+// LoadSubagentTranscripts extracts subagent responses from the session JSONL.
+// Returns a map of spawn_call_id → subagent messages (extracted from subagent_notification).
+func LoadSubagentTranscripts(codexDir, sessionID string) (map[string][]provider.Message, error) {
+	filePath, err := FindSessionFile(codexDir, sessionID)
+	if err != nil {
+		return map[string][]provider.Message{}, nil
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return map[string][]provider.Message{}, nil
+	}
+	defer file.Close()
+
+	// First pass: build spawn_call_id → agent_id mapping
+	threadToSpawn := map[string]string{}
+	lastSpawnCallID := ""
+	var notifications []map[string]interface{}
+
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			continue
+		}
+
+		if str(raw, "type") == "response_item" {
+			payload := mval(raw["payload"])
+			if str(payload, "type") == "function_call" && str(payload, "name") == "spawn_agent" {
+				lastSpawnCallID = str(payload, "call_id")
+			} else if str(payload, "type") == "function_call_output" && lastSpawnCallID != "" {
+				output := str(payload, "output")
+				var outputObj map[string]interface{}
+				if json.Unmarshal([]byte(output), &outputObj) == nil {
+					if agentID, ok := outputObj["agent_id"].(string); ok && agentID != "" {
+						threadToSpawn[agentID] = lastSpawnCallID
+					}
+				}
+				lastSpawnCallID = ""
+			} else if str(payload, "type") != "function_call" {
+				lastSpawnCallID = ""
+			}
+
+			// Detect subagent_notification in user messages
+			if str(payload, "type") == "message" && str(payload, "role") == "user" {
+				text := payloadText(payload)
+				if strings.Contains(text, "<subagent_notification>") {
+					notifications = append(notifications, raw)
+				}
+			}
+		}
+	}
+
+	// Build transcripts from notifications
+	transcripts := map[string][]provider.Message{}
+	for _, raw := range notifications {
+		payload := mval(raw["payload"])
+		text := payloadText(payload)
+		parsed := parseSubagentNotification(text)
+		if parsed == nil {
+			continue
+		}
+		agentPath, _ := parsed["parent_tool_use_id"].(string)
+		spawnID := agentPath
+		if mapped, ok := threadToSpawn[agentPath]; ok {
+			spawnID = mapped
+		}
+		if spawnID == "" {
+			continue
+		}
+
+		inner, _ := parsed["message"].(map[string]any)
+		if inner == nil {
+			continue
+		}
+
+		msg := provider.Message{
+			Type:    "assistant",
+			Message: inner,
+		}
+		transcripts[spawnID] = append(transcripts[spawnID], msg)
+	}
+
+	return transcripts, nil
 }
 
 // ReadAllHistoryEntries reads Codex JSONL history and returns raw entries for frame conversion.
@@ -149,285 +351,6 @@ func ReadAllHistoryEntries(codexDir, sessionID string) ([]map[string]interface{}
 		return nil, fmt.Errorf("error reading session file: %w", err)
 	}
 	return entries, nil
-}
-
-// codexEventToClaudeHistory converts a Codex event to Claude history format
-// Based on Tauri version's codex_event_to_claude_history function
-func codexEventToClaudeHistory(event map[string]interface{}, projectID string) []provider.Message {
-	var messages []provider.Message
-
-	eventType, _ := event["type"].(string)
-	timestamp := time.Now().Format(time.RFC3339)
-
-	switch eventType {
-	case "item.completed":
-		// Process item.completed event - extract item content
-		item, ok := event["item"].(map[string]interface{})
-		if !ok {
-			return messages
-		}
-
-		itemType, _ := item["type"].(string)
-		if itemType == "" {
-			itemType, _ = item["item_type"].(string)
-		}
-
-		text, _ := item["text"].(string)
-		if text == "" {
-			return messages
-		}
-
-		switch itemType {
-		case "agent_message", "reasoning", "assistant_message":
-			msg := provider.Message{
-				Type:      "assistant",
-				Cwd:       projectID,
-				Timestamp: timestamp,
-				Message: map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "text", "text": text},
-					},
-				},
-			}
-			messages = append(messages, msg)
-		}
-
-	case "response_item":
-		payload, ok := event["payload"].(map[string]interface{})
-		if !ok {
-			return messages
-		}
-
-		role, _ := payload["role"].(string)
-		payloadType, _ := payload["type"].(string)
-
-		switch payloadType {
-		case "message":
-			if role == "user" {
-				// Extract content and normalize type from "input_text" to "text"
-				content := normalizeCodexContent(payload, true)
-				if len(content) == 0 {
-					return messages
-				}
-
-				msg := provider.Message{
-					Type:      "user",
-					Cwd:       projectID,
-					Timestamp: timestamp,
-					Message: map[string]interface{}{
-						"role":    "user",
-						"content": content,
-					},
-				}
-				messages = append(messages, msg)
-
-			} else if role == "assistant" {
-				// Extract content and normalize type from "output_text" to "text"
-				content := normalizeCodexContent(payload, false)
-
-				msg := provider.Message{
-					Type:      "assistant",
-					Cwd:       projectID,
-					Timestamp: timestamp,
-					Message: map[string]interface{}{
-						"role":    "assistant",
-						"content": content,
-					},
-				}
-				messages = append(messages, msg)
-			}
-
-		case "reasoning":
-			// Extract thinking text from summary
-			thinkingText := ""
-			if summary, ok := payload["summary"].([]interface{}); ok && len(summary) > 0 {
-				if firstItem, ok := summary[0].(map[string]interface{}); ok {
-					thinkingText, _ = firstItem["text"].(string)
-				}
-			}
-
-			if thinkingText != "" {
-				msg := provider.Message{
-					Type:      "assistant",
-					Cwd:       projectID,
-					Timestamp: timestamp,
-					Message: map[string]interface{}{
-						"role": "assistant",
-						"content": []map[string]interface{}{
-							{
-								"type":     "thinking",
-								"thinking": thinkingText,
-							},
-						},
-					},
-				}
-				messages = append(messages, msg)
-			}
-
-		case "function_call":
-			// Extract tool use information
-			name, _ := payload["name"].(string)
-			arguments, _ := payload["arguments"].(string)
-			callID, _ := payload["call_id"].(string)
-
-			if callID == "" {
-				return messages
-			}
-
-			// Parse arguments JSON
-			var argsValue map[string]interface{}
-			if err := json.Unmarshal([]byte(arguments), &argsValue); err != nil {
-				argsValue = map[string]interface{}{}
-			}
-
-			// Adapt Codex tools to Claude specialized tools
-			adaptedName, adaptedInput := adaptCodexToolToClaude(name, argsValue)
-
-			msg := provider.Message{
-				Type:      "assistant",
-				Cwd:       projectID,
-				Timestamp: timestamp,
-				Message: map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{
-							"type":  "tool_use",
-							"id":    callID,
-							"name":  adaptedName,
-							"input": adaptedInput,
-						},
-					},
-				},
-			}
-			messages = append(messages, msg)
-
-		case "function_call_output":
-			// Extract tool result information
-			callID, _ := payload["call_id"].(string)
-			output, _ := payload["output"].(string)
-
-			if callID == "" {
-				return messages
-			}
-
-			// Parse the output which is JSON stringified
-			var outputData map[string]interface{}
-			if err := json.Unmarshal([]byte(output), &outputData); err == nil {
-				if actualOutput, ok := outputData["output"].(string); ok {
-					output = actualOutput
-				}
-			}
-
-			msg := provider.Message{
-				Type:      "user",
-				Cwd:       projectID,
-				Timestamp: timestamp,
-				Message: map[string]interface{}{
-					"role": "user",
-					"content": []map[string]interface{}{
-						{
-							"type":        "tool_result",
-							"tool_use_id": callID,
-							"content":     output,
-						},
-					},
-				},
-			}
-			messages = append(messages, msg)
-		}
-
-	}
-
-	return messages
-}
-
-// normalizeCodexContent extracts and normalizes content from Codex payload
-func normalizeCodexContent(payload map[string]interface{}, isUser bool) []map[string]interface{} {
-	contentArr, ok := payload["content"].([]interface{})
-	if !ok {
-		return nil
-	}
-
-	var normalized []map[string]interface{}
-	for _, item := range contentArr {
-		itemMap, ok := item.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		itemType, _ := itemMap["type"].(string)
-		text, _ := itemMap["text"].(string)
-
-		// Filter out environment context messages for user messages
-		if isUser && strings.HasPrefix(text, "<environment_context>") {
-			continue
-		}
-
-		// Normalize type: input_text/output_text -> text
-		if itemType == "input_text" || itemType == "output_text" {
-			itemType = "text"
-		}
-
-		normalized = append(normalized, map[string]interface{}{
-			"type": itemType,
-			"text": text,
-		})
-	}
-
-	return normalized
-}
-
-// adaptCodexToolToClaude maps Codex tool names and parameters to Claude format
-func adaptCodexToolToClaude(toolName string, args map[string]interface{}) (string, interface{}) {
-	switch toolName {
-	case "shell", "shell_command":
-		// Check if it's actually a read/write operation
-		command, _ := args["command"].(string)
-
-		// Check for cat commands -> Read
-		if strings.HasPrefix(command, "cat ") {
-			filePath := strings.TrimPrefix(command, "cat ")
-			filePath = strings.TrimSpace(filePath)
-			return "Read", map[string]interface{}{"file_path": filePath}
-		}
-
-		// Check for echo/cat with redirect -> Write
-		if strings.Contains(command, " > ") || strings.Contains(command, " >> ") {
-			return "Write", map[string]interface{}{"command": command}
-		}
-
-		return "Bash", map[string]interface{}{"command": command}
-
-	case "update_plan":
-		// Adapt update_plan to TodoWrite format
-		if tasks, ok := args["tasks"].([]interface{}); ok {
-			convertedTodos := make([]map[string]interface{}, 0, len(tasks))
-			for _, task := range tasks {
-				if taskMap, ok := task.(map[string]interface{}); ok {
-					description, _ := taskMap["description"].(string)
-					status, _ := taskMap["status"].(string)
-					if status == "" {
-						status = "pending"
-					}
-					activeForm := generateActiveForm(description)
-					convertedTodos = append(convertedTodos, map[string]interface{}{
-						"content":    description,
-						"status":     status,
-						"activeForm": activeForm,
-					})
-				}
-			}
-			return "TodoWrite", map[string]interface{}{"todos": convertedTodos}
-		}
-		return "TodoWrite", args
-
-	case "apply_patch":
-		return "Edit", args
-
-	default:
-		return toolName, args
-	}
 }
 
 var maxLimitedProjectSessionScanFiles = 200
@@ -571,7 +494,7 @@ func extractSessionInfo(filePath, targetProjectPath string) (*provider.HistorySe
 			payloadType, _ := payload["type"].(string)
 			role, _ := payload["role"].(string)
 			if payloadType == "message" && role == "user" {
-				firstMessage = firstTextFromCodexContent(normalizeCodexContent(payload, true))
+				firstMessage = extractFirstUserText(payload)
 			}
 		}
 
@@ -617,14 +540,19 @@ func sameCodexProjectPath(a, b string) bool {
 	return strings.EqualFold(a, b)
 }
 
-func firstTextFromCodexContent(content []map[string]interface{}) string {
-	for _, item := range content {
-		text, _ := item["text"].(string)
-		text = strings.TrimSpace(text)
-		if text == "" {
+func extractFirstUserText(payload map[string]interface{}) string {
+	contentArr, ok := payload["content"].([]interface{})
+	if !ok {
+		return ""
+	}
+	for _, item := range contentArr {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
 			continue
 		}
-		if isInjectedCodexUserContext(text) {
+		text, _ := itemMap["text"].(string)
+		text = strings.TrimSpace(text)
+		if text == "" || isInjectedCodexUserContext(text) {
 			continue
 		}
 		return text
@@ -646,76 +574,3 @@ func isInjectedCodexUserContext(text string) bool {
 	return false
 }
 
-// generateActiveForm generates activeForm from a task description
-// Converts imperative form to present continuous (e.g., "Create file" -> "Creating file")
-func generateActiveForm(description string) string {
-	trimmed := strings.TrimSpace(description)
-	if trimmed == "" {
-		return ""
-	}
-
-	// Find the first word (verb) and try to convert to present continuous
-	parts := strings.SplitN(trimmed, " ", 2)
-	firstWord := parts[0]
-	rest := ""
-	if len(parts) > 1 {
-		rest = parts[1]
-	}
-
-	// Common verb conversions
-	verbMap := map[string]string{
-		"create":    "Creating",
-		"add":       "Adding",
-		"update":    "Updating",
-		"fix":       "Fixing",
-		"remove":    "Removing",
-		"delete":    "Deleting",
-		"implement": "Implementing",
-		"write":     "Writing",
-		"read":      "Reading",
-		"build":     "Building",
-		"test":      "Testing",
-		"run":       "Running",
-		"check":     "Checking",
-		"install":   "Installing",
-		"configure": "Configuring",
-		"setup":     "Setting up",
-		"set":       "Setting up",
-		"modify":    "Modifying",
-		"refactor":  "Refactoring",
-		"debug":     "Debugging",
-		"analyze":   "Analyzing",
-		"review":    "Reviewing",
-		"merge":     "Merging",
-		"deploy":    "Deploying",
-		"migrate":   "Migrating",
-		"optimize":  "Optimizing",
-		"validate":  "Validating",
-		"verify":    "Verifying",
-		"ensure":    "Ensuring",
-	}
-
-	lowerWord := strings.ToLower(firstWord)
-	if activeVerb, ok := verbMap[lowerWord]; ok {
-		if rest != "" {
-			return activeVerb + " " + rest
-		}
-		return activeVerb
-	}
-
-	// For unknown verbs, try to add "ing" suffix
-	if strings.HasSuffix(firstWord, "e") && !strings.HasSuffix(firstWord, "ee") {
-		base := firstWord[:len(firstWord)-1]
-		if rest != "" {
-			return base + "ing " + rest
-		}
-		return base + "ing"
-	} else if len(firstWord) > 2 {
-		if rest != "" {
-			return firstWord + "ing " + rest
-		}
-		return firstWord + "ing"
-	}
-
-	return trimmed
-}

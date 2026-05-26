@@ -38,7 +38,7 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 		id, _ := raw["id"].(string)
 		name, _ := raw["name"].(string)
 		input, _ := raw["input"].(map[string]interface{})
-		claudeName, claudeInput := adaptDeepSeekTool(name, input)
+		claudeName, claudeInput := mapToolName(name, input)
 		return &provider.OutputEvent{
 			Type: "assistant",
 			Message: map[string]interface{}{
@@ -103,26 +103,6 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 			Type:    eventType,
 			Message: raw,
 		}
-	}
-}
-
-func adaptDeepSeekTool(name string, input map[string]interface{}) (string, interface{}) {
-	if input == nil {
-		input = map[string]interface{}{}
-	}
-	switch name {
-	case "exec_shell":
-		cmd, _ := input["command"].(string)
-		if cmd == "" {
-			cmd, _ = input["cmd"].(string)
-		}
-		return "Bash", map[string]interface{}{"command": cmd}
-	case "read_file":
-		return "Read", map[string]interface{}{"file_path": stringVal(input, "path")}
-	case "write_file":
-		return "Write", map[string]interface{}{"file_path": stringVal(input, "path"), "content": stringVal(input, "content")}
-	default:
-		return name, input
 	}
 }
 

@@ -55,8 +55,11 @@ func main() {
 		OnStartup:                shell.startup,
 		OnDomReady:               shell.domReady,
 		OnShutdown:               shell.shutdown,
-		EnableDefaultContextMenu: false,
-		LogLevelProduction:       logger.ERROR,
+		EnableDefaultContextMenu: true,
+		Debug: options.Debug{
+			OpenInspectorOnStartup: true,
+		},
+		LogLevelProduction: logger.ERROR,
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,
 		},

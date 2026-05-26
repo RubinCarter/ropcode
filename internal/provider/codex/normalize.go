@@ -1,0 +1,977 @@
+package codex
+
+import (
+	"encoding/json"
+	"strings"
+
+	"ropcode/internal/provider"
+)
+
+func init() {
+	provider.RegisterHistoryNormalizer("codex", NormalizeHistoryEntry)
+}
+
+func NormalizeHistoryEntry(raw map[string]any) provider.OutputEvent {
+	eventType := str(raw, "type")
+
+	var msg map[string]any
+	var evType, evSubtype string
+
+	switch eventType {
+	case "response_item":
+		payload := mval(raw["payload"])
+		msg = normalizePayloadHistory(payload)
+		evType = historyEventType(raw)
+		evSubtype = historySubtype(raw)
+	case "item.completed":
+		msg = normalizeItemHistory(mval(raw["item"]))
+		evType = historyEventType(raw)
+		evSubtype = historySubtype(raw)
+	case "message.delta":
+		msg = assistantText(str(raw, "delta"))
+		evType = "assistant"
+	case "turn.completed", "thread.completed", "thread.cancelled":
+		msg = map[string]any{"type": "result", "subtype": "success"}
+		evType = "assistant"
+		evSubtype = "result"
+	case "thread.error", "error", "turn.failed":
+		msg = map[string]any{"type": "error", "message": str(raw, "message")}
+		evType = "error"
+	case "event_msg":
+		return normalizeEventMsg(raw)
+	case "session_meta":
+		evType = "system"
+		evSubtype = "init"
+		msg = raw
+	case "thread.started":
+		evType = "system"
+		evSubtype = "init"
+		msg = raw
+	default:
+		evType = historyEventType(raw)
+		evSubtype = historySubtype(raw)
+		msg = raw
+	}
+
+	return provider.OutputEvent{
+		Type:    evType,
+		Subtype: evSubtype,
+		Message: msg,
+	}
+}
+
+func normalizeEventMsg(raw map[string]any) provider.OutputEvent {
+	payload := mval(raw["payload"])
+	if payload == nil {
+		return provider.OutputEvent{Type: "system", Message: raw}
+	}
+	payloadType := str(payload, "type")
+
+	switch payloadType {
+	case "agent_message":
+		// Redundant with response_item/message — suppress to avoid duplicates
+		return provider.OutputEvent{Type: "system", Subtype: "agent_message"}
+	case "agent_reasoning":
+		// Redundant with response_item/reasoning — suppress
+		return provider.OutputEvent{Type: "system", Subtype: "agent_reasoning"}
+	case "user_message":
+		// Redundant with response_item/message(role=user) — suppress
+		return provider.OutputEvent{Type: "system", Subtype: "user_message"}
+	case "task_complete":
+		return provider.OutputEvent{
+			Type:    "assistant",
+			Subtype: "result",
+			Message: map[string]any{"type": "result", "subtype": "success"},
+		}
+	case "task_started":
+		return provider.OutputEvent{
+			Type:    "system",
+			Subtype: "turn_started",
+			Message: payload,
+		}
+	case "token_count":
+		info := mval(payload["info"])
+		return provider.OutputEvent{
+			Type:    "system",
+			Subtype: "token_usage",
+			Message: map[string]any{
+				"type":  "system",
+				"usage": normalizeTokenCount(info),
+			},
+		}
+	case "web_search_end":
+		return provider.OutputEvent{
+			Type:    "system",
+			Subtype: "web_search_end",
+			Message: payload,
+		}
+	default:
+		return provider.OutputEvent{
+			Type:    "system",
+			Subtype: payloadType,
+			Message: payload,
+		}
+	}
+}
+
+func normalizeTokenCount(info map[string]any) map[string]any {
+	if info == nil {
+		return nil
+	}
+	total := mval(info["total_token_usage"])
+	if total == nil {
+		total = mval(info["last_token_usage"])
+	}
+	if total == nil {
+		return nil
+	}
+	return map[string]any{
+		"input_tokens":            total["input_tokens"],
+		"output_tokens":           total["output_tokens"],
+		"cache_read_input_tokens": total["cached_input_tokens"],
+		"total_tokens":            total["total_tokens"],
+	}
+}
+
+// adaptToolCall maps Codex tool names/inputs to Claude equivalents.
+// This is the SINGLE SOURCE OF TRUTH for all Codex → Claude tool adaptation.
+func adaptToolCall(name string, input any) (string, interface{}) {
+	var args map[string]interface{}
+	switch v := input.(type) {
+	case map[string]interface{}:
+		args = v
+	case string:
+		if v != "" {
+			_ = json.Unmarshal([]byte(v), &args)
+		}
+	}
+	if args == nil {
+		args = map[string]interface{}{}
+	}
+	return adaptToolName(name, args)
+}
+
+func adaptToolName(toolName string, args map[string]interface{}) (string, interface{}) {
+	switch toolName {
+	case "shell", "shell_command", "exec_command":
+		command, _ := args["command"].(string)
+		if command == "" {
+			command, _ = args["cmd"].(string)
+		}
+		return adaptCommandFromString(command)
+
+	case "update_plan":
+		return "TodoWrite", adaptPlanToTodos(args)
+
+	case "apply_patch":
+		return "Edit", args
+
+	case "spawn_agent":
+		return "Agent", adaptSpawnAgentInput(args)
+
+	case "wait_agent", "close_agent", "send_input", "resume_agent":
+		return "", nil
+
+	default:
+		return toolName, args
+	}
+}
+
+// adaptPlanEvent converts a turn/plan/updated notification to a TodoWrite tool_use event.
+func adaptPlanEvent(params map[string]interface{}) *provider.OutputEvent {
+	plan, _ := params["plan"].([]interface{})
+	if len(plan) == 0 {
+		return nil
+	}
+	todos := make([]map[string]interface{}, 0, len(plan))
+	for _, item := range plan {
+		if stepMap, ok := item.(map[string]interface{}); ok {
+			step, _ := stepMap["step"].(string)
+			status, _ := stepMap["status"].(string)
+			if status == "inProgress" {
+				status = "in_progress"
+			}
+			activeForm := step
+			if status == "in_progress" {
+				activeForm = step + "..."
+			}
+			todos = append(todos, map[string]interface{}{
+				"content":    step,
+				"status":     status,
+				"activeForm": activeForm,
+			})
+		}
+	}
+	turnID, _ := params["turnId"].(string)
+	return &provider.OutputEvent{
+		Type: "assistant",
+		Message: map[string]interface{}{
+			"type": "assistant",
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []map[string]interface{}{
+					{"type": "tool_use", "id": "plan_" + turnID, "name": "TodoWrite", "input": map[string]interface{}{"todos": todos}},
+				},
+			},
+		},
+	}
+}
+
+// adaptCommandAction maps a commandExecution item to the appropriate Claude tool
+// based on commandActions[0].type (live) or command string parsing (history fallback).
+func adaptCommandAction(item map[string]interface{}, command string) (string, map[string]interface{}) {
+	actions, _ := item["commandActions"].([]interface{})
+	if len(actions) > 0 {
+		action, _ := actions[0].(map[string]interface{})
+		if action != nil {
+			return adaptCommandActionFromMeta(action, command)
+		}
+	}
+	// Fallback: parse command string to detect tool type
+	return adaptCommandFromString(command)
+}
+
+func adaptCommandActionFromMeta(action map[string]interface{}, command string) (string, map[string]interface{}) {
+	actionType, _ := action["type"].(string)
+	switch actionType {
+	case "read":
+		filePath, _ := action["path"].(string)
+		name, _ := action["name"].(string)
+		desc := "Read " + name
+		if filePath != "" {
+			return "Read", map[string]interface{}{"file_path": filePath, "description": desc}
+		}
+		return "Read", map[string]interface{}{"command": command, "description": desc}
+	case "search":
+		query, _ := action["query"].(string)
+		path, _ := action["path"].(string)
+		return "Grep", map[string]interface{}{"pattern": query, "path": path, "command": command, "description": "Search: " + query}
+	case "listFiles":
+		path, _ := action["path"].(string)
+		return "Glob", map[string]interface{}{"path": path, "command": command, "description": "List files in " + path}
+	default:
+		return "Bash", map[string]interface{}{"command": command, "description": command}
+	}
+}
+
+func adaptCommandFromString(command string) (string, map[string]interface{}) {
+	// Strip "cd ... && " prefix for analysis
+	cmd := command
+	if idx := strings.Index(cmd, " && "); idx > 0 && strings.HasPrefix(cmd, "cd ") {
+		cmd = cmd[idx+4:]
+	}
+
+	switch {
+	case strings.HasPrefix(cmd, "rg --files") || strings.HasPrefix(cmd, "rg -l"):
+		return "Glob", map[string]interface{}{"command": command, "description": cmd}
+	case strings.HasPrefix(cmd, "rg ") || strings.HasPrefix(cmd, "grep "):
+		pattern, path := parseGrepCommand(cmd)
+		if pattern == "" {
+			return "Bash", map[string]interface{}{"command": command, "description": cmd}
+		}
+		return "Grep", map[string]interface{}{"pattern": pattern, "path": path, "command": command}
+	case strings.HasPrefix(cmd, "find "):
+		pattern, path := parseFindCommand(cmd)
+		return "Glob", map[string]interface{}{"pattern": pattern, "path": path, "command": command}
+	case strings.HasPrefix(cmd, "cat "):
+		filePath := strings.TrimSpace(strings.TrimPrefix(cmd, "cat "))
+		return "Read", map[string]interface{}{"file_path": filePath}
+	case strings.HasPrefix(cmd, "sed -n "):
+		filePath := parseSedReadTarget(cmd)
+		return "Read", map[string]interface{}{"file_path": filePath, "command": command}
+	case strings.HasPrefix(cmd, "head ") || strings.HasPrefix(cmd, "tail "):
+		filePath := parseHeadTailTarget(cmd)
+		return "Read", map[string]interface{}{"file_path": filePath, "command": command}
+	case strings.HasPrefix(cmd, "ls"):
+		path := extractCdPath(command)
+		parts := strings.Fields(cmd)
+		for _, p := range parts[1:] {
+			if !strings.HasPrefix(p, "-") {
+				path = p
+				break
+			}
+		}
+		return "LS", map[string]interface{}{"path": path, "command": command}
+	default:
+		return "Bash", map[string]interface{}{"command": command, "description": cmd}
+	}
+}
+
+func parseGrepCommand(cmd string) (string, string) {
+	// Extract pattern and path from: rg [-flags] 'pattern' [path]
+	// Handle quoted patterns: rg -n "openclaw|open_claw" file.go
+	var pattern, path string
+
+	// Try to find quoted pattern first
+	for _, quote := range []byte{'"', '\''} {
+		start := strings.IndexByte(cmd, quote)
+		if start >= 0 {
+			end := strings.IndexByte(cmd[start+1:], quote)
+			if end >= 0 {
+				pattern = cmd[start+1 : start+1+end]
+				// Path is after the closing quote
+				rest := strings.TrimSpace(cmd[start+1+end+1:])
+				if rest != "" {
+					fields := strings.Fields(rest)
+					for _, f := range fields {
+						if !strings.HasPrefix(f, "-") {
+							path = f
+							break
+						}
+					}
+				}
+				return pattern, path
+			}
+		}
+	}
+
+	// Fallback: parse by fields
+	parts := strings.Fields(cmd)
+	skipNext := false
+	for i := 1; i < len(parts); i++ {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+		p := parts[i]
+		if strings.HasPrefix(p, "-") {
+			if p == "-g" || p == "-t" || p == "--type" || p == "-C" || p == "-A" || p == "-B" || p == "-e" {
+				skipNext = true
+			}
+			continue
+		}
+		if pattern == "" {
+			pattern = p
+		} else if path == "" {
+			path = p
+		}
+	}
+	return pattern, path
+}
+
+func parseFindCommand(cmd string) (string, string) {
+	// Extract from: find PATH -name "PATTERN"
+	parts := strings.Fields(cmd)
+	var path, pattern string
+	if len(parts) > 1 {
+		path = parts[1]
+	}
+	for i, p := range parts {
+		if p == "-name" && i+1 < len(parts) {
+			pattern = strings.Trim(parts[i+1], "'\"")
+			break
+		}
+	}
+	return pattern, path
+}
+
+func parseSedReadTarget(cmd string) string {
+	// Extract file from: sed -n '1,80p' FILE
+	parts := strings.Fields(cmd)
+	if len(parts) >= 3 {
+		return parts[len(parts)-1]
+	}
+	return ""
+}
+
+func parseHeadTailTarget(cmd string) string {
+	// Extract file from: head -n 10 FILE or tail FILE
+	parts := strings.Fields(cmd)
+	if len(parts) >= 2 {
+		return parts[len(parts)-1]
+	}
+	return ""
+}
+
+func extractCdPath(command string) string {
+	if !strings.HasPrefix(command, "cd ") {
+		return "."
+	}
+	idx := strings.Index(command, " && ")
+	if idx < 0 {
+		return strings.TrimSpace(command[3:])
+	}
+	return strings.TrimSpace(command[3:idx])
+}
+
+// formatDirectoryListing converts plain ls output to the "- file/" format
+// expected by the frontend LS widget.
+func formatDirectoryListing(output string) string {
+	lines := strings.Split(output, "\n")
+	var formatted []string
+	for _, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		if line == "" {
+			continue
+		}
+		formatted = append(formatted, "- "+line)
+	}
+	return strings.Join(formatted, "\n")
+}
+
+// extractAgentResult extracts the result text from a collabAgentToolCall item.
+// Used by both live (output_parser) and history paths to produce consistent tool_result content.
+func extractAgentResult(item map[string]interface{}) string {
+	// 1. Check agentsStates[threadId].message (live completed event)
+	states, _ := item["agentsStates"].(map[string]interface{})
+	for _, state := range states {
+		if s, ok := state.(map[string]interface{}); ok {
+			if msg, ok := s["message"].(string); ok && msg != "" {
+				return msg
+			}
+		}
+	}
+	// 2. Check output field
+	output, _ := item["output"].(string)
+	if output != "" {
+		return output
+	}
+	// 3. Default spawn acknowledgment (same as history's function_call_output content)
+	tool, _ := item["tool"].(string)
+	if tool == "spawnAgent" {
+		return "Full-history forked agents inherit the parent agent type, model, and reasoning effort; omit agent_type, model, and reasoning_effort, or spawn without a full-history fork."
+	}
+	return "Agent spawned"
+}
+
+func adaptSpawnAgentInput(args map[string]interface{}) map[string]interface{} {
+	prompt, _ := args["message"].(string)
+	if prompt == "" {
+		prompt, _ = args["prompt"].(string)
+	}
+	agentType, _ := args["agent_type"].(string)
+	subagentType := mapAgentType(agentType)
+	return map[string]interface{}{
+		"prompt":        prompt,
+		"subagent_type": subagentType,
+		"description":   prompt,
+	}
+}
+
+func mapAgentType(codexType string) string {
+	switch codexType {
+	case "explorer":
+		return "Explore"
+	case "worker":
+		return "general-purpose"
+	default:
+		return "general-purpose"
+	}
+}
+
+
+func parseSubagentNotification(text string) map[string]any {
+	// Extract JSON between <subagent_notification> tags
+	start := strings.Index(text, "<subagent_notification>")
+	end := strings.Index(text, "</subagent_notification>")
+	if start < 0 || end < 0 {
+		return nil
+	}
+	jsonStr := strings.TrimSpace(text[start+len("<subagent_notification>") : end])
+
+	var notification map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonStr), &notification); err != nil {
+		return nil
+	}
+
+	agentPath, _ := notification["agent_path"].(string)
+	content := ""
+	if status, ok := notification["status"].(map[string]interface{}); ok {
+		if completed, ok := status["completed"].(string); ok {
+			content = completed
+		}
+	}
+	if content == "" {
+		return nil
+	}
+
+	return map[string]any{
+		"type":               "assistant",
+		"isSidechain":        true,
+		"parent_tool_use_id": agentPath,
+		"message": map[string]any{
+			"role": "assistant",
+			"content": []interface{}{
+				map[string]any{"type": "text", "text": content},
+			},
+		},
+	}
+}
+
+// parseWaitAgentOutput detects wait_agent and spawn_agent acknowledgment outputs.
+// Returns empty string to suppress them from main conversation.
+func parseWaitAgentOutput(output string) string {
+	if output == "" {
+		return ""
+	}
+	// Try to parse as JSON
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &parsed); err == nil {
+		// wait_agent pattern: {"status":{...}, "timed_out":...}
+		_, hasStatus := parsed["status"]
+		_, hasTimedOut := parsed["timed_out"]
+		if hasStatus || hasTimedOut {
+			return ""
+		}
+		// spawn_agent JSON acknowledgment: {"agent_id":"...", "nickname":"..."}
+		// Return brief text so frontend marks spawn as completed
+		if _, hasAgentID := parsed["agent_id"]; hasAgentID {
+			nickname, _ := parsed["nickname"].(string)
+			if nickname != "" {
+				return "Agent spawned: " + nickname
+			}
+			return "Agent spawned"
+		}
+	}
+	// Strip metadata prefix from exec_command outputs
+	output = stripCommandOutputMetadata(output)
+	// Text outputs pass through
+	return output
+}
+
+// stripCommandOutputMetadata removes the "Chunk ID: ... Output:\n" prefix
+// that Codex adds to stored function_call_output content.
+func stripCommandOutputMetadata(output string) string {
+	if !strings.HasPrefix(output, "Chunk ID:") {
+		return output
+	}
+	idx := strings.Index(output, "Output:\n")
+	if idx < 0 {
+		return output
+	}
+	return output[idx+len("Output:\n"):]
+}
+
+// isStderrNoise returns true for stderr messages that should be suppressed
+// (not real errors, just Codex runtime noise).
+func isStderrNoise(message string) bool {
+	return strings.Contains(message, "Full-history forked agents") ||
+		strings.Contains(message, "write_stdin failed") ||
+		strings.Contains(message, "rerun exec_command with tty=true") ||
+		strings.Contains(message, "invalid agent id")
+}
+
+// isStderrWarning returns true for stderr messages that should be downgraded
+// from error to warning (informational, not actionable errors).
+func isStderrWarning(message string) bool {
+	return false
+}
+
+func adaptPlanToTodos(args map[string]interface{}) map[string]interface{} {
+	if tasks, ok := args["tasks"].([]interface{}); ok {
+		return convertTasksToTodos(tasks)
+	}
+	if plan, ok := args["plan"].([]interface{}); ok {
+		return convertPlanToTodos(plan)
+	}
+	return map[string]interface{}{"todos": []interface{}{}}
+}
+
+func convertTasksToTodos(tasks []interface{}) map[string]interface{} {
+	todos := make([]map[string]interface{}, 0, len(tasks))
+	for _, task := range tasks {
+		if taskMap, ok := task.(map[string]interface{}); ok {
+			description, _ := taskMap["description"].(string)
+			status, _ := taskMap["status"].(string)
+			if status == "" {
+				status = "pending"
+			}
+			todos = append(todos, map[string]interface{}{
+				"content":    description,
+				"status":     status,
+				"activeForm": generateActiveForm(description),
+			})
+		}
+	}
+	return map[string]interface{}{"todos": todos}
+}
+
+func convertPlanToTodos(plan []interface{}) map[string]interface{} {
+	todos := make([]map[string]interface{}, 0, len(plan))
+	for _, item := range plan {
+		if stepMap, ok := item.(map[string]interface{}); ok {
+			step, _ := stepMap["step"].(string)
+			status, _ := stepMap["status"].(string)
+			if status == "" {
+				status = "pending"
+			}
+			activeForm := step
+			if status == "in_progress" {
+				activeForm = step + "..."
+			}
+			todos = append(todos, map[string]interface{}{
+				"content":    step,
+				"status":     status,
+				"activeForm": activeForm,
+			})
+		}
+	}
+	return map[string]interface{}{"todos": todos}
+}
+
+func generateActiveForm(description string) string {
+	trimmed := strings.TrimSpace(description)
+	if trimmed == "" {
+		return ""
+	}
+	parts := strings.SplitN(trimmed, " ", 2)
+	firstWord := parts[0]
+	rest := ""
+	if len(parts) > 1 {
+		rest = parts[1]
+	}
+	verbMap := map[string]string{
+		"create": "Creating", "add": "Adding", "update": "Updating",
+		"fix": "Fixing", "remove": "Removing", "delete": "Deleting",
+		"implement": "Implementing", "write": "Writing", "read": "Reading",
+		"build": "Building", "test": "Testing", "run": "Running",
+		"check": "Checking", "install": "Installing", "configure": "Configuring",
+		"setup": "Setting up", "set": "Setting up", "modify": "Modifying",
+		"refactor": "Refactoring", "debug": "Debugging", "analyze": "Analyzing",
+		"review": "Reviewing", "merge": "Merging", "deploy": "Deploying",
+		"migrate": "Migrating", "optimize": "Optimizing", "validate": "Validating",
+		"verify": "Verifying", "ensure": "Ensuring",
+	}
+	lowerWord := strings.ToLower(firstWord)
+	if activeVerb, ok := verbMap[lowerWord]; ok {
+		if rest != "" {
+			return activeVerb + " " + rest
+		}
+		return activeVerb
+	}
+	if strings.HasSuffix(firstWord, "e") && !strings.HasSuffix(firstWord, "ee") {
+		base := firstWord[:len(firstWord)-1]
+		if rest != "" {
+			return base + "ing " + rest
+		}
+		return base + "ing"
+	} else if len(firstWord) > 2 {
+		if rest != "" {
+			return firstWord + "ing " + rest
+		}
+		return firstWord + "ing"
+	}
+	return trimmed
+}
+
+func extractFunctionCallArgs(item map[string]interface{}) interface{} {
+	if argsStr, ok := item["arguments"].(string); ok && argsStr != "" {
+		return argsStr
+	}
+	if argsMap, ok := item["arguments"].(map[string]interface{}); ok {
+		return argsMap
+	}
+	if _, hasPlan := item["plan"]; hasPlan {
+		return item
+	}
+	return item
+}
+
+func historyEventType(raw map[string]any) string {
+	switch str(raw, "type") {
+	case "thread.started", "session_meta":
+		return "system"
+	case "turn.completed", "thread.completed", "thread.cancelled":
+		return "assistant"
+	case "thread.error", "error", "turn.failed":
+		return "error"
+	case "message.delta":
+		return "assistant"
+	case "response_item":
+		payloadType := str(mval(raw["payload"]), "type")
+		switch payloadType {
+		case "function_call_output", "custom_tool_call_output":
+			return "user"
+		default:
+			return "assistant"
+		}
+	case "item.completed":
+		itemType := str(mval(raw["item"]), "type")
+		switch itemType {
+		case "function_call_output", "local_shell_output":
+			return "user"
+		default:
+			return "assistant"
+		}
+	default:
+		return "assistant"
+	}
+}
+
+func historySubtype(raw map[string]any) string {
+	switch str(raw, "type") {
+	case "thread.started", "session_meta":
+		return "init"
+	case "turn.completed", "thread.completed", "thread.cancelled":
+		return "result"
+	}
+	if str(raw, "type") == "response_item" {
+		return str(mval(raw["payload"]), "type")
+	}
+	return str(raw, "subtype")
+}
+
+func normalizePayloadHistory(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	switch str(payload, "type") {
+	case "message":
+		role := str(payload, "role")
+		if role == "developer" || role == "system" {
+			return nil
+		}
+		text := payloadText(payload)
+		// subagent_notification — emit as sidechain message for subagent panel
+		if role == "user" && strings.Contains(text, "<subagent_notification>") {
+			return parseSubagentNotification(text)
+		}
+		return assistantText(text)
+	case "reasoning":
+		text := payloadText(payload)
+		if text == "" {
+			for _, s := range sval(payload["summary"]) {
+				if t := str(mval(s), "text"); t != "" {
+					text = t
+					break
+				}
+			}
+		}
+		if text == "" {
+			return nil
+		}
+		return map[string]any{
+			"type": "assistant",
+			"message": map[string]any{
+				"role": "assistant",
+				"content": []interface{}{
+					map[string]any{"type": "thinking", "thinking": text},
+				},
+			},
+		}
+	case "function_call", "custom_tool_call":
+		name := str(payload, "name")
+		callID := str(payload, "call_id")
+		argsStr := str(payload, "arguments")
+		claudeName, claudeInput := adaptToolCall(name, argsStr)
+		if claudeName == "" {
+			return nil
+		}
+		return toolUse(callID, claudeName, claudeInput)
+	case "function_call_output", "custom_tool_call_output":
+		output := str(payload, "output")
+		callID := str(payload, "call_id")
+		parsed := parseWaitAgentOutput(output)
+		if parsed == "" {
+			return nil
+		}
+		return toolResult(callID, parsed)
+	case "web_search_call":
+		action := mval(payload["action"])
+		queries := sval(nil)
+		if action != nil {
+			queries = sval(action["queries"])
+		}
+		query := ""
+		if len(queries) > 0 {
+			query, _ = queries[0].(string)
+		}
+		id := str(payload, "id")
+		if id == "" {
+			id = "ws_" + str(payload, "call_id")
+		}
+		return toolUse(id, "WebSearch", map[string]any{"query": query, "queries": queries})
+	case "tool_search_call", "tool_search_output":
+		return nil
+	default:
+		return nil
+	}
+}
+
+func normalizeItemHistory(item map[string]any) map[string]any {
+	if item == nil {
+		return nil
+	}
+	switch str(item, "type") {
+	case "agent_message", "message":
+		return assistantText(str(item, "text"))
+	case "command_execution", "function_call", "local_shell_exec":
+		name := str(item, "name")
+		if name == "" {
+			name = str(item, "command")
+		}
+		if name == "" {
+			name = "Bash"
+		}
+		id := str(item, "id")
+		argsStr := str(item, "arguments")
+		var args interface{} = argsStr
+		if argsStr == "" {
+			args = item
+		}
+		claudeName, claudeInput := adaptToolCall(name, args)
+		if claudeName == "" {
+			return nil
+		}
+		return toolUse(id, claudeName, claudeInput)
+	case "function_call_output", "local_shell_output":
+		return toolResult(str(item, "id"), str(item, "output"))
+	default:
+		return nil
+	}
+}
+
+func payloadText(payload map[string]any) string {
+	if text := str(payload, "text"); text != "" {
+		return text
+	}
+	for _, item := range sval(payload["content"]) {
+		if text := str(mval(item), "text"); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func assistantText(text string) map[string]any {
+	return map[string]any{
+		"type": "assistant",
+		"message": map[string]any{
+			"role": "assistant",
+			"content": []interface{}{map[string]any{"type": "text", "text": text}},
+		},
+	}
+}
+
+func toolUse(id, name string, input any) map[string]any {
+	return map[string]any{
+		"type": "assistant",
+		"message": map[string]any{
+			"role": "assistant",
+			"content": []interface{}{map[string]any{"type": "tool_use", "id": id, "name": name, "input": input}},
+		},
+	}
+}
+
+func toolResult(toolUseID, content string) map[string]any {
+	return map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []interface{}{map[string]any{"type": "tool_result", "tool_use_id": toolUseID, "content": content}},
+		},
+	}
+}
+
+// --- OutputEvent constructors (used by output_parser.go) ---
+
+func eventAssistantText(text string) *provider.OutputEvent {
+	return &provider.OutputEvent{
+		Type:    "assistant",
+		Message: assistantText(text),
+	}
+}
+
+func eventAssistantDelta(text string) *provider.OutputEvent {
+	return &provider.OutputEvent{
+		Type:    "assistant",
+		IsDelta: true,
+		Message: map[string]interface{}{
+			"type": "assistant",
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []map[string]interface{}{
+					{"type": "text", "text": text},
+				},
+			},
+		},
+	}
+}
+
+func eventThinking(text string) *provider.OutputEvent {
+	return &provider.OutputEvent{
+		Type: "assistant",
+		Message: map[string]interface{}{
+			"type": "assistant",
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []map[string]interface{}{
+					{"type": "thinking", "thinking": text},
+				},
+			},
+		},
+	}
+}
+
+func eventToolUse(id, name string, input interface{}) *provider.OutputEvent {
+	return &provider.OutputEvent{
+		Type: "assistant",
+		Message: map[string]interface{}{
+			"type": "assistant",
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []map[string]interface{}{
+					{"type": "tool_use", "id": id, "name": name, "input": input},
+				},
+			},
+		},
+	}
+}
+
+func eventToolResult(toolUseID, content string, isError bool) *provider.OutputEvent {
+	return &provider.OutputEvent{
+		Type: "user",
+		Message: map[string]interface{}{
+			"type": "user",
+			"message": map[string]interface{}{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{"type": "tool_result", "tool_use_id": toolUseID, "content": content, "is_error": isError},
+				},
+			},
+		},
+	}
+}
+
+func eventResult() *provider.OutputEvent {
+	return &provider.OutputEvent{
+		Type:    "assistant",
+		Subtype: "result",
+		Message: map[string]interface{}{
+			"type":    "result",
+			"subtype": "success",
+		},
+	}
+}
+
+func eventError(message string) *provider.OutputEvent {
+	return &provider.OutputEvent{
+		Type: "error",
+		Message: map[string]interface{}{
+			"type":    "error",
+			"message": message,
+		},
+	}
+}
+
+func str(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, _ := m[key].(string)
+	return v
+}
+
+func mval(v any) map[string]any {
+	if m, ok := v.(map[string]any); ok {
+		return m
+	}
+	return nil
+}
+
+func sval(v any) []any {
+	if s, ok := v.([]any); ok {
+		return s
+	}
+	return nil
+}

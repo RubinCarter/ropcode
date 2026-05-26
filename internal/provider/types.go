@@ -66,18 +66,19 @@ const (
 // Message is the shared history message format used by all providers.
 // Each provider's history reader converts its native format into this type.
 type Message struct {
-	ParentUUID  *string                `json:"parentUuid"`
-	IsSidechain bool                   `json:"isSidechain"`
-	UserType    string                 `json:"userType,omitempty"`
-	Cwd         string                 `json:"cwd,omitempty"`
-	SessionID   string                 `json:"sessionId,omitempty"`
-	Version     string                 `json:"version,omitempty"`
-	GitBranch   string                 `json:"gitBranch,omitempty"`
-	AgentID     string                 `json:"agentId,omitempty"`
-	Message     map[string]interface{} `json:"message,omitempty"`
-	Type        string                 `json:"type"`
-	UUID        string                 `json:"uuid"`
-	Timestamp   string                 `json:"timestamp"`
+	ParentUUID      *string                `json:"parentUuid"`
+	IsSidechain     bool                   `json:"isSidechain"`
+	ParentToolUseID string                 `json:"parent_tool_use_id,omitempty"`
+	UserType        string                 `json:"userType,omitempty"`
+	Cwd             string                 `json:"cwd,omitempty"`
+	SessionID       string                 `json:"sessionId,omitempty"`
+	Version         string                 `json:"version,omitempty"`
+	GitBranch       string                 `json:"gitBranch,omitempty"`
+	AgentID         string                 `json:"agentId,omitempty"`
+	Message         map[string]interface{} `json:"message,omitempty"`
+	Type            string                 `json:"type"`
+	UUID            string                 `json:"uuid"`
+	Timestamp       string                 `json:"timestamp"`
 }
 
 // MessageIndex is the line number index of messages in a JSONL file.

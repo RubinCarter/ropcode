@@ -158,7 +158,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   });
 
   const refreshSubagentTranscripts = useCallback(async (sessionId?: string | null, projectId?: string | null) => {
-    if (!sessionId || !projectId || defaultProvider !== 'claude') {
+    if (!sessionId || !projectId) {
       messagesState.setSubagentTranscripts({});
       return;
     }
@@ -169,7 +169,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     } catch (err) {
       console.warn('[AiCodeSession] Failed to load subagent transcripts:', err);
     }
-  }, [defaultProvider, messagesState.setSubagentTranscripts]);
+  }, [messagesState.setSubagentTranscripts]);
 
   const refreshCurrentSubagentTranscripts = useCallback(async (sessionIdOverride?: string | null) => {
     messagesState.flushPendingMessages();

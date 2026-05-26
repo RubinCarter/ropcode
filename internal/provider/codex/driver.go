@@ -311,15 +311,7 @@ func (d *Driver) LoadHistoryEvents(projectID, sessionID string) ([]provider.Outp
 	if err != nil {
 		return nil, err
 	}
-	entries, err := ReadAllHistoryEntries(dir, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	events := make([]provider.OutputEvent, 0, len(entries))
-	for _, raw := range entries {
-		events = append(events, NormalizeHistoryEntry(raw))
-	}
-	return events, nil
+	return LoadHistoryEvents(dir, sessionID)
 }
 
 func (d *Driver) ListProjectSessions(projectPath string) ([]provider.HistorySessionInfo, error) {
@@ -426,7 +418,11 @@ func readMessagesRange(filePath string, start, end int) ([]provider.Message, err
 }
 
 func (d *Driver) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]provider.Message, error) {
-	return map[string][]provider.Message{}, nil
+	dir, err := CodexDir()
+	if err != nil {
+		return nil, err
+	}
+	return LoadSubagentTranscripts(dir, sessionID)
 }
 
 func nextRequestID() int {

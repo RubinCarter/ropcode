@@ -98,7 +98,7 @@ func (d *Driver) parseToolUse(raw map[string]interface{}) *provider.OutputEvent 
 		args, _ = raw["input"].(map[string]interface{})
 	}
 
-	claudeName, claudeInput := adaptGeminiTool(name, args)
+	claudeName, claudeInput := adaptGeminiToolCall(name, args)
 
 	return &provider.OutputEvent{
 		Type: "assistant",
@@ -134,33 +134,6 @@ func (d *Driver) parseToolResult(raw map[string]interface{}) *provider.OutputEve
 				},
 			},
 		},
-	}
-}
-
-func adaptGeminiTool(name string, params map[string]interface{}) (string, interface{}) {
-	if params == nil {
-		params = map[string]interface{}{}
-	}
-	switch name {
-	case "run_shell_command":
-		return "Bash", map[string]interface{}{"command": stringVal(params, "command")}
-	case "read_file":
-		input := map[string]interface{}{"file_path": stringVal(params, "file_path")}
-		if v, ok := params["offset"]; ok {
-			input["offset"] = v
-		}
-		if v, ok := params["limit"]; ok {
-			input["limit"] = v
-		}
-		return "Read", input
-	case "write_file":
-		return "Write", map[string]interface{}{"file_path": stringVal(params, "file_path"), "content": stringVal(params, "content")}
-	case "replace":
-		return "Edit", params
-	case "google_web_search":
-		return "WebSearch", map[string]interface{}{"query": stringVal(params, "query")}
-	default:
-		return name, params
 	}
 }
 

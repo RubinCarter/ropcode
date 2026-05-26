@@ -35,35 +35,17 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 			Subtype: "turn_started",
 			Message: params,
 		}
+	case "turn/plan/updated":
+		return adaptPlanEvent(params)
 	case "turn/completed":
-		return &provider.OutputEvent{
-			Type:    "assistant",
-			Subtype: "result",
-			Message: map[string]interface{}{
-				"type":    "result",
-				"subtype": "success",
-			},
-		}
+		return eventResult()
 	case "item/started":
 		return d.parseItemEvent(params, "started")
 	case "item/completed":
 		return d.parseItemEvent(params, "completed")
 	case "item/agentMessage/delta":
 		delta, _ := params["delta"].(string)
-		return &provider.OutputEvent{
-			Type:    "assistant",
-			Subtype: "delta",
-			IsDelta: true,
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "text", "text": delta},
-					},
-				},
-			},
-		}
+		return eventAssistantDelta(delta)
 	case "thread/started":
 		return &provider.OutputEvent{
 			Type:    "system",
@@ -180,18 +162,7 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 		}
 	case "agentMessage":
 		text, _ := item["text"].(string)
-		return &provider.OutputEvent{
-			Type: "assistant",
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "text", "text": text},
-					},
-				},
-			},
-		}
+		return eventAssistantText(text)
 	case "reasoning":
 		text := codexReasoningText(item)
 		if text == "" {
@@ -201,18 +172,7 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 				Message: params,
 			}
 		}
-		return &provider.OutputEvent{
-			Type: "assistant",
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "thinking", "thinking": text},
-					},
-				},
-			},
-		}
+		return eventThinking(text)
 	case "commandExecution":
 		return d.parseCommandExecution(item, params)
 	case "functionCall", "localShellExec":
@@ -221,36 +181,34 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 			name, _ = item["command"].(string)
 		}
 		id, _ := item["id"].(string)
-		return &provider.OutputEvent{
-			Type: "assistant",
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "tool_use", "id": id, "name": name, "input": item},
-					},
-				},
-			},
+		args := extractFunctionCallArgs(item)
+		claudeName, claudeInput := adaptToolCall(name, args)
+		if claudeName == "" {
+			return nil
 		}
+		return eventToolUse(id, claudeName, claudeInput)
 	case "functionCallOutput", "localShellOutput":
 		output, _ := item["output"].(string)
 		callID, _ := item["call_id"].(string)
 		if callID == "" {
 			callID, _ = item["id"].(string)
 		}
-		return &provider.OutputEvent{
-			Type: "user",
-			Message: map[string]interface{}{
-				"type": "user",
-				"message": map[string]interface{}{
-					"role": "user",
-					"content": []map[string]interface{}{
-						{"type": "tool_result", "tool_use_id": callID, "content": output},
-					},
-				},
-			},
+		return eventToolResult(callID, output, false)
+	case "collab_tool_call":
+		output, _ := item["output"].(string)
+		callID, _ := item["call_id"].(string)
+		if callID == "" {
+			callID, _ = item["id"].(string)
 		}
+		return eventToolResult(callID, output, false)
+	case "collabAgentToolCall":
+		id, _ := item["id"].(string)
+		output := extractCollabAgentOutput(item)
+		return eventToolResult(id, output, false)
+	case "webSearch":
+		id, _ := item["id"].(string)
+		query, _ := item["query"].(string)
+		return eventToolResult(id, query, false)
 	default:
 		return &provider.OutputEvent{
 			Type:    "system",
@@ -264,6 +222,7 @@ func (d *Driver) parseItemStarted(item map[string]interface{}, itemType string, 
 	if itemType == "commandExecution" {
 		id, _ := item["id"].(string)
 		command := extractShellCommand(item)
+		toolName, toolInput := adaptCommandAction(item, command)
 		return &provider.OutputEvent{
 			Type: "assistant",
 			Message: map[string]interface{}{
@@ -271,10 +230,51 @@ func (d *Driver) parseItemStarted(item map[string]interface{}, itemType string, 
 				"message": map[string]interface{}{
 					"role": "assistant",
 					"content": []map[string]interface{}{
-						{"type": "tool_use", "id": id, "name": "Bash", "input": map[string]interface{}{"command": command}},
+						{"type": "tool_use", "id": id, "name": toolName, "input": toolInput},
 					},
 				},
 			},
+		}
+	}
+	if itemType == "webSearch" {
+		id, _ := item["id"].(string)
+		query, _ := item["query"].(string)
+		return &provider.OutputEvent{
+			Type: "assistant",
+			Message: map[string]interface{}{
+				"type": "assistant",
+				"message": map[string]interface{}{
+					"role": "assistant",
+					"content": []map[string]interface{}{
+						{"type": "tool_use", "id": id, "name": "WebSearch", "input": map[string]interface{}{"query": query}},
+					},
+				},
+			},
+		}
+	}
+	if itemType == "functionCall" || itemType == "collabAgentToolCall" {
+		id, _ := item["id"].(string)
+		name, _ := item["name"].(string)
+		if itemType == "collabAgentToolCall" {
+			tool, _ := item["tool"].(string)
+			prompt, _ := item["prompt"].(string)
+			switch tool {
+			case "spawnAgent":
+				return eventToolUse(id, "Agent", map[string]interface{}{
+					"prompt":        prompt,
+					"subagent_type": mapAgentType(""),
+					"description":   prompt,
+				})
+			default:
+				return nil
+			}
+		} else {
+			args := extractFunctionCallArgs(item)
+			claudeName, claudeInput := adaptToolCall(name, args)
+			if claudeName == "" {
+				return nil
+			}
+			return eventToolUse(id, claudeName, claudeInput)
 		}
 	}
 	return &provider.OutputEvent{
@@ -289,19 +289,7 @@ func (d *Driver) parseCommandExecution(item map[string]interface{}, params map[s
 	output, _ := item["aggregatedOutput"].(string)
 	exitCode, _ := item["exitCode"].(float64)
 	isError := int(exitCode) != 0
-
-	return &provider.OutputEvent{
-		Type: "user",
-		Message: map[string]interface{}{
-			"type": "user",
-			"message": map[string]interface{}{
-				"role": "user",
-				"content": []map[string]interface{}{
-					{"type": "tool_result", "tool_use_id": id, "content": output, "is_error": isError},
-				},
-			},
-		},
-	}
+	return eventToolResult(id, output, isError)
 }
 
 func extractShellCommand(item map[string]interface{}) string {
@@ -316,6 +304,21 @@ func extractShellCommand(item map[string]interface{}) string {
 	}
 	return command
 }
+
+func extractBatchCommand(item map[string]interface{}) string {
+	command, _ := item["command"].(string)
+	// Batch format wraps commands in "/bin/zsh -lc '...'"
+	const prefix = "/bin/zsh -lc '"
+	if strings.HasPrefix(command, prefix) && strings.HasSuffix(command, "'") {
+		return command[len(prefix) : len(command)-1]
+	}
+	return command
+}
+
+func extractCollabAgentOutput(item map[string]interface{}) string {
+	return extractAgentResult(item)
+}
+
 
 func codexReasoningText(item map[string]interface{}) string {
 	if text, ok := item["text"].(string); ok && text != "" {
@@ -393,55 +396,52 @@ func (d *Driver) parseBatchEvent(raw map[string]interface{}) *provider.OutputEve
 			Subtype: "init",
 			Message: raw,
 		}
+	case "turn.started":
+		return &provider.OutputEvent{
+			Type:    "system",
+			Subtype: "turn_started",
+			Message: raw,
+		}
+	case "item.started":
+		return d.parseBatchItemStarted(raw)
 	case "response_item":
 		return d.parseBatchResponseItem(raw)
 	case "item.completed":
 		return d.parseBatchItemCompleted(raw)
 	case "turn.completed":
-		return &provider.OutputEvent{
-			Type:    "assistant",
-			Subtype: "result",
-			Message: map[string]interface{}{
-				"type":    "result",
-				"subtype": "success",
-			},
-		}
+		return eventResult()
 	case "thread.completed", "thread.cancelled":
-		return &provider.OutputEvent{
-			Type:    "assistant",
-			Subtype: "result",
-			Message: map[string]interface{}{
-				"type":    "result",
-				"subtype": "success",
-			},
-		}
+		return eventResult()
 	case "thread.error", "error", "turn.failed":
 		msg, _ := raw["message"].(string)
-		return &provider.OutputEvent{
-			Type: "error",
-			Message: map[string]interface{}{
-				"type":    "error",
-				"message": msg,
-			},
-		}
+		return eventError(msg)
 	case "message.delta":
 		delta, _ := raw["delta"].(string)
-		return &provider.OutputEvent{
-			Type:    "assistant",
-			IsDelta: true,
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "text", "text": delta},
-					},
-				},
-			},
-		}
+		return eventAssistantDelta(delta)
 	default:
 		return &provider.OutputEvent{
 			Type:    eventType,
+			Message: raw,
+		}
+	}
+}
+
+func (d *Driver) parseBatchItemStarted(raw map[string]interface{}) *provider.OutputEvent {
+	item, _ := raw["item"].(map[string]interface{})
+	if item == nil {
+		return &provider.OutputEvent{Type: "system", Subtype: "item_started", Message: raw}
+	}
+	itemType, _ := item["type"].(string)
+	switch itemType {
+	case "command_execution":
+		id, _ := item["id"].(string)
+		command := extractBatchCommand(item)
+		toolName, toolInput := adaptCommandAction(item, command)
+		return eventToolUse(id, toolName, toolInput)
+	default:
+		return &provider.OutputEvent{
+			Type:    "system",
+			Subtype: itemType + "_started",
 			Message: raw,
 		}
 	}
@@ -454,51 +454,30 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 	}
 	itemType, _ := item["type"].(string)
 	switch itemType {
+	case "command_execution":
+		id, _ := item["id"].(string)
+		output, _ := item["aggregated_output"].(string)
+		exitCode, _ := item["exit_code"].(float64)
+		isError := int(exitCode) != 0
+		return eventToolResult(id, output, isError)
 	case "agent_message", "message":
 		text, _ := item["text"].(string)
-		return &provider.OutputEvent{
-			Type: "assistant",
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "text", "text": text},
-					},
-				},
-			},
-		}
+		return eventAssistantText(text)
 	case "function_call", "local_shell_exec":
 		name, _ := item["name"].(string)
 		if name == "" {
 			name, _ = item["command"].(string)
 		}
-		return &provider.OutputEvent{
-			Type: "assistant",
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "tool_use", "name": name, "input": item},
-					},
-				},
-			},
+		id, _ := item["id"].(string)
+		args := extractFunctionCallArgs(item)
+		claudeName, claudeInput := adaptToolCall(name, args)
+		if claudeName == "" {
+			return nil
 		}
+		return eventToolUse(id, claudeName, claudeInput)
 	case "function_call_output", "local_shell_output":
 		output, _ := item["output"].(string)
-		return &provider.OutputEvent{
-			Type: "user",
-			Message: map[string]interface{}{
-				"type": "user",
-				"message": map[string]interface{}{
-					"role": "user",
-					"content": []map[string]interface{}{
-						{"type": "tool_result", "content": output},
-					},
-				},
-			},
-		}
+		return eventToolResult("", output, false)
 	default:
 		return &provider.OutputEvent{Type: "assistant", Message: raw}
 	}
@@ -513,46 +492,13 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 	switch payloadType {
 	case "message":
 		text := extractTextFromPayload(payload)
-		return &provider.OutputEvent{
-			Type: "assistant",
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "text", "text": text},
-					},
-				},
-			},
-		}
+		return eventAssistantText(text)
 	case "function_call", "custom_tool_call":
 		name, _ := payload["name"].(string)
-		return &provider.OutputEvent{
-			Type: "assistant",
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "tool_use", "name": name, "input": payload},
-					},
-				},
-			},
-		}
+		return eventToolUse("", name, payload)
 	case "function_call_output":
 		output, _ := payload["output"].(string)
-		return &provider.OutputEvent{
-			Type: "user",
-			Message: map[string]interface{}{
-				"type": "user",
-				"message": map[string]interface{}{
-					"role": "user",
-					"content": []map[string]interface{}{
-						{"type": "tool_result", "content": output},
-					},
-				},
-			},
-		}
+		return eventToolResult("", output, false)
 	default:
 		return &provider.OutputEvent{Type: "assistant", Subtype: payloadType, Message: raw}
 	}
@@ -579,8 +525,14 @@ func (d *Driver) ParseStderr(line []byte) *provider.StderrEvent {
 	if message == "Reading additional input from stdin..." {
 		return nil
 	}
+	if isStderrNoise(message) {
+		return nil
+	}
 	level := "error"
-	if strings.Contains(message, " WARN ") || strings.Contains(message, "\tWARN ") {
+	if isStderrWarning(message) ||
+		strings.Contains(message, " WARN ") ||
+		strings.Contains(message, "\tWARN\t") ||
+		strings.Contains(message, "\tWARN ") {
 		level = "warning"
 	}
 	return &provider.StderrEvent{

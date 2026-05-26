@@ -199,13 +199,13 @@ func geminiSessionMessageToClaudeHistory(msgMap map[string]interface{}, projectI
 
 				toolID, _ := toolCall["id"].(string)
 				toolName, _ := toolCall["name"].(string)
-				args := toolCall["args"]
-				if args == nil {
-					args = map[string]interface{}{}
+				argsMap, _ := toolCall["args"].(map[string]interface{})
+				if argsMap == nil {
+					argsMap = map[string]interface{}{}
 				}
 
 				// Map Gemini tool name to Claude standard tool name
-				claudeName, claudeInput := adaptGeminiToolToClaude(toolName, args)
+				claudeName, claudeInput := adaptGeminiToolCall(toolName, argsMap)
 
 				// Add tool_use message
 				toolUseMsg := provider.Message{
@@ -298,150 +298,4 @@ func extractUserMessageFromText(text string) string {
 
 	// No markers found, return original text
 	return text
-}
-
-// adaptGeminiToolToClaude maps Gemini tool names and parameters to Claude format
-func adaptGeminiToolToClaude(toolName string, parameters interface{}) (string, interface{}) {
-	params, _ := parameters.(map[string]interface{})
-	if params == nil {
-		params = map[string]interface{}{}
-	}
-
-	switch toolName {
-	case "run_shell_command":
-		command, _ := params["command"].(string)
-		return "Bash", map[string]interface{}{"command": command}
-
-	case "read_file":
-		filePath, _ := params["file_path"].(string)
-		input := map[string]interface{}{"file_path": filePath}
-		if offset, ok := params["offset"].(float64); ok {
-			input["offset"] = int(offset)
-		}
-		if limit, ok := params["limit"].(float64); ok {
-			input["limit"] = int(limit)
-		}
-		return "Read", input
-
-	case "write_file":
-		filePath, _ := params["file_path"].(string)
-		content, _ := params["content"].(string)
-		return "Write", map[string]interface{}{"file_path": filePath, "content": content}
-
-	case "replace":
-		return "Edit", params
-
-	case "google_web_search":
-		query, _ := params["query"].(string)
-		return "WebSearch", map[string]interface{}{"query": query}
-
-	case "write_todos":
-		// Convert Gemini todo format to Claude TodoWrite format
-		if todos, ok := params["todos"].([]interface{}); ok {
-			convertedTodos := make([]map[string]interface{}, 0, len(todos))
-			for _, todo := range todos {
-				if todoMap, ok := todo.(map[string]interface{}); ok {
-					description, _ := todoMap["description"].(string)
-					status, _ := todoMap["status"].(string)
-					if status == "" {
-						status = "pending"
-					}
-					activeForm := generateActiveForm(description)
-					convertedTodos = append(convertedTodos, map[string]interface{}{
-						"content":    description,
-						"status":     status,
-						"activeForm": activeForm,
-					})
-				}
-			}
-			return "TodoWrite", map[string]interface{}{"todos": convertedTodos}
-		}
-		return "TodoWrite", params
-
-	case "list_directory":
-		return "LS", params
-
-	case "glob", "find_files":
-		return "Glob", params
-
-	case "grep", "search":
-		return "Grep", params
-
-	default:
-		return toolName, params
-	}
-}
-
-// generateActiveForm generates activeForm from a task description
-// Converts imperative form to present continuous (e.g., "Create file" -> "Creating file")
-func generateActiveForm(description string) string {
-	trimmed := strings.TrimSpace(description)
-	if trimmed == "" {
-		return ""
-	}
-
-	// Find the first word (verb) and try to convert to present continuous
-	parts := strings.SplitN(trimmed, " ", 2)
-	firstWord := parts[0]
-	rest := ""
-	if len(parts) > 1 {
-		rest = parts[1]
-	}
-
-	// Common verb conversions
-	verbMap := map[string]string{
-		"create":    "Creating",
-		"add":       "Adding",
-		"update":    "Updating",
-		"fix":       "Fixing",
-		"remove":    "Removing",
-		"delete":    "Deleting",
-		"implement": "Implementing",
-		"write":     "Writing",
-		"read":      "Reading",
-		"build":     "Building",
-		"test":      "Testing",
-		"run":       "Running",
-		"check":     "Checking",
-		"install":   "Installing",
-		"configure": "Configuring",
-		"setup":     "Setting up",
-		"set":       "Setting up",
-		"modify":    "Modifying",
-		"refactor":  "Refactoring",
-		"debug":     "Debugging",
-		"analyze":   "Analyzing",
-		"review":    "Reviewing",
-		"merge":     "Merging",
-		"deploy":    "Deploying",
-		"migrate":   "Migrating",
-		"optimize":  "Optimizing",
-		"validate":  "Validating",
-		"verify":    "Verifying",
-		"ensure":    "Ensuring",
-	}
-
-	lowerWord := strings.ToLower(firstWord)
-	if activeVerb, ok := verbMap[lowerWord]; ok {
-		if rest != "" {
-			return activeVerb + " " + rest
-		}
-		return activeVerb
-	}
-
-	// For unknown verbs, try to add "ing" suffix
-	if strings.HasSuffix(firstWord, "e") && !strings.HasSuffix(firstWord, "ee") {
-		base := firstWord[:len(firstWord)-1]
-		if rest != "" {
-			return base + "ing " + rest
-		}
-		return base + "ing"
-	} else if len(firstWord) > 2 {
-		if rest != "" {
-			return firstWord + "ing " + rest
-		}
-		return firstWord + "ing"
-	}
-
-	return trimmed
 }
