@@ -58,6 +58,7 @@ const PROVIDERS = [
   { id: "codex", name: "Codex (OpenAI)" },
   { id: "gemini", name: "Gemini" },
   { id: "deepseek", name: "DeepSeek" },
+  { id: "pi", name: "Pi" },
 ];
 
 export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {

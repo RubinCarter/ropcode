@@ -360,6 +360,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
                 <option value="openai">OpenAI</option>
                 <option value="gemini">Gemini</option>
                 <option value="deepseek">DeepSeek</option>
+                <option value="pi">Pi</option>
               </select>
               {!editDialog.isNew && (
                 <p className="text-xs text-muted-foreground">
