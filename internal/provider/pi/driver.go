@@ -199,3 +199,61 @@ func splitModel(model string) (string, string) {
 	}
 	return "", model
 }
+
+// --- HistoryProvider implementation ---
+
+func (d *Driver) LoadSessionHistory(projectID, sessionID string) ([]provider.Message, error) {
+	dir, err := PiDir()
+	if err != nil {
+		return nil, err
+	}
+	return LoadSessionHistory(dir, projectID, sessionID)
+}
+
+func (d *Driver) LoadHistoryEvents(projectID, sessionID string) ([]provider.OutputEvent, error) {
+	dir, err := PiDir()
+	if err != nil {
+		return nil, err
+	}
+	return LoadHistoryEvents(dir, sessionID)
+}
+
+func (d *Driver) ListProjectSessions(projectPath string) ([]provider.HistorySessionInfo, error) {
+	dir, err := PiDir()
+	if err != nil {
+		return nil, err
+	}
+	return ListProjectSessions(dir, projectPath)
+}
+
+func (d *Driver) ListProjectSessionsLimit(projectPath string, limit int) (provider.HistorySessionsResult, error) {
+	dir, err := PiDir()
+	if err != nil {
+		return provider.HistorySessionsResult{}, err
+	}
+	return ListProjectSessionsLimit(dir, projectPath, limit)
+}
+
+func (d *Driver) GetMessageIndex(projectID, sessionID string) ([]int, error) {
+	dir, err := PiDir()
+	if err != nil {
+		return nil, err
+	}
+	return GetMessageIndex(dir, projectID, sessionID)
+}
+
+func (d *Driver) GetMessagesRange(projectID, sessionID string, start, end int) ([]provider.Message, error) {
+	dir, err := PiDir()
+	if err != nil {
+		return nil, err
+	}
+	return GetMessagesRange(dir, projectID, sessionID, start, end)
+}
+
+func (d *Driver) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]provider.Message, error) {
+	dir, err := PiDir()
+	if err != nil {
+		return nil, err
+	}
+	return LoadSubagentTranscripts(dir, sessionID)
+}
