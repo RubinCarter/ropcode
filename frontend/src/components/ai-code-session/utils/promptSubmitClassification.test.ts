@@ -70,7 +70,7 @@ test('session prompt actions send Pi follow-ups to the existing provider runtime
   const source = await readSessionPromptActionsSource();
 
   assert.match(source, /activeProvider === 'pi'/);
-  assert.match(source, /api\.SendProviderSessionMessage\(activeProvider, sessionState\.projectPath, currentInteractiveSessionId, wrappedPrompt\)/);
+  assert.match(source, /api\.sendProviderSessionMessage\(activeProvider, sessionState\.projectPath, currentInteractiveSessionId, wrappedPrompt\)/);
 });
 
 test('FloatingPromptInput only clears drafts when the session consumes the prompt', async () => {
