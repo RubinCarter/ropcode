@@ -79,6 +79,8 @@ test('ProjectList renders provider icons instead of provider text labels in sess
   assert.match(source, /getProviderIcon/);
   assert.match(source, /DeepSeekIcon/);
   assert.match(source, /provider === 'deepseek'\) return DeepSeekIcon/);
+  assert.match(source, /PiIcon/);
+  assert.match(source, /provider === 'pi'\) return PiIcon/);
   assert.doesNotMatch(source, /<span className="flex-shrink-0 font-medium">\{getProviderLabel\(session\.provider\)\}<\/span>/);
 });
 
