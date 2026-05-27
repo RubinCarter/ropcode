@@ -2,6 +2,8 @@ package eventhub
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -126,4 +128,34 @@ func (h *EventHub) EmitClaudeComplete(sessionID string, result interface{}) {
 // 文件拖放事件
 func (h *EventHub) EmitFileDrop(paths []string) {
 	h.emit("file-drop", paths)
+}
+
+func debugEventPayload(payload interface{}) string {
+	switch event := payload.(type) {
+	case ProcessChangedEvent:
+		return "process cwd=" + event.Cwd + " state=" + event.State
+	case SessionChangedEvent:
+		return "session id=" + event.ID + " cwd=" + event.Cwd + " state=" + event.State + " provider=" + event.Provider
+	case GitChangedEvent:
+		return "git path=" + event.Path + " branch=" + event.Branch
+	case ProjectChangedEvent:
+		return "project path=" + event.ProjectPath + " reason=" + event.Reason
+	case map[string]interface{}:
+		return "map session_id=" + debugEventString(event, "session_id") + " type=" + debugEventString(event, "type") + " subtype=" + debugEventString(event, "subtype")
+	case string:
+		if len(event) > 240 {
+			event = event[:240] + "...(truncated)"
+		}
+		return "string len=" + strconv.Itoa(len(event)) + " preview=" + event
+	default:
+		return fmt.Sprintf("type=%T", payload)
+	}
+}
+
+func debugEventString(values map[string]interface{}, key string) string {
+	if values == nil {
+		return ""
+	}
+	value, _ := values[key].(string)
+	return value
 }

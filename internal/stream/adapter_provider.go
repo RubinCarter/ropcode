@@ -2,6 +2,7 @@ package stream
 
 import (
 	"errors"
+	"log"
 	"sync"
 
 	"ropcode/internal/provider"
@@ -18,18 +19,31 @@ type ProviderOutputContext struct {
 }
 
 type ProviderBridge struct {
-	hub *Hub
-	mu  sync.Mutex
-	seq map[string]int64
+	hub                     *Hub
+	mu                      sync.Mutex
+	seq                     map[string]int64
+	taskNotificationReplies map[string]string
 }
 
 func NewProviderBridge(hub *Hub) *ProviderBridge {
-	return &ProviderBridge{hub: hub, seq: make(map[string]int64)}
+	return &ProviderBridge{
+		hub:                     hub,
+		seq:                     make(map[string]int64),
+		taskNotificationReplies: make(map[string]string),
+	}
 }
 
 func (b *ProviderBridge) EmitProviderOutput(ctx ProviderOutputContext, event provider.OutputEvent) error {
 	frame, err := b.FrameFromProviderOutput(ctx, event)
 	if err != nil {
+		log.Printf("[stream] provider output frame conversion failed provider=%s runtime=%s provider_session=%s event_type=%s subtype=%s err=%v",
+			ctx.Provider,
+			ctx.RuntimeSessionID,
+			ctx.ProviderSessionID,
+			event.Type,
+			event.Subtype,
+			err,
+		)
 		return err
 	}
 	return b.hub.Append(frame)
@@ -44,7 +58,12 @@ func (b *ProviderBridge) FrameFromProviderOutput(ctx ProviderOutputContext, even
 
 	streamID := StreamIDForSession(providerID, runtimeSessionID)
 	seq := b.nextSeq(streamID)
-	return AdaptUnifiedOutput(ctx, event, seq)
+	frame, err := AdaptUnifiedOutput(ctx, event, seq)
+	if err != nil {
+		return SessionFrame{}, err
+	}
+	b.applyTaskNotificationReplyScope(streamID, event, &frame)
+	return frame, nil
 }
 
 func (b *ProviderBridge) nextSeq(streamID string) int64 {
@@ -55,9 +74,48 @@ func (b *ProviderBridge) nextSeq(streamID string) int64 {
 	return b.seq[streamID]
 }
 
+func (b *ProviderBridge) applyTaskNotificationReplyScope(streamID string, event provider.OutputEvent, frame *SessionFrame) {
+	taskID := taskNotificationID(event.Message)
+
+	b.mu.Lock()
+	if taskID != "" {
+		b.taskNotificationReplies[streamID] = taskID
+		log.Printf("[stream] task notification reply scope started stream=%s task=%s event_type=%s subtype=%s frame=%s",
+			streamID,
+			taskID,
+			event.Type,
+			event.Subtype,
+			frame.FrameID,
+		)
+	}
+	activeTaskID := b.taskNotificationReplies[streamID]
+	if activeTaskID != "" && eventIsTerminalTurn(event) {
+		delete(b.taskNotificationReplies, streamID)
+		log.Printf("[stream] task notification reply scope ended stream=%s task=%s event_type=%s subtype=%s frame=%s",
+			streamID,
+			activeTaskID,
+			event.Type,
+			event.Subtype,
+			frame.FrameID,
+		)
+	}
+	b.mu.Unlock()
+
+	if activeTaskID == "" || taskID != "" {
+		return
+	}
+
+	frame.Sidechain = true
+	frame.TaskID = firstNonEmpty(frame.TaskID, activeTaskID)
+	frame.AgentID = firstNonEmpty(frame.AgentID, activeTaskID)
+}
+
 func kindFromProviderOutput(event provider.OutputEvent) FrameKind {
 	if event.IsDelta {
 		return FrameKindDelta
+	}
+	if eventIsTerminalTurn(event) {
+		return FrameKindResult
 	}
 	switch event.Type {
 	case "system":
@@ -72,6 +130,14 @@ func kindFromProviderOutput(event provider.OutputEvent) FrameKind {
 	default:
 		return FrameKindMessage
 	}
+}
+
+func eventIsTerminalTurn(event provider.OutputEvent) bool {
+	if stringFromMap(event.Message, "type") == "result" || event.Type == "result" || event.Subtype == "result" {
+		return true
+	}
+	message := mapFromAny(event.Message["message"])
+	return event.Type == "assistant" && stringFromMap(message, "stop_reason") == "end_turn"
 }
 
 func roleFromProviderOutput(event provider.OutputEvent) Role {

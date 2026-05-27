@@ -162,6 +162,144 @@ func TestClaudeAdapterConvertsToolResultAndToolUseResult(t *testing.T) {
 	}
 }
 
+func TestClaudeAdapterMarksAsyncBackgroundAgentFramesAsSidechain(t *testing.T) {
+	launcher, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "assistant",
+		SessionID: "runtime-1",
+		Provider:  "claude",
+		Message: map[string]any{
+			"type": "assistant",
+			"message": map[string]any{
+				"role": "assistant",
+				"content": []any{
+					map[string]any{
+						"type": "tool_use",
+						"id":   "toolu_agent",
+						"name": "Agent",
+						"input": map[string]any{
+							"description":       "Summarize recent git history",
+							"run_in_background": true,
+						},
+					},
+				},
+			},
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !launcher.Sidechain {
+		t.Fatalf("async Agent launcher should be sidechain/control activity: %#v", launcher)
+	}
+
+	launchResult, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "user",
+		SessionID: "runtime-1",
+		Provider:  "claude",
+		Message: map[string]any{
+			"type": "user",
+			"message": map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "tool_result", "tool_use_id": "toolu_agent", "content": "Async agent launched successfully."},
+				},
+			},
+			"toolUseResult": map[string]any{
+				"isAsync":    true,
+				"status":     "async_launched",
+				"agentId":    "agent-1",
+				"outputFile": "C:\\temp\\agent-1.output",
+			},
+		},
+	}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !launchResult.Sidechain || launchResult.AgentID != "agent-1" {
+		t.Fatalf("async launch result should stay in task channel with agent id: %#v", launchResult)
+	}
+}
+
+func TestClaudeAdapterMarksTaskNotificationPromptAsSidechain(t *testing.T) {
+	frame, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "user",
+		SessionID: "runtime-1",
+		Provider:  "claude",
+		Message: map[string]any{
+			"type": "user",
+			"origin": map[string]any{
+				"kind": "task-notification",
+			},
+			"message": map[string]any{
+				"role":    "user",
+				"content": "<task-notification>\n<task-id>agent-1</task-id>\n<status>completed</status>\n</task-notification>",
+			},
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !frame.Sidechain || frame.AgentID != "agent-1" {
+		t.Fatalf("task-notification prompt should be control sidechain with task id: %#v", frame)
+	}
+}
+
+func TestClaudeAdapterMarksAssistantEndTurnAsCompletedRuntime(t *testing.T) {
+	frame, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "assistant",
+		SessionID: "runtime-1",
+		Provider:  "claude",
+		Message: map[string]any{
+			"type": "assistant",
+			"message": map[string]any{
+				"role":        "assistant",
+				"stop_reason": "end_turn",
+				"content": []any{
+					map[string]any{"type": "text", "text": "done"},
+				},
+			},
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if frame.Kind != FrameKindResult {
+		t.Fatalf("assistant end_turn should be a terminal result frame, got %q", frame.Kind)
+	}
+	if frame.Runtime == nil || frame.Runtime.Phase != "completed" {
+		t.Fatalf("assistant end_turn should carry completed runtime snapshot: %#v", frame.Runtime)
+	}
+	if frame.Success == nil || !*frame.Success {
+		t.Fatalf("assistant end_turn should be successful: %#v", frame.Success)
+	}
+}
+
+func TestClaudeAdapterMarksRawResultEventAsResultFrame(t *testing.T) {
+	frame, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "assistant",
+		Subtype:   "result",
+		SessionID: "runtime-1",
+		Provider:  "claude",
+		Message: map[string]any{
+			"type":     "result",
+			"subtype":  "success",
+			"result":   "ok",
+			"is_error": false,
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if frame.Kind != FrameKindResult {
+		t.Fatalf("raw result event should be a result frame, got %q", frame.Kind)
+	}
+	if frame.Runtime == nil || frame.Runtime.Phase != "completed" {
+		t.Fatalf("raw result event should carry completed runtime snapshot: %#v", frame.Runtime)
+	}
+}
+
 func TestClaudeAdapterHandlesRealSubagentFixture(t *testing.T) {
 	path := filepath.Join("..", "..", "frontend", "src", "lib", "__fixtures__", "claude-real-subagent-stream.jsonl")
 	data, err := os.ReadFile(path)

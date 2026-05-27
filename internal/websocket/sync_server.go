@@ -44,10 +44,12 @@ func writeStreamLoop[T any](conn *websocket.Conn, ch <-chan T) {
 			}
 			data, err := json.Marshal(frame)
 			if err != nil {
+				log.Printf("[websocket] stream marshal failed type=%T err=%v", frame, err)
 				return
 			}
 			conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				log.Printf("[websocket] stream write failed type=%T bytes=%d err=%v", frame, len(data), err)
 				return
 			}
 		case <-ticker.C:

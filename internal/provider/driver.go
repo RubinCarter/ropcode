@@ -47,6 +47,12 @@ type ProviderDriver interface {
 	OnProcessExit(session SessionHandle, exitCode int, err error)
 }
 
+// OutputEventCompleter is an optional provider extension for CLIs whose stdout
+// stream omits fields that are later written to the provider transcript.
+type OutputEventCompleter interface {
+	CompleteOutputEvent(event *OutputEvent, config SessionConfig) (*OutputEvent, bool)
+}
+
 // CapabilityDiscoverer is an optional extension interface for pre-start capability discovery.
 type CapabilityDiscoverer interface {
 	DiscoverCapabilities(ctx context.Context) (*Capabilities, error)

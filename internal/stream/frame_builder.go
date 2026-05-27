@@ -2,6 +2,7 @@ package stream
 
 import (
 	"fmt"
+	"strings"
 
 	"ropcode/internal/provider"
 )
@@ -38,7 +39,14 @@ func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, s
 		Meta:              Meta{Raw: raw},
 	}
 
-	frame.Sidechain = boolFromAny(event.Message["isSidechain"]) || frame.ParentToolUseID != "" || frame.TaskID != ""
+	if taskID := taskNotificationID(event.Message); taskID != "" {
+		frame.TaskID = firstNonEmpty(frame.TaskID, taskID)
+		frame.AgentID = firstNonEmpty(frame.AgentID, taskID)
+	}
+	frame.Sidechain = boolFromAny(event.Message["isSidechain"]) ||
+		frame.ParentToolUseID != "" ||
+		frame.TaskID != "" ||
+		isBackgroundTaskControlFrame(event.Message, frame.Content)
 	if agentID := stringFromMap(event.Message, "agentId"); agentID != "" {
 		frame.AgentID = agentID
 	}
@@ -53,6 +61,7 @@ func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, s
 
 	// Unified result/error handling
 	frame.applyResult(event.Message)
+	frame.applyTerminalTurn(event)
 	frame.applyErrorContent(event)
 
 	if frame.Usage == nil {
@@ -169,19 +178,25 @@ func (f *SessionFrame) applyTaskProgress(raw map[string]any) {
 }
 
 func (f *SessionFrame) applyToolUseResult(raw map[string]any) {
-	result := mapFromAny(raw["tool_use_result"])
+	result := toolUseResultFromRaw(raw)
 	if len(result) == 0 {
 		return
 	}
-	f.AgentID = stringFromMap(result, "agentId")
+	f.AgentID = firstNonEmpty(f.AgentID, stringFromMap(result, "agentId"))
 	f.DurationMs = int64FromAny(result["totalDurationMs"])
 	f.Usage = &Usage{
 		TotalTokens:  intFromAny(result["totalTokens"]),
 		ToolUseCount: intFromAny(result["totalToolUseCount"]),
 	}
 	if status := stringFromMap(result, "status"); status != "" {
-		success := status == "completed"
-		f.Success = &success
+		switch strings.ToLower(status) {
+		case "completed", "success", "done":
+			success := true
+			f.Success = &success
+		case "failed", "error", "stopped", "cancelled", "canceled":
+			success := false
+			f.Success = &success
+		}
 	}
 }
 
@@ -198,6 +213,28 @@ func (f *SessionFrame) applyResult(raw map[string]any) {
 	f.Success = &success
 	if f.Result != "" && len(f.Content) == 0 {
 		f.Content = []ContentBlock{{Type: ContentResult, Text: f.Result}}
+	}
+}
+
+func (f *SessionFrame) applyTerminalTurn(event provider.OutputEvent) {
+	if f.Sidechain {
+		return
+	}
+
+	if eventIsTerminalTurn(event) {
+		f.Kind = FrameKindResult
+		if f.Role == "" {
+			f.Role = RoleAssistant
+		}
+		isError := boolFromAny(event.Message["is_error"])
+		f.IsError = isError
+		success := !isError && stringFromMap(event.Message, "subtype") != "error"
+		f.Success = &success
+		phase := "completed"
+		if !success {
+			phase = "failed"
+		}
+		f.Runtime = &RuntimeSnapshot{Phase: phase}
 	}
 }
 
@@ -237,6 +274,78 @@ func textFromToolResult(value any) string {
 		}
 		return fmt.Sprint(value)
 	}
+}
+
+func isBackgroundTaskControlFrame(raw map[string]any, content []ContentBlock) bool {
+	if stringFromMap(raw, "ropcode_scope") == "background_task" {
+		return true
+	}
+	if stringFromMap(mapFromAny(raw["debug_meta"]), "ropcode_scope") == "background_task" {
+		return true
+	}
+	if isAsyncLaunchToolResult(raw) || taskNotificationID(raw) != "" {
+		return true
+	}
+	for _, block := range content {
+		if block.Type == ContentToolUse && boolFromAny(block.Input["run_in_background"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAsyncLaunchToolResult(raw map[string]any) bool {
+	result := toolUseResultFromRaw(raw)
+	return boolFromAny(result["isAsync"]) && strings.ToLower(stringFromMap(result, "status")) == "async_launched"
+}
+
+func toolUseResultFromRaw(raw map[string]any) map[string]any {
+	return firstMap(mapFromAny(raw["tool_use_result"]), mapFromAny(raw["toolUseResult"]))
+}
+
+func taskNotificationID(raw map[string]any) string {
+	if kind := stringFromMap(mapFromAny(raw["origin"]), "kind"); kind != "" && kind != "task-notification" {
+		return ""
+	}
+	text := taskNotificationText(raw)
+	if !strings.Contains(text, "<task-notification>") {
+		return ""
+	}
+	return xmlTagText(text, "task-id")
+}
+
+func taskNotificationText(raw map[string]any) string {
+	message := mapFromAny(raw["message"])
+	switch content := message["content"].(type) {
+	case string:
+		return content
+	case []any:
+		var parts []string
+		for _, item := range content {
+			block := mapFromAny(item)
+			if text := stringFromMap(block, "text"); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
+}
+
+func xmlTagText(text, tag string) string {
+	open := "<" + tag + ">"
+	close := "</" + tag + ">"
+	start := strings.Index(text, open)
+	if start < 0 {
+		return ""
+	}
+	start += len(open)
+	end := strings.Index(text[start:], close)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(text[start : start+end])
 }
 
 func stringFromMap(m map[string]any, key string) string {

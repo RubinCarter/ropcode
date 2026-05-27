@@ -2,6 +2,7 @@ package claudeactivity
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -37,6 +38,9 @@ func (s *Service) ObserveClaudeEvent(sessionID string, event map[string]interfac
 	}
 
 	if eventType == "user" {
+		if s.observeTaskNotificationPrompt(bucket, event, now) {
+			return
+		}
 		s.observeToolResult(bucket, event, now)
 	}
 }
@@ -45,10 +49,12 @@ func (s *Service) observeTaskStarted(bucket *sessionBucket, event map[string]int
 	id := stringField(event, "task_id")
 	taskType := stringField(event, "task_type")
 	if shouldIgnoreUntrackedTaskEvent(bucket, id, taskType, event) {
+		log.Printf("[claudeactivity] task start ignored session=%s task=%s task_type=%s", bucket.sessionID, id, taskType)
 		return
 	}
 	activity := bucket.ensureActivity(id, taskType, now)
 	if activity == nil {
+		log.Printf("[claudeactivity] task start skipped session=%s task=%s task_type=%s", bucket.sessionID, id, taskType)
 		return
 	}
 	if ts := parseEventTime(event); ts != nil {
@@ -61,16 +67,19 @@ func (s *Service) observeTaskStarted(bucket *sessionBucket, event map[string]int
 	setStringIfPresent(&activity.Description, event, "description")
 	setStringIfPresent(&activity.Summary, event, "summary")
 	setStringIfPresent(&activity.LastActivity, event, "last_tool_name")
+	log.Printf("[claudeactivity] task started session=%s task=%s task_type=%s", bucket.sessionID, id, taskType)
 }
 
 func (s *Service) observeTaskProgress(bucket *sessionBucket, event map[string]interface{}, now time.Time) {
 	id := stringField(event, "task_id")
 	taskType := stringField(event, "task_type")
 	if shouldIgnoreUntrackedTaskEvent(bucket, id, taskType, event) {
+		log.Printf("[claudeactivity] task progress ignored session=%s task=%s task_type=%s", bucket.sessionID, id, taskType)
 		return
 	}
 	activity := bucket.ensureActivity(id, taskType, now)
 	if activity == nil {
+		log.Printf("[claudeactivity] task progress skipped session=%s task=%s task_type=%s", bucket.sessionID, id, taskType)
 		return
 	}
 	activity.UpdatedAt = eventTimeOrNow(event, now)
@@ -86,10 +95,12 @@ func (s *Service) observeTaskNotification(bucket *sessionBucket, event map[strin
 	id := stringField(event, "task_id")
 	taskType := stringField(event, "task_type")
 	if shouldIgnoreUntrackedTaskEvent(bucket, id, taskType, event) {
+		log.Printf("[claudeactivity] task notification ignored session=%s task=%s task_type=%s", bucket.sessionID, id, taskType)
 		return
 	}
 	activity := bucket.ensureActivity(id, taskType, now)
 	if activity == nil {
+		log.Printf("[claudeactivity] task notification skipped session=%s task=%s task_type=%s", bucket.sessionID, id, taskType)
 		return
 	}
 	updatedAt := eventTimeOrNow(event, now)
@@ -118,6 +129,62 @@ func (s *Service) observeTaskNotification(bucket *sessionBucket, event map[strin
 			activity.Status = ActivityStatusCompleted
 		}
 	}
+	log.Printf("[claudeactivity] task notification applied session=%s task=%s task_type=%s status=%s async=%t",
+		bucket.sessionID,
+		id,
+		taskType,
+		activity.Status,
+		activity.Async,
+	)
+}
+
+func (s *Service) observeTaskNotificationPrompt(bucket *sessionBucket, event map[string]interface{}, now time.Time) bool {
+	text := taskNotificationText(event)
+	if !strings.Contains(text, "<task-notification>") {
+		return false
+	}
+	id := xmlTagText(text, "task-id")
+	if id == "" {
+		log.Printf("[claudeactivity] task notification prompt missing task id session=%s text_len=%d", bucket.sessionID, len(text))
+		return false
+	}
+	activity := bucket.ensureActivity(id, "local_agent", now)
+	if activity == nil {
+		log.Printf("[claudeactivity] task notification prompt skipped session=%s task=%s", bucket.sessionID, id)
+		return true
+	}
+	updatedAt := eventTimeOrNow(event, now)
+	activity.Async = true
+	activity.UpdatedAt = updatedAt
+	activity.EndedAt = &updatedAt
+	if summary := xmlTagText(text, "summary"); summary != "" {
+		activity.Summary = summary
+	}
+	if outputFile := xmlTagText(text, "output-file"); outputFile != "" {
+		activity.OutputFile = outputFile
+	}
+	if usageText := xmlTagText(text, "usage"); usageText != "" {
+		activity.Usage.TotalTokens = intXMLTagText(usageText, "total_tokens")
+		activity.Usage.ToolUses = intXMLTagText(usageText, "tool_uses")
+	}
+	switch strings.ToLower(xmlTagText(text, "status")) {
+	case "completed", "success", "done":
+		activity.Status = ActivityStatusCompleted
+	case "failed", "error":
+		activity.Status = ActivityStatusFailed
+	case "stopped", "cancelled", "canceled":
+		activity.Status = ActivityStatusStopped
+	default:
+		if activity.Status == "" {
+			activity.Status = ActivityStatusCompleted
+		}
+	}
+	log.Printf("[claudeactivity] task notification prompt applied session=%s task=%s status=%s",
+		bucket.sessionID,
+		id,
+		activity.Status,
+	)
+	return true
 }
 
 func shouldIgnoreUntrackedTaskEvent(bucket *sessionBucket, id, taskType string, event map[string]interface{}) bool {
@@ -142,6 +209,7 @@ func isAsyncLocalBashLifecycleEvent(taskType string, event map[string]interface{
 
 func (s *Service) observeToolResult(bucket *sessionBucket, event map[string]interface{}, now time.Time) {
 	if s.observeStructuredAsyncToolResult(bucket, event, now) {
+		log.Printf("[claudeactivity] structured async tool result applied session=%s", bucket.sessionID)
 		return
 	}
 
@@ -166,6 +234,7 @@ func (s *Service) observeToolResult(bucket *sessionBucket, event map[string]inte
 		}
 		activity := bucket.ensureActivity(id, "local_bash", now)
 		if activity == nil {
+			log.Printf("[claudeactivity] background tool result skipped session=%s task=%s", bucket.sessionID, id)
 			continue
 		}
 		activity.OutputFile = outputFile
@@ -174,6 +243,7 @@ func (s *Service) observeToolResult(bucket *sessionBucket, event map[string]inte
 		if activity.Description == "" {
 			activity.Description = id
 		}
+		log.Printf("[claudeactivity] background tool result applied session=%s task=%s", bucket.sessionID, id)
 	}
 }
 
@@ -258,9 +328,78 @@ func extractBackgroundID(text string) string {
 	return match[1]
 }
 
+func taskNotificationText(event map[string]interface{}) string {
+	if kind := stringField(mapField(event, "origin"), "kind"); kind != "" && kind != "task-notification" {
+		return ""
+	}
+	message := mapField(event, "message")
+	switch content := message["content"].(type) {
+	case string:
+		return content
+	case []interface{}:
+		var parts []string
+		for _, item := range content {
+			block, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if text := stringField(block, "text"); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return strings.Join(parts, "\n")
+	default:
+		return ""
+	}
+}
+
+func xmlTagText(text, tag string) string {
+	open := "<" + tag + ">"
+	close := "</" + tag + ">"
+	start := strings.Index(text, open)
+	if start < 0 {
+		return ""
+	}
+	start += len(open)
+	end := strings.Index(text[start:], close)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(text[start : start+end])
+}
+
+func intXMLTagText(text, tag string) int {
+	raw := xmlTagText(text, tag)
+	if raw == "" {
+		return 0
+	}
+	var value int
+	if _, err := fmt.Sscanf(raw, "%d", &value); err != nil {
+		return 0
+	}
+	return value
+}
+
+func mapField(values map[string]interface{}, key string) map[string]interface{} {
+	value, _ := values[key].(map[string]interface{})
+	return value
+}
+
 func stringField(values map[string]interface{}, key string) string {
 	value, _ := values[key].(string)
 	return value
+}
+
+func boolField(values map[string]interface{}, key string) bool {
+	value, _ := values[key].(bool)
+	return value
+}
+
+func debugActivityStop(event map[string]interface{}) string {
+	if stop := stringField(event, "stop_reason"); stop != "" {
+		return stop
+	}
+	return stringField(mapField(event, "message"), "stop_reason")
 }
 
 func setStringIfPresent(target *string, values map[string]interface{}, key string) {

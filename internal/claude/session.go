@@ -119,6 +119,7 @@ type Session struct {
 	initDoneClosed         bool
 	pendingControlRequests map[string]chan controlResponseResult
 	controlRequestSeq      uint64
+	detachedTasks          map[string]string // correlation id -> task id for async local agents
 }
 
 // controlResponseResult is delivered when a previously sent control_request
@@ -951,6 +952,7 @@ func (s *Session) enrichOutputMessage(msg map[string]interface{}) {
 	if msg["provider"] == nil {
 		msg["provider"] = "claude"
 	}
+	s.applyDetachedTaskScope(msg)
 
 	// Inject runtime state so frontend can show fine-grained activity status.
 	// Old clients ignore unknown fields; new clients can read processing/debug_meta.
@@ -974,6 +976,8 @@ func (s *Session) enrichOutputMessage(msg map[string]interface{}) {
 // Called for every stdout JSON line in both batch and interactive modes.
 // Must NOT be called while s.mu is held by the caller.
 func (s *Session) updateRuntimeStateFromMessage(msg map[string]interface{}) {
+	s.recordDetachedTaskFromMessage(msg)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -1056,6 +1060,16 @@ func (s *Session) updateRuntimeStateFromMessage(msg map[string]interface{}) {
 	case "assistant":
 		// Scan content blocks for tool_use (tool starting) and text length
 		if m, ok := msg["message"].(map[string]interface{}); ok {
+			if stopReason, _ := m["stop_reason"].(string); stopReason == "end_turn" {
+				s.runtime.Processing = false
+				s.runtime.Retrying = false
+				s.runtime.RateLimited = false
+				s.runtime.Status = ""
+				s.runtime.ActiveTool = ""
+				s.runtime.ActiveToolProgress = nil
+				s.runtime.LastThinkingPhase = ""
+				s.runtime.LastApiRetry = nil
+			}
 			if content, ok := m["content"].([]interface{}); ok {
 				totalText := 0
 				for _, c := range content {
@@ -1110,6 +1124,175 @@ func (s *Session) updateRuntimeStateFromMessage(msg map[string]interface{}) {
 		s.runtime.LastThinkingPhase = ""
 		s.runtime.LastApiRetry = nil
 	}
+}
+
+func (s *Session) recordDetachedTaskFromMessage(msg map[string]interface{}) {
+	result, _ := msg["toolUseResult"].(map[string]interface{})
+	if isAsync, _ := result["isAsync"].(bool); !isAsync {
+		return
+	}
+	if strings.ToLower(stringFieldFromMap(result, "status")) != "async_launched" {
+		return
+	}
+	taskID := stringFieldFromMap(result, "agentId")
+	if taskID == "" {
+		return
+	}
+
+	ids := []string{taskID}
+	if outputFile := stringFieldFromMap(result, "outputFile"); outputFile != "" {
+		ids = append(ids, outputFile)
+	}
+	if toolUseID := firstToolResultID(msg); toolUseID != "" {
+		ids = append(ids, toolUseID)
+	}
+
+	s.mu.Lock()
+	if s.detachedTasks == nil {
+		s.detachedTasks = make(map[string]string)
+	}
+	for _, id := range ids {
+		s.detachedTasks[id] = taskID
+	}
+	s.mu.Unlock()
+	log.Printf("[Session] Recorded detached async task session=%s task=%s correlations=%d", s.ID, taskID, len(ids))
+}
+
+func (s *Session) applyDetachedTaskScope(msg map[string]interface{}) {
+	taskID := s.matchDetachedTask(msg)
+	if taskID == "" {
+		return
+	}
+	msg["ropcode_scope"] = "background_task"
+	msg["ropcode_task_id"] = taskID
+	debugMeta, _ := msg["debug_meta"].(map[string]interface{})
+	if debugMeta == nil {
+		debugMeta = map[string]interface{}{}
+	}
+	debugMeta["ropcode_scope"] = "background_task"
+	debugMeta["ropcode_task_id"] = taskID
+	msg["debug_meta"] = debugMeta
+	log.Printf("[Session] Applied detached task scope session=%s task=%s", s.ID, taskID)
+}
+
+func (s *Session) matchDetachedTask(msg map[string]interface{}) string {
+	ids := detachedCorrelationIDs(msg)
+	if len(ids) == 0 {
+		return ""
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, id := range ids {
+		if taskID := s.detachedTasks[id]; taskID != "" {
+			return taskID
+		}
+	}
+	return ""
+}
+
+func detachedCorrelationIDs(msg map[string]interface{}) []string {
+	var ids []string
+	if result, _ := msg["toolUseResult"].(map[string]interface{}); result != nil {
+		ids = appendIfNotEmpty(ids, stringFieldFromMap(result, "agentId"))
+		ids = appendIfNotEmpty(ids, stringFieldFromMap(result, "outputFile"))
+	}
+	ids = appendIfNotEmpty(ids, firstToolResultID(msg))
+	for _, text := range messageTextFields(msg) {
+		ids = appendIfNotEmpty(ids, extractXMLTag(text, "task-id"))
+		ids = appendIfNotEmpty(ids, extractXMLTag(text, "tool-use-id"))
+		ids = appendIfNotEmpty(ids, extractXMLTag(text, "output-file"))
+	}
+	return ids
+}
+
+func firstToolResultID(msg map[string]interface{}) string {
+	message, _ := msg["message"].(map[string]interface{})
+	content, _ := message["content"].([]interface{})
+	for _, item := range content {
+		block, ok := item.(map[string]interface{})
+		if !ok || stringFieldFromMap(block, "type") != "tool_result" {
+			continue
+		}
+		if id := stringFieldFromMap(block, "tool_use_id"); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func messageTextFields(msg map[string]interface{}) []string {
+	var texts []string
+	if content, ok := msg["content"].(string); ok {
+		texts = append(texts, content)
+	}
+	message, _ := msg["message"].(map[string]interface{})
+	switch content := message["content"].(type) {
+	case string:
+		texts = append(texts, content)
+	case []interface{}:
+		for _, item := range content {
+			block, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if text := stringifyTextField(block["content"]); text != "" {
+				texts = append(texts, text)
+			}
+			if text := stringifyTextField(block["text"]); text != "" {
+				texts = append(texts, text)
+			}
+		}
+	}
+	return texts
+}
+
+func stringifyTextField(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []interface{}:
+		var b strings.Builder
+		for _, item := range v {
+			block, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if text := stringFieldFromMap(block, "text"); text != "" {
+				b.WriteString(text)
+			}
+		}
+		return b.String()
+	default:
+		return ""
+	}
+}
+
+func extractXMLTag(text, tag string) string {
+	open := "<" + tag + ">"
+	close := "</" + tag + ">"
+	start := strings.Index(text, open)
+	if start < 0 {
+		return ""
+	}
+	start += len(open)
+	end := strings.Index(text[start:], close)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(text[start : start+end])
+}
+
+func appendIfNotEmpty(values []string, value string) []string {
+	if value == "" {
+		return values
+	}
+	return append(values, value)
+}
+
+func stringFieldFromMap(m map[string]interface{}, key string) string {
+	value, _ := m[key].(string)
+	return value
 }
 
 // waitForCompletion waits for the command to complete

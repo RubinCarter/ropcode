@@ -73,6 +73,41 @@ func TestObserveTaskLifecycle(t *testing.T) {
 	}
 }
 
+func TestObserveTaskNotificationPromptCompletesAsyncAgent(t *testing.T) {
+	service := NewService()
+	service.EnsureSession("runtime-1", "E:\\repo", true, &recordingControlSender{})
+
+	service.ObserveClaudeEvent("runtime-1", map[string]interface{}{
+		"type": "user",
+		"message": map[string]interface{}{
+			"role":    "user",
+			"content": "<task-notification>\n<task-id>agent-1</task-id>\n<tool-use-id>toolu_agent</tool-use-id>\n<status>completed</status>\n<summary>Agent completed</summary>\n<result>done</result>\n<usage><total_tokens>42</total_tokens><tool_uses>3</tool_uses><duration_ms>1200</duration_ms></usage>\n</task-notification>",
+		},
+		"origin": map[string]interface{}{"kind": "task-notification"},
+	})
+
+	snapshot, err := service.GetSnapshot("runtime-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.RunningCount != 0 {
+		t.Fatalf("expected no running activities, got %d", snapshot.RunningCount)
+	}
+	if len(snapshot.Subagents) != 1 {
+		t.Fatalf("expected one subagent, got %d", len(snapshot.Subagents))
+	}
+	activity := snapshot.Subagents[0]
+	if activity.ID != "agent-1" || activity.Status != ActivityStatusCompleted {
+		t.Fatalf("unexpected activity: %#v", activity)
+	}
+	if activity.Summary != "Agent completed" {
+		t.Fatalf("notification fields not retained: %#v", activity)
+	}
+	if activity.Usage.TotalTokens != 42 || activity.Usage.ToolUses != 3 {
+		t.Fatalf("usage not parsed from notification: usage=%#v", activity.Usage)
+	}
+}
+
 func TestExtractsBackgroundOutputPathFromToolResult(t *testing.T) {
 	service := NewService()
 	service.EnsureSession("runtime-1", "E:\\repo", true, nil)

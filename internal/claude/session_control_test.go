@@ -137,6 +137,100 @@ func TestHandleControlResponseDoesNotReinitializeBlankResponse(t *testing.T) {
 	}
 }
 
+func TestDetachedAsyncAgentNotificationIsScopedAsBackgroundTask(t *testing.T) {
+	session := NewSession(SessionConfig{InteractiveMode: true})
+	session.interactive = true
+
+	launchResult := map[string]interface{}{
+		"type": "user",
+		"message": map[string]interface{}{
+			"content": []interface{}{
+				map[string]interface{}{
+					"type":        "tool_result",
+					"tool_use_id": "tooluse_agent",
+					"content":     "Async agent launched successfully.",
+				},
+			},
+		},
+		"toolUseResult": map[string]interface{}{
+			"isAsync":    true,
+			"status":     "async_launched",
+			"agentId":    "agent-1",
+			"outputFile": "C:\\temp\\agent-1.output",
+		},
+	}
+
+	session.updateRuntimeStateFromMessage(launchResult)
+	session.enrichOutputMessage(launchResult)
+
+	if got := launchResult["ropcode_scope"]; got != "background_task" {
+		t.Fatalf("expected launch tool result to be background scoped, got %#v", got)
+	}
+	if got := launchResult["ropcode_task_id"]; got != "agent-1" {
+		t.Fatalf("expected task id from agent id, got %#v", got)
+	}
+
+	notification := map[string]interface{}{
+		"type":      "queue-operation",
+		"operation": "enqueue",
+		"content": "<task-notification>\n" +
+			"<task-id>agent-1</task-id>\n" +
+			"<tool-use-id>tooluse_agent</tool-use-id>\n" +
+			"<output-file>C:\\temp\\agent-1.output</output-file>\n" +
+			"<status>completed</status>\n" +
+			"</task-notification>",
+	}
+
+	session.updateRuntimeStateFromMessage(notification)
+	session.enrichOutputMessage(notification)
+
+	if got := notification["ropcode_scope"]; got != "background_task" {
+		t.Fatalf("expected completion notification to be background scoped, got %#v", got)
+	}
+	if got := notification["ropcode_task_id"]; got != "agent-1" {
+		t.Fatalf("expected notification task id, got %#v", got)
+	}
+}
+
+func TestAssistantEndTurnClearsRuntimeProcessing(t *testing.T) {
+	session := NewSession(SessionConfig{InteractiveMode: true})
+	session.interactive = true
+
+	session.updateRuntimeStateFromMessage(map[string]interface{}{
+		"type": "assistant",
+		"message": map[string]interface{}{
+			"content": []interface{}{
+				map[string]interface{}{"type": "tool_use", "name": "Agent"},
+			},
+			"stop_reason": "tool_use",
+		},
+	})
+
+	endTurn := map[string]interface{}{
+		"type": "assistant",
+		"message": map[string]interface{}{
+			"content": []interface{}{
+				map[string]interface{}{"type": "text", "text": "done"},
+			},
+			"stop_reason": "end_turn",
+		},
+	}
+	session.updateRuntimeStateFromMessage(endTurn)
+	session.enrichOutputMessage(endTurn)
+
+	debugMeta, _ := endTurn["debug_meta"].(map[string]interface{})
+	runtimeState, _ := debugMeta["runtime_state"].(RuntimeState)
+	if runtimeState.Processing {
+		t.Fatal("assistant end_turn must clear runtime processing")
+	}
+	if runtimeState.ActiveTool != "" {
+		t.Fatalf("assistant end_turn must clear active tool, got %q", runtimeState.ActiveTool)
+	}
+	if got := endTurn["processing"]; got != false {
+		t.Fatalf("expected enriched processing=false, got %#v", got)
+	}
+}
+
 type recordingActivityObserver struct {
 	events           int
 	completed        int

@@ -611,6 +611,25 @@ func TestParseOutput_UnknownType(t *testing.T) {
 	}
 }
 
+func TestCompleteEventFromTranscriptMergesAssistantEndTurnByUUID(t *testing.T) {
+	stdoutEvent := parseOutput(t, `{"type":"assistant","uuid":"same-turn","sessionId":"provider-session","message":{"role":"assistant","content":[{"type":"text","text":"queued background agent"}]}}`)
+	transcriptLine := []byte(`{"type":"assistant","uuid":"same-turn","sessionId":"provider-session","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"queued background agent"}],"usage":{"total_tokens":12}}}`)
+
+	completed, ok := completeEventFromTranscript(stdoutEvent, transcriptLine)
+	if !ok {
+		t.Fatal("expected transcript completion to match stdout event")
+	}
+
+	message, _ := completed.Message["message"].(map[string]interface{})
+	if got := message["stop_reason"]; got != "end_turn" {
+		t.Fatalf("expected stop_reason merged from transcript, got %#v", got)
+	}
+	usage, _ := message["usage"].(map[string]interface{})
+	if got := usage["total_tokens"]; got != float64(12) {
+		t.Fatalf("expected usage merged from transcript, got %#v", usage)
+	}
+}
+
 func TestParseStderr(t *testing.T) {
 	d := &Driver{}
 	ev := d.ParseStderr([]byte("some error message"))

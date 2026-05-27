@@ -22,7 +22,13 @@ func (s *Server) handleSessionStreamWebSocket(w http.ResponseWriter, r *http.Req
 		http.Error(w, "missing stream id", http.StatusBadRequest)
 		return
 	}
-
+	diagnostics := hub.Diagnostics(streamID)
+	log.Printf("[session-stream] connect stream=%s remote=%s replay_queue=%d subscribers_before=%d",
+		streamID,
+		r.RemoteAddr,
+		diagnostics.QueueLength,
+		diagnostics.Subscribers,
+	)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Session stream WebSocket upgrade error: %v", err)
@@ -32,5 +38,6 @@ func (s *Server) handleSessionStreamWebSocket(w http.ResponseWriter, r *http.Req
 
 	sub := hub.Subscribe(streamID)
 	defer sub.Close()
+	defer log.Printf("[session-stream] disconnect stream=%s remote=%s", streamID, r.RemoteAddr)
 	writeStreamLoop(conn, sub.C)
 }
