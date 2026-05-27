@@ -95,14 +95,6 @@ func (d *Driver) EnvVars(config provider.SessionConfig) map[string]string {
 	return vars
 }
 
-func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
-	return &provider.OutputEvent{Type: "raw", Message: map[string]interface{}{"text": string(line)}}
-}
-
-func (d *Driver) ParseStderr(line []byte) *provider.StderrEvent {
-	return &provider.StderrEvent{Level: "warning", Message: string(line)}
-}
-
 func (d *Driver) SendMessage(session provider.SessionHandle, msg string) error {
 	return writePrompt(session, msg, true)
 }
