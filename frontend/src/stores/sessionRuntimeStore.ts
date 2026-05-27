@@ -39,16 +39,38 @@ export function applySessionRuntimeFrame(frame: SessionFrame): void {
   }
 
   const previous = getSessionRuntime(frame.streamId);
+  const runtime = frame.runtime ?? terminalRuntimeFromFrame(frame) ?? previous.runtime;
   states.set(frame.streamId, {
     ...previous,
     streamId: frame.streamId,
     lastSeq: Math.max(previous.lastSeq, frame.seq),
     lastFrameId: frame.frameId,
     lastUpdatedAt: Date.now(),
-    runtime: frame.runtime ?? previous.runtime,
+    runtime,
     error: frame.error ?? previous.error,
   });
   notify(frame.streamId);
+}
+
+function terminalRuntimeFromFrame(frame: SessionFrame): RuntimeSnapshot | null {
+  if (frame.kind === 'result') {
+    return {
+      phase: frame.isError ? 'failed' : 'completed',
+      waitingOn: frame.error ?? null,
+    };
+  }
+
+  const raw = frame.meta?.raw as Record<string, unknown> | undefined;
+  const rawMessage = raw?.message as Record<string, unknown> | undefined;
+  const stopReason = rawMessage?.stop_reason ?? raw?.stop_reason;
+  if (frame.role === 'assistant' && stopReason === 'end_turn') {
+    return {
+      phase: 'completed',
+      waitingOn: null,
+    };
+  }
+
+  return null;
 }
 
 export function clearSessionRuntime(streamId: string): void {

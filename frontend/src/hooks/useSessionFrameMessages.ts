@@ -41,14 +41,34 @@ export function useSessionFrameMessages(
 }
 
 export function legacyPayloadFromFrame(frame: SessionFrame): string | null {
+  if (frame.sidechain) {
+    return null;
+  }
   const raw = frame.meta?.raw as Record<string, unknown> | undefined;
   if (typeof raw?.raw === 'string') {
     return raw.raw;
   }
   if (raw && Object.keys(raw).length > 0) {
-    return JSON.stringify(withFrameSemantics(frame, raw));
+    const payload = withFrameSemantics(frame, withFrameRuntimeIdentity(frame, raw));
+    return JSON.stringify(payload);
   }
-  return JSON.stringify(withFrameSemantics(frame, sessionFrameToLegacyMessage(frame)));
+  const payload = withFrameSemantics(frame, sessionFrameToLegacyMessage(frame));
+  return JSON.stringify(payload);
+}
+
+function withFrameRuntimeIdentity(frame: SessionFrame, payload: Record<string, unknown>): Record<string, unknown> {
+  const debugMeta = isRecord(payload.debug_meta) ? payload.debug_meta : {};
+  const runtimeState = frame.runtime ? { runtime_state: frame.runtime } : {};
+  return {
+    ...payload,
+    runtime_session_id: frame.runtimeSessionId,
+    provider: frame.provider,
+    cwd: payload.cwd ?? frame.cwd ?? frame.projectPath,
+    debug_meta: {
+      ...debugMeta,
+      ...runtimeState,
+    },
+  };
 }
 
 function withFrameSemantics(frame: SessionFrame, payload: Record<string, unknown>): Record<string, unknown> {
@@ -59,6 +79,10 @@ function withFrameSemantics(frame: SessionFrame, payload: Record<string, unknown
     ...payload,
     is_delta: true,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function sessionFrameToLegacyMessage(frame: SessionFrame): Record<string, unknown> {

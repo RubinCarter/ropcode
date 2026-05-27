@@ -69,8 +69,9 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
     thinkingStatus,
   } = input;
 
-  const runtimeCanHaveRunningWork = runtime.phase !== 'idle' && runtime.phase !== 'completed' && runtime.phase !== 'failed' && runtime.phase !== 'cancelled';
-  const active = isLoading || stopVisible || runtimeCanHaveRunningWork;
+  const runtimeIsTerminal = runtime.phase === 'completed' || runtime.phase === 'failed' || runtime.phase === 'cancelled';
+  const runtimeCanHaveRunningWork = runtime.phase !== 'idle' && !runtimeIsTerminal;
+  const active = (isLoading && !runtimeIsTerminal) || stopVisible || runtimeCanHaveRunningWork;
   const hasRunningSubagents = runtime.phase === 'tool_running' && subagentProgress.runningCount > 0;
   const providerLabel = formatProviderLabel(promptConfig.provider);
   const base = getPrimaryState({ runtime, runtimeCopy, stopVisible, hasRunningSubagents, currentTodoActiveForm, providerLabel });
@@ -136,7 +137,7 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
     metrics.push({ key: 'stuck', label: 'No recent updates', priority: 'high' });
   }
 
-  if (isLoading || stopVisible || runtimeCanHaveRunningWork) {
+  if ((isLoading && !runtimeIsTerminal) || stopVisible || runtimeCanHaveRunningWork) {
     hints.push({ key: 'interrupt', label: 'Stop interrupts current task', priority: 'high' });
   }
   hints.push({ key: 'send', label: '⌘/Ctrl+Enter send', priority: 'low' });

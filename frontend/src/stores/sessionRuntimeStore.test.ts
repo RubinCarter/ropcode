@@ -44,3 +44,27 @@ test('sidechain frames do not overwrite root session runtime state', () => {
   assert.equal(state.runtime?.phase, 'completed');
   assert.notEqual(state.runtime?.activeTool, 'WebSearch');
 });
+
+test('assistant end_turn frames mark root session runtime completed', () => {
+  clearSessionRuntime('claude:runtime-1');
+
+  applySessionRuntimeFrame(frame({
+    frameId: 'assistant-end-turn',
+    seq: 1,
+    kind: 'message',
+    role: 'assistant',
+    meta: {
+      raw: {
+        type: 'assistant',
+        message: {
+          stop_reason: 'end_turn',
+        },
+      },
+    },
+  }));
+
+  const state = getSessionRuntime('claude:runtime-1');
+  assert.equal(state.lastSeq, 1);
+  assert.equal(state.runtime?.phase, 'completed');
+  assert.equal(state.runtime?.waitingOn, null);
+});

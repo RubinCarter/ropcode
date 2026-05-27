@@ -68,6 +68,32 @@ test('sessionFrameStore coalesces text deltas into stable display messages', () 
   assert.equal(messages[1].frameIds[0], 'tool-1');
 });
 
+test('sessionFrameStore keeps sidechain frames out of root display messages', () => {
+  clearSessionFrames('stream-1');
+
+  appendSessionFrame(frame({
+    frameId: 'root-1',
+    seq: 1,
+    content: [{ type: 'text', text: 'root' }],
+  }));
+  appendSessionFrame(frame({
+    frameId: 'task-1',
+    seq: 2,
+    sidechain: true,
+    taskId: 'agent-1',
+    content: [{ type: 'system', text: 'completed' }],
+  }));
+
+  assert.deepEqual(
+    getSessionMessages('stream-1').map((item) => item.frameIds[0]),
+    ['root-1'],
+  );
+  assert.deepEqual(
+    getSessionFrames('stream-1').map((item) => item.frameId),
+    ['root-1', 'task-1'],
+  );
+});
+
 test('sessionFrameStore exposes subscription snapshots for useSyncExternalStore', () => {
   clearSessionFrames('stream-1');
 

@@ -55,9 +55,15 @@ function getRpcTimeout(method: string): number {
     'LoadProviderSessionHistory',
     'LoadSessionHistory',
     'LoadAgentSessionHistory',
+    'ListMcpServers',
+    'GetUsageStats',
+    'GetUsageByDateRange',
+    'ListClaudeInstallations',
+    'CheckClaudeVersion',
+    'SyncProviderModelsFromAPI',
   ];
   if (longTimeoutMethods.includes(method)) {
-    return 120000; // 2 minutes for history loading
+    return 120000; // 2 minutes for slow operations
   }
   if (method === 'StartInteractiveClaudeSession') {
     return 45000;

@@ -8,8 +8,12 @@ import type { RuntimeSnapshot } from '@/lib/session-frame/types';
 interface RuntimeTrackerMessage {
   type?: string;
   subtype?: string;
+  ropcode_scope?: string;
+  ropcode_task_id?: string;
   debug_meta?: {
     runtime_state?: ClaudeRuntimeStateSnapshot | null;
+    ropcode_scope?: string;
+    ropcode_task_id?: string;
   } | null;
   message?: {
     content?: Array<{ type?: string; name?: string }>;
@@ -63,8 +67,9 @@ export function reduceRuntimeTracker(
   message: RuntimeTrackerMessage,
   now: number
 ): SessionRuntimeTracker {
+  const backgroundTaskScoped = isBackgroundTaskScoped(message);
   const explicitSnapshot = normalizeSnapshot(message.debug_meta?.runtime_state ?? null);
-  const snapshot = explicitSnapshot ?? terminalSnapshot(message);
+  const snapshot = backgroundTaskScoped ? null : (explicitSnapshot ?? terminalSnapshot(message));
   const next: SessionRuntimeTracker = {
     ...tracker,
     snapshot: snapshot ?? tracker.snapshot,
@@ -99,7 +104,7 @@ export function reduceRuntimeTracker(
     }
   }
 
-  if (message.type === 'user' && Array.isArray(message.message?.content)) {
+  if (!backgroundTaskScoped && message.type === 'user' && Array.isArray(message.message?.content)) {
     const hasToolResult = message.message.content.some((content) => content.type === 'tool_result');
     if (hasToolResult) {
       next.lastToolResultAt = now;
@@ -121,13 +126,22 @@ export function reduceRuntimeTracker(
   return next;
 }
 
+function isBackgroundTaskScoped(message: RuntimeTrackerMessage): boolean {
+  return message.ropcode_scope === 'background_task' || message.debug_meta?.ropcode_scope === 'background_task';
+}
+
 export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeViewStateInput): SessionRuntimeViewState {
   const snapshot = tracker.snapshot ?? snapshotFromFrameRuntime(local.frameRuntime ?? null);
   const retry = getRetryState(snapshot);
   const activeTool = snapshot?.active_tool?.trim() || null;
   const toolProgressText = formatToolProgress(snapshot);
   const transportState = local.transportConnected ? 'connected' : 'reconnecting';
-  const loadingElapsedMs = local.isLoading
+  const loadingIsTerminatedByTurn = Boolean(
+    tracker.lastResultAt &&
+    (!local.loadingStartedAt || tracker.lastResultAt >= local.loadingStartedAt)
+  );
+  const effectiveIsLoading = local.isLoading && !loadingIsTerminatedByTurn;
+  const loadingElapsedMs = effectiveIsLoading
     ? Math.max(0, now - (local.loadingStartedAt ?? 0))
     : 0;
 
@@ -145,7 +159,7 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
   let severity: SessionRuntimeViewState['severity'] = 'neutral';
   let waitingReason: SessionRuntimeViewState['waitingReason'] = 'idle';
 
-  if (local.stopRequested && !local.isLoading && local.interactiveSessionId === null) {
+  if (local.stopRequested && !effectiveIsLoading && local.interactiveSessionId === null) {
     phase = 'cancelled';
     label = 'Cancelled';
     severity = 'warning';
@@ -192,7 +206,7 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     severity = 'info';
     waitingReason = 'recovery';
     detail = local.isRestoringSession ? 'Loading saved conversation state' : 'Recovering messages after reconnect';
-  } else if (local.isLoading && !tracker.systemInitReceived && !local.interactiveSessionId) {
+  } else if (effectiveIsLoading && !tracker.systemInitReceived && !local.interactiveSessionId) {
     phase = 'initializing';
     label = 'Initializing';
     severity = 'info';
@@ -210,7 +224,7 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     severity = 'info';
     waitingReason = 'model';
     detail = 'Waiting for model output';
-  } else if (local.isLoading || snapshot?.processing) {
+  } else if (effectiveIsLoading || snapshot?.processing) {
     phase = 'waiting';
     label = 'Waiting';
     severity = 'info';

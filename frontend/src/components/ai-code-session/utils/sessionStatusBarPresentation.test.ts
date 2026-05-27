@@ -56,7 +56,8 @@ test('buildSessionStatusBarModel shows compaction before generic work labels', a
 test('buildSessionStatusBarModel summarizes subagent activity without raw event names', async () => {
   const source = await readSource();
 
-  assert.match(source, /const runtimeCanHaveRunningWork = runtime\.phase !== 'idle' && runtime\.phase !== 'completed' && runtime\.phase !== 'failed' && runtime\.phase !== 'cancelled';/);
+  assert.match(source, /const runtimeIsTerminal = runtime\.phase === 'completed' \|\| runtime\.phase === 'failed' \|\| runtime\.phase === 'cancelled';/);
+  assert.match(source, /const runtimeCanHaveRunningWork = runtime\.phase !== 'idle' && !runtimeIsTerminal;/);
   assert.match(source, /const hasRunningSubagents = runtime\.phase === 'tool_running' && subagentProgress\.runningCount > 0;/);
   assert.match(source, /return \{ primary: 'Running subagents…'/);
   assert.match(source, /label: agentParts \|\| `\$\{subagentProgress\.subagents\.length\} agents`/);
@@ -235,4 +236,62 @@ test('buildSessionStatusBarModel treats completed interactive Claude sessions as
   assert.equal(model.isActive, false);
   assert.equal(model.hints.some((hint) => hint.key === 'interrupt'), false);
   assert.equal(model.metrics.some((metric) => metric.key === 'elapsed'), false);
+});
+
+test('buildSessionStatusBarModel trusts terminal runtime over stale local loading', async () => {
+  const { buildSessionStatusBarModel } = await loadModule();
+
+  const model = buildSessionStatusBarModel({
+    runtime: {
+      phase: 'completed',
+      label: 'Completed',
+      detail: null,
+      severity: 'success',
+      activeTool: null,
+      toolProgressText: null,
+      retry: null,
+      rateLimited: false,
+      transportState: 'connected',
+      waitingReason: null,
+      isStuckLikely: false,
+      lastUpdatedAt: 10_000,
+    },
+    runtimeCopy: {
+      primary: 'Completed',
+      secondary: null,
+      chips: [],
+      tone: 'success',
+    },
+    now: 70_000,
+    loadingStartedAt: 10_000,
+    tokenUsage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedOutputTokens: 0,
+      totalTokens: 0,
+    },
+    subagentProgress: {
+      subagents: [],
+      rootMessages: [],
+      rootMessageIndexes: new Set(),
+      subagentMessageIndexes: new Set(),
+      messageDepthByIndex: new Map(),
+      runningCount: 0,
+      completedCount: 0,
+      failedCount: 0,
+      totalToolUseCount: 0,
+      totalTokenCount: 0,
+    },
+    promptConfig: { provider: 'claude', model: 'sonnet' },
+    isLoading: true,
+    interactiveSessionId: 'interactive-123',
+    stopVisible: false,
+    queuedPromptsCount: 0,
+    thinkingStatus: null,
+  });
+
+  assert.equal(model.isActive, false);
+  assert.equal(model.primary, 'Completed');
+  assert.equal(model.hints.some((hint) => hint.key === 'interrupt'), false);
+  assert.equal(model.metrics.some((metric) => metric.key === 'stuck'), false);
 });

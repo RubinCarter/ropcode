@@ -71,3 +71,11 @@ test('does not render legacy rotating symbol in floating prompt input loading co
 
   assert.doesNotMatch(source, /rotating-symbol/);
 });
+
+test('terminal frame runtime reconciles stale local loading state', async () => {
+  const source = await readSource(sessionControllerPath);
+
+  assert.match(source, /const terminalFrameRuntimePhase = frameRuntimeState\.runtime\?\.phase;/);
+  assert.match(source, /terminalFrameRuntimePhase === 'completed' \|\|[\s\S]*terminalFrameRuntimePhase === 'failed' \|\|[\s\S]*terminalFrameRuntimePhase === 'cancelled'/);
+  assert.match(source, /if \(processState\.isLoading && terminalFrameRuntime\) \{[\s\S]*processState\.setIsLoading\(false\);[\s\S]*\}/);
+});

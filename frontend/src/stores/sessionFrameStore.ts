@@ -77,6 +77,9 @@ export function getSessionMessages(streamId: string): SessionDisplayMessage[] {
   const messages: SessionDisplayMessage[] = [];
 
   for (const frame of getSessionFrames(streamId)) {
+    if (frame.sidechain) {
+      continue;
+    }
     const previous = messages[messages.length - 1];
     if (canMergeDelta(previous, frame)) {
       previous.seqEnd = frame.seq;

@@ -291,6 +291,11 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
       if (message.type === 'system' && message.subtype === 'init' && message.session_id) {
         const oldSessionId = claudeSessionId;
         const runtimeSessionId = (message as any).runtime_session_id || message.session_id;
+        console.log('[SessionFrameEvents] Session initialized', {
+          provider,
+          runtimeSessionId,
+          streamId,
+        });
         setClaudeSessionId(runtimeSessionId);
 
         // Set workspace status to 'working' when session starts
@@ -298,17 +303,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
           setWorkspaceStatus(projectPath, 'working');
         }
 
-        // Update session_id in ProjectList via API
-        const currentProjectPath = projectPathRef.current;
-        if (currentProjectPath && message.session_id) {
-          api.updateProviderSession(currentProjectPath, provider, runtimeSessionId)
-            .catch((err: unknown) => {
-              // Silently ignore "no rows" errors - workspace might not be in database yet
-              if (!String(err).includes('no rows in result set')) {
-                console.error('[useSessionFrameEvents] Failed to update session_id in ProjectList:', err);
-              }
-            });
-        }
+        // Session ID tracking removed — UpdateProviderSession was a no-op
 
         // If this is a new session, sync state immediately
         // But in interactive mode, don't override isLoading from process state
@@ -426,7 +421,12 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
           extractedSessionInfoRef.current?.runtimeSessionId ||
           claudeSessionId ||
           undefined;
-        console.log('[useSessionFrameEvents] Terminal turn message received, session_id:', completionSessionId);
+        console.log('[SessionFrameEvents] Terminal turn received', {
+          provider,
+          streamId,
+          completionSessionId,
+          status: isAssistantEndTurn ? 'completed' : ((message as any).is_error ? 'failed' : 'completed'),
+        });
         void onComplete?.({
           success: !(message as any).is_error,
           status: isAssistantEndTurn ? 'completed' : ((message as any).is_error ? 'failed' : 'completed'),

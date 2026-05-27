@@ -203,6 +203,11 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
 
   const activeStreamId = streamIdForRuntimeSession(defaultProvider, processState.interactiveSessionId || sessionState.extractedSessionInfo?.runtimeSessionId);
   const frameRuntimeState = useSessionRuntime(activeStreamId);
+  const terminalFrameRuntimePhase = frameRuntimeState.runtime?.phase;
+  const terminalFrameRuntime =
+    terminalFrameRuntimePhase === 'completed' ||
+    terminalFrameRuntimePhase === 'failed' ||
+    terminalFrameRuntimePhase === 'cancelled';
 
   // Session events - depends on all other hooks
   // Note: eventsState sets up event listeners internally, doesn't need to be used explicitly
@@ -257,6 +262,16 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     trackEvent,
     workflowTracking,
   });
+
+  useEffect(() => {
+    if (processState.isLoading && terminalFrameRuntime) {
+      console.log('[SessionController] Clearing stale loading state from terminal frame runtime', {
+        streamId: activeStreamId,
+        phase: terminalFrameRuntimePhase,
+      });
+      processState.setIsLoading(false);
+    }
+  }, [activeStreamId, processState.isLoading, processState.setIsLoading, terminalFrameRuntime, terminalFrameRuntimePhase]);
 
   // ==================================================================
   // UI STATE (not extracted to hooks - pure UI concerns)

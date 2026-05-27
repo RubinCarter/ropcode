@@ -542,6 +542,253 @@ test('assistant end_turn messages without runtime snapshots clear stale active t
   assert.equal(state.activeTool, null);
 });
 
+test('background task-scoped tool results do not mark foreground waiting after tool result', async () => {
+  const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
+
+  const tracker = reduceRuntimeTracker(createInitialRuntimeTracker(), {
+    type: 'user',
+    ropcode_scope: 'background_task',
+    ropcode_task_id: 'agent-1',
+    message: {
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tooluse_agent',
+          content: '<task-notification><status>completed</status></task-notification>',
+        },
+      ],
+    },
+    debug_meta: {
+      runtime_state: {
+        processing: true,
+        retrying: false,
+        rate_limited: false,
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'user',
+        last_event_subtype: '',
+      },
+    },
+  } as any, 5_000);
+
+  const state = deriveRuntimeViewState({
+    now: 5_000,
+    tracker,
+    local: {
+      isLoading: false,
+      interactiveSessionId: 'runtime-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+    },
+  });
+
+  assert.equal(tracker.lastToolResultAt, null);
+  assert.equal(state.phase, 'idle');
+  assert.notEqual(state.detail, 'Waiting for Claude after tool result');
+});
+
+test('assistant end_turn clears waiting state after async agent launch tool result', async () => {
+  const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
+
+  let tracker = createInitialRuntimeTracker();
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'assistant',
+    message: {
+      stop_reason: 'tool_use',
+      content: [{ type: 'tool_use', name: 'Agent' }],
+    },
+    debug_meta: {
+      runtime_state: {
+        processing: true,
+        retrying: false,
+        rate_limited: false,
+        active_tool: 'Agent',
+        active_tool_progress: null,
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'assistant',
+        last_event_subtype: '',
+      },
+    },
+  } as any, 1_000);
+
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'user',
+    ropcode_scope: 'background_task',
+    ropcode_task_id: 'agent-1',
+    message: {
+      content: [{ type: 'tool_result', tool_use_id: 'tooluse_agent' }],
+    },
+    debug_meta: {
+      runtime_state: {
+        processing: true,
+        retrying: false,
+        rate_limited: false,
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'user',
+        last_event_subtype: '',
+      },
+    },
+  } as any, 2_000);
+
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'assistant',
+    message: {
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '后台代理已启动。' }],
+    },
+    debug_meta: {
+      runtime_state: {
+        processing: false,
+        retrying: false,
+        rate_limited: false,
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: '',
+        last_partial_text_length: 6,
+        last_event_type: 'assistant',
+        last_event_subtype: '',
+      },
+    },
+  } as any, 3_000);
+
+  const state = deriveRuntimeViewState({
+    now: 3_000,
+    tracker,
+    local: {
+      isLoading: false,
+      interactiveSessionId: 'runtime-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+    },
+  });
+
+  assert.equal(tracker.lastToolResultAt, null);
+  assert.equal(tracker.lastResultAt, 3_000);
+  assert.equal(state.phase, 'completed');
+  assert.notEqual(state.detail, 'Waiting for Claude after tool result');
+});
+
+test('assistant end_turn overrides stale local loading state', async () => {
+  const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
+
+  let tracker = createInitialRuntimeTracker();
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'user',
+    message: {
+      content: [{ type: 'tool_result', tool_use_id: 'tooluse_agent' }],
+    },
+    debug_meta: {
+      runtime_state: {
+        processing: true,
+        retrying: false,
+        rate_limited: false,
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: '',
+        last_partial_text_length: 0,
+        last_event_type: 'user',
+        last_event_subtype: '',
+      },
+    },
+  } as any, 2_000);
+
+  tracker = reduceRuntimeTracker(tracker, {
+    type: 'assistant',
+    message: {
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: '后台代理已启动。' }],
+    },
+    debug_meta: {
+      runtime_state: {
+        processing: false,
+        retrying: false,
+        rate_limited: false,
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: '',
+        last_partial_text_length: 6,
+        last_event_type: 'assistant',
+        last_event_subtype: '',
+      },
+    },
+  } as any, 3_000);
+
+  const state = deriveRuntimeViewState({
+    now: 3_000,
+    tracker,
+    local: {
+      isLoading: true,
+      interactiveSessionId: 'runtime-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+      loadingStartedAt: 1_000,
+    },
+  });
+
+  assert.equal(state.phase, 'completed');
+  assert.notEqual(state.detail, 'Waiting for Claude after tool result');
+});
+
+test('terminal frame runtime overrides stale processing tracker snapshot', async () => {
+  const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
+
+  const tracker = reduceRuntimeTracker(createInitialRuntimeTracker(), {
+    type: 'assistant',
+    debug_meta: {
+      runtime_state: {
+        processing: true,
+        retrying: false,
+        rate_limited: false,
+        active_tool: '',
+        active_tool_progress: null,
+        last_thinking_phase: 'thinking',
+        last_partial_text_length: 0,
+        last_event_type: 'assistant',
+        last_event_subtype: '',
+      },
+    },
+  } as any, 1_000);
+
+  const state = deriveRuntimeViewState({
+    now: 2_000,
+    tracker,
+    local: {
+      isLoading: true,
+      interactiveSessionId: 'runtime-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+      loadingStartedAt: 500,
+      frameRuntime: { phase: 'completed', waitingOn: null },
+      frameLastSeq: 2,
+    },
+  });
+
+  assert.equal(state.phase, 'completed');
+  assert.equal(state.waitingReason, null);
+});
+
 test('does not treat api retry error detail as a failed runtime state', async () => {
   const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
 

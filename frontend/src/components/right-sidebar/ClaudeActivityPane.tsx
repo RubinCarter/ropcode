@@ -189,7 +189,7 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
       return;
     }
 
-    const sessions = await api.ListRunningClaudeSessions();
+    const sessions = await api.ListRunningProviderSessions();
     const session = findActiveClaudeSessionForProject(sessions, workspacePath);
     setActiveSession(session ?? null);
     if (!session) {
