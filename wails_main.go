@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"embed"
@@ -10,7 +11,16 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -21,18 +31,19 @@ import (
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"ropcode/internal/logging"
-	"ropcode/internal/websocket"
 )
 
 //go:embed all:frontend/dist
 var wailsFrontend embed.FS
 
 type wailsShell struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	app         *App
-	shutdownApp func(context.Context)
-	wsServer    *websocket.Server
+	ctx        context.Context
+	cancel     context.CancelFunc
+	serverCmd  *exec.Cmd
+	serverDone chan struct{}
+	serverPort int
+	authKey    string
+	mu         sync.RWMutex
 }
 
 func main() {
@@ -93,36 +104,80 @@ func (s *wailsShell) startup(ctx context.Context) {
 		_ = cleanupLogging
 	}
 
-	if err := os.Setenv("ROPCODE_AUTH_KEY", ""); err != nil {
-		log.Printf("Failed to clear auth key: %v", err)
-	}
-	_ = os.Unsetenv("ROPCODE_AUTH_KEY")
-	_ = os.Setenv("ROPCODE_MODE", "websocket")
-
-	app, shutdownApp, err := BootstrapRuntime(s.ctx)
+	serverPath, err := findServerBinary()
 	if err != nil {
-		log.Printf("Failed to bootstrap runtime: %v", err)
+		log.Printf("Failed to find ropcode-server: %v", err)
 		wailsRuntime.Quit(ctx)
 		return
 	}
-	s.app = app
-	s.shutdownApp = shutdownApp
 
-	s.wsServer = websocket.NewServer(app)
-	s.wsServer.SetAuthKey("")
-	app.SetBroadcaster(s.wsServer)
-
-	port, err := s.wsServer.Start(s.ctx)
-	if err != nil {
-		log.Printf("Failed to start WebSocket server: %v", err)
+	authKey := strconv.FormatInt(time.Now().UnixNano(), 36)
+	cmd := exec.CommandContext(s.ctx, serverPath)
+	if err := configureServerProcess(cmd); err != nil {
+		log.Printf("Failed to configure server process: %v", err)
 		wailsRuntime.Quit(ctx)
 		return
 	}
-	log.Printf("[wails] WebSocket server listening on %d", port)
+	cmd.Env = append(os.Environ(),
+		"ROPCODE_AUTH_KEY="+authKey,
+		"ROPCODE_MODE=websocket",
+		"ROPCODE_FRONTEND_DIR="+findFrontendDir(),
+	)
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Printf("Failed to get stdout pipe: %v", err)
+		wailsRuntime.Quit(ctx)
+		return
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		log.Printf("Failed to get stderr pipe: %v", err)
+		wailsRuntime.Quit(ctx)
+		return
+	}
+
+	if err := startServerProcess(cmd); err != nil {
+		log.Printf("Failed to start ropcode-server: %v", err)
+		wailsRuntime.Quit(ctx)
+		return
+	}
+	s.serverCmd = cmd
+	s.serverDone = make(chan struct{})
+	s.authKey = authKey
+
+	go logPipe("[ropcode-server stderr] ", stderr)
+	go func() {
+		_ = cmd.Wait()
+		cleanupServerProcess(cmd)
+		close(s.serverDone)
+	}()
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Text()
+		log.Printf("[ropcode-server stdout] %s", line)
+		if port, ok := parseWSPort(line); ok {
+			s.mu.Lock()
+			s.serverPort = port
+			s.mu.Unlock()
+			go logScanner("[ropcode-server stdout] ", scanner)
+			log.Printf("[wails] ropcode-server listening on port %d", port)
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		log.Printf("Failed reading server stdout: %v", err)
+	}
+	log.Printf("ropcode-server exited before reporting WS_PORT")
+	wailsRuntime.Quit(ctx)
 }
 
 func (s *wailsShell) domReady(ctx context.Context) {
-	if s.wsServer == nil {
+	s.mu.RLock()
+	port := s.serverPort
+	s.mu.RUnlock()
+	if port == 0 {
 		return
 	}
 	wailsRuntime.WindowExecJS(ctx, s.runtimeScript())
@@ -139,37 +194,37 @@ func (s *wailsShell) shutdown(ctx context.Context) {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	if s.wsServer != nil {
-		if err := s.wsServer.Stop(ctx); err != nil {
-			log.Printf("Failed to stop WebSocket server: %v", err)
-		}
-		s.wsServer = nil
-	}
-	if s.shutdownApp != nil {
-		s.shutdownApp(ctx)
-		s.shutdownApp = nil
+	if s.serverCmd != nil && s.serverCmd.Process != nil {
+		_ = terminateServerProcess(s.serverCmd, s.serverDone)
 	}
 }
 
 func (s *wailsShell) proxyRuntimeRequests() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.wsServer == nil {
+		switch {
+		case r.URL.Path == "/ws",
+			r.URL.Path == "/ws/rpc",
+			r.URL.Path == "/ws/sync",
+			strings.HasPrefix(r.URL.Path, "/ws/session-stream/"),
+			strings.HasPrefix(r.URL.Path, "/ws/bulk-stream/"),
+			r.URL.Path == "/health",
+			r.URL.Path == "/api/upload-attachment",
+			strings.HasPrefix(r.URL.Path, "/local-file/"):
+		default:
 			http.NotFound(w, r)
 			return
 		}
 
-		switch {
-		case r.URL.Path == "/ws":
-			s.wsServer.ServeHTTP(w, r)
-		case r.URL.Path == "/health":
-			s.wsServer.ServeHTTP(w, r)
-		case r.URL.Path == "/api/upload-attachment":
-			s.wsServer.ServeHTTP(w, r)
-		case len(r.URL.Path) >= len("/local-file/") && r.URL.Path[:len("/local-file/")] == "/local-file/":
-			s.wsServer.ServeHTTP(w, r)
-		default:
-			http.NotFound(w, r)
+		s.mu.RLock()
+		port := s.serverPort
+		s.mu.RUnlock()
+		if port == 0 {
+			http.Error(w, "server not ready", http.StatusServiceUnavailable)
+			return
 		}
+		target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.ServeHTTP(w, r)
 	})
 }
 
@@ -199,12 +254,10 @@ func (s *wailsShell) injectRuntimeMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *wailsShell) runtimeScript() string {
-	port := 5173
-	authKey := ""
-	if s.wsServer != nil {
-		port = s.wsServer.GetPort()
-		authKey = s.wsServer.GetAuthKey()
-	}
+	s.mu.RLock()
+	port := s.serverPort
+	s.mu.RUnlock()
+	authKey := s.authKey
 	return fmt.Sprintf(`(() => {
   window.__ROPCODE_WS_PORT__ = %d;
   window.__ROPCODE_AUTH_KEY__ = %q;
@@ -249,6 +302,89 @@ func (s *wailsShell) runtimeScript() string {
     openExternal: (url) => call('OpenExternal', url)
   };
 })();`, port, authKey, port, authKey)
+}
+
+func findFrontendDir() string {
+	exe, err := os.Executable()
+	if err == nil {
+		// Prod: frontend next to the wails executable
+		candidate := filepath.Join(filepath.Dir(exe), "frontend")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+		// macOS .app bundle: Contents/MacOS/../Resources/frontend/
+		candidate = filepath.Join(filepath.Dir(exe), "..", "Resources", "frontend")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+	}
+
+	// Dev: frontend/dist relative to working directory
+	cwd, _ := os.Getwd()
+	candidate := filepath.Join(cwd, "frontend", "dist")
+	if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+		return candidate
+	}
+
+	return ""
+}
+
+func findServerBinary() (string, error) {
+	name := "ropcode-server"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+
+	exe, err := os.Executable()
+	if err == nil {
+		// Prod: binary next to the wails executable
+		candidate := filepath.Join(filepath.Dir(exe), name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+		// macOS .app bundle: Contents/MacOS/../Resources/bin/
+		candidate = filepath.Join(filepath.Dir(exe), "..", "Resources", "bin", name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
+	// Dev: bin/ relative to working directory
+	cwd, _ := os.Getwd()
+	candidate := filepath.Join(cwd, "bin", name)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
+	}
+
+	return "", fmt.Errorf("%s not found (checked next to exe, .app Resources, and ./bin/)", name)
+}
+
+func parseWSPort(output string) (int, bool) {
+	idx := strings.Index(output, "WS_PORT:")
+	if idx < 0 {
+		return 0, false
+	}
+	start := idx + len("WS_PORT:")
+	end := start
+	for end < len(output) && output[end] >= '0' && output[end] <= '9' {
+		end++
+	}
+	if end == start {
+		return 0, false
+	}
+	port, err := strconv.Atoi(output[start:end])
+	return port, err == nil
+}
+
+func logPipe(prefix string, reader io.Reader) {
+	scanner := bufio.NewScanner(reader)
+	logScanner(prefix, scanner)
+}
+
+func logScanner(prefix string, scanner *bufio.Scanner) {
+	for scanner.Scan() {
+		log.Printf("%s%s", prefix, scanner.Text())
+	}
 }
 
 type responseRecorder struct {

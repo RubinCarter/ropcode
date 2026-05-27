@@ -100,12 +100,23 @@ if (-not $SkipFrontend) {
   Pop-Location
 }
 
+Write-Step "Building ropcode-server"
+go build -tags server -trimpath -ldflags "-s -w" -o "bin/ropcode-server.exe" .
+
 Write-Step "Cleaning Wails output folder"
 Stop-WailsBuildProcesses
 Remove-Item -Recurse -Force -LiteralPath "build-wails" -ErrorAction SilentlyContinue
 
 Write-Step "Building Wails shell"
 & $wails build -clean -tags "wails" -ldflags "-s -w" -trimpath -skipbindings
+
+Write-Step "Bundling ropcode-server and frontend"
+$exePath = "build-wails/bin/RopcodeWails.exe"
+if (Test-Path $exePath) {
+  $binDir = Split-Path $exePath
+  Copy-Item "bin/ropcode-server.exe" -Destination "$binDir/ropcode-server.exe" -Force
+  Copy-Item "frontend/dist" -Destination "$binDir/frontend" -Recurse -Force
+}
 
 Write-Step "Size summary"
 $paths = @(

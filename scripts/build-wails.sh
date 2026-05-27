@@ -65,6 +65,9 @@ if [[ -z "$WAILS" ]]; then
   exit 1
 fi
 
+step "Building ropcode-server"
+go build -tags server -trimpath -ldflags "-s -w" -o bin/ropcode-server .
+
 if (( ! SKIP_FRONTEND )); then
   step "Building frontend"
   (cd frontend && npm run build)
@@ -75,6 +78,14 @@ rm -rf build-wails
 
 step "Building Wails shell"
 "$WAILS" build -clean -tags "wails" -ldflags "-s -w" -trimpath -skipbindings
+
+step "Bundling ropcode-server into .app"
+APP_BUNDLE="$(find build-wails/bin -name "*.app" -maxdepth 1 | head -1)"
+if [[ -n "$APP_BUNDLE" ]]; then
+  cp bin/ropcode-server "${APP_BUNDLE}/Contents/MacOS/ropcode-server"
+  chmod +x "${APP_BUNDLE}/Contents/MacOS/ropcode-server"
+  cp -r frontend/dist "${APP_BUNDLE}/Contents/MacOS/frontend"
+fi
 
 step "Size summary"
 for path in build-wails "build-wails/bin/RopcodeWails.app" frontend/dist; do

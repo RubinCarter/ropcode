@@ -13,21 +13,34 @@ DMG_PATH="release/${DMG_NAME}"
 
 echo "=== Ropcode Wails Build (${ARCH}) ==="
 
-# 1. Build frontend
+# 1. Build ropcode-server
+echo "Building ropcode-server for darwin/${ARCH}..."
+GOOS=darwin GOARCH="${ARCH}" go build -tags server -trimpath -ldflags "-s -w" -o "bin/ropcode-server" .
+
+# 2. Build frontend
 echo "Building frontend..."
 cd frontend && npm run build && cd ..
 
-# 2. Build wails app
+# 3. Build wails app
 echo "Building wails app for darwin/${ARCH}..."
 wails build -tags wails -platform "darwin/${ARCH}"
 
-# 3. Check output
+# 4. Bundle ropcode-server and frontend into .app
+echo "Bundling ropcode-server into ${APP_PATH}..."
+MACOS_DIR="${APP_PATH}/Contents/MacOS"
+cp "bin/ropcode-server" "${MACOS_DIR}/ropcode-server"
+chmod +x "${MACOS_DIR}/ropcode-server"
+
+echo "Bundling frontend into ${APP_PATH}..."
+cp -r "frontend/dist" "${MACOS_DIR}/frontend"
+
+# 5. Check output
 if [ ! -d "$APP_PATH" ]; then
   echo "ERROR: ${APP_PATH} not found"
   exit 1
 fi
 
-# 4. Package as DMG
+# 6. Package as DMG
 echo "Creating DMG: ${DMG_NAME}..."
 rm -f "$DMG_PATH"
 
@@ -43,8 +56,6 @@ if command -v create-dmg &> /dev/null; then
     "$APP_PATH"
 else
   # Fallback: use hdiutil directly
-  TMP_DMG="/tmp/${APP_NAME}-tmp.dmg"
-  rm -f "$TMP_DMG"
   hdiutil create -volname "$APP_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
 fi
 
