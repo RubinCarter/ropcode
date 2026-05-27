@@ -24,6 +24,7 @@ import (
 	providerCodex "ropcode/internal/provider/codex"
 	providerDeepseek "ropcode/internal/provider/deepseek"
 	providerGemini "ropcode/internal/provider/gemini"
+	providerPi "ropcode/internal/provider/pi"
 	"ropcode/internal/pty"
 	appRuntime "ropcode/internal/runtime"
 	"ropcode/internal/ssh"
@@ -120,6 +121,7 @@ func (a *App) startup(ctx context.Context) {
 	a.providerManager.RegisterDriver(&providerCodex.Driver{})
 	a.providerManager.RegisterDriver(&providerGemini.Driver{})
 	a.providerManager.RegisterDriver(&providerDeepseek.Driver{})
+	a.providerManager.RegisterDriver(&providerPi.Driver{})
 
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution

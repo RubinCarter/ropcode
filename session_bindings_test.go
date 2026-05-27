@@ -14,6 +14,7 @@ import (
 	providerCodex "ropcode/internal/provider/codex"
 	providerDeepseek "ropcode/internal/provider/deepseek"
 	providerGemini "ropcode/internal/provider/gemini"
+	providerPi "ropcode/internal/provider/pi"
 )
 
 func writeFakeProviderBinary(t *testing.T) string {
@@ -80,12 +81,14 @@ func newTestProviderManager(t *testing.T) *provider.Manager {
 	mgr.RegisterDriver(&providerCodex.Driver{})
 	mgr.RegisterDriver(&providerGemini.Driver{})
 	mgr.RegisterDriver(&providerDeepseek.Driver{})
+	mgr.RegisterDriver(&providerPi.Driver{})
 
 	fakeBin := writeFakeProviderBinary(t)
 	mgr.SetBinaryPath("claude", fakeBin)
 	mgr.SetBinaryPath("codex", fakeBin)
 	mgr.SetBinaryPath("gemini", fakeBin)
 	mgr.SetBinaryPath("deepseek", fakeBin)
+	mgr.SetBinaryPath("pi", fakeBin)
 	return mgr
 }
 
