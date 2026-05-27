@@ -85,7 +85,9 @@ Do not instantiate managers directly in new code — go through `NewApp()` + `St
 
 ### AI provider session managers
 
-`internal/claude`, `internal/gemini`, `internal/codex` each expose a `SessionManager` with near-identical shapes (`NewSessionManager`, `SetProcessEmitter`, `CleanupCompleted`, ...). They spawn the external CLI (`claude`, `gemini`, `codex`) as subprocesses and stream stdout/stderr as events. Capability discovery (`internal/claude/capability_discovery.go`) runs two prewarm goroutines at startup to cache system/user-level Claude capabilities.
+`internal/claude`, `internal/gemini`, `internal/codex`, and `internal/provider/pi` each expose a session manager or provider driver with near-identical shapes (`NewSessionManager`, `SetProcessEmitter`, `CleanupCompleted`, ...). They spawn the external CLI (`claude`, `gemini`, `codex`, `pi`) as subprocesses and stream stdout/stderr as events. Capability discovery (`internal/claude/capability_discovery.go`) runs two prewarm goroutines at startup to cache system/user-level Claude capabilities.
+
+Pi provider note: Ropcode treats Pi as an external CLI dependency. Install `@earendil-works/pi-coding-agent` so `pi` is on PATH, with Node >= 22.19.0. Ropcode starts it via `pi --mode rpc`, keeps stdin open, sends JSONL prompt/abort commands, and renders stdout through the unified provider session-frame stream. Pi config defaults to `~/.pi/agent`; override with `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` when needed.
 
 ### CLI (`cmd/ropcode`)
 

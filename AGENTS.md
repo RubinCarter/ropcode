@@ -109,7 +109,9 @@ Method names are case-sensitive. Changing exported `App` method names, signature
 
 ### Provider Managers
 
-`internal/claude`, `internal/gemini`, and `internal/codex` each contain provider session managers that spawn external CLIs and stream process output as events. They expose near-identical shapes (`NewSessionManager`, `SetProcessEmitter`, `CleanupCompleted`, ...). Keep provider-specific changes inside the matching package unless a shared contract genuinely needs to change. The app expects `claude`, `gemini`, and `codex` to be installed and on PATH.
+`internal/claude`, `internal/gemini`, `internal/codex`, and `internal/provider/pi` each contain provider session managers or drivers that spawn external CLIs and stream process output as events. They expose near-identical shapes (`NewSessionManager`, `SetProcessEmitter`, `CleanupCompleted`, ...). Keep provider-specific changes inside the matching package unless a shared contract genuinely needs to change. The app expects `claude`, `gemini`, `codex`, and `pi` to be installed and on PATH when those providers are used.
+
+Pi provider note: Ropcode treats Pi as an external CLI dependency. Install `@earendil-works/pi-coding-agent` so `pi` is on PATH, with Node >= 22.19.0. Ropcode starts it via `pi --mode rpc`, keeps stdin open, sends JSONL prompt/abort commands, and renders stdout through the unified provider session-frame stream. Pi config defaults to `~/.pi/agent`; override with `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_SESSION_DIR` when needed.
 
 ### CLI
 
