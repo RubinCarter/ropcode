@@ -63,25 +63,11 @@ const sessionStore: StateCreator<
     },
     
     // Fetch sessions for a specific project
-    fetchProjectSessions: async (projectId: string) => {
-      set({ isLoadingSessions: true, error: null });
-      try {
-        const projectSessions = await api.getProjectSessions(projectId);
-        set((state) => ({
-          sessions: {
-            ...state.sessions,
-            [projectId]: projectSessions
-          },
-          isLoadingSessions: false
-        }));
-      } catch (error) {
-        set({ 
-          error: error instanceof Error ? error.message : 'Failed to fetch sessions',
-          isLoadingSessions: false 
-        });
-      }
+    fetchProjectSessions: async (_projectId: string) => {
+      // GetProjectSessions was a no-op (always returned empty array) — removed
+      set({ isLoadingSessions: false });
     },
-    
+
     // Set current session
     setCurrentSession: (sessionId: string | null) => {
       const { sessions } = get();

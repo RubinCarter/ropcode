@@ -730,10 +730,6 @@ export function OpenNewSession(projectPath: string): Promise<string> {
   return wsClient.call('OpenNewSession', projectPath);
 }
 
-export function GetProjectSessions(projectPath: string): Promise<string[]> {
-  return wsClient.call('GetProjectSessions', projectPath);
-}
-
 export function ListSpaceSessions(projectPath: string, limit: number): Promise<main.SpaceSessionsResult> {
   return wsClient.call('ListSpaceSessions', projectPath, limit);
 }
@@ -780,10 +776,6 @@ export function UpdateWorkspaceFields(workspaceId: string, fields: Record<string
   return wsClient.call('UpdateWorkspaceFields', workspaceId, fields);
 }
 
-export function UpdateWorkspaceBranch(workspaceId: string, branch: string): Promise<void> {
-  return wsClient.call('UpdateWorkspaceBranch', workspaceId, branch);
-}
-
 export function UpdateWorkspaceLastProvider(workspaceId: string, provider: string): Promise<void> {
   return wsClient.call('UpdateWorkspaceLastProvider', workspaceId, provider);
 }
@@ -793,41 +785,6 @@ export function UpdateWorkspaceActions(workspaceId: string, actions: main.Action
 }
 
 // ==================== Claude Sessions ====================
-
-export function ExecuteClaudeCode(
-  projectPath: string,
-  sessionId: string,
-  prompt: string,
-  thinkingLevel: string,
-  agentId: string
-): Promise<string> {
-  return wsClient.call('ExecuteClaudeCode', projectPath, sessionId, prompt, thinkingLevel, agentId);
-}
-
-export function ContinueClaudeCode(
-  projectPath: string,
-  prompt: string,
-  model: string,
-  sessionId: string,
-  providerApiId?: string
-): Promise<string> {
-  return wsClient.call('ContinueClaudeCode', projectPath, prompt, model, sessionId, providerApiId || '');
-}
-
-export function ResumeClaudeCode(
-  projectPath: string,
-  sessionId: string,
-  prompt: string,
-  model: string,
-  _conversationId?: string,
-  providerApiId?: string
-): Promise<string> {
-  return wsClient.call('ResumeClaudeCode', projectPath, prompt, model, sessionId, providerApiId || '');
-}
-
-export function CancelClaudeExecution(sessionId: string): Promise<void> {
-  return wsClient.call('CancelClaudeExecution', sessionId);
-}
 
 export function CancelClaudeExecutionByProject(projectPath: string): Promise<void> {
   return wsClient.call('CancelClaudeExecutionByProject', projectPath);
@@ -905,10 +862,6 @@ export function ResumeProviderSession(
   return wsClient.call('ResumeProviderSession', provider, projectPath, prompt, model, sessionId, providerApiId || '', reasoningEffort || '');
 }
 
-export function UpdateProviderSession(projectPath: string, sessionId: string, thinkingLevel: string): Promise<void> {
-  return wsClient.call('UpdateProviderSession', projectPath, sessionId, thinkingLevel);
-}
-
 export function ListProviderSessions(projectPath: string, providerName: string): Promise<main.ProviderSession[]> {
   return wsClient.call('ListProviderSessions', projectPath, providerName);
 }
@@ -944,10 +897,6 @@ export function StreamSessionOutput(projectPath: string, sessionId: string): Pro
   return wsClient.call('StreamSessionOutput', projectPath, sessionId);
 }
 
-export function GetClaudeSessionOutput(sessionId: string): Promise<string> {
-  return wsClient.call('GetClaudeSessionOutput', sessionId);
-}
-
 export function GetSessionMessageIndex(projectPath: string, sessionId: string): Promise<number[]> {
   return wsClient.call('GetSessionMessageIndex', projectPath, sessionId);
 }
@@ -971,10 +920,6 @@ export function IsClaudeSessionRunning(sessionId: string): Promise<boolean> {
 
 export function IsClaudeSessionRunningForProject(projectPath: string, providerOrSessionId: string): Promise<boolean> {
   return wsClient.call('IsClaudeSessionRunningForProject', projectPath, providerOrSessionId);
-}
-
-export function ListRunningClaudeSessions(): Promise<claude.SessionStatus[]> {
-  return wsClient.call('ListRunningClaudeSessions');
 }
 
 export function GetClaudeSessionActivities(sessionId: string): Promise<main.ClaudeActivitySnapshot> {
@@ -1347,20 +1292,12 @@ export function McpTestConnection(name: string): Promise<string> {
   return wsClient.call('McpTestConnection', name);
 }
 
-export function McpServe(): Promise<string> {
-  return wsClient.call('McpServe');
-}
-
 export function McpReadProjectConfig(projectPath: string): Promise<main.MCPProjectConfig> {
   return wsClient.call('McpReadProjectConfig', projectPath);
 }
 
 export function McpSaveProjectConfig(projectPath: string, config: main.MCPProjectConfig): Promise<string> {
   return wsClient.call('McpSaveProjectConfig', projectPath, config);
-}
-
-export function McpResetProjectChoices(): Promise<string> {
-  return wsClient.call('McpResetProjectChoices');
 }
 
 export function GetMcpServerStatus(name: string): Promise<mcp.MCPServerStatus> {
@@ -1617,19 +1554,11 @@ export function ExecuteCommand(command: string, cwd: string): Promise<main.Comma
   return wsClient.call('ExecuteCommand', command, cwd);
 }
 
-export function ExecuteCommandWithArgs(cwd: string, args: string[], env: string): Promise<string> {
-  return wsClient.call('ExecuteCommandWithArgs', cwd, args, env);
-}
-
 export function ExecuteCommandAsync(cwd: string, args: string[], env: string): Promise<string> {
   return wsClient.call('ExecuteCommandAsync', cwd, args, env);
 }
 
 // ==================== Other Tools ====================
-
-export function OpenUrl(url: string): Promise<void> {
-  return wsClient.call('OpenUrl', url);
-}
 
 export function Greet(name: string): Promise<string> {
   return wsClient.call('Greet', name);

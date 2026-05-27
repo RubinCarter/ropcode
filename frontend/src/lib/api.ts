@@ -198,10 +198,7 @@ const api = new Proxy({ ...rpcMethods }, {
       getAgentRun: 'GetAgentRun',
       listRunningAgentSessions: 'ListRunningAgentRuns',
       // Session
-      updateProviderSession: 'UpdateProviderSession',
-      resumeClaudeCode: 'ResumeClaudeCode',
       resumeProviderSession: 'ResumeProviderSession',
-      executeClaudeCode: 'ExecuteClaudeCode',
       startProviderSession: 'StartProviderSession',
       cancelClaudeExecutionByProject: 'CancelClaudeExecutionByProject',
       startInteractiveClaudeSession: 'StartInteractiveClaudeSession',
@@ -238,7 +235,7 @@ const api = new Proxy({ ...rpcMethods }, {
       slashCommandSave: 'SaveSlashCommand',
       slashCommandDelete: 'DeleteSlashCommand',
       // Session
-      getSessionOutput: 'GetClaudeSessionOutput',
+      getSessionOutput: 'GetProviderSessionOutput',
       loadSessionHistory: 'LoadSessionHistory',
       loadSubagentTranscripts: 'LoadSubagentTranscripts',
       // Git
@@ -259,7 +256,6 @@ const api = new Proxy({ ...rpcMethods }, {
       mcpAddFromClaudeDesktop: 'McpAddFromClaudeDesktop',
       mcpRemove: 'DeleteMcpServer',
       mcpTestConnection: 'McpTestConnection',
-      mcpServe: 'McpServe',
       // Project
       createProject: 'CreateProject',
       addProjectToIndex: 'AddProjectToIndex',
@@ -282,7 +278,6 @@ const api = new Proxy({ ...rpcMethods }, {
       updateProjectActions: 'UpdateProjectActions',
       updateWorkspaceActions: 'UpdateWorkspaceActions',
       // Claude
-      listClaudeInstallations: 'ListClaudeInstallations',
       listClaudeAgents: 'ListClaudeAgents',
       readClaudeMdFile: 'ReadClaudeMdFile',
       saveClaudeMdFile: 'SaveClaudeMdFile',
@@ -306,7 +301,6 @@ const api = new Proxy({ ...rpcMethods }, {
       searchClaudeAgents: 'SearchClaudeAgents',
       updateAgent: 'UpdateAgent',
       createAgent: 'CreateAgent',
-      getProjectSessions: 'GetProjectSessions',
       getClaudeBinaryPath: 'GetClaudeBinaryPath',
       setClaudeBinaryPath: 'SetClaudeBinaryPath',
       getClaudeSettings: 'GetClaudeSettings',

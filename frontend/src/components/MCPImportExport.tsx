@@ -149,19 +149,6 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
     onError("Export functionality coming soon!");
   };
 
-  /**
-   * Starts Claude Code as MCP server
-   */
-  const handleStartMCPServer = async () => {
-    try {
-      await api.mcpServe();
-      onError("Claude Code MCP server started. You can now connect to it from other applications.");
-    } catch (error) {
-      console.error("Failed to start MCP server:", error);
-      onError("Failed to start Claude Code as MCP server");
-    }
-  };
-
   return (
     <div className={`${isMobile ? 'p-3' : 'p-6'} space-y-6`}>
       <div>
@@ -299,30 +286,7 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
           </div>
         </Card>
 
-        {/* Serve as MCP */}
-        <Card className="p-4 border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors">
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 bg-green-500/20 rounded-lg">
-                <Network className="h-5 w-5 text-green-500" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-sm font-medium">Use Claude Code as MCP Server</h4>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Start Claude Code as an MCP server that other applications can connect to
-                </p>
-              </div>
-            </div>
-            <Button
-              onClick={handleStartMCPServer}
-              variant="outline"
-              className="w-full gap-2 border-green-500/20 hover:bg-green-500/10 hover:text-green-600 hover:border-green-500/50"
-            >
-              <Network className="h-4 w-4" />
-              Start MCP Server
-            </Button>
-          </div>
-        </Card>
+        {/* Serve as MCP - removed (not implemented) */}
       </div>
 
       {/* Info Box */}
