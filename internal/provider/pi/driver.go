@@ -150,6 +150,11 @@ func (d *Driver) WaitForInit(session provider.SessionHandle, timeout time.Durati
 
 func (d *Driver) OnProcessStart(_ context.Context, session provider.SessionHandle, _ int) error {
 	config := session.GetConfig()
+	if level := config.Extra["thinking_level"]; level != "" {
+		if err := writeThinkingLevel(session, level); err != nil {
+			return err
+		}
+	}
 	if config.Prompt == "" {
 		return nil
 	}
@@ -160,6 +165,18 @@ func (d *Driver) OnProcessExit(session provider.SessionHandle, exitCode int, err
 
 func writePrompt(session provider.SessionHandle, msg string, followUp bool) error {
 	data, err := promptCommand(nextRequestID(), msg, followUp)
+	if err != nil {
+		return err
+	}
+	return session.WriteStdin(data)
+}
+
+func writeThinkingLevel(session provider.SessionHandle, level string) error {
+	data, err := commandJSON(map[string]interface{}{
+		"id":    nextRequestID(),
+		"type":  "set_thinking_level",
+		"level": level,
+	})
 	if err != nil {
 		return err
 	}

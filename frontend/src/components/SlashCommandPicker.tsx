@@ -46,7 +46,7 @@ interface SlashCommandPickerProps {
    * Optional provider filter for non-Claude picker paths.
    * Claude uses ClaudeCapabilityPicker instead of filesystem slash command discovery.
    */
-  provider?: 'codex' | 'gemini' | 'deepseek';
+  provider?: 'codex' | 'gemini' | 'deepseek' | 'pi';
   /**
    * Optional anchor element ref for positioning the picker
    * If provided, the picker will be rendered via portal and positioned relative to the anchor
@@ -403,6 +403,8 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
                       <>Gemini does not currently expose filesystem slash commands here.</>
                     ) : provider === 'deepseek' ? (
                       <>DeepSeek does not currently expose filesystem slash commands here.</>
+                    ) : provider === 'pi' ? (
+                      <>Pi does not currently expose filesystem slash commands here.</>
                     ) : null}
                   </p>
                 )}

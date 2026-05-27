@@ -90,6 +90,21 @@ test('DeepSeek provider uses the whale logo icon instead of the generic sparkle'
   assert.doesNotMatch(providersBlock, /id: "deepseek"[\s\S]*<Sparkles className="h-3\.5 w-3\.5" \/>/);
 });
 
+test('Pi provider exposes model and native thinking modes', async () => {
+  const source = await readSource();
+  const piModelsBlock = source.match(/const PI_MODELS: Model\[] = \[([\s\S]*?)\];/)?.[1] ?? '';
+  const piThinkingBlock = source.match(/const PI_THINKING_MODES: ThinkingModeConfig\[] = \[([\s\S]*?)\];/)?.[1] ?? '';
+  const providersBlock = source.match(/const PROVIDERS: Provider\[] = \[([\s\S]*?)\];/)?.[1] ?? '';
+
+  assert.match(source, /PiIcon/);
+  assert.match(piModelsBlock, /anthropic\/claude-sonnet-4-20250514/);
+  assert.match(piModelsBlock, /<PiIcon className="h-3\.5 w-3\.5" \/>/);
+  assert.match(piThinkingBlock, /id: "off"/);
+  assert.match(piThinkingBlock, /id: "xhigh"/);
+  assert.match(providersBlock, /id: "pi"[\s\S]*<PiIcon className="h-3\.5 w-3\.5" \/>/);
+  assert.match(source, /defaultProvider === 'codex' \|\| defaultProvider === 'pi' \? 'medium' : 'auto'/);
+});
+
 test('does not append numeric thinking budgets to Claude prompts', async () => {
   const source = await readSource();
 

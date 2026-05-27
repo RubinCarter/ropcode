@@ -16,7 +16,7 @@ const DiffViewer = lazy(() => import('@/components/right-sidebar/DiffViewer').th
 const FileViewer = lazy(() => import('@/components/FileViewer').then(m => ({ default: m.FileViewer })));
 const WebViewWidget = lazy(() => import('@/components/WebViewWidget').then(m => ({ default: m.WebViewWidget })));
 
-const CHAT_PROVIDERS = ['claude', 'codex', 'deepseek'] as const;
+const CHAT_PROVIDERS = ['claude', 'codex', 'deepseek', 'pi'] as const;
 
 interface WorkspaceContainerProps {
   workspaceId: string;

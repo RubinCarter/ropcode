@@ -53,6 +53,12 @@ func (a *App) StartProviderSession(providerName, projectPath, prompt, model, pro
 	}
 	if providerName == "pi" {
 		config.Interactive = true
+		if reasoningEffort != "" {
+			if config.Extra == nil {
+				config.Extra = make(map[string]string)
+			}
+			config.Extra["thinking_level"] = reasoningEffort
+		}
 	}
 	if providerApiID != "" && a.dbManager != nil {
 		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
@@ -134,6 +140,12 @@ func (a *App) ResumeProviderSession(providerName, projectPath, prompt, model, se
 	}
 	if providerName == "pi" {
 		config.Interactive = true
+		if reasoningEffort != "" {
+			if config.Extra == nil {
+				config.Extra = make(map[string]string)
+			}
+			config.Extra["thinking_level"] = reasoningEffort
+		}
 	}
 	if providerApiID != "" && a.dbManager != nil {
 		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)

@@ -199,6 +199,7 @@ function formatProvider(provider: string): string {
   if (provider === 'claude') return 'Claude';
   if (provider === 'codex') return 'Codex';
   if (provider === 'deepseek') return 'DeepSeek';
+  if (provider === 'pi') return 'Pi';
   return provider;
 }
 

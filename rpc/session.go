@@ -370,6 +370,12 @@ func buildUnifiedConfig(d *Deps, providerID, projectPath, prompt, model, provide
 	}
 	if providerID == "pi" {
 		config.Interactive = true
+		if reasoningEffort != "" {
+			if config.Extra == nil {
+				config.Extra = make(map[string]string)
+			}
+			config.Extra["thinking_level"] = reasoningEffort
+		}
 	}
 	if providerApiID != "" && d.DB != nil {
 		apiConfig, err := d.DB.GetProviderApiConfig(providerApiID)

@@ -142,7 +142,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     provider: defaultProvider,
     model: 'sonnet',
     providerApiId: null,
-    thinkingMode: defaultProvider === 'codex' ? 'medium' : 'auto',
+    thinkingMode: defaultProvider === 'codex' || defaultProvider === 'pi' ? 'medium' : 'auto',
   });
   const providerApiSwitchNotice = useProviderApiSwitchNotice({
     isLoading: processState.isLoading,
