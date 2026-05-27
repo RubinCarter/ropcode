@@ -407,7 +407,7 @@ func TestRPCPathRespondsWhileSessionStreamSubscribed(t *testing.T) {
 		Request: &RPCRequest{
 			ID:     "req-1",
 			Method: "Echo",
-			Params: []interface{}{"ok"},
+			Params: json.RawMessage(`["ok"]`),
 		},
 	}
 	if err := rpcConn.WriteJSON(request); err != nil {

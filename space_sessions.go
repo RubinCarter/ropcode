@@ -146,3 +146,48 @@ func parseSessionActivityTime(timestamp string, fallback int64) int64 {
 	}
 	return fallback
 }
+
+func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsResult, error) {
+	scanners := []spaceSessionScanner{
+		{provider: "claude", scan: func(pp string, lim int) (spaceSessionScanResult, error) {
+			r, err := a.providerManager.ListProviderSessionsLimit("claude", pp, lim)
+			if err != nil {
+				return spaceSessionScanResult{}, err
+			}
+			sessions := make([]ProviderSessionSummary, 0, len(r.Sessions))
+			for _, s := range r.Sessions {
+				isRunning := a.providerManager.IsRunning(s.ID)
+				sessions = append(sessions, applyStoredSessionTitle(newClaudeSpaceSessionSummary(s, isRunning), a.sessionTitles))
+			}
+			return spaceSessionScanResult{sessions: sessions, hasMore: r.HasMore}, nil
+		}},
+		{provider: "codex", scan: func(pp string, lim int) (spaceSessionScanResult, error) {
+			r, err := a.providerManager.ListProviderSessionsLimit("codex", pp, lim)
+			if err != nil {
+				return spaceSessionScanResult{}, err
+			}
+			sessions := make([]ProviderSessionSummary, 0, len(r.Sessions))
+			for _, s := range r.Sessions {
+				isRunning := a.providerManager.IsRunning(s.ID)
+				sessions = append(sessions, applyStoredSessionTitle(newCodexSpaceSessionSummary(s, isRunning), a.sessionTitles))
+			}
+			return spaceSessionScanResult{sessions: sessions, hasMore: r.HasMore}, nil
+		}},
+		{provider: "gemini", scan: func(pp string, lim int) (spaceSessionScanResult, error) {
+			return spaceSessionScanResult{}, nil
+		}},
+		{provider: "deepseek", scan: func(pp string, lim int) (spaceSessionScanResult, error) {
+			r, err := a.providerManager.ListProviderSessionsLimit("deepseek", pp, lim)
+			if err != nil {
+				return spaceSessionScanResult{}, err
+			}
+			sessions := make([]ProviderSessionSummary, 0, len(r.Sessions))
+			for _, s := range r.Sessions {
+				isRunning := a.providerManager.IsRunning(s.ID)
+				sessions = append(sessions, applyStoredSessionTitle(newDeepSeekSpaceSessionSummary(s, isRunning), a.sessionTitles))
+			}
+			return spaceSessionScanResult{sessions: sessions, hasMore: r.HasMore}, nil
+		}},
+	}
+	return listSpaceSessionsFromScanners(projectPath, limit, scanners)
+}

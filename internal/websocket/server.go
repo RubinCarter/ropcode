@@ -42,6 +42,7 @@ type Server struct {
 	instanceID   string
 	startedAt    int64
 	router       *Router
+	dispatch     func(method string, params json.RawMessage) (any, error)
 	clients      map[string]*Client
 	clientsMu    sync.RWMutex
 	httpServer   *http.Server
@@ -294,7 +295,17 @@ func (s *Server) handleMessage(client *Client, message []byte) {
 
 // handleRPCRequest 处理 RPC 请求
 func (s *Server) handleRPCRequest(client *Client, req *RPCRequest) {
-	result, err := s.router.Call(req.Method, req.Params)
+	var result interface{}
+	var err error
+
+	if s.dispatch != nil {
+		result, err = s.dispatch(req.Method, req.Params)
+	} else {
+		// Legacy fallback: re-parse params for reflection router
+		var params []interface{}
+		json.Unmarshal(req.Params, &params)
+		result, err = s.router.Call(req.Method, params)
+	}
 
 	var errMsg string
 	if err != nil {
@@ -304,6 +315,16 @@ func (s *Server) handleRPCRequest(client *Client, req *RPCRequest) {
 	if err := client.SendResponse(req.ID, result, errMsg); err != nil {
 		log.Printf("Failed to send response: %v", err)
 	}
+}
+
+// SetDispatch sets the direct dispatch function, bypassing the reflection router.
+func (s *Server) SetDispatch(fn func(method string, params json.RawMessage) (any, error)) {
+	s.dispatch = fn
+}
+
+// LegacyCall exposes the reflection router for fallback dispatch.
+func (s *Server) LegacyCall(method string, params []interface{}) (interface{}, error) {
+	return s.router.Call(method, params)
 }
 
 // BroadcastEvent 向所有客户端广播事件

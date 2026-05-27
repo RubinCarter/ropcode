@@ -1,11 +1,13 @@
 // internal/websocket/types.go
 package websocket
 
+import "encoding/json"
+
 // RPCRequest 表示从前端发来的 RPC 请求
 type RPCRequest struct {
-	ID     string        `json:"id"`     // 请求 ID，用于匹配响应
-	Method string        `json:"method"` // 方法名，如 "CreatePtySession"
-	Params []interface{} `json:"params"` // 参数数组
+	ID     string          `json:"id"`     // 请求 ID，用于匹配响应
+	Method string          `json:"method"` // 方法名，如 "CreatePtySession"
+	Params json.RawMessage `json:"params"` // 参数数组（保持原始 JSON）
 }
 
 // RPCResponse 表示返回给前端的 RPC 响应

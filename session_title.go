@@ -1004,7 +1004,7 @@ func (a *App) GenerateSessionTitleForSession(provider, sessionID, projectID stri
 		return "", fmt.Errorf("session title not configured (select a Provider and Model in Settings)")
 	}
 
-	messages, err := a.LoadProviderSessionHistory(sessionID, projectID, provider)
+	messages, err := a.providerManager.LoadSessionHistory(provider, projectID, sessionID)
 	if err != nil {
 		return "", fmt.Errorf("load session history (provider=%s, session=%s, projectID=%s): %w", provider, sessionID, projectID, err)
 	}
@@ -1080,7 +1080,7 @@ func (a *App) GenerateBranchName(projectPath string) (string, error) {
 
 	var transcript string
 	for _, s := range result.Sessions {
-		messages, err := a.LoadProviderSessionHistory(s.ID, s.ProjectID, s.Provider)
+		messages, err := a.providerManager.LoadSessionHistory(s.Provider, s.ProjectID, s.ID)
 		if err != nil {
 			log.Printf("[BranchName] load history %s/%s failed: %v", s.Provider, s.ID, err)
 			continue
@@ -1146,8 +1146,8 @@ func (a *App) RenameGitBranch(projectPath, newBranch string) (string, error) {
 		return "", fmt.Errorf("rename branch: %w", err)
 	}
 
-	if err := a.NotifyBranchRenamed(projectPath, newBranch); err != nil {
-		log.Printf("[BranchRename] notify rename failed for %s: %v", projectPath, err)
-	}
+	// Branch rename notification (no-op, metadata tracking removed)
+	_ = projectPath
+	_ = newBranch
 	return newBranch, nil
 }

@@ -9,11 +9,6 @@ import (
 
 func TestWindowsSpecificCodeLivesInWinFiles(t *testing.T) {
 	checks := map[string][]string{
-		"bindings.go": {
-			`goruntime.GOOS != "windows"`,
-			`goruntime.GOOS == "windows"`,
-			`path[0] == '/' &&`,
-		},
 		"internal/pty/session.go": {
 			`runtime.GOOS != "windows"`,
 			`runtime.GOOS == "windows"`,

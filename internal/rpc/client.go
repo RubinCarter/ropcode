@@ -102,7 +102,7 @@ func (c *Client) Call(method string, params []any, out any) error {
 		Request: &ws.RPCRequest{
 			ID:     requestID,
 			Method: method,
-			Params: toInterfaces(params),
+			Params: marshalParams(params),
 		},
 	}
 
@@ -336,4 +336,15 @@ func toInterfaces(params []any) []interface{} {
 		result[i] = param
 	}
 	return result
+}
+
+func marshalParams(params []any) json.RawMessage {
+	if len(params) == 0 {
+		return json.RawMessage("[]")
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		return json.RawMessage("[]")
+	}
+	return data
 }

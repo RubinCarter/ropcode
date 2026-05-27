@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
@@ -27,6 +28,7 @@ import (
 	appRuntime "ropcode/internal/runtime"
 	"ropcode/internal/ssh"
 	"ropcode/internal/stream"
+	"ropcode/rpc"
 )
 
 // App struct contains the core application state and managers
@@ -50,7 +52,7 @@ type App struct {
 	bulkHub             *stream.BulkHub
 	gitWatcher          *git.GitWatcher
 	modelRegistry       *models.Registry
-	capabilityDiscovery claudeCapabilityDiscovery
+	capabilityDiscovery claude.CapabilityDiscovery
 	sessionTitles       *sessionTitleStore
 }
 
@@ -157,6 +159,26 @@ func (a *App) startup(ctx context.Context) {
 	log.Printf("[claudeactivity] build=%s", claudeactivity.ActivityServiceBuild)
 }
 
+func (a *App) getClaudeCapabilityDiscovery() (claude.CapabilityDiscovery, error) {
+	a.mu.RLock()
+	if a.capabilityDiscovery != nil {
+		service := a.capabilityDiscovery
+		a.mu.RUnlock()
+		return service, nil
+	}
+	a.mu.RUnlock()
+
+	transport, err := claude.NewClaudeCapabilityDiscoveryTransport()
+	if err != nil {
+		return nil, err
+	}
+	service := claude.NewCapabilityDiscoveryService(transport)
+	a.mu.Lock()
+	a.capabilityDiscovery = service
+	a.mu.Unlock()
+	return service, nil
+}
+
 // shutdown is called when the app is shutting down
 func (a *App) shutdown(ctx context.Context) {
 	// Close GitWatcher
@@ -212,18 +234,32 @@ func (e *providerStreamEmitter) Emit(eventName string, data interface{}) {
 
 	event, ok := providerOutputEventFrom(data)
 	if !ok || e.bridge == nil {
+		log.Printf("[provider] output event dropped event=%s parsed=%t bridge_ready=%t data_type=%T",
+			eventName,
+			ok,
+			e.bridge != nil,
+			data,
+		)
 		return
 	}
 	if event.Provider == "claude" && e.claudeActivity != nil {
 		e.claudeActivity.ObserveClaudeEvent(event.SessionID, event.Message)
 	}
-	_ = e.bridge.EmitProviderOutput(stream.ProviderOutputContext{
+	if err := e.bridge.EmitProviderOutput(stream.ProviderOutputContext{
 		RuntimeSessionID:  event.SessionID,
 		ProviderSessionID: event.ProviderSessionID,
 		Provider:          event.Provider,
 		Cwd:               event.Cwd,
 		ProjectPath:       event.ProjectPath,
-	}, event)
+	}, event); err != nil {
+		log.Printf("[provider] stream bridge emit failed provider=%s runtime=%s event_type=%s subtype=%s err=%v",
+			event.Provider,
+			event.SessionID,
+			event.Type,
+			event.Subtype,
+			err,
+		)
+	}
 }
 
 func providerOutputEventFrom(data interface{}) (provider.OutputEvent, bool) {
@@ -298,6 +334,29 @@ func (a *App) BulkHub() *stream.BulkHub {
 // Database exposes the initialized database manager for read-only runtime composition.
 func (a *App) Database() *database.Database {
 	return a.dbManager
+}
+
+// RPCDeps returns the dependency bag for the new RPC handler layer.
+func (a *App) RPCDeps() *rpc.Deps {
+	var capDisc claude.CapabilityDiscovery
+	if a.capabilityDiscovery != nil {
+		capDisc = a.capabilityDiscovery
+	}
+	return &rpc.Deps{
+		Provider:     a.providerManager,
+		DB:           a.dbManager,
+		MCP:          a.mcpManager,
+		SSH:          a.sshManager,
+		Plugin:       a.pluginManager,
+		Pty:          a.ptyManager,
+		Process:      a.processManager,
+		Models:       a.modelRegistry,
+		Config:       a.config,
+		EventHub:     a.eventHub,
+		Activity:     a.claudeActivity,
+		CapDiscovery: capDisc,
+		BulkHub:      a.bulkHub,
+	}
 }
 
 // ClaudeManager exposes the initialized Claude session manager for read-only runtime composition.
