@@ -24,15 +24,17 @@ func TestBuildArgs(t *testing.T) {
 	d := &Driver{}
 
 	args := d.BuildArgs(provider.SessionConfig{
-		Model: "anthropic/claude-sonnet-4-20250514",
+		Model: "openai/gpt-5.5",
 		Extra: map[string]string{
-			"session_dir": `C:\tmp\pi-sessions`,
+			"session_dir":    `C:\tmp\pi-sessions`,
+			"thinking_level": "high",
 		},
 	})
 
 	want := []string{
 		"--mode", "rpc",
-		"--model", "anthropic/claude-sonnet-4-20250514",
+		"--model", "openai/gpt-5.5",
+		"--thinking", "high",
 		"--session-dir", `C:\tmp\pi-sessions`,
 	}
 	if !slices.Equal(args, want) {
@@ -58,6 +60,22 @@ func TestPromptCommand(t *testing.T) {
 	}
 	if got["streamingBehavior"] != "followUp" {
 		t.Fatalf("streamingBehavior = %#v, want followUp", got["streamingBehavior"])
+	}
+}
+
+func TestEnvVarsMapsAuthTokenToSelectedPiModelProvider(t *testing.T) {
+	d := &Driver{}
+
+	vars := d.EnvVars(provider.SessionConfig{
+		Model:     "deepseek/deepseek-v4-flash",
+		AuthToken: "secret",
+	})
+
+	if vars["DEEPSEEK_API_KEY"] != "secret" {
+		t.Fatalf("DEEPSEEK_API_KEY = %q, want secret", vars["DEEPSEEK_API_KEY"])
+	}
+	if _, ok := vars["OPENAI_API_KEY"]; ok {
+		t.Fatalf("unexpected OPENAI_API_KEY for deepseek model: %#v", vars)
 	}
 }
 

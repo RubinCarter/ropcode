@@ -73,6 +73,9 @@ func (d *Driver) BuildArgs(config provider.SessionConfig) []string {
 		args = append(args, "--model", config.Model)
 	}
 	if config.Extra != nil {
+		if thinkingLevel := config.Extra["thinking_level"]; thinkingLevel != "" {
+			args = append(args, "--thinking", thinkingLevel)
+		}
 		if sessionDir := config.Extra["session_dir"]; sessionDir != "" {
 			args = append(args, "--session-dir", sessionDir)
 		}
@@ -83,9 +86,13 @@ func (d *Driver) BuildArgs(config provider.SessionConfig) []string {
 func (d *Driver) EnvVars(config provider.SessionConfig) map[string]string {
 	vars := make(map[string]string)
 	if config.AuthToken != "" {
-		vars["ANTHROPIC_API_KEY"] = config.AuthToken
-		vars["OPENAI_API_KEY"] = config.AuthToken
-		vars["GEMINI_API_KEY"] = config.AuthToken
+		if key := apiKeyEnvForModel(config.Model); key != "" {
+			vars[key] = config.AuthToken
+		} else {
+			vars["ANTHROPIC_API_KEY"] = config.AuthToken
+			vars["OPENAI_API_KEY"] = config.AuthToken
+			vars["GEMINI_API_KEY"] = config.AuthToken
+		}
 	}
 	for k, v := range config.Extra {
 		if len(k) > 4 && k[:4] == "env_" {
@@ -150,11 +157,6 @@ func (d *Driver) WaitForInit(session provider.SessionHandle, timeout time.Durati
 
 func (d *Driver) OnProcessStart(_ context.Context, session provider.SessionHandle, _ int) error {
 	config := session.GetConfig()
-	if level := config.Extra["thinking_level"]; level != "" {
-		if err := writeThinkingLevel(session, level); err != nil {
-			return err
-		}
-	}
 	if config.Prompt == "" {
 		return nil
 	}
@@ -215,6 +217,48 @@ func splitModel(model string) (string, string) {
 		}
 	}
 	return "", model
+}
+
+func apiKeyEnvForModel(model string) string {
+	providerID, _ := splitModel(model)
+	switch providerID {
+	case "anthropic":
+		return "ANTHROPIC_API_KEY"
+	case "openai":
+		return "OPENAI_API_KEY"
+	case "google", "gemini":
+		return "GEMINI_API_KEY"
+	case "deepseek":
+		return "DEEPSEEK_API_KEY"
+	case "groq":
+		return "GROQ_API_KEY"
+	case "cerebras":
+		return "CEREBRAS_API_KEY"
+	case "xai":
+		return "XAI_API_KEY"
+	case "fireworks":
+		return "FIREWORKS_API_KEY"
+	case "together":
+		return "TOGETHER_API_KEY"
+	case "openrouter":
+		return "OPENROUTER_API_KEY"
+	case "ai-gateway":
+		return "AI_GATEWAY_API_KEY"
+	case "zai":
+		return "ZAI_API_KEY"
+	case "mistral":
+		return "MISTRAL_API_KEY"
+	case "minimax":
+		return "MINIMAX_API_KEY"
+	case "moonshot", "kimi":
+		return "MOONSHOT_API_KEY"
+	case "opencode":
+		return "OPENCODE_API_KEY"
+	case "cloudflare":
+		return "CLOUDFLARE_API_KEY"
+	default:
+		return ""
+	}
 }
 
 // --- HistoryProvider implementation ---
