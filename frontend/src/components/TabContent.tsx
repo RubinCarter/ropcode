@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { providers } from '@/lib/providers';
 import { shouldKeepTabMounted } from '@/lib/tabUtils';
+import * as rpcClient from '@/lib/rpc-client';
 
 // Lazy load heavy components
 const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
@@ -57,6 +58,78 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
     }
 
     try {
+      // ProjectChat mode: use unified cross-provider chat
+      if (tab.projectChatId) {
+        const currentModel = tab.sessionData?.model || '';
+        const result = await rpcClient.SwitchProjectChatProvider(
+          tab.projectChatId, providerId, currentModel
+        );
+
+        const newSegment = {
+          id: result.segment_id,
+          provider: result.provider,
+          model: result.model,
+          runtimeSessionId: result.runtime_session_id,
+          streamId: result.stream_id,
+          seq: (tab.projectChatSegments?.length || 0),
+        };
+
+        updateTab(tab.id, {
+          providerId,
+          sessionId: result.runtime_session_id,
+          projectChatSegments: [
+            ...(tab.projectChatSegments || []),
+            newSegment,
+          ],
+        });
+        return;
+      }
+
+      // Auto-create ProjectChat on first provider switch if there's an active session
+      const actualProjectPath = tab.sessionData?.project_path || tab.initialProjectPath;
+      if (tab.sessionId && tab.providerId && actualProjectPath) {
+        try {
+          const chat = await rpcClient.CreateProjectChat(
+            actualProjectPath, tab.providerId, tab.sessionData?.model || '', '', tab.sessionId
+          );
+
+          // Build initial segment from current session
+          const initialSegment = {
+            id: chat.segment_id,
+            provider: tab.providerId,
+            model: tab.sessionData?.model || '',
+            runtimeSessionId: tab.sessionId,
+            streamId: chat.stream_id,
+            seq: 0,
+          };
+
+          // Now switch to the new provider
+          const result = await rpcClient.SwitchProjectChatProvider(
+            chat.chat_id, providerId, tab.sessionData?.model || ''
+          );
+
+          const newSegment = {
+            id: result.segment_id,
+            provider: result.provider,
+            model: result.model,
+            runtimeSessionId: result.runtime_session_id,
+            streamId: result.stream_id,
+            seq: 1,
+          };
+
+          updateTab(tab.id, {
+            providerId,
+            sessionId: result.runtime_session_id,
+            projectChatId: chat.chat_id,
+            projectChatSegments: [initialSegment, newSegment],
+          });
+          return;
+        } catch (err) {
+          console.warn('[TabPanel] Failed to create ProjectChat, falling back to legacy:', err);
+        }
+      }
+
+      // Legacy mode: per-provider session switching
       // Save current provider's session before switching
       const currentProviderSessions = tab.providerSessions || {};
       if (tab.providerId && tab.sessionId && tab.sessionData) {
@@ -78,7 +151,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
       }
 
       // Get the actual project path - use sessionData if available, otherwise initialProjectPath
-      const actualProjectPath = tab.sessionData?.project_path || tab.initialProjectPath;
+      const legacyProjectPath = tab.sessionData?.project_path || tab.initialProjectPath;
 
       // Check if we have a previous session for this provider
       const previousSession = currentProviderSessions[providerId];
@@ -94,7 +167,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
       } else {
         // No previous session - load sessions and pick the latest one
         try {
-          const sessionList = await providers.listSessions(actualProjectPath, providerId);
+          const sessionList = await providers.listSessions(legacyProjectPath, providerId);
 
           if (sessionList.length === 0) {
             // No sessions exist - clear current session and start fresh
@@ -141,7 +214,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
 
       // Save the provider selection to project index
       try {
-        await api.updateProjectLastProvider(actualProjectPath, providerId);
+        await api.updateProjectLastProvider(legacyProjectPath, providerId);
       } catch (err) {
         console.warn(`Failed to save last provider:`, err);
       }
@@ -165,11 +238,13 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
         return (
           <div className="h-full w-full flex flex-col pt-4">
             <AiCodeSession
-              key={`${tab.id}-${tab.providerId || 'claude'}`} // Force remount when provider changes
+              key={tab.id}
               session={tab.sessionData} // Pass the full session object if available
               initialProjectPath={tab.initialProjectPath || tab.sessionData?.project_path || tab.sessionData?.project_id || undefined}
               defaultProvider={tab.providerId || "claude"}
               skipSessionRestore={tab.skipSessionRestore}
+              projectChatId={tab.projectChatId}
+              projectChatSegments={tab.projectChatSegments}
               onBack={() => {
                 // Close current tab - projects are in sidebar
                 closeTab(tab.id);

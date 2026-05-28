@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { api } from "@/lib/api";
+import { SendProjectChatMessage, CreateProjectChat } from "@/lib/rpc-client";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
 import { resetRuntimeTracker } from "../state/runtimeTrackerStore";
 import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "../utils/clearCommand";
@@ -22,6 +23,8 @@ interface SessionPromptActionsTracking {
 
 export interface UseSessionPromptActionsOptions {
   defaultProvider: string;
+  projectChatId?: string;
+  onProjectChatCreated?: (chatId: string, streamId: string) => void;
   sessionState: UseSessionStateReturn;
   messagesState: UseSessionMessagesReturn;
   processState: UseProcessStateReturn;
@@ -51,6 +54,8 @@ export interface UseSessionPromptActionsReturn {
 
 export function useSessionPromptActions({
   defaultProvider,
+  projectChatId,
+  onProjectChatCreated,
   sessionState,
   messagesState,
   processState,
@@ -236,7 +241,26 @@ export function useSessionPromptActions({
       const currentInteractiveSessionId = processState.interactiveSessionIdRef.current;
       const currentEffectiveSession = sessionState.effectiveSession;
 
-      if (currentInteractiveSessionId) {
+      // ProjectChat mode: route through virtual session
+      // Auto-create ProjectChat on first send if not exists
+      let activeChatId = projectChatId;
+      if (!activeChatId && sessionState.projectPath) {
+        try {
+          const chat = await CreateProjectChat(
+            sessionState.projectPath, activeProvider, model, providerApiId || '', currentInteractiveSessionId || ''
+          );
+          activeChatId = chat.chat_id;
+          onProjectChatCreated?.(chat.chat_id, chat.stream_id);
+        } catch (err) {
+          console.warn('[AiCodeSession] Failed to auto-create ProjectChat, using legacy path:', err);
+        }
+      }
+
+      if (activeChatId) {
+        console.log('[AiCodeSession] Sending via ProjectChat:', activeChatId);
+        trackEvent.modelSelected(model);
+        await SendProjectChatMessage(activeChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
+      } else if (currentInteractiveSessionId) {
         // Interactive session is alive (real-time state), send message directly
         console.log('[AiCodeSession] Sending to active interactive session:', currentInteractiveSessionId);
         trackEvent.sessionResumed(currentInteractiveSessionId);

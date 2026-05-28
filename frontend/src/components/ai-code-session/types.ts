@@ -63,6 +63,25 @@ export interface AiCodeSessionProps {
    * Callback when a turn or process completes and history may have changed.
    */
   onSessionActivityComplete?: (sessionId?: string | null) => void;
+  /**
+   * ProjectChat ID for unified cross-provider chat mode.
+   */
+  projectChatId?: string;
+  /**
+   * Segments of the ProjectChat for multi-stream message rendering.
+   */
+  projectChatSegments?: Array<{
+    id: string;
+    provider: string;
+    model: string;
+    runtimeSessionId: string;
+    streamId: string;
+    seq: number;
+  }>;
+  /**
+   * Callback when a ProjectChat is auto-created on first message send.
+   */
+  onProjectChatCreated?: (chatId: string, streamId: string) => void;
 }
 
 /**

@@ -20,6 +20,15 @@ export interface WorkspaceTab {
   projectPath?: string;
   providerId?: string;
   providerSessions?: Record<string, { sessionId: string; sessionData: any }>;
+  projectChatId?: string;
+  projectChatSegments?: Array<{
+    id: string;
+    provider: string;
+    model: string;
+    runtimeSessionId: string;
+    streamId: string;
+    seq: number;
+  }>;
   skipSessionRestore?: boolean;
   sessionResetNonce?: number;
   status: 'active' | 'idle' | 'running' | 'closed' | 'complete' | 'error';

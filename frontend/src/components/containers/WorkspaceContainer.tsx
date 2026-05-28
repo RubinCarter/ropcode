@@ -7,6 +7,8 @@ import { providers } from '@/lib/providers';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { WorkspaceTabManager } from './WorkspaceTabManager';
 import type { ProviderSessionSummary } from '@/lib/api';
+import * as rpcClient from '@/lib/rpc-client';
+import { clearSessionFrames } from '@/stores/sessionFrameStore';
 
 // Lazy load heavy components
 const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
@@ -204,6 +206,79 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     }
 
     try {
+      // ProjectChat mode: use unified cross-provider chat
+      if (tab.projectChatId) {
+        const currentModel = tab.sessionData?.model || '';
+        const result = await rpcClient.SwitchProjectChatProvider(
+          tab.projectChatId, providerId, currentModel
+        );
+
+        // Clear old frames from the virtual stream before new provider starts
+        clearSessionFrames(tab.projectChatId);
+
+        const newSegment = {
+          id: result.segment_id,
+          provider: result.provider,
+          model: result.model,
+          runtimeSessionId: result.runtime_session_id,
+          streamId: result.stream_id,
+          seq: (tab.projectChatSegments?.length || 0),
+        };
+
+        updateTab(tabId, {
+          providerId,
+          sessionId: result.runtime_session_id,
+          projectChatSegments: [
+            ...(tab.projectChatSegments || []),
+            newSegment,
+          ],
+        });
+        return;
+      }
+
+      // Auto-create ProjectChat on first provider switch if there's an active session
+      const actualProjectPath = tab.sessionData?.project_path || tab.projectPath || workspaceId;
+      if (tab.sessionId && tab.providerId && actualProjectPath) {
+        try {
+          const chat = await rpcClient.CreateProjectChat(
+            actualProjectPath, tab.providerId, tab.sessionData?.model || '', '', tab.sessionId
+          );
+
+          const initialSegment = {
+            id: chat.segment_id,
+            provider: tab.providerId,
+            model: tab.sessionData?.model || '',
+            runtimeSessionId: tab.sessionId,
+            streamId: chat.stream_id,
+            seq: 0,
+          };
+
+          const result = await rpcClient.SwitchProjectChatProvider(
+            chat.chat_id, providerId, tab.sessionData?.model || ''
+          );
+
+          const newSegment = {
+            id: result.segment_id,
+            provider: result.provider,
+            model: result.model,
+            runtimeSessionId: result.runtime_session_id,
+            streamId: result.stream_id,
+            seq: 1,
+          };
+
+          updateTab(tabId, {
+            providerId,
+            sessionId: result.runtime_session_id,
+            projectChatId: chat.chat_id,
+            projectChatSegments: [initialSegment, newSegment],
+          });
+          return;
+        } catch (err) {
+          console.warn('[WorkspaceContainer] Failed to create ProjectChat, falling back to legacy:', err);
+        }
+      }
+
+      // Legacy mode: per-provider session switching
       // Save current provider's session before switching
       const currentProviderSessions = tab.providerSessions || {};
       if (tab.providerId && tab.sessionId && tab.sessionData) {
@@ -225,7 +300,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       }
 
       // Get the actual project path
-      const actualProjectPath = tab.sessionData?.project_path || tab.projectPath || workspaceId;
+      const legacyProjectPath = tab.sessionData?.project_path || tab.projectPath || workspaceId;
 
       // Check if we have a previous session for this provider
       const previousSession = currentProviderSessions[providerId];
@@ -241,7 +316,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       } else {
         // No previous session - load sessions and pick the latest one
         try {
-          const sessionList = await providers.listSessions(actualProjectPath, providerId);
+          const sessionList = await providers.listSessions(legacyProjectPath, providerId);
 
           if (sessionList.length === 0) {
             // No sessions exist - clear current session and start fresh
@@ -456,11 +531,13 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       case 'chat':
         return (
             <AiCodeSession
-            key={`${tab.id}-${tab.providerId || 'claude'}-${tab.sessionResetNonce ?? 0}`}
+            key={`${tab.id}-${tab.sessionResetNonce ?? 0}`}
             session={tab.sessionData}
             initialProjectPath={tab.projectPath}
             defaultProvider={tab.providerId}
             skipSessionRestore={tab.skipSessionRestore}
+            projectChatId={tab.projectChatId}
+            projectChatSegments={tab.projectChatSegments}
             onBack={handleBack}
             onStreamingChange={(isStreaming, sessionId) => handleStreamingChange(tab.id, isStreaming, sessionId)}
             onProcessAliveChange={(isAlive) => handleProcessAliveChange(tab.id, isAlive)}
@@ -468,6 +545,19 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             onProviderChange={handleProviderChange}
             onSessionTitleGenerated={(title) => updateTab(tab.id, { title })}
             onSessionActivityComplete={(sessionId) => handleSessionActivityComplete(tab.id, sessionId)}
+            onProjectChatCreated={(chatId, streamId) => {
+              updateTab(tab.id, {
+                projectChatId: chatId,
+                projectChatSegments: [{
+                  id: chatId,
+                  provider: tab.providerId || 'claude',
+                  model: '',
+                  runtimeSessionId: '',
+                  streamId,
+                  seq: 0,
+                }],
+              });
+            }}
           />
         );
 

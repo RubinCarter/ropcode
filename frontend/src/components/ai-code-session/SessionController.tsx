@@ -30,6 +30,8 @@ import { SessionStreamProvider } from "./transport/SessionStreamProvider";
 import { SessionMessagePane } from "./messages/SessionMessagePane";
 import { SessionLayoutChrome } from "./layout/SessionLayoutChrome";
 import { CopyConversationMenu } from "./composer/CopyConversationMenu";
+import { LoadProjectChatHistory } from "@/lib/rpc-client";
+import { replaceSessionFrames } from "@/stores/sessionFrameStore";
 
 // Import refactored hooks and types
 import type { AiCodeSessionProps } from "./types";
@@ -82,6 +84,9 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   onProviderChange,
   onSessionTitleGenerated,
   onSessionActivityComplete,
+  projectChatId,
+  projectChatSegments,
+  onProjectChatCreated,
 }) => {
   // ==================================================================
   // REFS (Must be declared before hooks that use them)
@@ -201,8 +206,45 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     refreshKey: `${processState.isLoading}:${processState.interactiveSessionId ?? ''}`,
   });
 
-  const activeStreamId = streamIdForRuntimeSession(defaultProvider, processState.interactiveSessionId || sessionState.extractedSessionInfo?.runtimeSessionId);
+  const activeStreamId = projectChatId
+    ? projectChatId
+    : streamIdForRuntimeSession(defaultProvider, processState.interactiveSessionId || sessionState.extractedSessionInfo?.runtimeSessionId);
+
+  // Debug: log activeStreamId changes
+  useEffect(() => {
+    console.log('[SessionController] activeStreamId changed:', activeStreamId, 'projectChatSegments:', projectChatSegments?.length, 'defaultProvider:', defaultProvider);
+  }, [activeStreamId, projectChatSegments?.length, defaultProvider]);
+
   const frameRuntimeState = useSessionRuntime(activeStreamId);
+
+  // ProjectChat: load all segment history when segments change
+  useEffect(() => {
+    if (!projectChatId || !projectChatSegments || projectChatSegments.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const allFrames = await LoadProjectChatHistory(projectChatId);
+        if (cancelled || !allFrames || !Array.isArray(allFrames) || allFrames.length === 0) return;
+        // Store frames under each segment's streamId
+        const framesByStream = new Map<string, typeof allFrames>();
+        for (const frame of allFrames) {
+          const sid = frame.streamId;
+          if (!framesByStream.has(sid)) {
+            framesByStream.set(sid, []);
+          }
+          framesByStream.get(sid)!.push(frame);
+        }
+        for (const [sid, frames] of framesByStream) {
+          replaceSessionFrames(sid, frames);
+        }
+      } catch (err) {
+        console.warn('[SessionController] Failed to load ProjectChat history:', err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [projectChatId, projectChatSegments?.length]);
   const terminalFrameRuntimePhase = frameRuntimeState.runtime?.phase;
   const terminalFrameRuntime =
     terminalFrameRuntimePhase === 'completed' ||
@@ -296,6 +338,8 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   });
   const { handleSendPrompt, handleCancelExecution } = useSessionPromptActions({
     defaultProvider,
+    projectChatId,
+    onProjectChatCreated,
     sessionState,
     messagesState,
     processState,

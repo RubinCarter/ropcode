@@ -124,6 +124,10 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
   useProcessChanged(projectPath, (event) => {
     if (event.state === "running") {
       hasActiveSessionRef.current = true;
+      // Set interactiveSessionId from the event if available
+      if (event.session_id) {
+        setInteractiveSessionIdWithRef(event.session_id);
+      }
       // In interactive mode, don't set isLoading based on process state.
       // isLoading is controlled by message flow (send -> result).
       if (!interactiveSessionIdRef.current) {

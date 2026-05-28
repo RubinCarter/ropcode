@@ -126,6 +126,34 @@ func (d *Database) init() error {
 	CREATE INDEX IF NOT EXISTS idx_model_configs_provider ON model_configs(provider_id);
 	CREATE INDEX IF NOT EXISTS idx_model_configs_model_id ON model_configs(model_id);
 	CREATE INDEX IF NOT EXISTS idx_model_configs_default ON model_configs(is_default);
+
+	CREATE TABLE IF NOT EXISTS project_chats (
+		id TEXT PRIMARY KEY,
+		project_path TEXT NOT NULL,
+		title TEXT,
+		active_provider TEXT NOT NULL,
+		active_segment_id TEXT,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS chat_segments (
+		id TEXT PRIMARY KEY,
+		project_chat_id TEXT NOT NULL,
+		provider TEXT NOT NULL,
+		model TEXT,
+		runtime_session_id TEXT,
+		provider_session_id TEXT,
+		seq INTEGER NOT NULL,
+		status TEXT NOT NULL DEFAULT 'active',
+		context_injected INTEGER DEFAULT 0,
+		created_at INTEGER NOT NULL,
+		completed_at INTEGER,
+		FOREIGN KEY (project_chat_id) REFERENCES project_chats(id)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_project_chats_project ON project_chats(project_path);
+	CREATE INDEX IF NOT EXISTS idx_chat_segments_chat ON chat_segments(project_chat_id);
 	`
 
 	_, err := d.db.Exec(schema)

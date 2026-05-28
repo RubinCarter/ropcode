@@ -19,6 +19,7 @@ import (
 	"ropcode/internal/models"
 	"ropcode/internal/plugin"
 	"ropcode/internal/process"
+	"ropcode/internal/projectchat"
 	"ropcode/internal/provider"
 	providerClaude "ropcode/internal/provider/claude"
 	providerCodex "ropcode/internal/provider/codex"
@@ -54,6 +55,7 @@ type App struct {
 	modelRegistry       *models.Registry
 	capabilityDiscovery claude.CapabilityDiscovery
 	sessionTitles       *sessionTitleStore
+	projectChatManager  *projectchat.Manager
 }
 
 // NewApp creates a new App application struct
@@ -120,6 +122,9 @@ func (a *App) startup(ctx context.Context) {
 	a.providerManager.RegisterDriver(&providerCodex.Driver{})
 	a.providerManager.RegisterDriver(&providerGemini.Driver{})
 	a.providerManager.RegisterDriver(&providerDeepseek.Driver{})
+
+	// Initialize project chat manager
+	a.projectChatManager = projectchat.NewManager(a.dbManager, a.providerManager, a.eventHub, a.sessionStreamHub)
 
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution
@@ -344,6 +349,7 @@ func (a *App) RPCDeps() *rpc.Deps {
 	}
 	return &rpc.Deps{
 		Provider:     a.providerManager,
+		ProjectChat:  a.projectChatManager,
 		DB:           a.dbManager,
 		MCP:          a.mcpManager,
 		SSH:          a.sshManager,

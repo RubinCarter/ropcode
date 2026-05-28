@@ -89,7 +89,7 @@ func SessionHandlers(d *Deps) map[string]Handler {
 			projectPath := argString(p, 0)
 			providerName := argString(p, 1)
 			sessions, err := d.Provider.ListProviderSessions(providerName, projectPath)
-			if err != nil {
+			if err != nil || sessions == nil {
 				return []any{}, nil
 			}
 			return sessions, nil

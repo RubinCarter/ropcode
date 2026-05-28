@@ -163,6 +163,18 @@ function textOnly(content: ContentBlock[]): boolean {
   return content.every((block) => block.type === 'text');
 }
 
+export function getProjectChatMessages(
+  segments: Array<{ streamId: string; seq: number }>
+): SessionDisplayMessage[] {
+  const sorted = [...segments].sort((a, b) => a.seq - b.seq);
+  const allMessages: SessionDisplayMessage[] = [];
+  for (const segment of sorted) {
+    const segmentMessages = getSessionMessages(segment.streamId);
+    allMessages.push(...segmentMessages);
+  }
+  return allMessages;
+}
+
 function frameIdsFor(streamId: string): Set<string> {
   let ids = frameIdsByStream.get(streamId);
   if (!ids) {

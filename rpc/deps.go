@@ -10,6 +10,7 @@ import (
 	"ropcode/internal/models"
 	"ropcode/internal/plugin"
 	"ropcode/internal/process"
+	"ropcode/internal/projectchat"
 	"ropcode/internal/provider"
 	"ropcode/internal/pty"
 	"ropcode/internal/ssh"
@@ -19,6 +20,7 @@ import (
 // Deps holds all dependencies needed by RPC handlers.
 type Deps struct {
 	Provider       *provider.Manager
+	ProjectChat    *projectchat.Manager
 	DB             *database.Database
 	MCP            *mcp.Manager
 	SSH            *ssh.Manager

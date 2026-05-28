@@ -893,6 +893,82 @@ export function LoadSubagentTranscripts(
   return wsClient.call('LoadSubagentTranscripts', sessionId, projectId);
 }
 
+// --- ProjectChat ---
+
+export interface ProjectChat {
+  id: string;
+  project_path: string;
+  title?: string;
+  active_provider: string;
+  active_segment_id?: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ChatSegment {
+  id: string;
+  project_chat_id: string;
+  provider: string;
+  model?: string;
+  runtime_session_id?: string;
+  provider_session_id?: string;
+  seq: number;
+  status: string;
+  context_injected: boolean;
+  created_at: number;
+  completed_at?: number;
+}
+
+export interface ProjectChatDetail {
+  chat: ProjectChat;
+  segments: ChatSegment[];
+}
+
+export interface SwitchResult {
+  chat_id: string;
+  segment_id: string;
+  runtime_session_id: string;
+  stream_id: string;
+  provider: string;
+  model: string;
+}
+
+export function CreateProjectChat(projectPath: string, providerId: string, model: string, providerApiId?: string, existingSessionId?: string): Promise<SwitchResult> {
+  return wsClient.call('CreateProjectChat', projectPath, providerId, model, providerApiId || '', existingSessionId || '');
+}
+
+export function SendProjectChatMessage(chatId: string, message: string, model?: string, providerApiId?: string, reasoningEffort?: string): Promise<string> {
+  return wsClient.call('SendProjectChatMessage', chatId, message, model || '', providerApiId || '', reasoningEffort || '');
+}
+
+export function SwitchProjectChatProvider(chatId: string, providerId: string, model: string, providerApiId?: string): Promise<SwitchResult> {
+  return wsClient.call('SwitchProjectChatProvider', chatId, providerId, model, providerApiId || '');
+}
+
+export function InterruptProjectChat(chatId: string): Promise<void> {
+  return wsClient.call('InterruptProjectChat', chatId);
+}
+
+export function GetProjectChat(chatId: string): Promise<ProjectChatDetail> {
+  return wsClient.call('GetProjectChat', chatId);
+}
+
+export function GetActiveChatForProject(projectPath: string): Promise<ProjectChat | null> {
+  return wsClient.call('GetActiveChatForProject', projectPath);
+}
+
+export function ListProjectChats(projectPath: string): Promise<ProjectChat[]> {
+  return wsClient.call('ListProjectChats', projectPath);
+}
+
+export function ResumeProjectChat(chatId: string): Promise<string> {
+  return wsClient.call('ResumeProjectChat', chatId);
+}
+
+export function LoadProjectChatHistory(chatId: string): Promise<SessionFrame[]> {
+  return wsClient.call('LoadProjectChatHistory', chatId);
+}
+
 export function StreamSessionOutput(projectPath: string, sessionId: string): Promise<void> {
   return wsClient.call('StreamSessionOutput', projectPath, sessionId);
 }

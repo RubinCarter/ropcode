@@ -25,6 +25,7 @@ func Build(deps *Deps) map[string]Handler {
 	merge(m, AgentHandlers(deps))
 	merge(m, ProjectHandlers(deps))
 	merge(m, SessionHandlers(deps))
+	merge(m, ProjectChatHandlers(deps))
 	merge(m, MiscHandlers(deps))
 	merge(m, ClaudeAgentsHandlers(deps))
 	return m
