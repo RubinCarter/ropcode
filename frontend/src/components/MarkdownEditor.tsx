@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import MDEditor from "@uiw/react-md-editor";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { Save, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toast, ToastContainer } from "@/components/ui/toast";
@@ -42,6 +43,7 @@ const PROVIDER_INFO: Record<Provider, { name: string; file: string; path: string
 export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
   className,
 }) => {
+  const { t } = useTranslation();
   const [selectedProvider, setSelectedProvider] = useState<Provider>("claude");
   const [content, setContent] = useState<string>("");
   const [originalContent, setOriginalContent] = useState<string>("");
@@ -80,7 +82,7 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
       setToast(null);
       await api.saveProviderSystemPrompt(selectedProvider, content);
       setOriginalContent(content);
-      setToast({ message: `${currentProviderInfo.file} saved successfully`, type: "success" });
+      setToast({ message: `${currentProviderInfo.file} ${t("markdown.saved")}`, type: "success" });
     } catch (err) {
       console.error(`Failed to save ${selectedProvider} system prompt:`, err);
       setError(`Failed to save ${currentProviderInfo.file}`);
@@ -93,7 +95,7 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
   const handleProviderChange = (newProvider: Provider) => {
     if (hasChanges) {
       const confirmSwitch = window.confirm(
-        `You have unsaved changes to ${currentProviderInfo.file}. Are you sure you want to switch providers?`
+        t("markdown.unsavedChanges")
       );
       if (!confirmSwitch) return;
     }
@@ -109,7 +111,7 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
           {/* Title and Save Button */}
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-semibold">Memory</h1>
+              <h1 className="text-2xl font-semibold">{t("sidebar.memory")}</h1>
               <p className="mt-1 text-sm text-muted-foreground">
                 Store and manage context for your AI workflows
               </p>
@@ -122,12 +124,12 @@ export const MarkdownEditor: React.FC<MarkdownEditorProps> = ({
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  {t("markdown.saving")}
                 </>
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
-                  Save
+                  {t("markdown.save")}
                 </>
               )}
             </Button>

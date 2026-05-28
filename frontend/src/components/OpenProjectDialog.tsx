@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { FolderOpen, X, AlertCircle, CheckCircle2, Loader2, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, type Project } from '@/lib/api';
@@ -21,6 +22,7 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { t } = useTranslation();
   // Form state
   const [selectedPath, setSelectedPath] = useState('');
   const [isGitRepo, setIsGitRepo] = useState<boolean | null>(null);
@@ -114,7 +116,7 @@ export const OpenProjectDialog: React.FC<OpenProjectDialogProps> = ({
 
   const handleCreateProject = async () => {
     if (!selectedPath) {
-      setError('Please select a project folder');
+      setError(t("projects.openProject"));
       return;
     }
 

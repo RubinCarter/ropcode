@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import type { main } from "@/lib/api";
@@ -68,6 +69,7 @@ export const SkillPicker: React.FC<SkillPickerProps> = ({
   className,
   anchorRef,
 }) => {
+  const { t } = useTranslation();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -268,7 +270,7 @@ export const SkillPicker: React.FC<SkillPickerProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Skills</span>
+            <span className="text-sm font-medium">{t("capability.title")}</span>
             {searchQuery && (
               <span className="text-xs text-muted-foreground">
                 Searching: &quot;{searchQuery}&quot;
@@ -285,7 +287,7 @@ export const SkillPicker: React.FC<SkillPickerProps> = ({
       <div className="flex-1 overflow-y-auto relative">
         {isLoading && (
           <div className="flex items-center justify-center h-full">
-            <span className="text-sm text-muted-foreground">Loading skills...</span>
+            <span className="text-sm text-muted-foreground">{t("capability.loading")}</span>
           </div>
         )}
 
@@ -302,7 +304,7 @@ export const SkillPicker: React.FC<SkillPickerProps> = ({
               <div className="flex flex-col items-center justify-center h-full">
                 <Sparkles className="h-8 w-8 text-muted-foreground mb-2" />
                 <span className="text-sm text-muted-foreground">
-                  {searchQuery ? "No skills found" : "No skills available"}
+                  {searchQuery ? t("capability.noResults") : t("common.noResults")}
                 </span>
               </div>
             )}
@@ -412,7 +414,7 @@ export const SkillPicker: React.FC<SkillPickerProps> = ({
       {/* Footer */}
       <div className="border-t border-border p-2">
         <p className="text-xs text-muted-foreground text-center">
-          ↑↓ Navigate • Enter Select • Esc Close
+          ↑↓ {t("common.previous")}/{t("common.next")} • Enter {t("common.ok")} • Esc {t("common.close")}
         </p>
       </div>
     </motion.div>
