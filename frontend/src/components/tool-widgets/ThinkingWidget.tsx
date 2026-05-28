@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { 
   CheckCircle2, 
   Circle, 
@@ -140,7 +141,8 @@ export const ThinkingWidget: React.FC<{
   signature?: string;
 } & ControlledExpansionProps> = ({ thinking, ...expansionProps }) => {
   const [isExpanded, setIsExpanded] = useControlledExpansion(expansionProps);
-  
+  const { t } = useTranslation();
+
   // Strip whitespace from thinking content
   const trimmedThinking = thinking.trim();
   
@@ -156,7 +158,7 @@ export const ThinkingWidget: React.FC<{
             <Sparkles className="h-2.5 w-2.5 text-gray-400 absolute -top-1 -right-1" />
           </div>
           <span className="text-sm font-medium text-gray-600 dark:text-gray-400 italic">
-            Thinking...
+            {t('stream.thinking')}
           </span>
         </div>
         <ChevronRight className={cn(

@@ -593,7 +593,17 @@
     "runningCount": "{{count}} 运行中",
     "doneCount": "{{count}} 已完成",
     "failedCount": "{{count}} 失败",
-    "tokensInOut": "Token：{{input}} 输入，{{output}} 输出"
+    "tokensInOut": "Token：{{input}} 输入，{{output}} 输出",
+    "toolActive": "工具 · {{name}}",
+    "agentsRunning": "{{count}} 运行中",
+    "agentsDone": "{{count}} 完成",
+    "agentsFailed": "{{count}} 失败",
+    "agentsTotal": "{{count}} 个代理",
+    "toolsCount": "{{count}} 工具",
+    "agentTokens": "{{count}} 代理 token",
+    "referenceDetails": "参考详情",
+    "skillDetails": "技能详情",
+    "message": "消息"
   },
   "capability": {
     "title": "Claude 能力",

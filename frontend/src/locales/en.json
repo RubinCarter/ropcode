@@ -593,7 +593,17 @@
     "runningCount": "{{count}} running",
     "doneCount": "{{count}} done",
     "failedCount": "{{count}} failed",
-    "tokensInOut": "Tokens: {{input}} in, {{output}} out"
+    "tokensInOut": "Tokens: {{input}} in, {{output}} out",
+    "toolActive": "Tool · {{name}}",
+    "agentsRunning": "{{count}} running",
+    "agentsDone": "{{count}} done",
+    "agentsFailed": "{{count}} failed",
+    "agentsTotal": "{{count}} agents",
+    "toolsCount": "{{count}} tools",
+    "agentTokens": "{{count}} agent tokens",
+    "referenceDetails": "Reference details",
+    "skillDetails": "Skill details",
+    "message": "Message"
   },
   "capability": {
     "title": "Claude Capabilities",
