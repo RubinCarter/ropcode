@@ -2,11 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -90,7 +88,6 @@ func newTestProviderManager(t *testing.T) *provider.Manager {
 	mgr.SetBinaryPath("codex", fakeBin)
 	mgr.SetBinaryPath("gemini", fakeBin)
 	mgr.SetBinaryPath("deepseek", fakeBin)
-	mgr.SetBinaryPath("pi", fakeBin)
 	return mgr
 }
 
@@ -398,158 +395,4 @@ func TestSendProviderSessionMessage_PreservesCodexConfigOnRestart(t *testing.T) 
 	if reasoningEffort != "medium" {
 		t.Fatalf("expected restarted reasoning effort to be preserved, got %q", reasoningEffort)
 	}
-}
-
-func writeFakePiRPCBinary(t *testing.T, logPath string) string {
-	t.Helper()
-
-	if runtime.GOOS == "windows" {
-		binPath := filepath.Join(t.TempDir(), "fake-pi.cmd")
-		script := "@echo off\r\n" +
-			"echo {\"id\":\"startup\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"sessionId\":\"provider-pi-1\",\"sessionFile\":\"pi.jsonl\"}}\r\n" +
-			":loop\r\n" +
-			"set /p line=\r\n" +
-			"if errorlevel 1 goto end\r\n" +
-			"echo %line%>>\"" + logPath + "\"\r\n" +
-			"echo {\"id\":\"prompt\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true,\"data\":{\"sessionId\":\"provider-pi-1\",\"sessionFile\":\"pi.jsonl\"}}\r\n" +
-			"echo {\"type\":\"message_update\",\"delta\":\"pi says hi\"}\r\n" +
-			"echo {\"type\":\"agent_end\",\"success\":true}\r\n" +
-			"goto loop\r\n" +
-			":end\r\n"
-		if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
-			t.Fatalf("WriteFile failed: %v", err)
-		}
-		return binPath
-	}
-
-	binPath := filepath.Join(t.TempDir(), "fake-pi.sh")
-	script := "#!/bin/sh\n" +
-		"printf '%s\\n' '{\"id\":\"startup\",\"type\":\"response\",\"command\":\"get_state\",\"success\":true,\"data\":{\"sessionId\":\"provider-pi-1\",\"sessionFile\":\"pi.jsonl\"}}'\n" +
-		"while IFS= read -r line; do\n" +
-		"  printf '%s\\n' \"$line\" >> '" + logPath + "'\n" +
-		"  printf '%s\\n' '{\"id\":\"prompt\",\"type\":\"response\",\"command\":\"prompt\",\"success\":true,\"data\":{\"sessionId\":\"provider-pi-1\",\"sessionFile\":\"pi.jsonl\"}}'\n" +
-		"  printf '%s\\n' '{\"type\":\"message_update\",\"delta\":\"pi says hi\"}'\n" +
-		"  printf '%s\\n' '{\"type\":\"agent_end\",\"success\":true}'\n" +
-		"done\n"
-	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
-		t.Fatalf("WriteFile failed: %v", err)
-	}
-	return binPath
-}
-
-func readPiCommands(t *testing.T, logPath string) []map[string]interface{} {
-	t.Helper()
-
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatalf("ReadFile failed: %v", err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	var commands []map[string]interface{}
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		var cmd map[string]interface{}
-		if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &cmd); err != nil {
-			t.Fatalf("invalid JSON command %q: %v", line, err)
-		}
-		commands = append(commands, cmd)
-	}
-	return commands
-}
-
-func TestStartProviderSessionPiWritesInitialPrompt(t *testing.T) {
-	app := newGeminiTestApp(t)
-	projectPath := t.TempDir()
-	logPath := filepath.Join(t.TempDir(), "pi-commands.jsonl")
-	app.providerManager.SetBinaryPath("pi", writeFakePiRPCBinary(t, logPath))
-
-	sessionID, err := app.StartProviderSession("pi", projectPath, "hello pi", "anthropic/claude-sonnet-4-20250514", "", "")
-	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
-	}
-	defer app.StopProviderSession(sessionID)
-
-	waitUntil(t, 2*time.Second, func() bool {
-		if _, err := os.Stat(logPath); err != nil {
-			return false
-		}
-		return len(readPiCommands(t, logPath)) >= 1
-	})
-
-	commands := readPiCommands(t, logPath)
-	if commands[0]["type"] != "prompt" || commands[0]["message"] != "hello pi" {
-		t.Fatalf("initial command = %#v, want prompt hello pi", commands[0])
-	}
-	if _, ok := commands[0]["streamingBehavior"]; ok {
-		t.Fatalf("initial prompt should not include streamingBehavior: %#v", commands[0])
-	}
-
-}
-
-func TestSendProviderSessionMessagePiReusesProcessWithFollowUp(t *testing.T) {
-	app := newGeminiTestApp(t)
-	projectPath := t.TempDir()
-	logPath := filepath.Join(t.TempDir(), "pi-commands.jsonl")
-	app.providerManager.SetBinaryPath("pi", writeFakePiRPCBinary(t, logPath))
-
-	sessionID, err := app.StartProviderSession("pi", projectPath, "hello pi", "anthropic/claude-sonnet-4-20250514", "", "")
-	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
-	}
-	defer app.StopProviderSession(sessionID)
-
-	waitUntil(t, 2*time.Second, func() bool {
-		return len(readPiCommandsIfExists(t, logPath)) >= 1
-	})
-	firstPID := app.providerManager.GetSession(sessionID).PID
-
-	nextID, err := app.SendProviderSessionMessage("pi", projectPath, "provider-pi-1", "again")
-	if err != nil {
-		t.Fatalf("SendProviderSessionMessage failed: %v", err)
-	}
-	if nextID != sessionID {
-		t.Fatalf("expected SendProviderSessionMessage to resolve runtime id %q, got %q", sessionID, nextID)
-	}
-
-	waitUntil(t, 2*time.Second, func() bool {
-		return len(readPiCommandsIfExists(t, logPath)) >= 2
-	})
-
-	status := app.providerManager.GetSession(sessionID)
-	if status == nil {
-		t.Fatal("expected running Pi session")
-	}
-	if status.ProviderID != "pi" {
-		t.Fatalf("provider = %q, want pi", status.ProviderID)
-	}
-	if status.PID != firstPID {
-		t.Fatalf("expected follow-up to reuse process pid %d, got %d", firstPID, status.PID)
-	}
-
-	commands := readPiCommands(t, logPath)
-	followUp := commands[1]
-	if followUp["type"] != "prompt" || followUp["message"] != "again" {
-		t.Fatalf("follow-up command = %#v, want prompt again", followUp)
-	}
-	if followUp["streamingBehavior"] != "followUp" {
-		t.Fatalf("follow-up streamingBehavior = %#v, want followUp", followUp["streamingBehavior"])
-	}
-
-	output, err := app.GetProviderSessionOutput(sessionID)
-	if err != nil {
-		t.Fatalf("GetProviderSessionOutput failed: %v", err)
-	}
-	if !strings.Contains(output, "pi says hi") {
-		t.Fatalf("expected Pi stdout in output, got %q", output)
-	}
-}
-
-func readPiCommandsIfExists(t *testing.T, logPath string) []map[string]interface{} {
-	t.Helper()
-	if _, err := os.Stat(logPath); err != nil {
-		return nil
-	}
-	return readPiCommands(t, logPath)
 }

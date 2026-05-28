@@ -208,11 +208,18 @@ func (f *SessionFrame) applyResult(raw map[string]any) {
 	f.Role = RoleAssistant
 	f.Result = stringFromMap(raw, "result")
 	f.DurationMs = int64FromAny(raw["duration_ms"])
-	f.IsError = boolFromAny(raw["is_error"])
+	subtype := stringFromMap(raw, "subtype")
+	f.IsError = boolFromAny(raw["is_error"]) || subtype == "error" || subtype == "failed" || strings.Contains(subtype, "error")
 	success := !f.IsError && stringFromMap(raw, "subtype") != "error"
 	f.Success = &success
 	if f.Result != "" && len(f.Content) == 0 {
 		f.Content = []ContentBlock{{Type: ContentResult, Text: f.Result}}
+	}
+	if errorMessage := firstNonEmpty(stringFromMap(raw, "error"), stringFromMap(raw, "message")); f.IsError && errorMessage != "" {
+		f.Error = errorMessage
+		if len(f.Content) == 0 {
+			f.Content = []ContentBlock{{Type: ContentError, Text: errorMessage}}
+		}
 	}
 }
 
@@ -226,9 +233,10 @@ func (f *SessionFrame) applyTerminalTurn(event provider.OutputEvent) {
 		if f.Role == "" {
 			f.Role = RoleAssistant
 		}
-		isError := boolFromAny(event.Message["is_error"])
+		subtype := stringFromMap(event.Message, "subtype")
+		isError := boolFromAny(event.Message["is_error"]) || subtype == "error" || subtype == "failed" || strings.Contains(subtype, "error")
 		f.IsError = isError
-		success := !isError && stringFromMap(event.Message, "subtype") != "error"
+		success := !isError
 		f.Success = &success
 		phase := "completed"
 		if !success {

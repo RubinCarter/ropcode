@@ -24,17 +24,26 @@ func assistantText(text string) *provider.OutputEvent {
 }
 
 func resultEvent(success bool) *provider.OutputEvent {
+	return resultEventWithMessage(success, "")
+}
+
+func resultEventWithMessage(success bool, message string) *provider.OutputEvent {
 	subtype := "success"
 	if !success {
 		subtype = "error"
 	}
+	msg := map[string]interface{}{
+		"type":    "result",
+		"subtype": subtype,
+	}
+	if message != "" {
+		msg["error"] = message
+		msg["message"] = message
+	}
 	return &provider.OutputEvent{
 		Type:    "assistant",
 		Subtype: "result",
-		Message: map[string]interface{}{
-			"type":    "result",
-			"subtype": subtype,
-		},
+		Message: msg,
 	}
 }
 

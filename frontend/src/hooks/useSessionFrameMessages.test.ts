@@ -70,6 +70,36 @@ test('legacyPayloadFromFrame overlays runtime identity onto raw provider data', 
   assert.equal(message.debug_meta.runtime_state.phase, 'completed');
 });
 
+test('legacyPayloadFromFrame overlays result error semantics onto raw provider data', () => {
+  const payload = legacyPayloadFromFrame(frame({
+    streamId: 'pi:runtime-1',
+    provider: 'pi',
+    runtimeSessionId: 'runtime-1',
+    kind: 'result',
+    role: 'assistant',
+    subtype: 'error',
+    isError: true,
+    error: 'Request timed out.',
+    runtime: { phase: 'failed' },
+    meta: {
+      raw: {
+        type: 'result',
+        subtype: 'error',
+        error: 'Request timed out.',
+      },
+    },
+  }));
+
+  assert.ok(payload);
+  const message = JSON.parse(payload);
+  assert.equal(message.type, 'result');
+  assert.equal(message.subtype, 'error');
+  assert.equal(message.is_error, true);
+  assert.equal(message.error, 'Request timed out.');
+  assert.equal(message.runtime_session_id, 'runtime-1');
+  assert.equal(message.debug_meta.runtime_state.phase, 'failed');
+});
+
 test('legacyPayloadFromFrame does not feed sidechain frames into the root message handler', () => {
   const payload = legacyPayloadFromFrame(frame({
     sidechain: true,
@@ -82,6 +112,23 @@ test('legacyPayloadFromFrame does not feed sidechain frames into the root messag
         subtype: 'task_notification',
         task_id: 'agent-1',
         status: 'completed',
+      },
+    },
+  }));
+
+  assert.equal(payload, null);
+});
+
+test('legacyPayloadFromFrame does not feed hidden metadata into the root message handler', () => {
+  const payload = legacyPayloadFromFrame(frame({
+    kind: 'metadata',
+    role: 'system',
+    subtype: 'message_update',
+    meta: {
+      raw: {
+        type: 'system',
+        subtype: 'message_update',
+        debug_meta: { hidden_by_default: true },
       },
     },
   }));

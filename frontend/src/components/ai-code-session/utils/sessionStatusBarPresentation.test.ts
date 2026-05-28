@@ -164,7 +164,7 @@ test('buildSessionStatusBarModel formats Pi provider labels', async () => {
       totalToolUseCount: 0,
       totalTokenCount: 0,
     },
-    promptConfig: { provider: 'pi', model: 'anthropic/claude-sonnet-4-20250514' },
+    promptConfig: { provider: 'pi', model: 'openai/gpt-5.5' },
     isLoading: true,
     interactiveSessionId: 'runtime-1',
     stopVisible: false,

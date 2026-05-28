@@ -164,6 +164,14 @@ function parseEventObject(payload: unknown): Record<string, any> | null {
   return null;
 }
 
+function isTerminalErrorMessage(message: ClaudeStreamMessage): boolean {
+  const subtype = String((message as any).subtype || '');
+  return (message as any).is_error === true ||
+    subtype === 'failed' ||
+    subtype === 'error' ||
+    subtype.includes('error');
+}
+
 /**
  * Hook to manage session events
  */
@@ -417,6 +425,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
         flushRuntimeTracker();
         flushPendingSessionSave();
         const runtimeSessionId = (message as any).runtime_session_id || message.session_id;
+        const isTerminalError = isAssistantEndTurn ? false : isTerminalErrorMessage(message);
         const completionSessionId = runtimeSessionId ||
           extractedSessionInfoRef.current?.runtimeSessionId ||
           claudeSessionId ||
@@ -425,11 +434,11 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
           provider,
           streamId,
           completionSessionId,
-          status: isAssistantEndTurn ? 'completed' : ((message as any).is_error ? 'failed' : 'completed'),
+          status: isTerminalError ? 'failed' : 'completed',
         });
         void onComplete?.({
-          success: !(message as any).is_error,
-          status: isAssistantEndTurn ? 'completed' : ((message as any).is_error ? 'failed' : 'completed'),
+          success: !isTerminalError,
+          status: isTerminalError ? 'failed' : 'completed',
           session_id: completionSessionId,
           cwd: (message as any).cwd,
           provider,
