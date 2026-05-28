@@ -7,6 +7,7 @@ import { buildAppMenuTemplate } from './app-menu';
 import { createInstallEnvironment, installCliToPath, resolvePackagedCliBinaryPath } from './cli-installer';
 import { resolveDevCliBinaryPath } from './main-paths';
 import { createFileLogger, patchConsoleToFile } from './file-logger';
+import { setLocale, t } from './i18n';
 
 let mainWindow: BrowserWindow | null = null;
 let goServerInfo: GoServerInfo | null = null;
@@ -47,21 +48,24 @@ async function installCliFromMenu(): Promise<void> {
   try {
     const result = await installCliToPath(createInstallEnvironment(getCliBinaryPath()));
     const detail = result.pathUpdated
-      ? `CLI installed at ${result.linkPath}. PATH update saved${result.shellProfilePath ? ` in ${result.shellProfilePath}` : ''}.`
-      : `CLI installed at ${result.linkPath}.`;
+      ? t('dialog.cliInstalledDetail', {
+          linkPath: result.linkPath,
+          profileNote: result.shellProfilePath ? ` in ${result.shellProfilePath}` : '',
+        })
+      : t('dialog.cliInstalledDetailSimple', { linkPath: result.linkPath });
 
     await dialog.showMessageBox(mainWindow, {
       type: 'info',
-      message: 'Ropcode CLI installed to PATH',
+      message: t('dialog.cliInstalled'),
       detail,
-      buttons: ['OK'],
+      buttons: [t('dialog.ok')],
     });
   } catch (error) {
     await dialog.showMessageBox(mainWindow, {
       type: 'error',
-      message: 'Failed to install Ropcode CLI to PATH',
+      message: t('dialog.cliFailed'),
       detail: error instanceof Error ? error.message : String(error),
-      buttons: ['OK'],
+      buttons: [t('dialog.ok')],
     });
   }
 }
@@ -132,11 +136,11 @@ async function createWindow() {
 
     if (params.linkURL) {
       menu.append(new MenuItem({
-        label: 'Copy Link',
+        label: t('context.copyLink'),
         click: () => clipboard.writeText(params.linkURL),
       }));
       menu.append(new MenuItem({
-        label: 'Open Link in Browser',
+        label: t('context.openInBrowser'),
         click: () => shell.openExternal(params.linkURL),
       }));
       menu.append(new MenuItem({ type: 'separator' }));
@@ -263,6 +267,11 @@ function registerIpcHandlers() {
 
   ipcMain.on('webview:elementSelected', (_event, elementInfo) => {
     mainWindow?.webContents.send('webview:elementSelected', elementInfo);
+  });
+
+  ipcMain.handle('app:setLocale', (_, locale: string) => {
+    setLocale(locale as 'en' | 'zh');
+    installAppMenu();
   });
 }
 
