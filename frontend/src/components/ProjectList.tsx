@@ -18,6 +18,7 @@ import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
 import { DeepSeekIcon } from "./icons/DeepSeekIcon";
 import { PiIcon } from "./icons/PiIcon";
+import { useTranslation } from 'react-i18next';
 
 interface ProjectListProps {
   /**
@@ -92,16 +93,16 @@ const getDisplayPath = (path: string | undefined, maxLength: number = 30): strin
 /**
  * Formats a timestamp to relative time (e.g., "5m ago", "3h ago", "2d ago")
  */
-const formatTimeAgo = (timestamp: number): string => {
+const formatTimeAgo = (timestamp: number, t: (key: string, opts?: any) => string): string => {
   const now = Math.floor(Date.now() / 1000);
   const diff = now - timestamp;
 
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
-  if (diff < 31536000) return `${Math.floor(diff / 2592000)}mo ago`;
-  return `${Math.floor(diff / 31536000)}y ago`;
+  if (diff < 60) return t('projects.justNow');
+  if (diff < 3600) return t('projects.minutesAgo', { count: Math.floor(diff / 60) });
+  if (diff < 86400) return t('projects.hoursAgo', { count: Math.floor(diff / 3600) });
+  if (diff < 2592000) return t('projects.daysAgo', { count: Math.floor(diff / 86400) });
+  if (diff < 31536000) return t('projects.monthsAgo', { count: Math.floor(diff / 2592000) });
+  return t('projects.yearsAgo', { count: Math.floor(diff / 31536000) });
 };
 
 type SpaceSessionCache = {
@@ -163,6 +164,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
   onSelectedSpaceChange,
   className,
 }) => {
+  const { t } = useTranslation();
   const { tabs, setActiveTab, removeTab, updateTab } = useTabContext();
   const { getInProgressTodos, getWorkspaceStatus, setWorkspaceStatus, markAsRead, clearWorkspace } = useWorkspaceTodo();
   const { closeWorkspace, isWorkspaceOpen, switchToWorkspace } = useContainerContext();
@@ -679,11 +681,11 @@ export const ProjectList: React.FC<ProjectListProps> = ({
     return (
       <div className={cn("space-y-0.5", className)}>
         {cache.loading && cache.sessions.length === 0 && (
-          <div className="px-3 py-1.5 text-xs text-muted-foreground">Loading sessions...</div>
+          <div className="px-3 py-1.5 text-xs text-muted-foreground">{t('common.loading')}...</div>
         )}
         {cache.error && (
           <div className="px-3 py-1.5 text-xs text-destructive truncate" title={cache.error}>
-            Failed to load sessions
+            {t('projects.noSessions')}
           </div>
         )}
         {cache.sessions.map((session) => {
@@ -708,8 +710,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                     <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-purple-500 ring-1 ring-background" />
                   )}
                 </span>
-                <span className={cn("min-w-0 flex-1 truncate", isRegenerating && "animate-title-generating")}>{isRegenerating ? "Generating..." : getSessionTitle(session)}</span>
-                <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity)}</span>
+                <span className={cn("min-w-0 flex-1 truncate", isRegenerating && "animate-title-generating")}>{isRegenerating ? t('common.loading') + "..." : getSessionTitle(session)}</span>
+                <span className="flex-shrink-0 text-[10px]">{formatTimeAgo(session.last_activity, t)}</span>
               </button>
               <button
                 onClick={(e) => {
@@ -737,7 +739,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
             onClick={() => loadSpaceSessions(spacePath, 0)}
             className="w-full px-3 py-1.5 flex items-center gap-2 text-left text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md"
           >
-            <span className="ml-5">More</span>
+            <span className="ml-5">{t('projects.loadMore')}</span>
           </button>
         )}
       </div>
@@ -1062,8 +1064,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                           openNewSessionTab(project.path);
                         }}
                         className="flex-shrink-0 transition-all p-1 rounded opacity-0 group-hover/project:opacity-100 hover:bg-accent"
-                        title="New session"
-                        aria-label={`New session in ${getProjectName(project.path)}`}
+                        title={t('projects.newSession')}
+                        aria-label={`${t('projects.newSession')} in ${getProjectName(project.path)}`}
                       >
                         <MessageSquarePlus className="h-3 w-3 text-muted-foreground" />
                       </button>
@@ -1117,7 +1119,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                               className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors rounded-md mb-0.5"
                             >
                               <Plus className="h-3.5 w-3.5" />
-                              <span>New workspace</span>
+                              <span>{t('projects.createWorkspace')}</span>
                             </button>
                           )}
 
@@ -1240,7 +1242,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                     ) : workspaceStatus === 'unread' ? (
                                       <span className="text-orange-500 font-medium">Unread</span>
                                     ) : (
-                                      <>{workspace.name}{workspace.name && ' · '}{formatTimeAgo(workspace.added_at)}</>
+                                      <>{workspace.name}{workspace.name && ' · '}{formatTimeAgo(workspace.added_at, t)}</>
                                     )}
                                   </div>
                                 </div>
@@ -1272,8 +1274,8 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                                     openNewSessionTab(claudeProvider.path);
                                   }}
                                   className="flex-shrink-0 transition-all p-1 rounded opacity-0 group-hover/workspace:opacity-100 hover:bg-accent"
-                                  title="New session"
-                                  aria-label={`New session in ${workspaceBranches[claudeProvider.path] || workspace.branch || workspace.name}`}
+                                  title={t('projects.newSession')}
+                                  aria-label={`${t('projects.newSession')} in ${workspaceBranches[claudeProvider.path] || workspace.branch || workspace.name}`}
                                 >
                                   <MessageSquarePlus className="h-3 w-3 text-muted-foreground" />
                                 </button>
@@ -1329,7 +1331,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                 <FolderOpen className="h-6 w-6 text-primary" />
               </div>
               <p className="text-sm text-muted-foreground">
-                No projects yet
+                {t('projects.noSessions')}
               </p>
             </div>
           )}
@@ -1342,13 +1344,13 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Trash2 className="h-5 w-5 text-destructive" />
-              Remove Project from List
+              {t('projects.deleteProject')}
             </DialogTitle>
             <DialogDescription className="pt-3 text-base">
-              This will only remove the project from the list. It will not delete any files from disk.
+              {t('projects.deleteProjectConfirm')}
               <div className="mt-3 p-3 bg-muted/50 rounded-md">
                 <p className="text-sm font-medium text-foreground">
-                  Project: {projectToDelete?.path}
+                  {t('common.name')}: {projectToDelete?.path}
                 </p>
               </div>
             </DialogDescription>
@@ -1362,14 +1364,14 @@ export const ProjectList: React.FC<ProjectListProps> = ({
                 setProjectToDelete(null);
               }}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               type="button"
               variant="destructive"
               onClick={confirmDeleteProject}
             >
-              Remove from List
+              {t('common.remove')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1381,7 +1383,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-orange-500" />
-              Cannot Delete Workspace
+              {t('projects.errorDialogTitle')}
             </DialogTitle>
             <DialogDescription className="pt-3 text-base">
               {errorMessage}
@@ -1392,7 +1394,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
               type="button"
               onClick={() => setErrorDialogOpen(false)}
             >
-              OK
+              {t('common.ok')}
             </Button>
           </DialogFooter>
         </DialogContent>

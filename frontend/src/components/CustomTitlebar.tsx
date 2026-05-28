@@ -28,6 +28,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import { useTranslation } from 'react-i18next';
 
 const SIDEBAR_RAIL_WIDTH = 64;
 const RIGHT_SIDEBAR_RAIL_WIDTH = 64;
@@ -69,6 +70,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
   rightSidebarOpen: rightSidebarOpenProp = true,
   rightSidebarWidthPercent = 35
 }) => {
+  const { t } = useTranslation();
   // Get current workspace path from ContainerContext
   const { activeType, activeWorkspaceId } = useContainerContext();
   const currentProjectPath = activeType === 'workspace' ? activeWorkspaceId : undefined;
@@ -327,7 +329,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       // Show success toast
       window.dispatchEvent(new CustomEvent('show-toast', {
         detail: {
-          message: 'Successfully merged to main branch',
+          message: t('titlebar.successMergedToMain'),
           type: 'success'
         }
       }));
@@ -339,11 +341,11 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       let message = '';
 
       if (errorMessage.includes('uncommitted changes')) {
-        message = 'Main worktree has uncommitted changes. Please commit or stash them first.';
+        message = t('titlebar.uncommittedChangesMain');
       } else if (errorMessage.includes('conflict')) {
-        message = 'Merge would result in conflicts. Please resolve manually in the main worktree directory.';
+        message = t('titlebar.mergeConflict');
       } else {
-        message = `Push failed: ${errorMessage}`;
+        message = t('titlebar.pushFailed', { error: errorMessage });
       }
 
       window.dispatchEvent(new CustomEvent('show-toast', {
@@ -373,7 +375,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       // Show success toast
       window.dispatchEvent(new CustomEvent('show-toast', {
         detail: {
-          message: 'Successfully pushed to remote',
+          message: t('titlebar.successPushedToRemote'),
           type: 'success'
         }
       }));
@@ -385,13 +387,13 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       let message = '';
 
       if (errorMessage.includes('uncommitted changes')) {
-        message = 'There are uncommitted changes. Please commit or stash them first.';
+        message = t('titlebar.uncommittedChanges');
       } else if (errorMessage.includes('rejected')) {
-        message = 'Push rejected. Please pull the latest changes first.';
+        message = t('titlebar.pushRejected');
       } else if (errorMessage.includes('No remote')) {
-        message = 'No remote repository configured.';
+        message = t('titlebar.noRemote');
       } else {
-        message = `Push failed: ${errorMessage}`;
+        message = t('titlebar.pushFailed', { error: errorMessage });
       }
 
       window.dispatchEvent(new CustomEvent('show-toast', {
@@ -427,7 +429,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       // Show success toast
       window.dispatchEvent(new CustomEvent('show-toast', {
         detail: {
-          message: 'Workspace cleaned successfully',
+          message: t('titlebar.workspaceCleanedSuccess'),
           type: 'success'
         }
       }));
@@ -439,13 +441,13 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
       let message = '';
 
       if (errorMessage.includes('not a git repository')) {
-        message = 'This directory is not a git repository.';
+        message = t('titlebar.cleanUpNotGitRepo');
       } else if (errorMessage.includes('Failed to reset changes')) {
-        message = 'Failed to reset uncommitted changes. Please check file permissions.';
+        message = t('titlebar.cleanUpResetFailed');
       } else if (errorMessage.includes('Failed to clean untracked files')) {
-        message = 'Failed to remove untracked files. Please check file permissions.';
+        message = t('titlebar.cleanUpCleanFailed');
       } else {
-        message = `Cleanup failed: ${errorMessage}`;
+        message = t('titlebar.cleanUpFailed', { error: errorMessage });
       }
 
       window.dispatchEvent(new CustomEvent('show-toast', {
@@ -551,7 +553,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 handleClose();
               }}
               className="group relative w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 transition-all duration-200 flex items-center justify-center window-no-drag"
-              title="Close"
+              title={t('titlebar.close')}
             >
               {isHovered && (
                 <X size={8} className="text-red-900 opacity-60 group-hover:opacity-100" />
@@ -565,7 +567,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 handleMinimize();
               }}
               className="group relative w-3 h-3 rounded-full bg-yellow-500 hover:bg-yellow-600 transition-all duration-200 flex items-center justify-center window-no-drag"
-              title="Minimize"
+              title={t('titlebar.minimize')}
             >
               {isHovered && (
                 <Minus size={8} className="text-yellow-900 opacity-60 group-hover:opacity-100" />
@@ -579,7 +581,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 handleMaximize();
               }}
               className="group relative w-3 h-3 rounded-full bg-green-500 hover:bg-green-600 transition-all duration-200 flex items-center justify-center window-no-drag"
-              title={isSupported ? "Fullscreen" : "Maximize"}
+              title={isSupported ? t('titlebar.fullscreen') : t('titlebar.maximize')}
             >
               {isHovered && (
                 <Square size={6} className="text-green-900 opacity-60 group-hover:opacity-100" />
@@ -624,7 +626,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                   className="px-2.5 py-1.5 rounded-md hover:bg-accent/50 transition-colors window-no-drag flex items-center gap-1.5"
                   title="Open in External Application"
                 >
-                  <span className="text-xs font-medium">Open in</span>
+                  <span className="text-xs font-medium">{t('titlebar.openIn')}</span>
                   <ChevronRight className="w-3 h-3" />
                 </button>
               </DropdownMenuTrigger>
@@ -676,7 +678,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
             >
               <Upload className="h-3.5 w-3.5" />
               <span className="text-xs font-medium">
-                {isPushing ? 'Pushing...' : 'Push'}
+                {isPushing ? t('titlebar.pushing') : t('titlebar.push')}
               </span>
             </Button>
           </div>
@@ -705,7 +707,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
             >
               <Upload className="h-3.5 w-3.5" />
               <span className="text-xs font-medium">
-                {isPushingToRemote ? 'Pushing...' : 'Push'}
+                {isPushingToRemote ? t('titlebar.pushing') : t('titlebar.push')}
               </span>
             </Button>
           </div>
@@ -726,27 +728,27 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   <span className="text-xs font-medium">
-                    {isCleaning ? 'Cleaning...' : 'Clean'}
+                    {isCleaning ? t('titlebar.cleaning') : t('titlebar.clean')}
                   </span>
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Clean Up Workspace</AlertDialogTitle>
+                  <AlertDialogTitle>{t('titlebar.cleanUpWorkspace')}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This action will perform the following irreversible operations:
+                    {t('titlebar.cleanUpDescription')}
                     <br /><br />
-                    • Reset all uncommitted changes (staged and unstaged)
+                    • {t('titlebar.cleanUpResetChanges')}
                     <br />
-                    • Remove all untracked files and directories
+                    • {t('titlebar.cleanUpRemoveUntracked')}
                     <br />
-                    • Reset to match the remote branch
+                    • {t('titlebar.cleanUpResetRemote')}
                     <br /><br />
-                    <strong>Warning: This operation cannot be undone!</strong>
+                    <strong>{t('titlebar.cleanUpWarning')}</strong>
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel onClick={handleCleanupCancel}>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel onClick={handleCleanupCancel}>{t('common.cancel')}</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={(e: React.MouseEvent) => {
                       e.preventDefault();
@@ -754,7 +756,7 @@ export const CustomTitlebar: React.FC<CustomTitlebarProps> = ({
                     }}
                     disabled={isCleaning}
                   >
-                    {isCleaning ? 'Cleaning...' : 'Clean Up'}
+                    {isCleaning ? t('titlebar.cleaning') : t('titlebar.cleanUp')}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>

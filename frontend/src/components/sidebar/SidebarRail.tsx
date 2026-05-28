@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { TooltipProvider, TooltipSimple } from '@/components/ui/tooltip-modern';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 export type SidebarPanelMode = 'projects' | 'sessions';
 
@@ -85,12 +86,13 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
   onMCPClick,
   onInfoClick,
 }) => {
+  const { t } = useTranslation();
   return (
     <TooltipProvider>
       <div className="flex h-full w-16 flex-shrink-0 flex-col items-center border-r border-border/50 bg-background py-2">
         <div className="flex flex-col items-center gap-1">
           <RailButton
-            label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            label={collapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
             onClick={onToggleCollapse}
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
@@ -99,14 +101,14 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
 
         <div className="mt-3 flex flex-col items-center gap-1">
           <RailButton
-            label="Projects"
+            label={t('sidebar.projects')}
             active={mode === 'projects'}
             onClick={() => onModeChange('projects')}
           >
             <FolderOpen className="h-4 w-4" />
           </RailButton>
           <RailButton
-            label="Sessions"
+            label={t('sidebar.sessions')}
             active={mode === 'sessions'}
             onClick={() => onModeChange('sessions')}
           >
@@ -116,11 +118,11 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
 
         <div className="mt-3 flex flex-col items-center gap-1">
           <DropdownMenu>
-            <TooltipSimple content="Add project" side="right">
+            <TooltipSimple content={t('sidebar.addProject')} side="right">
               <DropdownMenuTrigger asChild>
                 <motion.button
                   type="button"
-                  aria-label="Add project"
+                  aria-label={t('sidebar.addProject')}
                   whileTap={{ scale: 0.97 }}
                   transition={{ duration: 0.15 }}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground"
@@ -132,15 +134,15 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
             <DropdownMenuContent align="start" side="right" className="w-48">
               <DropdownMenuItem onClick={onOpenProject}>
                 <FolderOpen className="mr-2 h-4 w-4" />
-                Open Project
+                {t('sidebar.openProject')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onCloneProject}>
                 <GitBranch className="mr-2 h-4 w-4" />
-                Clone from URL
+                {t('sidebar.cloneFromUrl')}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={onSyncFromSSH}>
                 <Server className="mr-2 h-4 w-4" />
-                From SSH
+                {t('sidebar.fromSsh')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -149,7 +151,7 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
         <div className="mt-auto flex flex-col items-center gap-1">
           {onAgentsClick && (
             <RailButton
-              label="Agents"
+              label={t('sidebar.agents')}
               active={activeSystemTabType === 'agents'}
               onClick={onAgentsClick}
             >
@@ -158,7 +160,7 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
           )}
           {onUsageClick && (
             <RailButton
-              label="Usage"
+              label={t('sidebar.usage')}
               active={activeSystemTabType === 'usage'}
               onClick={onUsageClick}
             >
@@ -167,7 +169,7 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
           )}
           {onSettingsClick && (
             <RailButton
-              label="Settings"
+              label={t('sidebar.settings')}
               active={activeSystemTabType === 'settings'}
               onClick={onSettingsClick}
             >
@@ -176,11 +178,11 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
           )}
 
           <DropdownMenu>
-            <TooltipSimple content="More" side="right">
+            <TooltipSimple content={t('sidebar.more')} side="right">
               <DropdownMenuTrigger asChild>
                 <motion.button
                   type="button"
-                  aria-label="More"
+                  aria-label={t('sidebar.more')}
                   whileTap={{ scale: 0.97 }}
                   transition={{ duration: 0.15 }}
                   className={cn(
@@ -196,19 +198,19 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
               {onClaudeClick && (
                 <DropdownMenuItem onClick={onClaudeClick}>
                   <FileText className="mr-2 h-4 w-4" />
-                  Memory
+                  {t('sidebar.memory')}
                 </DropdownMenuItem>
               )}
               {onMCPClick && (
                 <DropdownMenuItem onClick={onMCPClick}>
                   <Network className="mr-2 h-4 w-4" />
-                  MCP Servers
+                  {t('sidebar.mcpServers')}
                 </DropdownMenuItem>
               )}
               {onInfoClick && (
                 <DropdownMenuItem onClick={onInfoClick}>
                   <Info className="mr-2 h-4 w-4" />
-                  About
+                  {t('sidebar.about')}
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>
