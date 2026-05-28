@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { loadPersistedLanguage } from '@/lib/i18n';
 import { api } from "@/lib/api";
 import { OutputCacheProvider } from "@/lib/outputCache";
 import { TabProvider } from "@/contexts/TabContext";
@@ -87,6 +88,11 @@ function AppContent() {
     import('@/stores/providerApiStore').then(({ useProviderApiStore }) => {
       useProviderApiStore.getState().loadConfigs();
     });
+  }, []);
+
+  // Restore persisted language on startup
+  useEffect(() => {
+    loadPersistedLanguage();
   }, []);
 
   // Note: currentProjectPath is now managed by ContainerContext, used directly in CustomTitlebar
