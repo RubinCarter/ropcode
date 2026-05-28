@@ -15,10 +15,8 @@ export function useLanguage() {
     } catch {
       // localStorage fallback via i18next detector cache
     }
-    // Notify Electron to rebuild menus (setLocale added in Task 10)
-    const eAPI = window.electronAPI as (typeof window.electronAPI & { setLocale?: (lang: string) => void }) | undefined;
-    if (eAPI?.setLocale) {
-      eAPI.setLocale(lang);
+    if (window.electronAPI?.setLocale) {
+      window.electronAPI.setLocale(lang);
     }
   }, [i18n]);
 
