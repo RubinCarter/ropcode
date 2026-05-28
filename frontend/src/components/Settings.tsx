@@ -55,7 +55,8 @@ const PluginsManager = lazy(() =>
 const DebugLogs = lazy(() =>
   import("./DebugLogs").then((m) => ({ default: m.DebugLogs })),
 );
-import { useTheme, useTrackEvent } from "@/hooks";
+import { useTranslation } from 'react-i18next';
+import { useTheme, useTrackEvent, useLanguage } from "@/hooks";
 import { analytics } from "@/lib/analytics";
 import { TabPersistenceService } from "@/services/tabPersistence";
 
@@ -112,6 +113,8 @@ export const Settings: React.FC<SettingsProps> = ({
   
   // Theme hook
   const { theme, setTheme, customColors, setCustomColors } = useTheme();
+  const { t } = useTranslation();
+  const { language, changeLanguage } = useLanguage();
   
   // Proxy state
   const [proxySettingsChanged, setProxySettingsChanged] = useState(false);
@@ -669,7 +672,43 @@ export const Settings: React.FC<SettingsProps> = ({
                         </p>
                       </div>
                     )}
-                    
+
+                    {/* Language Selector */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label>Language</Label>
+                        <p className="text-caption text-muted-foreground mt-1">
+                          Choose your preferred display language
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg">
+                        <button
+                          onClick={() => changeLanguage('en')}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                            language === 'en'
+                              ? "bg-background shadow-sm"
+                              : "hover:bg-background/50"
+                          )}
+                        >
+                          {language === 'en' && <Check className="h-3 w-3" />}
+                          English
+                        </button>
+                        <button
+                          onClick={() => changeLanguage('zh')}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all",
+                            language === 'zh'
+                              ? "bg-background shadow-sm"
+                              : "hover:bg-background/50"
+                          )}
+                        >
+                          {language === 'zh' && <Check className="h-3 w-3" />}
+                          中文
+                        </button>
+                      </div>
+                    </div>
+
                     {/* Include Co-authored By */}
                     <div className="flex items-center justify-between">
                       <div className="space-y-0.5 flex-1">
