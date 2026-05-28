@@ -12,6 +12,7 @@ import (
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/database"
 	"ropcode/internal/provider"
+	providerPi "ropcode/internal/provider/pi"
 	"ropcode/internal/stream"
 )
 
@@ -390,6 +391,9 @@ func buildUnifiedConfig(d *Deps, providerID, projectPath, prompt, model, provide
 			config.BaseURL = apiConfig.BaseURL
 		}
 	}
+	if providerID == "pi" {
+		providerPi.ApplyLocalDefaults(&config)
+	}
 	return config
 }
 
@@ -398,10 +402,21 @@ func resolveRuntimeAPIConfig(d *Deps, providerID, providerApiID string) (*databa
 		return nil, nil
 	}
 	if strings.TrimSpace(providerApiID) != "" {
-		return d.DB.GetProviderApiConfig(providerApiID)
+		if cfg, err := d.DB.GetProviderApiConfig(providerApiID); err == nil && cfg != nil {
+			return cfg, nil
+		}
+		if providerID == "pi" {
+			return providerPi.LocalProviderAPIConfig(providerApiID)
+		}
+		return nil, nil
 	}
 	if cfg, err := d.DB.GetDefaultProviderApiConfig(providerID); err == nil && cfg != nil {
 		return cfg, nil
+	}
+	if providerID == "pi" {
+		if cfg, err := providerPi.LocalDefaultProviderAPIConfig(); err == nil && cfg != nil {
+			return cfg, nil
+		}
 	}
 	all, err := d.DB.GetAllProviderApiConfigs()
 	if err != nil {

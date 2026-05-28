@@ -14,6 +14,7 @@ import (
 	"ropcode/internal/eventhub"
 	"ropcode/internal/git"
 	"ropcode/internal/provider"
+	providerPi "ropcode/internal/provider/pi"
 )
 
 func resolveInteractiveClaudeSessionStart(resumeSessionID string, hasExistingSession bool) (string, bool, bool, bool) {
@@ -59,12 +60,18 @@ func (a *App) StartProviderSession(providerName, projectPath, prompt, model, pro
 			}
 			config.Extra["thinking_level"] = reasoningEffort
 		}
+		providerPi.ApplyLocalDefaults(&config)
 	}
 	if providerApiID != "" && a.dbManager != nil {
 		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
 		if err == nil && apiConfig != nil {
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
+		} else if providerName == "pi" {
+			if apiConfig, err := providerPi.LocalProviderAPIConfig(providerApiID); err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
+			}
 		}
 	} else if (providerName == "deepseek" || providerName == "pi") && a.dbManager != nil {
 		if apiConfig, _ := a.resolveProviderAPIConfig(providerName, providerApiID); apiConfig != nil {
@@ -146,12 +153,18 @@ func (a *App) ResumeProviderSession(providerName, projectPath, prompt, model, se
 			}
 			config.Extra["thinking_level"] = reasoningEffort
 		}
+		providerPi.ApplyLocalDefaults(&config)
 	}
 	if providerApiID != "" && a.dbManager != nil {
 		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
 		if err == nil && apiConfig != nil {
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
+		} else if providerName == "pi" {
+			if apiConfig, err := providerPi.LocalProviderAPIConfig(providerApiID); err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
+			}
 		}
 	} else if (providerName == "deepseek" || providerName == "pi") && a.dbManager != nil {
 		if apiConfig, _ := a.resolveProviderAPIConfig(providerName, providerApiID); apiConfig != nil {

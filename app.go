@@ -88,6 +88,7 @@ func (a *App) startup(ctx context.Context) {
 		if err := a.modelRegistry.Initialize(); err != nil {
 			log.Printf("Failed to initialize model registry: %v", err)
 		}
+		a.SyncPiModelsFromLocalConfig()
 
 		a.loadGeneratedSessionTitles()
 	}

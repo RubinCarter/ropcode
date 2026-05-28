@@ -418,7 +418,7 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {(provider.id === "codex" || provider.id === "claude") && (
+                  {(provider.id === "codex" || provider.id === "claude" || provider.id === "pi") && (
                     <Button
                       variant="ghost"
                       size="sm"

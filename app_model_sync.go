@@ -1,18 +1,21 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
 
 	"ropcode/internal/database"
 	"ropcode/internal/provider/codex"
+	providerPi "ropcode/internal/provider/pi"
 )
 
 const anthropicVersion = "2023-06-01"
@@ -24,12 +27,59 @@ type openAIModelsResponse struct {
 }
 
 func (a *App) SyncProviderModelsFromAPI(providerID, providerApiID string) ([]*database.ModelConfig, error) {
+	return a.syncProviderModelsFromAPI(context.Background(), providerID, providerApiID)
+}
+
+func (a *App) SyncPiModelsFromLocalConfig() {
+	localCfg, err := providerPi.LoadLocalConfig()
+	if err != nil || len(localCfg.AuthProviders) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := a.syncProviderModelsFromAPI(ctx, "pi", ""); err != nil {
+		log.Printf("[ModelsSync] pi local config sync skipped: %v", err)
+	}
+}
+
+func (a *App) syncProviderModelsFromAPI(ctx context.Context, providerID, providerApiID string) ([]*database.ModelConfig, error) {
 	if a.modelRegistry == nil || a.dbManager == nil {
 		return []*database.ModelConfig{}, nil
 	}
 	providerID = strings.TrimSpace(providerID)
 	if providerID == "" {
 		return []*database.ModelConfig{}, fmt.Errorf("provider_id is required")
+	}
+
+	if providerID == "pi" {
+		modelIDs, err := fetchPiModelIDs(ctx)
+		if err != nil {
+			return []*database.ModelConfig{}, err
+		}
+		var localCfg providerPi.LocalConfig
+		var hasLocalCfg bool
+		if localCfg, err := providerPi.LoadLocalConfig(); err == nil {
+			hasLocalCfg = len(localCfg.AuthProviders) > 0
+			modelIDs = filterPiModelIDsByLocalConfig(modelIDs, localCfg)
+			if defaultID := localCfg.DefaultModelID(); defaultID != "" && localCfg.HasAuthProvider(providerPi.ModelProvider(defaultID)) {
+				modelIDs = prependModelID(modelIDs, defaultID)
+			}
+		}
+		synced, err := a.modelRegistry.SyncProviderModels(providerID, modelIDs)
+		if err != nil {
+			return synced, err
+		}
+		if hasLocalCfg {
+			if err := a.applyPiLocalModelAvailability(modelIDs); err != nil {
+				log.Printf("[ModelsSync] pi local model availability update failed: %v", err)
+			}
+			if defaultModelID := choosePiDefaultModelID(modelIDs, localCfg); defaultModelID != "" {
+				if err := a.modelRegistry.SetDefaultModel(defaultModelID); err != nil {
+					log.Printf("[ModelsSync] pi local default model update failed: %v", err)
+				}
+			}
+		}
+		return synced, nil
 	}
 
 	apiConfig, err := a.resolveProviderAPIConfig(providerID, providerApiID)
@@ -44,6 +94,112 @@ func (a *App) SyncProviderModelsFromAPI(providerID, providerApiID string) ([]*da
 	return a.modelRegistry.SyncProviderModels(providerID, modelIDs)
 }
 
+func fetchPiModelIDs(ctx context.Context) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "pi", "--list-models", "--offline")
+	cmd.Env = append(os.Environ(), "PI_OFFLINE=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("pi --list-models failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	modelIDs := parsePiListModelsOutput(string(out))
+	if len(modelIDs) == 0 {
+		return nil, fmt.Errorf("pi --list-models returned no usable models")
+	}
+	return modelIDs, nil
+}
+
+func filterPiModelIDsByLocalConfig(modelIDs []string, cfg providerPi.LocalConfig) []string {
+	if len(cfg.AuthProviders) == 0 {
+		return modelIDs
+	}
+	filtered := make([]string, 0, len(modelIDs))
+	for _, modelID := range modelIDs {
+		if cfg.HasAuthProvider(providerPi.ModelProvider(modelID)) {
+			filtered = append(filtered, modelID)
+		}
+	}
+	return filtered
+}
+
+func prependModelID(modelIDs []string, modelID string) []string {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return modelIDs
+	}
+	out := []string{modelID}
+	for _, existing := range modelIDs {
+		if existing != modelID {
+			out = append(out, existing)
+		}
+	}
+	return out
+}
+
+func choosePiDefaultModelID(modelIDs []string, cfg providerPi.LocalConfig) string {
+	if len(modelIDs) == 0 {
+		return ""
+	}
+	if defaultID := cfg.DefaultModelID(); defaultID != "" && cfg.HasAuthProvider(providerPi.ModelProvider(defaultID)) {
+		for _, modelID := range modelIDs {
+			if modelID == defaultID {
+				return defaultID
+			}
+		}
+	}
+	return modelIDs[0]
+}
+
+func (a *App) applyPiLocalModelAvailability(allowedModelIDs []string) error {
+	if a.dbManager == nil || len(allowedModelIDs) == 0 {
+		return nil
+	}
+	allowed := make(map[string]bool, len(allowedModelIDs))
+	for _, modelID := range allowedModelIDs {
+		allowed[modelID] = true
+	}
+	existing, err := a.dbManager.GetModelConfigsByProvider("pi")
+	if err != nil {
+		return err
+	}
+	for _, model := range existing {
+		if model == nil {
+			continue
+		}
+		enabled := allowed[model.ModelID]
+		if model.IsEnabled == enabled {
+			continue
+		}
+		model.IsEnabled = enabled
+		if err := a.dbManager.SaveModelConfig(model); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parsePiListModelsOutput(output string) []string {
+	seen := make(map[string]bool)
+	modelIDs := make([]string, 0)
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || strings.EqualFold(fields[0], "provider") {
+			continue
+		}
+		providerID := strings.TrimSpace(fields[0])
+		modelID := strings.TrimSpace(fields[1])
+		if providerID == "" || modelID == "" || strings.Contains(providerID, "-") && modelID == "model" {
+			continue
+		}
+		fullID := providerID + "/" + modelID
+		if !seen[fullID] {
+			seen[fullID] = true
+			modelIDs = append(modelIDs, fullID)
+		}
+	}
+	sort.Strings(modelIDs)
+	return modelIDs
+}
+
 func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*database.ProviderApiConfig, error) {
 	if strings.TrimSpace(providerApiID) != "" {
 		cfg, err := a.dbManager.GetProviderApiConfig(providerApiID)
@@ -55,6 +211,12 @@ func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*datab
 	if cfg, err := a.dbManager.GetDefaultProviderApiConfig(providerID); err == nil && cfg != nil {
 		log.Printf("[ModelsSync] %s using default api config id=%s base=%q", providerID, cfg.ID, cfg.BaseURL)
 		return cfg, nil
+	}
+	if providerID == "pi" {
+		if cfg, err := providerPi.LocalDefaultProviderAPIConfig(); err == nil && cfg != nil {
+			log.Printf("[ModelsSync] pi using local upstream config id=%s base=%q", cfg.ID, cfg.BaseURL)
+			return cfg, nil
+		}
 	}
 	if providerID == "codex" {
 		if cfg := codexConfigToProviderAPI(); cfg != nil {
