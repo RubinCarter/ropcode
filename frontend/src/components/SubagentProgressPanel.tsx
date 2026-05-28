@@ -309,9 +309,9 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">Subagents</span>
+            <span className="text-sm font-medium">{t('stream.subagents')}</span>
             <span className="text-xs text-muted-foreground">
-              {summary.subagents.length} agents
+              {t('stream.agentsCount', { count: summary.subagents.length })}
             </span>
             {summary.totalToolUseCount > 0 && (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -327,9 +327,9 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {summary.runningCount > 0 && <span>{summary.runningCount} running</span>}
-            {summary.completedCount > 0 && <span>{summary.completedCount} done</span>}
-            {summary.failedCount > 0 && <span>{summary.failedCount} failed</span>}
+            {summary.runningCount > 0 && <span>{t('stream.runningCount', { count: summary.runningCount })}</span>}
+            {summary.completedCount > 0 && <span>{t('stream.doneCount', { count: summary.completedCount })}</span>}
+            {summary.failedCount > 0 && <span>{t('stream.failedCount', { count: summary.failedCount })}</span>}
           </div>
         </div>
         <Badge variant={statusBadgeVariant(aggregateStatus)} className="text-xs flex-shrink-0">

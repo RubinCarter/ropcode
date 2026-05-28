@@ -15,6 +15,7 @@ import {
 import { emptyTranscript, parseTranscriptLines, type ParsedTranscript } from '@/lib/subagentLog';
 import { usePageVisibilityPolling } from '@/hooks';
 import { SubagentLogView } from './SubagentLogView';
+import { useTranslation } from 'react-i18next';
 
 interface ClaudeActivityPaneProps {
   workspacePath?: string;
@@ -31,6 +32,7 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
   className,
   onSnapshotChange,
 }) => {
+  const { t } = useTranslation();
   const [activeSession, setActiveSession] = useState<claude.SessionStatus | null>(null);
   const [snapshot, setSnapshot] = useState<main.ClaudeActivitySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -362,9 +364,9 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
         <div className="flex items-center gap-2">
           <Bot className="h-4 w-4 text-muted-foreground" />
           <div className="min-w-0">
-            <div className="text-sm font-medium">Claude Tasks</div>
+            <div className="text-sm font-medium">{t('sessions.claudeTasks')}</div>
             <div className="text-xs text-muted-foreground truncate">
-              {activeSession ? displayClaudeActivitySessionId(activeSession)?.slice(0, 8) : 'No running Claude session'}
+              {activeSession ? displayClaudeActivitySessionId(activeSession)?.slice(0, 8) : t('sessions.noRunningSession')}
             </div>
           </div>
         </div>
@@ -379,7 +381,7 @@ export const ClaudeActivityPane: React.FC<ClaudeActivityPaneProps> = ({
 
       {!activeSession && (
         <div className="flex-1 grid place-items-center px-4 text-center text-sm text-muted-foreground">
-          Select a Claude chat with a running interactive session.
+          {t('sessions.selectClaudeChat')}
         </div>
       )}
 

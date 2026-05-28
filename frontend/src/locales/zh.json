@@ -200,7 +200,10 @@
     "title": "会话",
     "sessionOn": "{{date}} 的会话",
     "noMessages": "暂无消息",
-    "todo": "待办"
+    "todo": "待办",
+    "claudeTasks": "Claude 任务",
+    "noRunningSession": "无正在运行的 Claude 会话",
+    "selectClaudeChat": "请选择一个正在运行交互式会话的 Claude 聊天标签。"
   },
   "agents": {
     "title": "智能体",
@@ -307,7 +310,26 @@
     "modelDeepSeekV4Flash": "DeepSeek V4 Flash",
     "modelDeepSeekV4FlashDesc": "更快的 DeepSeek 模型，适合轻量任务",
     "modelPiClaude": "Pi Claude Sonnet",
-    "modelPiClaudeDesc": "Pi 默认编程智能体模型"
+    "modelPiClaudeDesc": "Pi 默认编程智能体模型",
+    "statusReady": "就绪",
+    "statusStopping": "停止中…",
+    "statusCancelled": "已取消",
+    "statusReconnecting": "重新连接中…",
+    "statusRecovering": "恢复会话中…",
+    "statusRateLimit": "等待速率限制",
+    "statusRetrying": "重试请求中…",
+    "statusRunningSubagents": "运行子智能体中…",
+    "statusCompacting": "压缩上下文中…",
+    "statusThinking": "思考中…",
+    "statusFailed": "失败",
+    "statusCompleted": "已完成",
+    "statusStarting": "正在启动 {{provider}}…",
+    "statusWaiting": "等待 {{provider}}…",
+    "statusRunningTool": "运行 {{tool}} 中…",
+    "statusWorking": "处理中…",
+    "hintSend": "⌘/Ctrl+Enter 发送",
+    "hintStop": "停止会中断当前任务",
+    "queuedPrompts": "排队中的提示词（{{count}}）"
   },
   "clone": {
     "title": "从 URL 克隆",
@@ -542,6 +564,12 @@
     "rawOutput": "原始输出",
     "formattedOutput": "格式化输出"
   },
+  "tabs": {
+    "chat": "聊天",
+    "closeTab": "关闭标签页",
+    "closeOtherTabs": "关闭其他标签页",
+    "closeTabsToRight": "关闭右侧标签页"
+  },
   "stream": {
     "toolResult": "工具结果",
     "thinking": "思考中...",
@@ -559,7 +587,13 @@
     "copied": "已复制！",
     "copyCode": "复制代码",
     "expandAll": "全部展开",
-    "collapseAll": "全部收起"
+    "collapseAll": "全部收起",
+    "subagents": "子智能体",
+    "agentsCount": "{{count}} 个智能体",
+    "runningCount": "{{count}} 运行中",
+    "doneCount": "{{count}} 已完成",
+    "failedCount": "{{count}} 失败",
+    "tokensInOut": "Token：{{input}} 输入，{{output}} 输出"
   },
   "capability": {
     "title": "Claude 能力",

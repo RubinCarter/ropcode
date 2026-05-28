@@ -200,7 +200,10 @@
     "title": "Sessions",
     "sessionOn": "Session on {{date}}",
     "noMessages": "No messages yet",
-    "todo": "Todo"
+    "todo": "Todo",
+    "claudeTasks": "Claude Tasks",
+    "noRunningSession": "No running Claude session",
+    "selectClaudeChat": "Select a Claude chat with a running interactive session."
   },
   "agents": {
     "title": "Agents",
@@ -307,7 +310,26 @@
     "modelDeepSeekV4Flash": "DeepSeek V4 Flash",
     "modelDeepSeekV4FlashDesc": "Faster DeepSeek model for lightweight tasks",
     "modelPiClaude": "Pi Claude Sonnet",
-    "modelPiClaudeDesc": "Pi default coding agent model pattern"
+    "modelPiClaudeDesc": "Pi default coding agent model pattern",
+    "statusReady": "Ready",
+    "statusStopping": "Stopping…",
+    "statusCancelled": "Cancelled",
+    "statusReconnecting": "Reconnecting…",
+    "statusRecovering": "Recovering session…",
+    "statusRateLimit": "Rate limit wait",
+    "statusRetrying": "Retrying request…",
+    "statusRunningSubagents": "Running subagents…",
+    "statusCompacting": "Compacting context…",
+    "statusThinking": "Thinking…",
+    "statusFailed": "Failed",
+    "statusCompleted": "Completed",
+    "statusStarting": "Starting {{provider}}…",
+    "statusWaiting": "Waiting for {{provider}}…",
+    "statusRunningTool": "Running {{tool}}…",
+    "statusWorking": "Working…",
+    "hintSend": "⌘/Ctrl+Enter send",
+    "hintStop": "Stop interrupts current task",
+    "queuedPrompts": "Queued Prompts ({{count}})"
   },
   "clone": {
     "title": "Clone from URL",
@@ -542,6 +564,12 @@
     "rawOutput": "Raw Output",
     "formattedOutput": "Formatted Output"
   },
+  "tabs": {
+    "chat": "Chat",
+    "closeTab": "Close tab",
+    "closeOtherTabs": "Close other tabs",
+    "closeTabsToRight": "Close tabs to the right"
+  },
   "stream": {
     "toolResult": "Tool Result",
     "thinking": "Thinking...",
@@ -559,7 +587,13 @@
     "copied": "Copied!",
     "copyCode": "Copy code",
     "expandAll": "Expand all",
-    "collapseAll": "Collapse all"
+    "collapseAll": "Collapse all",
+    "subagents": "Subagents",
+    "agentsCount": "{{count}} agents",
+    "runningCount": "{{count}} running",
+    "doneCount": "{{count}} done",
+    "failedCount": "{{count}} failed",
+    "tokensInOut": "Tokens: {{input}} in, {{output}} out"
   },
   "capability": {
     "title": "Claude Capabilities",

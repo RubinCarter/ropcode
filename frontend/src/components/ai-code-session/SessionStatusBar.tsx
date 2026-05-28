@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import type { QueuedPrompt } from './types';
 import type { SessionStatusBarModel, SessionStatusGlyph, SessionStatusTone } from './utils/sessionStatusBarPresentation';
+import { useTranslation } from 'react-i18next';
 
 interface SessionStatusBarProps {
   model: SessionStatusBarModel;
@@ -51,7 +52,34 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   onQueueCollapsedChange,
   onRemoveQueuedPrompt,
 }) => {
+  const { t } = useTranslation();
   const Icon = glyphIcon[model.glyph];
+
+  // Translate known static primary labels produced by sessionStatusBarPresentation.ts
+  const translatePrimary = (label: string): string => {
+    const map: Record<string, string> = {
+      'Ready': t('prompt.statusReady'),
+      'Stopping…': t('prompt.statusStopping'),
+      'Cancelled': t('prompt.statusCancelled'),
+      'Reconnecting…': t('prompt.statusReconnecting'),
+      'Recovering session…': t('prompt.statusRecovering'),
+      'Rate limit wait': t('prompt.statusRateLimit'),
+      'Retrying request…': t('prompt.statusRetrying'),
+      'Running subagents…': t('prompt.statusRunningSubagents'),
+      'Compacting context…': t('prompt.statusCompacting'),
+      'Thinking…': t('prompt.statusThinking'),
+      'Failed': t('prompt.statusFailed'),
+      'Completed': t('prompt.statusCompleted'),
+    };
+    return map[label] ?? label;
+  };
+
+  // Translate known hint labels
+  const translateHint = (label: string): string => {
+    if (label === '⌘/Ctrl+Enter send') return t('prompt.hintSend');
+    if (label === 'Stop interrupts current task') return t('prompt.hintStop');
+    return label;
+  };
   const { highMetrics, otherMetrics, visibleHints, lowHint } = React.useMemo(() => {
     const highMetrics = [] as typeof model.metrics;
     const otherMetrics = [] as typeof model.metrics;
@@ -95,7 +123,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
             </div>
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="truncate text-sm font-medium">{model.primary}</span>
+                <span className="truncate text-sm font-medium">{translatePrimary(model.primary)}</span>
                 {highMetrics.map((metric) => (
                   <span key={metric.key} className="text-xs text-muted-foreground">
                     {metric.label}
@@ -117,13 +145,13 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
             <ModeBadge provider={model.mode.provider} model={model.mode.model} thinkingMode={model.mode.thinkingMode} />
             {visibleHints.map((hint) => (
               <Badge key={hint.key} variant="secondary" className="h-5 px-1.5 text-[10px] font-normal">
-                {hint.label}
+                {translateHint(hint.label)}
               </Badge>
             ))}
             {visibleHints.length === 0 && lowHint && (
               <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
                 <Clock className="h-3 w-3" />
-                {lowHint.label}
+                {translateHint(lowHint.label)}
               </span>
             )}
           </div>
@@ -133,7 +161,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
           <div className="mt-2 border-t border-border/60 pt-2">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs font-medium text-muted-foreground">
-                Queued Prompts ({queuedPrompts.length})
+                {t('prompt.queuedPrompts', { count: queuedPrompts.length })}
               </div>
               <Button
                 variant="ghost"
