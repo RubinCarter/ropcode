@@ -30,6 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Toast, ToastContainer } from "@/components/ui/toast";
 import { ModelManager } from "./ModelManager";
+import { useTranslation } from 'react-i18next';
 
 interface ProviderApiManagerProps {
   className?: string;
@@ -50,6 +51,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
   className,
   setToast,
 }) => {
+  const { t } = useTranslation();
   const [configs, setConfigs] = useState<ProviderApiConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [editDialog, setEditDialog] = useState<EditDialogState>({
@@ -86,7 +88,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
       setConfigs(loadedConfigs);
     } catch (error) {
       console.error("Failed to load provider API configs:", error);
-      showToast("Failed to load API configurations", "error");
+      showToast(t('providers.loadError'), "error");
     } finally {
       setLoading(false);
     }
@@ -127,7 +129,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
       setSaving(true);
 
       if (!formData.name.trim()) {
-        showToast("Please enter a name", "error");
+        showToast(t('providers.nameRequired'), "error");
         return;
       }
 
@@ -142,7 +144,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
           is_default: formData.is_default,
           is_builtin: false,
         });
-        showToast("API configuration created successfully", "success");
+        showToast(t('providers.created'), "success");
       } else if (editDialog.config) {
         // Update existing config
         await api.updateProviderApiConfig(editDialog.config.id, {
@@ -151,14 +153,14 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
           auth_token: formData.auth_token || undefined,
           is_default: formData.is_default,
         });
-        showToast("API configuration updated successfully", "success");
+        showToast(t('providers.updated'), "success");
       }
 
       setEditDialog({ open: false, config: null, isNew: false });
       await loadConfigs();
     } catch (error) {
       console.error("Failed to save config:", error);
-      showToast("Failed to save configuration", "error");
+      showToast(t('providers.saveError'), "error");
     } finally {
       setSaving(false);
     }
@@ -166,18 +168,18 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
 
   const handleDelete = async (config: ProviderApiConfig) => {
     if (config.is_builtin) {
-      showToast("Cannot delete built-in configuration", "error");
+      showToast(t('providers.deleteError'), "error");
       return;
     }
 
     // Delete directly without confirmation
     try {
       await api.deleteProviderApiConfig(config.id);
-      showToast("Configuration deleted successfully", "success");
+      showToast(t('providers.deleted'), "success");
       await loadConfigs();
     } catch (error) {
       console.error("Failed to delete config:", error);
-      showToast("Failed to delete configuration", "error");
+      showToast(t('providers.deleteError'), "error");
     }
   };
 
@@ -186,11 +188,11 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
       await api.updateProviderApiConfig(config.id, {
         is_default: true,
       });
-      showToast("Default API configuration updated", "success");
+      showToast(t('providers.isDefault'), "success");
       await loadConfigs();
     } catch (error) {
       console.error("Failed to set default:", error);
-      showToast("Failed to update default configuration", "error");
+      showToast(t('providers.saveError'), "error");
     }
   };
 
@@ -207,9 +209,9 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
     <div className={cn("space-y-6", className)}>
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-heading-4">Provider API Configurations</h3>
+          <h3 className="text-heading-4">{t('providers.title')}</h3>
           <p className="text-body-small text-muted-foreground mt-1">
-            Manage API endpoints for different providers
+            {t('providers.subtitle')}
           </p>
         </div>
         <Button
@@ -218,7 +220,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
           className="gap-2"
         >
           <Plus className="h-4 w-4" />
-          Add Configuration
+          {t('providers.addConfig')}
         </Button>
       </div>
 
@@ -229,7 +231,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
       ) : configs.length === 0 ? (
         <Card className="p-8 text-center">
           <p className="text-body-small text-muted-foreground">
-            No API configurations found. Create one to get started.
+            {t('providers.noConfigs')}
           </p>
         </Card>
       ) : (
@@ -256,12 +258,12 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
                             {config.is_default && (
                               <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
                                 <Star className="h-3 w-3 fill-current" />
-                                Default
+                                {t('providers.isDefault')}
                               </div>
                             )}
                             {config.is_builtin && (
                               <div className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-xs">
-                                Built-in
+                                {t('providers.isBuiltin')}
                               </div>
                             )}
                           </div>
@@ -292,7 +294,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
                               className="h-8 px-3 text-xs"
                             >
                               <Star className="h-3 w-3 mr-1" />
-                              Set Default
+                              {t('providers.setAsDefault')}
                             </Button>
                           )}
                           <Button
@@ -329,7 +331,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {editDialog.isNew ? "Create API Configuration" : "Edit API Configuration"}
+              {editDialog.isNew ? t('providers.addConfig') : t('providers.editConfig')}
             </DialogTitle>
             <DialogDescription>
               Configure API endpoint and authentication details
@@ -338,12 +340,12 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
+              <Label htmlFor="name">{t('providers.configName')} *</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Anthropic Official"
+                placeholder={t('providers.configNamePlaceholder')}
               />
             </div>
 
@@ -370,12 +372,12 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="base_url">Base URL</Label>
+              <Label htmlFor="base_url">{t('providers.baseUrl')}</Label>
               <Input
                 id="base_url"
                 value={formData.base_url}
                 onChange={(e) => setFormData({ ...formData, base_url: e.target.value })}
-                placeholder="https://api.anthropic.com"
+                placeholder={t('providers.baseUrlPlaceholder')}
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
@@ -384,13 +386,13 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="auth_token">Authentication Token</Label>
+              <Label htmlFor="auth_token">{t('providers.authToken')}</Label>
               <Input
                 id="auth_token"
                 type="password"
                 value={formData.auth_token}
                 onChange={(e) => setFormData({ ...formData, auth_token: e.target.value })}
-                placeholder="sk-ant-..."
+                placeholder={t('providers.authTokenPlaceholder')}
                 className="font-mono text-sm"
               />
               <p className="text-xs text-muted-foreground">
@@ -400,7 +402,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
 
             <div className="flex items-center justify-between pt-2">
               <div className="space-y-0.5">
-                <Label htmlFor="is_default">Set as Default</Label>
+                <Label htmlFor="is_default">{t('providers.setAsDefault')}</Label>
                 <p className="text-xs text-muted-foreground">
                   Use this configuration by default
                 </p>
@@ -419,7 +421,7 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
               onClick={() => setEditDialog({ open: false, config: null, isNew: false })}
               disabled={saving}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleSave}
@@ -428,12 +430,12 @@ export const ProviderApiManager: React.FC<ProviderApiManagerProps> = ({
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Saving...
+                  {t('common.save')}...
                 </>
               ) : (
                 <>
                   <Save className="mr-2 h-4 w-4" />
-                  Save
+                  {t('common.save')}
                 </>
               )}
             </Button>

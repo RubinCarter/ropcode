@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { api, type ClaudeAgent, type PluginAgent } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useTranslation } from 'react-i18next';
 
 interface ClaudeAgentsManagerProps {
   setToast: (toast: { message: string; type: "success" | "error" }) => void;
@@ -47,6 +48,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
   setToast,
   projectPath,
 }) => {
+  const { t } = useTranslation();
   const [agents, setAgents] = useState<ClaudeAgent[]>([]);
   const [pluginAgents, setPluginAgents] = useState<PluginAgent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,7 +86,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
       setAgents(loadedAgents);
     } catch (error) {
       console.error("Failed to load agents:", error);
-      setToast({ message: "Failed to load Claude agents", type: "error" });
+      setToast({ message: t('agents.failedToLoadAgents'), type: "error" });
     } finally {
       setLoading(false);
     }
@@ -97,7 +99,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
       setPluginAgents(loadedPluginAgents);
     } catch (error) {
       console.error("Failed to load plugin agents:", error);
-      setToast({ message: "Failed to load plugin agents", type: "error" });
+      setToast({ message: t('agents.failedToLoadAgents'), type: "error" });
     } finally {
       setLoadingPlugins(false);
     }
@@ -129,14 +131,14 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
     try {
       // Validate required fields
       if (!formData.name || !formData.description || !formData.system_prompt) {
-        setToast({ message: "Please fill in all required fields", type: "error" });
+        setToast({ message: t('common.error'), type: "error" });
         return;
       }
 
       // Validate name format
       if (!/^[a-z0-9-]+$/.test(formData.name)) {
         setToast({
-          message: "Agent name must only contain lowercase letters, numbers, and hyphens",
+          message: t('common.error'),
           type: "error",
         });
         return;
@@ -158,7 +160,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
       await api.saveClaudeAgent(agentToSave, projectPath);
 
       setToast({
-        message: `Agent "${formData.name}" saved successfully`,
+        message: t('agents.importedAgent', { name: formData.name }),
         type: "success",
       });
 
@@ -184,7 +186,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
 
     try {
       await api.deleteClaudeAgent(agent.scope, agent.name, projectPath);
-      setToast({ message: `Agent "${agent.name}" deleted`, type: "success" });
+      setToast({ message: t('agents.deletedAgent', { name: agent.name }), type: "success" });
       await loadAgents();
     } catch (error: any) {
       console.error("Failed to delete agent:", error);
@@ -214,7 +216,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h3 className="text-heading-4 mb-2">Claude Code Agents</h3>
+        <h3 className="text-heading-4 mb-2">{t('agents.title')}</h3>
         <p className="text-body-small text-muted-foreground">
           Manage Claude Code agents stored in{" "}
           <code className="px-1.5 py-0.5 bg-muted rounded text-xs">~/.claude/agents/</code> and{" "}
@@ -252,7 +254,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
           {activeScope !== "plugin" && (
             <Button onClick={handleCreate} size="sm" className="gap-2">
               <Plus className="h-4 w-4" />
-              New Agent
+              {t('agents.createAgent')}
             </Button>
           )}
         </div>
@@ -333,7 +335,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
                             className="gap-1"
                           >
                             <Edit2 className="h-3 w-3" />
-                            Edit
+                            {t('common.edit')}
                           </Button>
                           <Button
                             size="sm"
@@ -345,7 +347,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
                             className="gap-1"
                           >
                             <Trash2 className="h-3 w-3" />
-                            Delete
+                            {t('common.delete')}
                           </Button>
                         </div>
                       </Card>
@@ -462,7 +464,7 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
                 <Card className="p-6">
                   <div className="flex items-center justify-between mb-6">
                     <h4 className="text-heading-4">
-                      {isCreating ? "Create New Agent" : `Edit "${editingAgent?.name}"`}
+                      {isCreating ? t('agents.createAgent') : t('agents.editAgent')}
                     </h4>
                     <Button variant="ghost" size="icon" onClick={handleCancel}>
                       <X className="h-4 w-4" />
@@ -588,17 +590,17 @@ export const ClaudeAgentsManager: React.FC<ClaudeAgentsManagerProps> = ({
                         {saving ? (
                           <>
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            Saving...
+                            {t('settings.saving')}
                           </>
                         ) : (
                           <>
                             <Save className="h-4 w-4" />
-                            Save Agent
+                            {t('agents.createAgent')}
                           </>
                         )}
                       </Button>
                       <Button onClick={handleCancel} variant="outline">
-                        Cancel
+                        {t('common.cancel')}
                       </Button>
                     </div>
                   </div>

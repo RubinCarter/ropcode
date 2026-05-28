@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { api } from '@/lib/api';
+import { useTranslation } from 'react-i18next';
 
 export interface ProxySettings {
   http_proxy: string | null;
@@ -18,6 +19,7 @@ interface ProxySettingsProps {
 }
 
 export function ProxySettings({ setToast, onChange }: ProxySettingsProps) {
+  const { t } = useTranslation();
   const [settings, setSettings] = useState<ProxySettings>({
     http_proxy: null,
     https_proxy: null,
@@ -44,13 +46,13 @@ export function ProxySettings({ setToast, onChange }: ProxySettingsProps) {
       await api.saveSetting('proxy_settings', JSON.stringify(settings));
       setOriginalSettings(settings);
       setToast({
-        message: 'Proxy settings saved and applied successfully.',
+        message: t('proxy.saveSuccess'),
         type: 'success',
       });
     } catch (error) {
       console.error('Failed to save proxy settings:', error);
       setToast({
-        message: 'Failed to save proxy settings',
+        message: t('proxy.saveError'),
         type: 'error',
       });
       throw error; // Re-throw to let parent handle the error
@@ -77,7 +79,7 @@ export function ProxySettings({ setToast, onChange }: ProxySettingsProps) {
     } catch (error) {
       console.error('Failed to load proxy settings:', error);
       setToast({
-        message: 'Failed to load proxy settings',
+        message: t('proxy.loadError'),
         type: 'error',
       });
     }
@@ -94,16 +96,16 @@ export function ProxySettings({ setToast, onChange }: ProxySettingsProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-medium">Proxy Settings</h3>
+        <h3 className="text-lg font-medium">{t('proxy.title')}</h3>
         <p className="text-sm text-muted-foreground">
-          Configure proxy settings for Claude API requests
+          {t('proxy.subtitle')}
         </p>
       </div>
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
-            <Label htmlFor="proxy-enabled">Enable Proxy</Label>
+            <Label htmlFor="proxy-enabled">{t('proxy.enabled')}</Label>
             <p className="text-sm text-muted-foreground">
               Use proxy for all Claude API requests
             </p>
@@ -117,10 +119,10 @@ export function ProxySettings({ setToast, onChange }: ProxySettingsProps) {
 
         <div className="space-y-4" style={{ opacity: settings.enabled ? 1 : 0.5 }}>
           <div className="space-y-2">
-            <Label htmlFor="http-proxy">HTTP Proxy</Label>
+            <Label htmlFor="http-proxy">{t('proxy.httpProxy')}</Label>
             <Input
               id="http-proxy"
-              placeholder="http://proxy.example.com:8080"
+              placeholder={t('proxy.httpProxyPlaceholder')}
               value={settings.http_proxy || ''}
               onChange={(e) => handleInputChange('http_proxy', e.target.value)}
               disabled={!settings.enabled}
@@ -128,10 +130,10 @@ export function ProxySettings({ setToast, onChange }: ProxySettingsProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="https-proxy">HTTPS Proxy</Label>
+            <Label htmlFor="https-proxy">{t('proxy.httpsProxy')}</Label>
             <Input
               id="https-proxy"
-              placeholder="http://proxy.example.com:8080"
+              placeholder={t('proxy.httpsProxyPlaceholder')}
               value={settings.https_proxy || ''}
               onChange={(e) => handleInputChange('https_proxy', e.target.value)}
               disabled={!settings.enabled}
@@ -139,10 +141,10 @@ export function ProxySettings({ setToast, onChange }: ProxySettingsProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="no-proxy">No Proxy</Label>
+            <Label htmlFor="no-proxy">{t('proxy.noProxy')}</Label>
             <Input
               id="no-proxy"
-              placeholder="localhost,127.0.0.1,.example.com"
+              placeholder={t('proxy.noProxyPlaceholder')}
               value={settings.no_proxy || ''}
               onChange={(e) => handleInputChange('no_proxy', e.target.value)}
               disabled={!settings.enabled}
@@ -153,10 +155,10 @@ export function ProxySettings({ setToast, onChange }: ProxySettingsProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="all-proxy">All Proxy (Optional)</Label>
+            <Label htmlFor="all-proxy">{t('proxy.allProxy')}</Label>
             <Input
               id="all-proxy"
-              placeholder="socks5://proxy.example.com:1080"
+              placeholder={t('proxy.allProxyPlaceholder')}
               value={settings.all_proxy || ''}
               onChange={(e) => handleInputChange('all_proxy', e.target.value)}
               disabled={!settings.enabled}
