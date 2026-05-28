@@ -26,12 +26,14 @@ import {
   type PluginContents,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useTranslation } from 'react-i18next';
 
 interface PluginsManagerProps {
   setToast: (toast: { message: string; type: "success" | "error" }) => void;
 }
 
 export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
+  const { t } = useTranslation();
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedPlugin, setExpandedPlugin] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
       setPlugins(loadedPlugins);
     } catch (error) {
       console.error("Failed to load plugins:", error);
-      setToast({ message: "Failed to load plugins", type: "error" });
+      setToast({ message: t('plugins.loadError'), type: "error" });
     } finally {
       setLoading(false);
     }
@@ -71,7 +73,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
         setPluginContents((prev) => ({ ...prev, [pluginId]: contents }));
       } catch (error) {
         console.error("Failed to load plugin contents:", error);
-        setToast({ message: "Failed to load plugin contents", type: "error" });
+        setToast({ message: t('plugins.loadContentsError'), type: "error" });
       } finally {
         setLoadingContents(null);
       }
@@ -103,15 +105,14 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-heading-4 mb-2">Installed Plugins</h3>
+          <h3 className="text-heading-4 mb-2">{t('plugins.title')}</h3>
           <p className="text-body-small text-muted-foreground">
-            Browse Claude Code plugins installed via{" "}
-            <code className="px-1.5 py-0.5 bg-muted rounded text-xs">/plugins install</code>
+            {t('plugins.subtitle')}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={loadPlugins} className="gap-2">
           <RefreshCw className="h-4 w-4" />
-          Refresh
+          {t('common.refresh')}
         </Button>
       </div>
 
@@ -119,10 +120,9 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
       {plugins.length === 0 ? (
         <Card className="p-8 text-center text-muted-foreground">
           <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p className="font-medium">No plugins installed</p>
+          <p className="font-medium">{t('plugins.noPlugins')}</p>
           <p className="text-sm mt-2">
-            Install plugins using Claude Code CLI:{" "}
-            <code className="px-1.5 py-0.5 bg-muted rounded text-xs">/plugins install [name]</code>
+            {t('plugins.noPluginsDesc')}
           </p>
         </Card>
       ) : (
@@ -187,7 +187,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div className="flex items-center gap-2 text-muted-foreground">
                             <Calendar className="h-4 w-4" />
-                            <span>Installed: {formatDate(plugin.installed_at)}</span>
+                          <span>{t('plugins.installedOn', { date: formatDate(plugin.installed_at) })}</span>
                           </div>
                           {plugin.git_commit_sha && (
                             <div className="flex items-center gap-2 text-muted-foreground">
@@ -233,7 +233,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
                             {/* Agents */}
                             <ContentCard
                               icon={<Bot className="h-4 w-4" />}
-                              label="Agents"
+                              label={t('plugins.agents')}
                               count={pluginContents[plugin.id].agents.length}
                               items={pluginContents[plugin.id].agents.map((a) => a.name)}
                             />
@@ -241,7 +241,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
                             {/* Commands */}
                             <ContentCard
                               icon={<Terminal className="h-4 w-4" />}
-                              label="Commands"
+                              label={t('plugins.commands')}
                               count={pluginContents[plugin.id].commands.length}
                               items={pluginContents[plugin.id].commands.map(
                                 (c) => `/${plugin.metadata.name}:${c.name}`
@@ -251,7 +251,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
                             {/* Skills */}
                             <ContentCard
                               icon={<Sparkles className="h-4 w-4" />}
-                              label="Skills"
+                              label={t('plugins.mcpServers')}
                               count={pluginContents[plugin.id].skills.length}
                               items={pluginContents[plugin.id].skills.map((s) => s.name)}
                             />
@@ -259,7 +259,7 @@ export const PluginsManager: React.FC<PluginsManagerProps> = ({ setToast }) => {
                             {/* Hooks */}
                             <ContentCard
                               icon={<Webhook className="h-4 w-4" />}
-                              label="Hooks"
+                              label={t('plugins.hooks')}
                               count={pluginContents[plugin.id].hooks.length}
                               items={pluginContents[plugin.id].hooks.map((h) => h.event_type)}
                             />

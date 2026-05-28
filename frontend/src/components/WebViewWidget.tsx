@@ -36,6 +36,7 @@ import {
   Smartphone,
   Monitor,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface WebViewWidgetProps {
   url: string;
@@ -73,6 +74,7 @@ type WebviewElement = HTMLElement & {
 };
 
 export function WebViewWidget({ url, workspacePath, className, onUrlChange }: WebViewWidgetProps) {
+  const { t } = useTranslation();
   const webviewRef = useRef<WebviewElement | null>(null);
   const [preloadPath, setPreloadPath] = useState<string>('');
   // Store initial URL to prevent re-renders from resetting webview src
@@ -648,7 +650,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
               type="text"
               value={inputUrl}
               onChange={(e) => setInputUrl(e.target.value)}
-              placeholder="Enter URL or search..."
+              placeholder={t('viewer.urlPlaceholder')}
               className="pl-9"
             />
           </div>
@@ -745,7 +747,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             type="text"
             value={searchQuery}
             onChange={handleSearchChange}
-            placeholder="Search in page..."
+            placeholder={t('viewer.searchInOutput')}
             className="flex-1"
             autoFocus
           />
@@ -760,7 +762,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             onClick={handleSearchPrevious}
             disabled={!searchQuery || searchResultCount === 0}
           >
-            Previous
+            {t('common.previous')}
           </Button>
           <Button
             variant="ghost"
@@ -768,7 +770,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             onClick={handleSearchNext}
             disabled={!searchQuery || searchResultCount === 0}
           >
-            Next
+            {t('common.next')}
           </Button>
           <Button
             variant="ghost"
@@ -790,7 +792,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
       {/* Element Selection Info */}
       {isSelectingElement && (
         <div className="p-2 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 text-sm">
-          Click on an element to select...
+          {t('viewer.selectElement')}
         </div>
       )}
 
@@ -827,7 +829,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
           </div>
           {selectedElement.innerText && (
             <div className="text-sm">
-              <div className="font-medium mb-1">Text content:</div>
+              <div className="font-medium mb-1">{t('viewer.elementSelected')}:</div>
               <div className="text-muted-foreground line-clamp-2">
                 {selectedElement.innerText}
               </div>
@@ -837,7 +839,7 @@ export function WebViewWidget({ url, workspacePath, className, onUrlChange }: We
             <Textarea
               value={userMessage}
               onChange={(e) => setUserMessage(e.target.value)}
-              placeholder="Describe what you want AI to do with this element..."
+              placeholder={t('viewer.sendToPrompt')}
               className="flex-1 min-h-[60px]"
             />
             <Button

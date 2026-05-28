@@ -3,8 +3,8 @@ import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import { 
-  X, 
+import {
+  X,
   Command,
   Globe,
   FolderOpen,
@@ -18,6 +18,7 @@ import {
 import type { claude } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useTrackEvent, useFeatureAdoptionTracking } from "@/hooks";
+import { useTranslation } from 'react-i18next';
 
 type SlashCommand = claude.SlashCommand & { full_command?: string };
 
@@ -92,6 +93,7 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
   provider,
   anchorRef,
 }) => {
+  const { t } = useTranslation();
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [filteredCommands, setFilteredCommands] = useState<SlashCommand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -309,7 +311,7 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
       setCommands(loadedCommands.filter((cmd: SlashCommand) => cmd.command_type === provider));
     } catch (err) {
       console.error("Failed to load slash commands:", err);
-      setError(err instanceof Error ? err.message : 'Failed to load commands');
+      setError(err instanceof Error ? err.message : t('commands.loadError'));
       setCommands([]);
     } finally {
       setIsLoading(false);
@@ -354,7 +356,7 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Command className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Slash Commands</span>
+            <span className="text-sm font-medium">{t('commands.title')}</span>
             {searchQuery && (
               <span className="text-xs text-muted-foreground">
                 Searching: "{searchQuery}"
@@ -376,7 +378,7 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
       <div className="flex-1 overflow-y-auto relative">
         {isLoading && (
           <div className="flex items-center justify-center h-full">
-            <span className="text-sm text-muted-foreground">Loading commands...</span>
+            <span className="text-sm text-muted-foreground">{t('common.loading')}</span>
           </div>
         )}
 
@@ -393,7 +395,7 @@ export const SlashCommandPicker: React.FC<SlashCommandPickerProps> = ({
               <div className="flex flex-col items-center justify-center h-full">
                 <Command className="h-8 w-8 text-muted-foreground mb-2" />
                 <span className="text-sm text-muted-foreground">
-                  {searchQuery ? 'No commands found' : 'No commands available'}
+                  {searchQuery ? t('common.noResults') : t('commands.noCommandsDesc')}
                 </span>
                 {!searchQuery && (
                   <p className="text-xs text-muted-foreground mt-2 text-center px-4">

@@ -10,6 +10,7 @@ import {
 } from "../tool-widgets";
 import type { GetCardExpansionProps, StreamMessageContext } from "./context";
 import { stringifyMessageValue } from "./contentText";
+import { useTranslation } from 'react-i18next';
 
 interface RenderToolResultContentOptions {
   content: any;
@@ -114,7 +115,7 @@ export function renderToolResultContent({
       <div className="space-y-2">
         <ToolResultHeader />
         <div className="ml-6 p-3 bg-muted/50 rounded-md border text-sm text-muted-foreground italic">
-          Tool did not return any output
+          (no output)
         </div>
       </div>
     );
@@ -124,17 +125,36 @@ export function renderToolResultContent({
   const isExpanded = Boolean(toolResultExpansion.expanded);
 
   return (
+    <ExpandableToolResult
+      isError={content.is_error}
+      isExpanded={isExpanded}
+      onToggle={() => toolResultExpansion.onExpandedChange?.(!isExpanded)}
+      contentText={contentText}
+    />
+  );
+}
+
+interface ExpandableToolResultProps {
+  isError: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+  contentText: string;
+}
+
+function ExpandableToolResult({ isError, isExpanded, onToggle, contentText }: ExpandableToolResultProps) {
+  const { t } = useTranslation();
+  return (
     <div className="space-y-2">
       <button
-        onClick={() => toolResultExpansion.onExpandedChange?.(!isExpanded)}
+        onClick={onToggle}
         className="w-full flex items-center gap-2 p-3 rounded-lg bg-muted/50 hover:bg-muted/70 transition-colors text-left"
       >
-        {content.is_error ? (
+        {isError ? (
           <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0" />
         ) : (
           <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
         )}
-        <span className="text-sm font-medium">Tool Result</span>
+        <span className="text-sm font-medium">{t('stream.toolResult')}</span>
         <ChevronDown className={cn(
           "h-4 w-4 text-muted-foreground transition-transform ml-auto flex-shrink-0",
           isExpanded && "rotate-180"
@@ -172,10 +192,11 @@ function isLSResult(content: any, contentText: string, streamContext: StreamMess
 }
 
 function ToolResultHeader({ label = "Tool Result" }: { label?: string }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-2">
       <CheckCircle2 className="h-4 w-4 text-green-500" />
-      <span className="text-sm font-medium">{label}</span>
+      <span className="text-sm font-medium">{label || t('stream.toolResult')}</span>
     </div>
   );
 }
