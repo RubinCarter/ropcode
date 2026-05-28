@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
@@ -20,12 +20,14 @@ const serverExe = process.platform === 'win32'
 const cliExe = process.platform === 'win32'
   ? path.join(repoRoot, 'bin', 'win32', 'x64', 'ropcode.exe')
   : path.join(repoRoot, 'bin', 'ropcode');
+const e2eHome = path.join(artifactsDir, 'home');
 
 const children = new Set();
 const ansiPattern = /\x1b\[[0-9;]*m/g;
 
 async function main() {
   await mkdir(artifactsDir, { recursive: true });
+  await mkdir(e2eHome, { recursive: true });
 
   if (!skipBuild) {
     await run('go', ['build', '-tags', 'server', '-o', serverExe, '.'], { cwd: repoRoot, label: 'build-server' });
@@ -34,8 +36,7 @@ async function main() {
 
   const vite = await startVite();
   const authKey = crypto.randomUUID();
-  const fakePi = process.env.ROPCODE_E2E_PI_FAKE === '1' ? await createFakePiShim() : null;
-  const server = await startServer(vite.url, authKey, fakePi);
+  const server = await startServer(vite.url, authKey);
 
   try {
     const playwrightArgs = ['playwright', 'test', '--project=edge'];
@@ -52,7 +53,6 @@ async function main() {
         ROPCODE_E2E_SERVER_PORT: String(server.port),
         ROPCODE_E2E_AUTH_KEY: authKey,
         ROPCODE_E2E_HEADED: headed ? '1' : '0',
-        ...(fakePi ? { ROPCODE_E2E_PI_LOG: fakePi.logPath } : {}),
       },
     });
   } finally {
@@ -138,17 +138,20 @@ async function startVite() {
   return { child, url };
 }
 
-async function startServer(viteUrl, authKey, fakePi) {
+async function startServer(viteUrl, authKey) {
   const logPath = path.join(artifactsDir, 'ropcode-server.log');
+  const homeEnv = process.platform === 'win32'
+    ? { USERPROFILE: e2eHome, HOME: e2eHome }
+    : { HOME: e2eHome, XDG_CONFIG_HOME: path.join(e2eHome, '.config') };
   const child = spawnLogged(serverExe, [], {
     cwd: repoRoot,
     env: {
       ...process.env,
+      ...homeEnv,
       ROPCODE_AUTH_KEY: authKey,
       ROPCODE_MODE: 'websocket',
       ROPCODE_VITE_URL: viteUrl,
       ROPCODE_INSTANCE_ID: `browser-e2e-${Date.now()}`,
-      ...(fakePi ? { PATH: `${fakePi.binDir}${path.delimiter}${process.env.PATH || ''}` } : {}),
     },
   });
 
@@ -166,59 +169,6 @@ async function startServer(viteUrl, authKey, fakePi) {
   });
 
   return { child, port };
-}
-
-async function createFakePiShim() {
-  const binDir = path.join(artifactsDir, 'fake-pi-bin');
-  await mkdir(binDir, { recursive: true });
-  const logPath = path.join(artifactsDir, 'fake-pi-commands.jsonl');
-  await writeFile(logPath, '', 'utf8');
-
-  if (process.platform === 'win32') {
-    const shimPath = path.join(binDir, 'pi.cmd');
-    const nodeScriptPath = path.join(binDir, 'fake-pi.mjs');
-    const nodeScript = `import { appendFileSync } from 'node:fs';\n` +
-      `import { createInterface } from 'node:readline';\n` +
-      `const logPath = ${JSON.stringify(logPath)};\n` +
-      `const write = (line) => process.stdout.write(line + '\\n');\n` +
-      `appendFileSync(logPath, JSON.stringify({ type: 'fake_start', pid: process.pid }) + '\\n');\n` +
-      `write(JSON.stringify({ id: 'startup', type: 'response', command: 'get_state', success: true, data: { sessionId: 'fake-pi-session', sessionFile: 'fake-pi.jsonl' } }));\n` +
-      `const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });\n` +
-      `rl.on('line', (line) => {\n` +
-      `  appendFileSync(logPath, line + '\\n');\n` +
-      `  let command;\n` +
-      `  try { command = JSON.parse(line); } catch { return; }\n` +
-      `  if (command.type === 'abort') {\n` +
-      `    write(JSON.stringify({ id: 'abort', type: 'response', command: 'abort', success: true, data: { sessionId: 'fake-pi-session', sessionFile: 'fake-pi.jsonl' } }));\n` +
-      `    return;\n` +
-      `  }\n` +
-      `  if (command.type === 'prompt') {\n` +
-      `    write(JSON.stringify({ id: 'prompt', type: 'response', command: 'prompt', success: true, data: { sessionId: 'fake-pi-session', sessionFile: 'fake-pi.jsonl' } }));\n` +
-      `    write(JSON.stringify({ type: 'message_update', delta: 'Pi fake response' }));\n` +
-      `    write(JSON.stringify({ type: 'agent_end', success: true }));\n` +
-      `  }\n` +
-      `});\n`;
-    const script = `@echo off\r\n` +
-      `node "${nodeScriptPath}" %*\r\n`;
-    await writeFile(nodeScriptPath, nodeScript, 'utf8');
-    await writeFile(shimPath, script, 'utf8');
-    return { binDir, logPath };
-  }
-
-  const shimPath = path.join(binDir, 'pi');
-  const script = `#!/bin/sh\n` +
-    `printf '%s\\n' '{"type":"fake_start","pid":"'"$$"'"}' >> '${logPath}'\n` +
-    `printf '%s\\n' '{"id":"startup","type":"response","command":"get_state","success":true,"data":{"sessionId":"fake-pi-session","sessionFile":"fake-pi.jsonl"}}'\n` +
-    `while IFS= read -r line; do\n` +
-    `  printf '%s\\n' "$line" >> '${logPath}'\n` +
-    `  case "$line" in\n` +
-    `    *'"type":"abort"'*) printf '%s\\n' '{"id":"abort","type":"response","command":"abort","success":true,"data":{"sessionId":"fake-pi-session","sessionFile":"fake-pi.jsonl"}}' ;;\n` +
-    `    *'"type":"prompt"'*) printf '%s\\n' '{"id":"prompt","type":"response","command":"prompt","success":true,"data":{"sessionId":"fake-pi-session","sessionFile":"fake-pi.jsonl"}}'; printf '%s\\n' '{"type":"message_update","delta":"Pi fake response"}'; printf '%s\\n' '{"type":"agent_end","success":true}' ;;\n` +
-    `  esac\n` +
-    `done\n`;
-  await writeFile(shimPath, script, 'utf8');
-  await chmod(shimPath, 0o755);
-  return { binDir, logPath };
 }
 
 function waitForOutput(child, inspect, failureMessage) {
