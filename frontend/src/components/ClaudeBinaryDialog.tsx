@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { api, type ClaudeInstallation } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,6 +14,7 @@ interface ClaudeBinaryDialogProps {
 }
 
 export function ClaudeBinaryDialog({ open, onOpenChange, onSuccess, onError }: ClaudeBinaryDialogProps) {
+  const { t } = useTranslation();
   const [selectedInstallation, setSelectedInstallation] = useState<ClaudeInstallation | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [hasInstallations, setHasInstallations] = useState(true);
@@ -125,13 +127,13 @@ export function ClaudeBinaryDialog({ open, onOpenChange, onSuccess, onError }: C
             onClick={() => onOpenChange(false)}
             disabled={isValidating}
           >
-            Cancel
+            {t('common.cancel')}
           </Button>
-          <Button 
-            onClick={handleSave} 
+          <Button
+            onClick={handleSave}
             disabled={isValidating || !selectedInstallation || !hasInstallations}
           >
-            {isValidating ? "Validating..." : hasInstallations ? "Save Selection" : "No Installations Found"}
+            {isValidating ? t('common.loading') : hasInstallations ? t('common.save') : "No Installations Found"}
           </Button>
         </DialogFooter>
       </DialogContent>

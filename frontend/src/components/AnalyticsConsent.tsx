@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart3, Shield, X, Check, Info } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -18,6 +19,7 @@ export const AnalyticsConsent: React.FC<AnalyticsConsentProps> = ({
   onOpenChange,
   onComplete,
 }) => {
+  const { t } = useTranslation();
   const [internalOpen, setInternalOpen] = useState(false);
   const [hasShownConsent, setHasShownConsent] = useState(false);
   
@@ -70,10 +72,10 @@ export const AnalyticsConsent: React.FC<AnalyticsConsentProps> = ({
               <div className="p-2 bg-purple-100 dark:bg-purple-900/20 rounded-lg">
                 <BarChart3 className="h-6 w-6 text-purple-600 dark:text-purple-400" />
               </div>
-              <DialogTitle className="text-2xl">Help Improve Ropcode</DialogTitle>
+              <DialogTitle className="text-2xl">{t('settings.enableAnalytics')}</DialogTitle>
             </div>
             <DialogDescription className="text-base mt-2">
-              We'd like to collect anonymous usage data to improve your experience.
+              {t('settings.enableAnalyticsDesc')}
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -135,7 +137,7 @@ export const AnalyticsConsent: React.FC<AnalyticsConsentProps> = ({
             onClick={handleAccept}
             className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
           >
-            Allow Analytics
+            {t('settings.analyticsEnabled')}
           </Button>
         </div>
       </DialogContent>
@@ -150,6 +152,7 @@ interface AnalyticsConsentBannerProps {
 export const AnalyticsConsentBanner: React.FC<AnalyticsConsentBannerProps> = ({
   className,
 }) => {
+  const { t } = useTranslation();
   const [visible, setVisible] = useState(false);
   const [hasChecked, setHasChecked] = useState(false);
   
@@ -198,9 +201,9 @@ export const AnalyticsConsentBanner: React.FC<AnalyticsConsentBannerProps> = ({
             <div className="flex items-start gap-3">
               <BarChart3 className="h-5 w-5 text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
               <div className="space-y-2 flex-1">
-                <p className="text-sm font-medium">Help improve Ropcode</p>
+                <p className="text-sm font-medium">{t('settings.enableAnalytics')}</p>
                 <p className="text-xs text-gray-600 dark:text-gray-400">
-                  We collect anonymous usage data to improve your experience. No personal data is collected.
+                  {t('settings.privacyNoPersonal')}
                 </p>
                 <div className="flex gap-2 pt-1">
                   <Button
@@ -216,7 +219,7 @@ export const AnalyticsConsentBanner: React.FC<AnalyticsConsentBannerProps> = ({
                     onClick={handleAccept}
                     className="text-xs bg-purple-600 hover:bg-purple-700 text-white"
                   >
-                    Allow
+                    {t('settings.analyticsEnabled')}
                   </Button>
                 </div>
               </div>

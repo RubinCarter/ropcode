@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,6 +30,7 @@ const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes cache - increased for bette
  * Optimized UsageDashboard component with caching and progressive loading
  */
 export const UsageDashboard: React.FC<UsageDashboardProps> = ({ }) => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<UsageStats | null>(null);
@@ -355,7 +357,7 @@ export const UsageDashboard: React.FC<UsageDashboardProps> = ({ }) => {
             <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/50 text-body-small text-destructive">
               {error}
               <Button onClick={() => loadUsageStats()} size="sm" className="ml-4">
-                Try Again
+                {t('common.retry')}
               </Button>
             </div>
           ) : stats ? (

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { 
@@ -52,6 +53,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
   onBack,
   className,
 }) => {
+  const { t } = useTranslation();
   const [run, setRun] = useState<AgentRunWithMetrics | null>(null);
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
   const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
@@ -333,7 +335,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
     return (
       <div className={cn("flex flex-col items-center justify-center h-full", className)}>
         <p className="text-destructive mb-4">{error || "Run not found"}</p>
-        <Button onClick={onBack}>Go Back</Button>
+        <Button onClick={onBack}>{t('common.back')}</Button>
       </div>
     );
   }
@@ -361,7 +363,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
               {renderIcon(run.agent_icon)}
               <div>
                 <h2 className="text-lg font-semibold">{run.agent_name}</h2>
-                <p className="text-xs text-muted-foreground">Execution History</p>
+                <p className="text-xs text-muted-foreground">{t('agents.title')}</p>
               </div>
             </div>
           </div>
@@ -375,7 +377,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
                 className="text-destructive hover:text-destructive"
               >
                 <StopCircle className="h-4 w-4 mr-1" />
-                Stop
+                {t('common.stop')}
               </Button>
             )}
             
@@ -387,7 +389,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
                   className="flex items-center gap-2"
                 >
                   <Copy className="h-4 w-4" />
-                  Copy Output
+                  {t('common.copy')}
                   <ChevronDown className="h-3 w-3" />
                 </Button>
               }

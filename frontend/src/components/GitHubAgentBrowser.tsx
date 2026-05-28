@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
@@ -39,6 +40,7 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
   onClose,
   onImportSuccess,
 }) => {
+  const { t } = useTranslation();
   const [agents, setAgents] = useState<GitHubAgentFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -202,7 +204,7 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
               )}
               <Globe className="h-5 w-5" />
               <h2 className="text-lg font-semibold leading-none tracking-tight">
-                {view === 'list' ? 'Import Agent from GitHub' : 'Agent Preview'}
+                {view === 'list' ? t('agents.importFromGithub') : 'Agent Preview'}
               </h2>
             </div>
             <Button
@@ -260,7 +262,7 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
                 <AlertCircle className="h-12 w-12 text-destructive mb-4" />
                 <p className="text-sm text-muted-foreground mb-4">{error}</p>
                 <Button onClick={fetchAgents} variant="outline" size="sm">
-                  Try Again
+                  {t('common.retry')}
                 </Button>
               </div>
             ) : filteredAgents.length === 0 ? (
@@ -300,7 +302,7 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
                             {isAgentImported(agent.name) && (
                               <Badge variant="secondary" className="ml-2 flex-shrink-0">
                                 <Check className="h-3 w-3 mr-1" />
-                                Imported
+                                {t('common.done')}
                               </Badge>
                             )}
                           </div>
@@ -319,7 +321,7 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
                             }}
                           >
                             <Eye className="h-3 w-3 mr-2" />
-                            Preview
+                            {t('common.info')}
                           </Button>
                         </CardFooter>
                       </Card>
@@ -399,7 +401,7 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
                     variant="outline"
                     onClick={handleBackToList}
                   >
-                    Back
+                    {t('common.back')}
                   </Button>
                   <Button
                     onClick={handleImportAgent}
@@ -408,17 +410,17 @@ export const GitHubAgentBrowser: React.FC<GitHubAgentBrowserProps> = ({
                     {importing ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Importing...
+                        {t('common.loading')}
                       </>
                     ) : isAgentImported(selectedAgent.file.name) ? (
                       <>
                         <Check className="h-4 w-4 mr-2" />
-                        Already Imported
+                        {t('common.done')}
                       </>
                     ) : (
                       <>
                         <Download className="h-4 w-4 mr-2" />
-                        Import Agent
+                        {t('agents.importFromGithub')}
                       </>
                     )}
                   </Button>

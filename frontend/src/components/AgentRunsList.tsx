@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
 import { Play, Clock, Hash, Bot } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -41,6 +42,7 @@ export const AgentRunsList: React.FC<AgentRunsListProps> = ({
   onRunClick,
   className,
 }) => {
+  const { t } = useTranslation();
   const [currentPage, setCurrentPage] = useState(1);
   const { createAgentTab } = useTabState();
   
@@ -133,7 +135,7 @@ export const AgentRunsList: React.FC<AgentRunsListProps> = ({
                         {run.status === "running" && (
                           <div className="flex items-center gap-1">
                             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <span className="text-xs text-green-600 font-medium">Running</span>
+                            <span className="text-xs text-green-600 font-medium">{t('agents.running')}</span>
                           </div>
                         )}
                       </div>
@@ -171,10 +173,10 @@ export const AgentRunsList: React.FC<AgentRunsListProps> = ({
                         }
                         className="text-xs"
                       >
-                        {run.status === "completed" ? "Completed" :
-                         run.status === "running" ? "Running" :
-                         run.status === "failed" ? "Failed" :
-                         "Pending"}
+                        {run.status === "completed" ? t('agents.completed') :
+                         run.status === "running" ? t('agents.running') :
+                         run.status === "failed" ? t('agents.failed') :
+                         t('agents.pending')}
                       </Badge>
                     </div>
                   </div>

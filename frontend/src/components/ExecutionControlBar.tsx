@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
 import { StopCircle, Clock, Hash } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,13 +17,14 @@ interface ExecutionControlBarProps {
  * Floating control bar shown during agent execution
  * Provides stop functionality and real-time statistics
  */
-export const ExecutionControlBar: React.FC<ExecutionControlBarProps> = ({ 
-  isExecuting, 
-  onStop, 
+export const ExecutionControlBar: React.FC<ExecutionControlBarProps> = ({
+  isExecuting,
+  onStop,
   totalTokens = 0,
   elapsedTime = 0,
-  className 
+  className
 }) => {
+  const { t } = useTranslation();
   // Format elapsed time
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -62,7 +64,7 @@ export const ExecutionControlBar: React.FC<ExecutionControlBarProps> = ({
           </div>
 
           {/* Status text */}
-          <span className="text-sm font-medium">Executing...</span>
+          <span className="text-sm font-medium">{t('agents.running')}...</span>
 
           {/* Divider */}
           <div className="h-4 w-px bg-border" />
@@ -93,7 +95,7 @@ export const ExecutionControlBar: React.FC<ExecutionControlBarProps> = ({
             className="gap-2"
           >
             <StopCircle className="h-3.5 w-3.5" />
-            Stop
+            {t('common.stop')}
           </Button>
         </motion.div>
       )}
