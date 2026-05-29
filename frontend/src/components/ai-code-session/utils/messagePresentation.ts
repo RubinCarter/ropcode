@@ -43,6 +43,27 @@ function extractUserMessageText(content: unknown): string {
   return '';
 }
 
+export function visibleUserMessageText(message: { type?: string; source?: unknown; subtype?: unknown; message?: { content?: unknown }; content?: unknown } | null | undefined): string {
+  const rawContent = message?.message?.content ?? message?.content;
+  const text = extractUserMessageText(rawContent);
+  if (message?.source === 'projectchat_context_sync' || message?.subtype === 'projectchat_context_sync') {
+    return extractPreviousConversationOnly(text);
+  }
+  return text;
+}
+
+export function extractPreviousConversationOnly(text: string): string {
+  const normalized = text.trim();
+  if (!normalized.startsWith('<previous_conversation>')) {
+    return text;
+  }
+  const end = normalized.indexOf('</previous_conversation>');
+  if (end < 0) {
+    return normalized;
+  }
+  return normalized.slice(0, end + '</previous_conversation>'.length);
+}
+
 export function classifyCollapsibleText(text: string): CollapsibleTextClassification {
   const normalized = text.trim();
 
@@ -61,6 +82,7 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
   const lineCount = normalized.split('\n').length;
   const startsWithSkillBaseDir = normalized.startsWith('Base directory for this skill:');
   const startsWithContinuationSummary = normalized.startsWith('This session is being continued from a previous conversation that ran out of context.');
+  const startsWithPreviousConversation = normalized.startsWith('<previous_conversation>');
 
   if (startsWithContinuationSummary) {
     return {
@@ -68,6 +90,16 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
       collapsible: true,
       defaultExpanded: false,
       title: 'Previous conversation summary',
+      preview: buildPreview(normalized),
+    };
+  }
+
+  if (startsWithPreviousConversation) {
+    return {
+      kind: 'structured_reference',
+      collapsible: true,
+      defaultExpanded: false,
+      title: 'Provider context sync',
       preview: buildPreview(normalized),
     };
   }
@@ -101,9 +133,8 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
   };
 }
 
-export function getUserMessagePresentation(message: { type?: string; message?: { content?: unknown }; content?: unknown } | null | undefined): UserMessagePresentation {
-  const rawContent = message?.message?.content ?? message?.content;
-  const text = extractUserMessageText(rawContent);
+export function getUserMessagePresentation(message: { type?: string; source?: unknown; subtype?: unknown; message?: { content?: unknown }; content?: unknown } | null | undefined): UserMessagePresentation {
+  const text = visibleUserMessageText(message);
   const classification = classifyCollapsibleText(text);
 
   return {

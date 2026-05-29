@@ -111,47 +111,51 @@ export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
     return parsedMessages;
   }, []);
 
-  const updateSessionCache = useCallback(async (sessionId: number, status: string) => {
+  const updateAgentRunCache = useCallback(async (runId: number, status: string) => {
     try {
-      const rawOutput = await api.getSessionOutput(sessionId);
+      const rawOutput = await api.getAgentRunOutput(runId);
       const messages = parseOutput(rawOutput);
 
-      setCachedOutput(sessionId, {
+      setCachedOutput(runId, {
         messages,
         lastUpdated: Date.now(),
         status
       });
     } catch (error) {
-      console.warn(`Failed to update cache for session ${sessionId}:`, error);
+      console.warn(`Failed to update cache for agent run ${runId}:`, error);
     }
   }, [parseOutput, setCachedOutput]);
 
-  const pollRunningSessions = useCallback(async () => {
+  const pollRunningAgentRuns = useCallback(async () => {
     try {
-      const runningSessions = await api.listRunningAgentSessions();
+      const runningRuns = await api.listRunningAgentRuns();
       
-      // Update cache for all running sessions
-      for (const session of runningSessions) {
-        if (session.id && session.status === 'running') {
-          await updateSessionCache(session.id, session.status);
+      // Update cache for all running agent runs.
+      for (const run of runningRuns) {
+        if (typeof run.id === 'number' && run.status === 'running') {
+          await updateAgentRunCache(run.id, run.status);
         }
       }
 
-      // Clean up cache for sessions that are no longer running
-      const runningIds = new Set(runningSessions.map(s => s.id).filter(Boolean));
+      // Clean up cache for agent runs that are no longer running.
+      const runningIds = new Set(
+        runningRuns
+          .map(run => run.id)
+          .filter((id): id is number => typeof id === 'number')
+      );
       setCache(prev => {
         const updated = new Map();
-        for (const [sessionId, data] of prev) {
-          if (runningIds.has(sessionId) || data.status !== 'running') {
-            updated.set(sessionId, data);
+        for (const [runId, data] of prev) {
+          if (runningIds.has(runId) || data.status !== 'running') {
+            updated.set(runId, data);
           }
         }
         return updated;
       });
     } catch (error) {
-      console.warn('Failed to poll running sessions:', error);
+      console.warn('Failed to poll running agent runs:', error);
     }
-  }, [updateSessionCache]);
+  }, [updateAgentRunCache]);
 
   const startBackgroundPolling = useCallback(() => {
     setIsPolling(true);
@@ -169,9 +173,9 @@ export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
 
   // Subscribe to process state changes - triggers polling when any process state changes
   useProcessChanged(undefined, () => {
-    // When a process state changes, trigger session polling if polling is enabled
+    // When a process state changes, refresh running agent run output if polling is enabled.
     if (isPolling) {
-      pollRunningSessions();
+      pollRunningAgentRuns();
     }
   });
 

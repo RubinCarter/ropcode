@@ -2,7 +2,7 @@ import React from "react";
 import { User } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { getUserMessagePresentation } from "../ai-code-session/utils/messagePresentation";
+import { getUserMessagePresentation, visibleUserMessageText } from "../ai-code-session/utils/messagePresentation";
 import type { ClaudeStreamMessage } from "../AgentExecution";
 import { CommandOutputWidget, CommandWidget } from "../tool-widgets";
 import { CollapsibleTextCard } from "./CollapsibleTextCard";
@@ -34,14 +34,15 @@ export const UserMessageCard: React.FC<UserMessageCardProps> = ({
 
   const msg = message.message || message;
   const userPresentation = getUserMessagePresentation(message as any);
+  const isContextSync = (message as any).source === 'projectchat_context_sync' || (message as any).subtype === 'projectchat_context_sync';
   let renderedSomething = false;
 
   const simpleContent = typeof msg.content === 'string' || (msg.content && !Array.isArray(msg.content))
     ? renderUserText({
-        text: stringifyMessageValue(msg.content),
+        text: isContextSync ? visibleUserMessageText(message as any) : stringifyMessageValue(msg.content),
         agents,
         presentation: userPresentation,
-        expansionKey: 'user-string',
+        expansionKey: isContextSync ? `projectchat-context-sync-${(message as any).session_id || 'unknown'}` : 'user-string',
         onLinkDetected,
         getCardExpansionProps,
       })
@@ -50,6 +51,7 @@ export const UserMessageCard: React.FC<UserMessageCardProps> = ({
     renderedSomething = true;
   }
 
+  let contextSyncTextRendered = false;
   const arrayContent = Array.isArray(msg.content)
     ? msg.content.map((content: any, idx: number) => {
         if (content.type === "tool_result") {
@@ -67,20 +69,31 @@ export const UserMessageCard: React.FC<UserMessageCardProps> = ({
         }
 
         if (content.type === "text") {
-          const textContent = stringifyMessageValue(content.text || content);
-          const textPresentation = getUserMessagePresentation({
-            type: 'user',
-            message: { content: [{ type: 'text', text: textContent }] },
-          });
+          if (isContextSync && contextSyncTextRendered) {
+            return null;
+          }
+          const textContent = isContextSync
+            ? visibleUserMessageText(message as any)
+            : stringifyMessageValue(content.text || content);
+          const textPresentation = isContextSync
+            ? userPresentation
+            : getUserMessagePresentation({
+                type: 'user',
+                message: { content: [{ type: 'text', text: textContent }] },
+              });
           const rendered = renderUserText({
             text: textContent,
             agents,
             presentation: textPresentation,
-            expansionKey: `user-text-${idx}`,
+            expansionKey: isContextSync ? `projectchat-context-sync-${(message as any).session_id || 'unknown'}` : `user-text-${idx}`,
+            onLinkDetected,
             getCardExpansionProps,
           });
           if (rendered) {
             renderedSomething = true;
+            if (isContextSync) {
+              contextSyncTextRendered = true;
+            }
             return <React.Fragment key={idx}>{rendered}</React.Fragment>;
           }
         }

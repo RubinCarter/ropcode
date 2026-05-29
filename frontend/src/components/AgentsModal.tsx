@@ -72,7 +72,7 @@ export const AgentsModal: React.FC<AgentsModalProps> = ({ open, onOpenChange }) 
 
   const loadRunningAgents = async () => {
     try {
-      const runs = await api.listRunningAgentSessions();
+      const runs = await api.listRunningAgentRuns();
       const agentRuns = runs.map(run => ({
         id: run.id,
         agent_id: run.agent_id,

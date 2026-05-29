@@ -7,31 +7,40 @@ export function useSessionFrameMessages(
   onMessage: (payload: string) => void,
   options: { skipInitial?: boolean } = {},
 ): void {
-  const consumedCountRef = useRef(0);
+  const consumedFrameIdsRef = useRef<Set<string>>(new Set());
+  const subscribedStreamIdRef = useRef<string | null>(null);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
   useEffect(() => {
     if (!streamId) {
       console.log('[useSessionFrameMessages] No streamId, resetting');
-      consumedCountRef.current = 0;
+      consumedFrameIdsRef.current.clear();
+      subscribedStreamIdRef.current = null;
       return;
     }
 
     console.log('[useSessionFrameMessages] Subscribing to streamId:', streamId, 'skipInitial:', options.skipInitial);
+    if (subscribedStreamIdRef.current !== streamId) {
+      consumedFrameIdsRef.current.clear();
+      subscribedStreamIdRef.current = streamId;
+    }
+
     const frames = getSessionFrames(streamId);
     console.log('[useSessionFrameMessages] Initial frames count:', frames.length);
-    consumedCountRef.current = options.skipInitial ? frames.length : 0;
+    if (options.skipInitial) {
+      for (const frame of frames) {
+        consumedFrameIdsRef.current.add(frame.frameId);
+      }
+    }
 
     const consumeFrames = () => {
       const nextFrames = getSessionFrames(streamId);
-      if (consumedCountRef.current >= nextFrames.length) {
-        return;
-      }
-      const pending = nextFrames.slice(consumedCountRef.current);
-      consumedCountRef.current = nextFrames.length;
+      const pending = getUnconsumedSessionFrames(nextFrames, consumedFrameIdsRef.current);
+      if (pending.length === 0) return;
       console.log('[useSessionFrameMessages] Consuming', pending.length, 'frames for streamId:', streamId);
       for (const frame of pending) {
+        consumedFrameIdsRef.current.add(frame.frameId);
         const payload = legacyPayloadFromFrame(frame);
         if (payload) {
           onMessageRef.current(payload);
@@ -42,6 +51,13 @@ export function useSessionFrameMessages(
     consumeFrames();
     return subscribeSessionFrames(streamId, consumeFrames);
   }, [options.skipInitial, streamId]);
+}
+
+export function getUnconsumedSessionFrames(
+  frames: SessionFrame[],
+  consumedFrameIds: ReadonlySet<string>,
+): SessionFrame[] {
+  return frames.filter((frame) => !consumedFrameIds.has(frame.frameId));
 }
 
 export function legacyPayloadFromFrame(frame: SessionFrame): string | null {

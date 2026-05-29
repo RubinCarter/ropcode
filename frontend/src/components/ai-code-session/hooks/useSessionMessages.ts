@@ -494,7 +494,7 @@ export function useSessionMessages(): UseSessionMessagesReturn {
       }
     }
 
-    if (message.type === 'user' && (message as any).source !== 'broadcast') {
+    if (message.type === 'user' && (message as any).source !== 'broadcast' && (message as any).source !== 'projectchat_context_sync') {
       pendingLocalUserMessagesRef.current++;
     }
 

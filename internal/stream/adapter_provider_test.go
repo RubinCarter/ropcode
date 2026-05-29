@@ -134,6 +134,74 @@ func TestProviderBridgeEmitsTerminalRuntimeForClaudeEndTurn(t *testing.T) {
 	}
 }
 
+func TestProviderBridgeSuppressesPlainUserEchoFrames(t *testing.T) {
+	hub := NewHub()
+	bridge := NewProviderBridge(hub)
+	sub := hub.Subscribe(StreamIDForSession("claude", "runtime-1"))
+	defer sub.Close()
+
+	err := bridge.EmitProviderOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "user",
+		SessionID: "runtime-1",
+		Provider:  "claude",
+		Message: map[string]any{
+			"type": "user",
+			"message": map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "text", "text": "<previous_conversation>\n[Assistant]: prior\n</previous_conversation>\n\nhi"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hub.Diagnostics(StreamIDForSession("claude", "runtime-1")).QueueLength; got != 0 {
+		t.Fatalf("expected user echo to be suppressed from queue, got %d frames", got)
+	}
+
+	select {
+	case frame := <-sub.C:
+		t.Fatalf("plain user echo should not be broadcast, got %#v", frame)
+	default:
+	}
+}
+
+func TestProviderBridgeSuppressesUserEchoWithInjectedSystemPrompt(t *testing.T) {
+	hub := NewHub()
+	bridge := NewProviderBridge(hub)
+	sub := hub.Subscribe(StreamIDForSession("claude", "runtime-1"))
+	defer sub.Close()
+
+	err := bridge.EmitProviderOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "user",
+		SessionID: "runtime-1",
+		Provider:  "claude",
+		Message: map[string]any{
+			"type": "user",
+			"message": map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{"type": "text", "text": "<system_instruction>\nWork inside the worktree.\n</system_instruction>\n\nhi"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hub.Diagnostics(StreamIDForSession("claude", "runtime-1")).QueueLength; got != 0 {
+		t.Fatalf("expected wrapped user echo to be suppressed from queue, got %d frames", got)
+	}
+
+	select {
+	case frame := <-sub.C:
+		t.Fatalf("wrapped user echo should not be broadcast, got %#v", frame)
+	default:
+	}
+}
+
 func TestProviderBridgeScopesTaskNotificationReplyToSidechain(t *testing.T) {
 	hub := NewHub()
 	bridge := NewProviderBridge(hub)

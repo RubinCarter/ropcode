@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SessionFrame } from '@/lib/session-frame/types';
-import { legacyPayloadFromFrame } from './useSessionFrameMessages';
+import { getUnconsumedSessionFrames, legacyPayloadFromFrame } from './useSessionFrameMessages';
 
 function frame(overrides: Partial<SessionFrame>): SessionFrame {
   return {
@@ -87,4 +87,17 @@ test('legacyPayloadFromFrame does not feed sidechain frames into the root messag
   }));
 
   assert.equal(payload, null);
+});
+
+test('getUnconsumedSessionFrames uses frame ids instead of positional counts', () => {
+  const frames = [
+    frame({ frameId: 'new-provider-init', seq: 1, runtimeSessionId: 'runtime-2' }),
+    frame({ frameId: 'old-provider-result', seq: 2, runtimeSessionId: 'runtime-1' }),
+  ];
+  const consumed = new Set(['old-provider-result']);
+
+  assert.deepEqual(
+    getUnconsumedSessionFrames(frames, consumed).map((item) => item.frameId),
+    ['new-provider-init'],
+  );
 });

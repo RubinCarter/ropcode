@@ -38,8 +38,7 @@ func BuildContextFromFrames(frames []stream.SessionFrame) string {
 		return ""
 	}
 
-	var b strings.Builder
-	b.WriteString("<previous_conversation>\n")
+	var lines []string
 
 	for _, frame := range frames {
 		if frame.Kind != stream.FrameKindMessage && frame.Kind != stream.FrameKindResult && frame.Kind != stream.FrameKindDelta {
@@ -64,15 +63,28 @@ func BuildContextFromFrames(frames []stream.SessionFrame) string {
 		if text == "" {
 			continue
 		}
+		if isInjectedSystemPromptText(text) {
+			continue
+		}
 
 		label := "[User]"
 		switch frame.Role {
 		case stream.RoleAssistant:
 			label = "[Assistant]"
 		}
-		b.WriteString(fmt.Sprintf("%s: %s\n", label, text))
+		lines = append(lines, fmt.Sprintf("%s: %s", label, text))
 	}
 
+	if len(lines) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("<previous_conversation>\n")
+	for _, line := range lines {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
 	b.WriteString("</previous_conversation>")
 	return b.String()
 }
@@ -95,7 +107,97 @@ func extractTextFromFrame(frame stream.SessionFrame) string {
 			}
 		}
 	}
-	return strings.Join(parts, "\n")
+	text := StripInjectedContext(strings.Join(parts, "\n"))
+	return strings.TrimSpace(text)
+}
+
+func StripInjectedContext(text string) string {
+	trimmed := strings.TrimSpace(text)
+	for {
+		next := stripDelimitedBlocks(trimmed, "<previous_conversation>", "</previous_conversation>")
+		next = stripDelimitedBlocks(next, "<system_instruction>", "</system_instruction>")
+		next = stripDelimitedBlocks(next, "<system-instruction>", "</system-instruction>")
+		next = stripDelimitedBlocks(next, "<environment_context>", "</environment_context>")
+		next = stripInjectedInstructionSections(next)
+		next = strings.TrimSpace(next)
+		if next == trimmed {
+			return next
+		}
+		trimmed = next
+	}
+}
+
+func stripDelimitedBlocks(text, openTag, closeTag string) string {
+	out := text
+	for {
+		start := strings.Index(out, openTag)
+		if start < 0 {
+			return out
+		}
+		afterOpen := start + len(openTag)
+		relativeEnd := strings.Index(out[afterOpen:], closeTag)
+		if relativeEnd < 0 {
+			return out
+		}
+		end := afterOpen + relativeEnd + len(closeTag)
+		out = out[:start] + out[end:]
+	}
+}
+
+func isInjectedSystemPromptText(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "<environment_context>") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "<system_instruction>") || strings.HasPrefix(trimmed, "<system-instruction>") {
+		return true
+	}
+	if strings.Contains(trimmed, "<INSTRUCTIONS>") && strings.Contains(trimmed, " instructions for ") {
+		return true
+	}
+	if strings.Contains(trimmed, "<INSTRUCTIONS>") && strings.Contains(trimmed, "AGENTS.md instructions") {
+		return true
+	}
+	return false
+}
+
+func stripInjectedInstructionSections(text string) string {
+	out := text
+	for {
+		start := injectedInstructionSectionStart(out)
+		if start < 0 {
+			return out
+		}
+		openRel := strings.Index(out[start:], "<INSTRUCTIONS>")
+		if openRel < 0 {
+			return out
+		}
+		afterOpen := start + openRel + len("<INSTRUCTIONS>")
+		closeRel := strings.Index(out[afterOpen:], "</INSTRUCTIONS>")
+		if closeRel < 0 {
+			return strings.TrimSpace(out[:start])
+		}
+		end := afterOpen + closeRel + len("</INSTRUCTIONS>")
+		out = out[:start] + out[end:]
+	}
+}
+
+func injectedInstructionSectionStart(text string) int {
+	markerIdx := strings.Index(text, "AGENTS.md instructions")
+	if markerIdx < 0 {
+		markerIdx = strings.Index(text, " instructions for ")
+		if markerIdx < 0 || !strings.Contains(text[markerIdx:], "<INSTRUCTIONS>") {
+			return -1
+		}
+	}
+	lineStart := strings.LastIndex(text[:markerIdx], "\n")
+	if lineStart < 0 {
+		return 0
+	}
+	return lineStart + 1
 }
 
 func truncate(s string, maxLen int) string {

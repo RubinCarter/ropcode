@@ -36,6 +36,31 @@ test('sessionFrameStore appends frames in seq order and ignores duplicate frame 
   );
 });
 
+test('sessionFrameStore keeps project chat context sync after init at the same seq', () => {
+  clearSessionFrames('stream-1');
+
+  appendSessionFrame(frame({
+    frameId: 'context-sync',
+    seq: 0,
+    kind: 'message',
+    role: 'user',
+    subtype: 'projectchat_context_sync',
+    content: [{ type: 'text', text: '<previous_conversation />' }],
+  }));
+  appendSessionFrame(frame({
+    frameId: 'init',
+    seq: 0,
+    kind: 'init',
+    role: 'system',
+    subtype: 'thread_created',
+  }));
+
+  assert.deepEqual(
+    getSessionFrames('stream-1').map((item) => item.frameId),
+    ['init', 'context-sync'],
+  );
+});
+
 test('sessionFrameStore coalesces text deltas into stable display messages', () => {
   clearSessionFrames('stream-1');
 

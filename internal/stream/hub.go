@@ -78,7 +78,6 @@ func (h *Hub) Append(frame SessionFrame) error {
 // RegisterAlias forwards all frames from realStreamID to aliasID.
 // Frontend subscribes to aliasID (e.g. projectChatId) and receives frames
 // from the real provider session stream.
-// Clears the alias stream's queue on each call to prevent stale frame replay.
 func (h *Hub) RegisterAlias(realStreamID, aliasID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -89,10 +88,6 @@ func (h *Hub) RegisterAlias(realStreamID, aliasID string) {
 		}
 	}
 	h.aliases[realStreamID] = aliasID
-	// Clear the alias stream's queue so old segment frames don't replay
-	if state := h.streams[aliasID]; state != nil {
-		state.queue.reset()
-	}
 }
 
 // UnregisterAlias removes the alias for a real stream.

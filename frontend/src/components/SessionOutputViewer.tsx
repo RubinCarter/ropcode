@@ -193,7 +193,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
             setupLiveEventListeners();
             
             try {
-              await api.streamSessionOutput(session.id);
+              await api.streamSessionOutput(session.project_path || '', session.session_id);
             } catch (streamError) {
               console.warn('Failed to start streaming, will poll instead:', streamError);
             }
@@ -205,8 +205,8 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
         }
       }
 
-      // Fallback to the original method if JSONL loading fails or no session_id
-      const rawOutput = await api.getSessionOutput(session.id);
+      // Fallback to agent run output if JSONL loading fails or no session_id is available.
+      const rawOutput = await api.getAgentRunOutput(session.id);
 
       // Parse JSONL output into messages using AgentExecution style
       const jsonlLines = rawOutput.split('\n').filter((line: string) => line.trim());
@@ -234,10 +234,12 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
       if (session.status === 'running') {
         setupLiveEventListeners();
         
-        try {
-          await api.streamSessionOutput(session.id);
-        } catch (streamError) {
-          console.warn('Failed to start streaming, will poll instead:', streamError);
+        if (session.session_id) {
+          try {
+            await api.streamSessionOutput(session.project_path || '', session.session_id);
+          } catch (streamError) {
+            console.warn('Failed to start streaming, will poll instead:', streamError);
+          }
         }
       }
     } catch (error) {

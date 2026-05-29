@@ -756,6 +756,18 @@ func TestHistory_ResponseItem_Message_ContentArray(t *testing.T) {
 	}
 }
 
+func TestHistory_ResponseItem_UserMessagePreservesRole(t *testing.T) {
+	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}}`)
+	assertHistoryType(t, ev, "user", "response_item/message role=user")
+	blocks := getHistoryContentBlocks(t, ev)
+	if blocks[0]["type"] != "text" {
+		t.Fatalf("expected text block, got %v", blocks[0]["type"])
+	}
+	if blocks[0]["text"] != "hi" {
+		t.Fatalf("expected user text, got %v", blocks[0]["text"])
+	}
+}
+
 func TestHistory_MessageDelta(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"message.delta","delta":"streaming chunk"}`)
 	assertHistoryType(t, ev, "assistant", "message.delta")

@@ -866,6 +866,10 @@ export function ListProviderSessions(projectPath: string, providerName: string):
   return wsClient.call('ListProviderSessions', projectPath, providerName);
 }
 
+export function GetProviderSessionOutput(sessionId: string | number): Promise<string> {
+  return wsClient.call('GetProviderSessionOutput', String(sessionId));
+}
+
 export function LoadSessionHistory(projectPath: string, sessionId: string): Promise<claude.Message[]> {
   return wsClient.call('LoadSessionHistory', sessionId, projectPath);
 }

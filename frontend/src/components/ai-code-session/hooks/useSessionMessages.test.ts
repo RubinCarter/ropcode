@@ -44,3 +44,9 @@ test('adds streaming delta output estimates and replaces them with real usage', 
   assert.match(source, /const estimatedToReplace = estimateTokensForCharacters\(textContentLength\(message\)\);/);
   assert.match(source, /estimatedOutputTokens: Math\.max\(0, totals\.estimatedOutputTokens - estimatedToReplace\)/);
 });
+
+test('does not count project chat context sync as a local user prompt for echo suppression', async () => {
+  const source = await readSource();
+
+  assert.match(source, /source !== 'broadcast' && \(message as any\)\.source !== 'projectchat_context_sync'/);
+});

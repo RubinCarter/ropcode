@@ -459,7 +459,6 @@ func mapAgentType(codexType string) string {
 	}
 }
 
-
 func parseSubagentNotification(text string) map[string]any {
 	// Extract JSON between <subagent_notification> tags
 	start := strings.Index(text, "<subagent_notification>")
@@ -678,7 +677,11 @@ func historyEventType(raw map[string]any) string {
 	case "message.delta":
 		return "assistant"
 	case "response_item":
-		payloadType := str(mval(raw["payload"]), "type")
+		payload := mval(raw["payload"])
+		if str(payload, "type") == "message" && str(payload, "role") == "user" {
+			return "user"
+		}
+		payloadType := str(payload, "type")
 		switch payloadType {
 		case "function_call_output", "custom_tool_call_output":
 			return "user"
@@ -725,6 +728,9 @@ func normalizePayloadHistory(payload map[string]any) map[string]any {
 		// subagent_notification — emit as sidechain message for subagent panel
 		if role == "user" && strings.Contains(text, "<subagent_notification>") {
 			return parseSubagentNotification(text)
+		}
+		if role == "user" {
+			return userText(text)
 		}
 		return assistantText(text)
 	case "reasoning":
@@ -837,8 +843,20 @@ func assistantText(text string) map[string]any {
 	return map[string]any{
 		"type": "assistant",
 		"message": map[string]any{
-			"role": "assistant",
+			"role":    "assistant",
 			"content": []interface{}{map[string]any{"type": "text", "text": text}},
+		},
+	}
+}
+
+func userText(text string) map[string]any {
+	return map[string]any{
+		"type": "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []interface{}{
+				map[string]any{"type": "text", "text": text},
+			},
 		},
 	}
 }
@@ -847,7 +865,7 @@ func toolUse(id, name string, input any) map[string]any {
 	return map[string]any{
 		"type": "assistant",
 		"message": map[string]any{
-			"role": "assistant",
+			"role":    "assistant",
 			"content": []interface{}{map[string]any{"type": "tool_use", "id": id, "name": name, "input": input}},
 		},
 	}
@@ -857,7 +875,7 @@ func toolResult(toolUseID, content string) map[string]any {
 	return map[string]any{
 		"type": "user",
 		"message": map[string]any{
-			"role": "user",
+			"role":    "user",
 			"content": []interface{}{map[string]any{"type": "tool_result", "tool_use_id": toolUseID, "content": content}},
 		},
 	}

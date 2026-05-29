@@ -151,7 +151,7 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const runData = await api.getAgentRunWithRealTimeMetrics(runId);
+      const runData = await api.getAgentRun(runId);
       setRun(runData);
       
       // If we have a session_id, try to load from JSONL file first
@@ -174,10 +174,23 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
         }
       }
       
-      // Fallback: Parse JSONL output from the output field
-      if (runData.output) {
+      let fallbackOutput = runData.output || '';
+      if (!fallbackOutput) {
+        try {
+          fallbackOutput = await api.getAgentRunOutput(runId);
+        } catch (err) {
+          console.warn('Failed to load agent run output fallback:', err);
+        }
+      }
+
+      // Fallback: Parse JSONL output from the agent run output stream.
+      if (fallbackOutput) {
+        if (!runData.output) {
+          setRun({ ...runData, output: fallbackOutput });
+        }
+
         const parsedMessages: ClaudeStreamMessage[] = [];
-        const lines = runData.output.split('\n').filter(line => line.trim());
+        const lines = fallbackOutput.split('\n').filter(line => line.trim());
         
         for (const line of lines) {
           try {
@@ -491,4 +504,4 @@ export const AgentRunView: React.FC<AgentRunViewProps> = ({
       </div>
     </div>
   );
-}; 
+};

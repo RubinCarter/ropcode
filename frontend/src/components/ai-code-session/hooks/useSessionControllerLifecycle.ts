@@ -42,6 +42,23 @@ export function useSessionControllerLifecycle({
 }: UseSessionControllerLifecycleOptions): void {
   const prevProjectPathRef = useRef(sessionState.projectPath);
   const isProjectSwitchingRef = useRef(false);
+  const unmountSnapshotRef = useRef({
+    defaultProvider,
+    effectiveSession: sessionState.effectiveSession,
+    projectPath: sessionState.projectPath,
+    messages: messagesState.messages,
+    metricsState,
+    trackEvent,
+  });
+
+  unmountSnapshotRef.current = {
+    defaultProvider,
+    effectiveSession: sessionState.effectiveSession,
+    projectPath: sessionState.projectPath,
+    messages: messagesState.messages,
+    metricsState,
+    trackEvent,
+  };
 
   useEffect(() => {
     if (onProjectPathChange && sessionState.projectPath) {
@@ -177,26 +194,27 @@ export function useSessionControllerLifecycle({
     isMountedRef.current = true;
 
     return () => {
+      const snapshot = unmountSnapshotRef.current;
       console.log('[AiCodeSession] Unmounting, cleaning up');
       isMountedRef.current = false;
 
-      if (sessionState.effectiveSession) {
-        trackEvent.sessionCompleted();
-        trackSessionEngagement(messagesState.messages, metricsState, trackEvent);
+      if (snapshot.effectiveSession) {
+        snapshot.trackEvent.sessionCompleted();
+        trackSessionEngagement(snapshot.messages, snapshot.metricsState, snapshot.trackEvent);
       }
 
-      if (sessionState.effectiveSession && sessionState.projectPath) {
+      if (snapshot.effectiveSession && snapshot.projectPath) {
         SessionPersistenceService.saveSession(
-          sessionState.effectiveSession.id,
-          sessionState.effectiveSession.project_id,
-          sessionState.projectPath,
-          defaultProvider,
-          messagesState.messages.length
+          snapshot.effectiveSession.id,
+          snapshot.effectiveSession.project_id,
+          snapshot.projectPath,
+          snapshot.defaultProvider,
+          snapshot.messages.length
         );
         console.log('[AiCodeSession] Saved session to localStorage on unmount');
       }
     };
-  }, [sessionState.effectiveSession, sessionState.projectPath, sessionState.claudeSessionId, messagesState.messages.length]);
+  }, []);
 }
 
 export function useGeneratedSessionTitlePersistence(options: {

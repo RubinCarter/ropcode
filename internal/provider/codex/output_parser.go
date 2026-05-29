@@ -319,7 +319,6 @@ func extractCollabAgentOutput(item map[string]interface{}) string {
 	return extractAgentResult(item)
 }
 
-
 func codexReasoningText(item map[string]interface{}) string {
 	if text, ok := item["text"].(string); ok && text != "" {
 		return text
@@ -361,11 +360,11 @@ func codexTokenUsage(params map[string]interface{}) map[string]interface{} {
 		return nil
 	}
 	return map[string]interface{}{
-		"input_tokens":               last["inputTokens"],
-		"output_tokens":              last["outputTokens"],
-		"cache_read_input_tokens":    last["cachedInputTokens"],
+		"input_tokens":                last["inputTokens"],
+		"output_tokens":               last["outputTokens"],
+		"cache_read_input_tokens":     last["cachedInputTokens"],
 		"cache_creation_input_tokens": last["cachedOutputTokens"],
-		"total_tokens":               last["totalTokens"],
+		"total_tokens":                last["totalTokens"],
 	}
 }
 
@@ -492,6 +491,12 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 	switch payloadType {
 	case "message":
 		text := extractTextFromPayload(payload)
+		if role, _ := payload["role"].(string); role == "user" {
+			return &provider.OutputEvent{
+				Type:    "user",
+				Message: userText(text),
+			}
+		}
 		return eventAssistantText(text)
 	case "function_call", "custom_tool_call":
 		name, _ := payload["name"].(string)

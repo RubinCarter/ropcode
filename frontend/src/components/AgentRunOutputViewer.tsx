@@ -242,10 +242,12 @@ export function AgentRunOutputViewer({
         console.log('[AgentRunOutputViewer] Setting up live listeners for running session');
         setupLiveEventListeners();
 
-        try {
-          await api.streamSessionOutput(run.id);
-        } catch (streamError) {
-          console.warn('[AgentRunOutputViewer] Failed to start streaming, will poll instead:', streamError);
+        if (run.session_id) {
+          try {
+            await api.streamSessionOutput(run.project_path || '', run.session_id);
+          } catch (streamError) {
+            console.warn('[AgentRunOutputViewer] Failed to start streaming, will poll instead:', streamError);
+          }
         }
       }
     } catch (error) {

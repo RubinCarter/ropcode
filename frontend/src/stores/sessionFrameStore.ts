@@ -30,6 +30,7 @@ const messagesByStream = new Map<string, SessionDisplayMessage[]>();
 const listeners = new Map<string, Set<Listener>>();
 const EMPTY_FRAMES: SessionFrame[] = [];
 const EMPTY_MESSAGES: SessionDisplayMessage[] = [];
+const PROJECTCHAT_CONTEXT_SYNC_SUBTYPE = 'projectchat_context_sync';
 
 export function appendSessionFrame(frame: SessionFrame): void {
   const ids = frameIdsFor(frame.streamId);
@@ -39,7 +40,7 @@ export function appendSessionFrame(frame: SessionFrame): void {
   ids.add(frame.frameId);
 
   const frames = [...(framesByStream.get(frame.streamId) ?? []), frame]
-    .sort((a, b) => a.seq - b.seq || a.frameId.localeCompare(b.frameId));
+    .sort(compareSessionFrames);
   framesByStream.set(frame.streamId, frames);
   messagesByStream.delete(frame.streamId);
 
@@ -196,4 +197,25 @@ function addListener(streamId: string, listener: Listener): () => void {
 
 function notify(streamId: string): void {
   listeners.get(streamId)?.forEach((listener) => listener());
+}
+
+function compareSessionFrames(a: SessionFrame, b: SessionFrame): number {
+  if (a.seq !== b.seq) {
+    return a.seq - b.seq;
+  }
+  const priority = framePriority(a) - framePriority(b);
+  if (priority !== 0) {
+    return priority;
+  }
+  return a.frameId.localeCompare(b.frameId);
+}
+
+function framePriority(frame: SessionFrame): number {
+  if (frame.subtype === PROJECTCHAT_CONTEXT_SYNC_SUBTYPE) {
+    return 10;
+  }
+  if (frame.kind === 'init' || frame.subtype === 'init' || frame.subtype === 'thread_created') {
+    return 0;
+  }
+  return 5;
 }

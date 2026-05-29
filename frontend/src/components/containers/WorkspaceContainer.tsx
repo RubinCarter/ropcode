@@ -8,7 +8,6 @@ import { useIsMobile } from '@/hooks/useIsMobile';
 import { WorkspaceTabManager } from './WorkspaceTabManager';
 import type { ProviderSessionSummary } from '@/lib/api';
 import * as rpcClient from '@/lib/rpc-client';
-import { clearSessionFrames } from '@/stores/sessionFrameStore';
 
 // Lazy load heavy components
 const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
@@ -212,9 +211,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         const result = await rpcClient.SwitchProjectChatProvider(
           tab.projectChatId, providerId, currentModel
         );
-
-        // Clear old frames from the virtual stream before new provider starts
-        clearSessionFrames(tab.projectChatId);
 
         const newSegment = {
           id: result.segment_id,

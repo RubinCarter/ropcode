@@ -3,12 +3,14 @@ package stream
 import (
 	"errors"
 	"log"
+	"strings"
 	"sync"
 
 	"ropcode/internal/provider"
 )
 
 var ErrMissingProviderRuntimeSession = errors.New("provider output missing runtime session id")
+var ErrUserEchoFrameSuppressed = errors.New("provider user echo frame suppressed")
 
 type ProviderOutputContext struct {
 	RuntimeSessionID  string
@@ -36,6 +38,9 @@ func NewProviderBridge(hub *Hub) *ProviderBridge {
 func (b *ProviderBridge) EmitProviderOutput(ctx ProviderOutputContext, event provider.OutputEvent) error {
 	frame, err := b.FrameFromProviderOutput(ctx, event)
 	if err != nil {
+		if errors.Is(err, ErrUserEchoFrameSuppressed) {
+			return nil
+		}
 		log.Printf("[stream] provider output frame conversion failed provider=%s runtime=%s provider_session=%s event_type=%s subtype=%s err=%v",
 			ctx.Provider,
 			ctx.RuntimeSessionID,
@@ -61,6 +66,9 @@ func (b *ProviderBridge) FrameFromProviderOutput(ctx ProviderOutputContext, even
 	frame, err := AdaptUnifiedOutput(ctx, event, seq)
 	if err != nil {
 		return SessionFrame{}, err
+	}
+	if isSuppressibleUserEchoFrame(frame) {
+		return SessionFrame{}, ErrUserEchoFrameSuppressed
 	}
 	b.applyTaskNotificationReplyScope(streamID, event, &frame)
 	return frame, nil
@@ -108,6 +116,55 @@ func (b *ProviderBridge) applyTaskNotificationReplyScope(streamID string, event 
 	frame.Sidechain = true
 	frame.TaskID = firstNonEmpty(frame.TaskID, activeTaskID)
 	frame.AgentID = firstNonEmpty(frame.AgentID, activeTaskID)
+}
+
+func isSuppressibleUserEchoFrame(frame SessionFrame) bool {
+	if frame.Role != RoleUser || frame.Sidechain {
+		return false
+	}
+	if taskNotificationID(frame.Meta.Raw) != "" {
+		return false
+	}
+	if len(frame.Content) != 1 {
+		return false
+	}
+	if frame.Content[0].Type != ContentText {
+		return false
+	}
+	text := stripProviderInjectedUserPrefixes(frame.Content[0].Text)
+	return strings.TrimSpace(text) != "" || strings.TrimSpace(frame.Content[0].Text) != ""
+}
+
+func stripProviderInjectedUserPrefixes(text string) string {
+	trimmed := strings.TrimSpace(text)
+	for {
+		next := stripDelimitedText(trimmed, "<previous_conversation>", "</previous_conversation>")
+		next = stripDelimitedText(next, "<system_instruction>", "</system_instruction>")
+		next = stripDelimitedText(next, "<system-instruction>", "</system-instruction>")
+		next = stripDelimitedText(next, "<environment_context>", "</environment_context>")
+		next = strings.TrimSpace(next)
+		if next == trimmed {
+			return next
+		}
+		trimmed = next
+	}
+}
+
+func stripDelimitedText(text, openTag, closeTag string) string {
+	out := text
+	for {
+		start := strings.Index(out, openTag)
+		if start < 0 {
+			return out
+		}
+		afterOpen := start + len(openTag)
+		relativeEnd := strings.Index(out[afterOpen:], closeTag)
+		if relativeEnd < 0 {
+			return out
+		}
+		end := afterOpen + relativeEnd + len(closeTag)
+		out = out[:start] + out[end:]
+	}
 }
 
 func kindFromProviderOutput(event provider.OutputEvent) FrameKind {

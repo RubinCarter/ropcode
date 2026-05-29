@@ -92,3 +92,47 @@ test('collapses continued summaries from top-level live user content', async () 
   assert.equal(result.defaultExpanded, false);
   assert.equal(result.title, 'Previous conversation summary');
 });
+
+test('collapses provider context sync messages by default', async () => {
+  const { classifyCollapsibleText } = await loadModule();
+
+  const result = classifyCollapsibleText(`<previous_conversation>
+[User]: hi
+[Assistant]: hello
+</previous_conversation>
+
+hi again`);
+
+  assert.equal(result.kind, 'structured_reference');
+  assert.equal(result.collapsible, true);
+  assert.equal(result.defaultExpanded, false);
+  assert.equal(result.title, 'Provider context sync');
+  assert.match(result.preview, /previous_conversation/);
+});
+
+test('shows only previous conversation for project chat context sync messages', async () => {
+  const { getUserMessagePresentation } = await loadModule();
+
+  const result = getUserMessagePresentation({
+    type: 'user',
+    source: 'projectchat_context_sync',
+    message: {
+      content: [
+        {
+          type: 'text',
+          text: `<previous_conversation>
+[User]: hi
+[Assistant]: hello
+</previous_conversation>
+
+你是什么模型？`,
+        },
+      ],
+    },
+  });
+
+  assert.equal(result.title, 'Provider context sync');
+  assert.equal(result.defaultExpanded, false);
+  assert.ok(result.text.endsWith('</previous_conversation>'));
+  assert.doesNotMatch(result.text, /你是什么模型/);
+});

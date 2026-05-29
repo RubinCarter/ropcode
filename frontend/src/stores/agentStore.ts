@@ -92,7 +92,7 @@ const agentStore: StateCreator<
       set({ isLoadingOutput: true, error: null });
       
       try {
-        const output = await api.getAgentRunWithRealTimeMetrics(runId).then(run => run.output || '');
+        const output = await api.getAgentRunOutput(runId);
         set((state) => ({
           sessionOutputs: {
             ...state.sessionOutputs,

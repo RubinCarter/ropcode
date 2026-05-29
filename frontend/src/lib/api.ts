@@ -185,7 +185,7 @@ const api = new Proxy({ ...rpcMethods }, {
       getProjectProviderApiConfig: 'GetProjectProviderApiConfig',
       setProjectProviderApiConfig: 'SetProjectProviderApiConfig',
       // Agent
-      getAgentRunWithRealTimeMetrics: 'GetAgentRunOutput',
+      getAgentRunWithRealTimeMetrics: 'GetAgentRun',
       loadAgentSessionHistory: 'LoadAgentSessionHistory',
       killAgentSession: 'CancelAgentRun',
       listAgentRunsWithMetrics: 'ListRunningAgentRuns',

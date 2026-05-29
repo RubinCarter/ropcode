@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -71,6 +72,30 @@ func TestHubKeepsIndependentStreamsSeparate(t *testing.T) {
 	}
 }
 
+func TestHubRegisterAliasKeepsQueuedVirtualFrames(t *testing.T) {
+	hub := NewHub()
+
+	hub.RegisterAlias("provider-a:runtime-1", "project-chat-1")
+	if err := hub.Append(testFrame("provider-a:runtime-1", 1)); err != nil {
+		t.Fatal(err)
+	}
+
+	hub.RegisterAlias("provider-b:runtime-2", "project-chat-1")
+	if err := hub.Append(testFrame("provider-b:runtime-2", 1)); err != nil {
+		t.Fatal(err)
+	}
+
+	sub := hub.Subscribe("project-chat-1")
+	defer sub.Close()
+
+	if got := receiveFrame(t, sub); got.RuntimeSessionID != "runtime-1" {
+		t.Fatalf("expected first provider frame replay, got runtime %q", got.RuntimeSessionID)
+	}
+	if got := receiveFrame(t, sub); got.RuntimeSessionID != "runtime-2" {
+		t.Fatalf("expected second provider frame replay, got runtime %q", got.RuntimeSessionID)
+	}
+}
+
 func TestHubDiagnosticsAndSubscriberCloseCleanup(t *testing.T) {
 	hub := NewHub()
 	sub := hub.Subscribe("stream-a")
@@ -104,7 +129,7 @@ func testFrame(streamID string, seq int64) SessionFrame {
 		StreamID:         streamID,
 		FrameID:          streamID + "-frame",
 		Provider:         "claude",
-		RuntimeSessionID: "runtime",
+		RuntimeSessionID: streamID[strings.LastIndex(streamID, ":")+1:],
 		Seq:              seq,
 		Kind:             FrameKindMessage,
 		Content:          []ContentBlock{{Type: ContentText, Text: "x"}},
