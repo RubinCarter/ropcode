@@ -36,9 +36,7 @@ func (a *App) SyncPiModelsFromLocalConfig() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if _, err := a.syncProviderModelsFromAPI(ctx, "pi", ""); err != nil {
-		log.Printf("[ModelsSync] pi local config sync skipped: %v", err)
-	}
+	_, _ = a.syncProviderModelsFromAPI(ctx, "pi", "")
 }
 
 func (a *App) syncProviderModelsFromAPI(ctx context.Context, providerID, providerApiID string) ([]*database.ModelConfig, error) {
@@ -69,13 +67,9 @@ func (a *App) syncProviderModelsFromAPI(ctx context.Context, providerID, provide
 			return synced, err
 		}
 		if hasLocalCfg {
-			if err := a.applyPiLocalModelAvailability(modelIDs); err != nil {
-				log.Printf("[ModelsSync] pi local model availability update failed: %v", err)
-			}
+			_ = a.applyPiLocalModelAvailability(modelIDs)
 			if defaultModelID := choosePiDefaultModelID(modelIDs, localCfg); defaultModelID != "" {
-				if err := a.modelRegistry.SetDefaultModel(defaultModelID); err != nil {
-					log.Printf("[ModelsSync] pi local default model update failed: %v", err)
-				}
+				_ = a.modelRegistry.SetDefaultModel(defaultModelID)
 			}
 		}
 		return synced, nil
@@ -208,7 +202,6 @@ func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*datab
 	}
 	if providerID == "pi" {
 		if cfg, err := providerPi.LocalDefaultProviderAPIConfig(); err == nil && cfg != nil {
-			log.Printf("[ModelsSync] pi using local upstream config id=%s base=%q", cfg.ID, cfg.BaseURL)
 			return cfg, nil
 		}
 	}
