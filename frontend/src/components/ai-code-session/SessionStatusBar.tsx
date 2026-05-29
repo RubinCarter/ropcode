@@ -108,6 +108,9 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
     if (detail.startsWith('Possible stuck in ')) {
       return t('prompt.detailStuckInTool', { tool: detail.slice('Possible stuck in '.length) });
     }
+    if (detail.startsWith('Result: ')) {
+      return t('prompt.detailResult', { status: detail.slice('Result: '.length) });
+    }
     return detail;
   };
 

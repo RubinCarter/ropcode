@@ -344,7 +344,8 @@
     "detailStuckInTool": "Possible stuck in {{tool}}",
     "hintSend": "⌘/Ctrl+Enter send",
     "hintStop": "Stop interrupts current task",
-    "queuedPrompts": "Queued Prompts ({{count}})"
+    "queuedPrompts": "Queued Prompts ({{count}})",
+    "detailResult": "Result: {{status}}"
   },
   "clone": {
     "title": "Clone from URL",
@@ -627,7 +628,8 @@
     "eventDetails": "Event details",
     "webSearch": "Web Search",
     "searchNoResults": "No results",
-    "searchResults": "{{count}} results"
+    "searchResults": "{{count}} results",
+    "usingTool": "Using tool:"
   },
   "capability": {
     "title": "Claude Capabilities",

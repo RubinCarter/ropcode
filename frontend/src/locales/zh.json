@@ -344,7 +344,8 @@
     "detailStuckInTool": "可能卡在 {{tool}}",
     "hintSend": "⌘/Ctrl+Enter 发送",
     "hintStop": "停止会中断当前任务",
-    "queuedPrompts": "排队中的提示词（{{count}}）"
+    "queuedPrompts": "排队中的提示词（{{count}}）",
+    "detailResult": "结果：{{status}}"
   },
   "clone": {
     "title": "从 URL 克隆",
@@ -627,7 +628,8 @@
     "eventDetails": "事件详情",
     "webSearch": "网页搜索",
     "searchNoResults": "无结果",
-    "searchResults": "{{count}} 条结果"
+    "searchResults": "{{count}} 条结果",
+    "usingTool": "使用工具："
   },
   "capability": {
     "title": "Claude 能力",

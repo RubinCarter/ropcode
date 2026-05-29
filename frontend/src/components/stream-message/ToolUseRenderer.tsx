@@ -1,5 +1,6 @@
 import React from "react";
 import { Terminal } from "lucide-react";
+import i18n from '@/lib/i18n';
 import type { ClaudeStreamMessage } from "../AgentExecution";
 import {
   TodoWidget,
@@ -122,7 +123,7 @@ export function renderToolUseContent({
       <div className="flex items-center gap-2">
         <Terminal className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm font-medium">
-          Using tool: <code className="font-mono">{content.name}</code>
+          {i18n.t('stream.usingTool')} <code className="font-mono">{content.name}</code>
         </span>
       </div>
       {content.input && (
