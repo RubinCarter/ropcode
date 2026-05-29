@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { formatCompactNumber, type ClaudeStreamMessageLike, type SubagentProgressSummary } from "@/lib/subagentProgress";
 import { StreamMessage, buildStreamMessageContext } from "./StreamMessage";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { useTranslation } from 'react-i18next';
 
 // When transcript exceeds this threshold, use Virtuoso virtualization to avoid sync mounting
 // N StreamMessages blocking main thread (each needs markdown/code highlight/mermaid rendering).
@@ -204,6 +205,7 @@ const SubagentTranscript = React.memo(function SubagentTranscript({ subagent, ag
   if (visibleMessages.length === 0) {
     return (
       <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+        {/* Transcript not yet available */}
         Detailed transcript is not available for this subagent yet.
       </div>
     );
@@ -247,6 +249,7 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
   expandedAgents: controlledExpandedAgents,
   onExpandedAgentsChange,
 }) => {
+  const { t } = useTranslation();
   const [uncontrolledExpanded, setUncontrolledExpanded] = useState(false);
   const [uncontrolledExpandedAgents, setUncontrolledExpandedAgents] = useState<Set<string>>(new Set());
   const expanded = controlledExpanded ?? uncontrolledExpanded;
@@ -306,9 +309,9 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">Subagents</span>
+            <span className="text-sm font-medium">{t('stream.subagents')}</span>
             <span className="text-xs text-muted-foreground">
-              {summary.subagents.length} agents
+              {t('stream.agentsCount', { count: summary.subagents.length })}
             </span>
             {summary.totalToolUseCount > 0 && (
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -324,9 +327,9 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {summary.runningCount > 0 && <span>{summary.runningCount} running</span>}
-            {summary.completedCount > 0 && <span>{summary.completedCount} done</span>}
-            {summary.failedCount > 0 && <span>{summary.failedCount} failed</span>}
+            {summary.runningCount > 0 && <span>{t('stream.runningCount', { count: summary.runningCount })}</span>}
+            {summary.completedCount > 0 && <span>{t('stream.doneCount', { count: summary.completedCount })}</span>}
+            {summary.failedCount > 0 && <span>{t('stream.failedCount', { count: summary.failedCount })}</span>}
           </div>
         </div>
         <Badge variant={statusBadgeVariant(aggregateStatus)} className="text-xs flex-shrink-0">
@@ -372,7 +375,7 @@ export const SubagentProgressPanel: React.FC<SubagentProgressPanelProps> = ({
                       )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
-                      {subagent.lastActivity || subagent.description || subagent.prompt || "Waiting for output"}
+                      {subagent.lastActivity || subagent.description || subagent.prompt || t('viewer.noOutput')}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">

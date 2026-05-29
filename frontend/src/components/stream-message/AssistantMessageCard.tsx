@@ -8,6 +8,7 @@ import type { GetCardExpansionProps, StreamMessageContext } from "./context";
 import { MarkdownContent, renderWithSystemInstructions } from "./rendering";
 import { renderToolUseContent } from "./ToolUseRenderer";
 import { stringifyMessageValue } from "./contentText";
+import { useTranslation } from "react-i18next";
 
 interface AssistantMessageCardProps {
   message: ClaudeStreamMessage;
@@ -34,6 +35,7 @@ export const AssistantMessageCard: React.FC<AssistantMessageCardProps> = ({
   isStreamingText,
   getCardExpansionProps,
 }) => {
+  const { t } = useTranslation();
   if (message.leafUuid && message.summary && (message as any).type === "summary") {
     return <SummaryWidget summary={message.summary} leafUuid={message.leafUuid} />;
   }
@@ -115,7 +117,7 @@ export const AssistantMessageCard: React.FC<AssistantMessageCardProps> = ({
             {contentNodes}
             {msg.usage && (
               <div className="text-xs text-muted-foreground mt-2">
-                Tokens: {msg.usage.input_tokens} in, {msg.usage.output_tokens} out
+                {t('stream.tokensInOut', { input: msg.usage.input_tokens, output: msg.usage.output_tokens })}
               </div>
             )}
           </div>

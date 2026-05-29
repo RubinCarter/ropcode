@@ -1,4 +1,5 @@
 import "@/lib/debug-log"; // must be first — patches console before anything logs
+import "@/lib/i18n";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";

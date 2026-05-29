@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check, Plus, X, Server } from 'lucide-react';
 import {
   DropdownMenu,
@@ -16,6 +17,7 @@ import {
 } from '@/lib/instanceStore';
 
 export const InstanceSwitcher: React.FC = () => {
+  const { t } = useTranslation();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newLabel, setNewLabel] = useState('');
@@ -105,7 +107,7 @@ export const InstanceSwitcher: React.FC = () => {
                 <button
                   onClick={(e) => handleRemove(e, instance.id)}
                   className="p-0.5 rounded hover:bg-destructive/20 hover:text-destructive transition-colors flex-shrink-0"
-                  title="Remove instance"
+                  title={t('common.remove')}
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -122,7 +124,7 @@ export const InstanceSwitcher: React.FC = () => {
             className="cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5 mr-2" />
-            <span className="text-sm">Add Instance</span>
+            <span className="text-sm">{t('common.add')} Instance</span>
           </DropdownMenuItem>
         ) : (
           <div className="p-2 space-y-2" onClick={(e) => e.stopPropagation()}>
@@ -156,7 +158,7 @@ export const InstanceSwitcher: React.FC = () => {
               disabled={!newUrl.trim()}
               className="w-full h-7 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Add
+              {t('common.add')}
             </button>
           </div>
         )}

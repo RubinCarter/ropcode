@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -73,14 +74,14 @@ const isCacheFresh = (layers?: ClaudeCapabilityLayers | null): boolean => {
   return Date.now() - fetchedAt < AUTO_REFRESH_TTL_MS;
 };
 
-const getScopeLabel = (scope: ScopeGroupKey): string => {
+const getScopeLabel = (scope: ScopeGroupKey, t: (key: string) => string): string => {
   switch (scope) {
     case "project":
-      return "Project";
+      return t("capability.project");
     case "user":
-      return "User";
+      return t("capability.user");
     case "system":
-      return "System";
+      return t("capability.system");
   }
 };
 
@@ -136,6 +137,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
   onClose,
   anchorRef,
 }) => {
+  const { t } = useTranslation();
   const [capabilityLayers, setCapabilityLayers] = useState<CapabilityLayersState>(EMPTY_LAYERS);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isProjectLoading, setIsProjectLoading] = useState(false);
@@ -503,7 +505,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <Sparkles className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Claude Capabilities</span>
+            <span className="text-sm font-medium">{t("capability.title")}</span>
             {searchQuery && (
               <span className="truncate text-xs text-muted-foreground">
                 Searching: "{searchQuery}"
@@ -513,7 +515,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
           <div className="flex items-center gap-2">
             {showInlineProjectLoading && (
               <span className="text-xs text-muted-foreground">
-                Loading project capabilities{projectCapabilityCount > 0 ? ` (${projectCapabilityCount})` : ""}...
+                {t("capability.loading")}{projectCapabilityCount > 0 ? ` (${projectCapabilityCount})` : ""}
               </span>
             )}
             {error && hasAnyCapabilities && (
@@ -542,7 +544,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
       <div className="relative flex-1 overflow-y-auto">
         {showFullScreenLoading && (
           <div className="flex h-full items-center justify-center">
-            <span className="text-sm text-muted-foreground">Loading capabilities...</span>
+            <span className="text-sm text-muted-foreground">{t("capability.loading")}</span>
           </div>
         )}
 
@@ -558,7 +560,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
               disabled={isRefreshing}
             >
               <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
-              {isRefreshing ? "Retrying..." : "Retry refresh"}
+              {isRefreshing ? t("common.retry") : t("common.retry")}
             </Button>
           </div>
         )}
@@ -569,7 +571,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
               <div className="flex h-full flex-col items-center justify-center px-4 text-center">
                 <Sparkles className="mb-2 h-8 w-8 text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">
-                  {searchQuery ? "No capabilities found" : "No capabilities available"}
+                  {searchQuery ? t("capability.noResults") : t("capability.noResults")}
                 </span>
               </div>
             )}
@@ -582,7 +584,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
                     <div key={scope}>
                       <h3 className="mb-1 flex items-center gap-2 px-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                         <ScopeIcon className="h-3 w-3" />
-                        {getScopeLabel(scope)}
+                        {getScopeLabel(scope, t)}
                         {scope === "project" && showInlineProjectLoading && groupedCapabilities.project.length === 0 && (
                           <span className="text-[10px] normal-case tracking-normal text-muted-foreground/80">Loading…</span>
                         )}
@@ -604,7 +606,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
       </div>
 
       <div className="border-t border-border p-2">
-        <p className="text-center text-xs text-muted-foreground">↑↓ Navigate • Enter Select • Esc Close</p>
+        <p className="text-center text-xs text-muted-foreground">↑↓ {t("common.previous")}/{t("common.next")} • Enter {t("common.ok")} • Esc {t("common.close")}</p>
       </div>
     </motion.div>
   );

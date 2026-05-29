@@ -26,6 +26,7 @@ import { usesMetaKeyForAppShortcuts } from '@/lib/platform';
 import { basename, normalizePath } from '@/lib/pathUtils';
 import { activityBadgeCount } from '@/lib/claudeActivity';
 import type { main } from '@/lib/rpc-client';
+import { useTranslation } from 'react-i18next';
 
 const RIGHT_SIDEBAR_RAIL_WIDTH = 64;
 
@@ -108,6 +109,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const [activeRightTab, setActiveRightTab] = useState<RightSidebarTab>('console');
   const [activitySnapshot, setActivitySnapshot] = useState<main.ClaudeActivitySnapshot | null>(null);
   const activityCount = activityBadgeCount(activitySnapshot);
+  const { t } = useTranslation();
 
   // Broadcast right sidebar width change
   useEffect(() => {
@@ -977,21 +979,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         >
           <div className="flex flex-col items-center gap-1">
             <RightRailButton
-              label="Console"
+              label={t('tabs.console')}
               active={activeRightTab === 'console'}
               onClick={() => selectRightTab('console')}
             >
               <Terminal className="h-4 w-4" />
             </RightRailButton>
             <RightRailButton
-              label="Files"
+              label={t('tabs.files')}
               active={activeRightTab === 'files'}
               onClick={() => selectRightTab('files')}
             >
               <FolderTree className="h-4 w-4" />
             </RightRailButton>
             <RightRailButton
-              label="Tasks"
+              label={t('tabs.tasks')}
               active={activeRightTab === 'tasks'}
               disabled={!activeClaudeChatTab}
               badgeCount={activityCount}

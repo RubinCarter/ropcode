@@ -1,5 +1,7 @@
 export type CollapsibleTextKind = 'plain_text' | 'skill_preamble' | 'structured_reference';
 
+import i18n from '@/lib/i18n';
+
 export interface CollapsibleTextClassification {
   kind: CollapsibleTextKind;
   collapsible: boolean;
@@ -72,7 +74,7 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
       kind: 'plain_text',
       collapsible: false,
       defaultExpanded: true,
-      title: 'Message',
+      title: i18n.t('stream.message'),
       preview: '',
     };
   }
@@ -109,7 +111,7 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
       kind: 'skill_preamble',
       collapsible: true,
       defaultExpanded: false,
-      title: 'Skill details',
+      title: i18n.t('stream.skillDetails'),
       preview: buildPreview(normalized),
     };
   }
@@ -119,7 +121,7 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
       kind: 'structured_reference',
       collapsible: true,
       defaultExpanded: false,
-      title: 'Reference details',
+      title: i18n.t('stream.referenceDetails'),
       preview: buildPreview(normalized),
     };
   }
@@ -128,7 +130,7 @@ export function classifyCollapsibleText(text: string): CollapsibleTextClassifica
     kind: 'plain_text',
     collapsible: false,
     defaultExpanded: true,
-    title: 'Message',
+    title: i18n.t('stream.message'),
     preview: buildPreview(normalized),
   };
 }

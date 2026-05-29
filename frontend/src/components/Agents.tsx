@@ -18,9 +18,11 @@ import { GitHubAgentBrowser } from '@/components/GitHubAgentBrowser';
 import { CreateAgent } from '@/components/CreateAgent';
 import { useTabState } from '@/hooks/useTabState';
 import { useProcessChanged } from '@/hooks';
+import { useTranslation } from 'react-i18next';
 // Note: ExportAgentToFile uses api.exportAgentToFile
 
 export const Agents: React.FC = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('agents');
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
@@ -51,7 +53,7 @@ export const Agents: React.FC = () => {
       setAgents(agents);
     } catch (error) {
       console.error('Failed to load agents:', error);
-      setToast({ message: 'Failed to load agents', type: 'error' });
+      setToast({ message: t('agents.failedToLoadAgents'), type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -69,7 +71,7 @@ export const Agents: React.FC = () => {
 
   const handleRunAgent = async (agent: Agent) => {
     if (!agent.id) {
-      setToast({ message: 'Agent ID is missing', type: 'error' });
+      setToast({ message: t('agents.agentIdMissing'), type: 'error' });
       return;
     }
     
@@ -81,7 +83,7 @@ export const Agents: React.FC = () => {
       const projectPath = await open({
         directory: true,
         multiple: false,
-        title: `Select project directory for ${agent.name}`
+        title: t('agents.selectProjectDir', { name: agent.name })
       });
       
       if (!projectPath) {
@@ -95,10 +97,10 @@ export const Agents: React.FC = () => {
         detail: { agent, tabId, projectPath } 
       }));
       
-      setToast({ message: `Opening agent: ${agent.name}`, type: 'success' });
+      setToast({ message: t('agents.openingAgent', { name: agent.name }), type: 'success' });
     } catch (error) {
       console.error('Failed to open agent:', error);
-      setToast({ message: `Failed to open agent: ${agent.name}`, type: 'error' });
+      setToast({ message: t('agents.failedToOpenAgent', { name: agent.name }), type: 'error' });
     }
   };
 
@@ -107,13 +109,13 @@ export const Agents: React.FC = () => {
     
     try {
       await api.deleteAgent(agentToDelete.id);
-      setToast({ message: `Deleted agent: ${agentToDelete.name}`, type: 'success' });
+      setToast({ message: t('agents.deletedAgent', { name: agentToDelete.name }), type: 'success' });
       setAgents(prev => prev.filter(a => a.id !== agentToDelete.id));
       setShowDeleteDialog(false);
       setAgentToDelete(null);
     } catch (error) {
       console.error('Failed to delete agent:', error);
-      setToast({ message: `Failed to delete agent: ${agentToDelete.name}`, type: 'error' });
+      setToast({ message: t('agents.failedToDeleteAgent', { name: agentToDelete.name }), type: 'error' });
     }
   };
 
@@ -129,12 +131,12 @@ export const Agents: React.FC = () => {
 
       if (selected && !selected.canceled && selected.filePaths && selected.filePaths[0]) {
         const importedAgent = await api.importAgentFromFile(selected.filePaths[0]);
-        setToast({ message: `Imported agent: ${importedAgent.name}`, type: 'success' });
+        setToast({ message: t('agents.importedAgent', { name: importedAgent.name }), type: 'success' });
         loadAgents();
       }
     } catch (error) {
       console.error('Failed to import agent:', error);
-      setToast({ message: 'Failed to import agent', type: 'error' });
+      setToast({ message: t('agents.failedToImportAgent'), type: 'error' });
     }
   };
 
@@ -149,11 +151,11 @@ export const Agents: React.FC = () => {
 
       if (result && !result.canceled && result.filePath && agent.id) {
         await api.exportAgentToFile(agent.id, result.filePath);
-        setToast({ message: `Exported agent: ${agent.name}`, type: 'success' });
+        setToast({ message: t('agents.exportedAgent', { name: agent.name }), type: 'success' });
       }
     } catch (error) {
       console.error('Failed to export agent:', error);
-      setToast({ message: 'Failed to export agent', type: 'error' });
+      setToast({ message: t('agents.failedToExportAgent'), type: 'error' });
     }
   };
 
@@ -204,9 +206,9 @@ export const Agents: React.FC = () => {
         <div className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Agents</h1>
+              <h1 className="text-3xl font-bold tracking-tight">{t('agents.title')}</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Manage your Claude Code agents
+                {t('agents.subtitle')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -221,18 +223,18 @@ export const Agents: React.FC = () => {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onClick={handleImportFromFile}>
                     <FileJson className="w-4 h-4 mr-2" />
-                    From File
+                    {t('agents.importFromFile')}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setShowGitHubBrowser(true)}>
                     <Globe className="w-4 h-4 mr-2" />
-                    From GitHub
+                    {t('agents.importFromGithub')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
 
               <Button onClick={() => setShowCreateAgent(true)}>
                 <Plus className="w-4 h-4 mr-2" />
-                Create Agent
+                {t('agents.createAgent')}
               </Button>
             </div>
           </div>
@@ -263,7 +265,7 @@ export const Agents: React.FC = () => {
           onImportSuccess={() => {
             loadAgents();
             setShowGitHubBrowser(false);
-            setToast({ message: 'Agent imported successfully', type: 'success' });
+            setToast({ message: t('agents.importedAgent', { name: '' }).replace(': ', ''), type: 'success' });
           }}
         />
       )}
@@ -284,22 +286,22 @@ export const Agents: React.FC = () => {
               className="bg-card p-6 rounded-lg shadow-lg max-w-md w-full mx-4"
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold mb-4">Delete Agent</h3>
+              <h3 className="text-lg font-semibold mb-4">{t('agents.deleteAgent')}</h3>
               <p className="text-muted-foreground mb-6">
-                Are you sure you want to delete "{agentToDelete.name}"? This action cannot be undone.
+                {t('agents.deleteAgentConfirm')}
               </p>
               <div className="flex gap-3 justify-end">
                 <Button
                   variant="outline"
                   onClick={() => setShowDeleteDialog(false)}
                 >
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
                 <Button
                   variant="destructive"
                   onClick={handleDeleteAgent}
                 >
-                  Delete
+                  {t('common.delete')}
                 </Button>
               </div>
             </motion.div>
@@ -313,11 +315,11 @@ export const Agents: React.FC = () => {
             <TabsList className="grid grid-cols-2 w-full max-w-md mb-6 h-auto p-1">
               <TabsTrigger value="agents" className="py-2.5 px-3">
                 <Bot className="w-4 h-4 mr-2" />
-                Agents ({agents.length})
+                {t('agents.tabAgents')} ({agents.length})
               </TabsTrigger>
               <TabsTrigger value="running" className="py-2.5 px-3">
                 <History className="w-4 h-4 mr-2" />
-                History ({runningAgents.length})
+                {t('agents.tabHistory')} ({runningAgents.length})
               </TabsTrigger>
             </TabsList>
 
@@ -329,13 +331,13 @@ export const Agents: React.FC = () => {
               ) : agents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 text-center">
                   <Bot className="w-12 h-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No Agents Yet</h3>
+                  <h3 className="text-lg font-semibold mb-2">{t('agents.noAgents')}</h3>
                   <p className="text-muted-foreground mb-4">
-                    Create your first agent to get started
+                    {t('agents.noAgentsDesc')}
                   </p>
                   <Button onClick={() => setShowCreateAgent(true)}>
                     <Plus className="w-4 h-4 mr-2" />
-                    Create Agent
+                    {t('agents.createAgent')}
                   </Button>
                 </div>
               ) : (
@@ -359,17 +361,17 @@ export const Agents: React.FC = () => {
                           <DropdownMenuContent align="end">
                             <DropdownMenuItem onClick={() => setEditingAgent(agent)}>
                               <Edit className="w-4 h-4 mr-2" />
-                              Edit
+                              {t('common.edit')}
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleRunAgent(agent)}>
                               <Play className="w-4 h-4 mr-2" />
-                              Run
+                              {t('agents.runAgent')}
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleExportAgent(agent)}>
                               <Download className="w-4 h-4 mr-2" />
-                              Export
+                              {t('agents.exportAgent')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               onClick={() => {
                                 setAgentToDelete(agent);
                                 setShowDeleteDialog(true);
@@ -377,7 +379,7 @@ export const Agents: React.FC = () => {
                               className="text-destructive"
                             >
                               <Trash2 className="w-4 h-4 mr-2" />
-                              Delete
+                              {t('agents.deleteAgent')}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -396,7 +398,7 @@ export const Agents: React.FC = () => {
                           onClick={() => handleRunAgent(agent)}
                         >
                           <Play className="w-3 h-3 mr-1" />
-                          Run
+                          {t('agents.runAgent')}
                         </Button>
                       </div>
                     </Card>
@@ -410,9 +412,9 @@ export const Agents: React.FC = () => {
                 <Card className="p-12">
                   <div className="flex flex-col items-center justify-center text-center">
                     <History className="w-12 h-12 text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No Agent History</h3>
+                    <h3 className="text-lg font-semibold mb-2">{t('agents.noAgents')}</h3>
                     <p className="text-muted-foreground">
-                      Run an agent to see it here
+                      {t('agents.tabRunning')}
                     </p>
                   </div>
                 </Card>

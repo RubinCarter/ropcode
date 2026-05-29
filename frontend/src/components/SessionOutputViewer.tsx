@@ -16,6 +16,7 @@ import { buildSubagentProgress } from '@/lib/subagentProgress';
 import { getDisplayableMessages } from './ai-code-session/utils/messageFilter';
 import { useSubagentTranscriptSync } from '@/hooks';
 import { useAgentBulkMessages } from '@/hooks/useAgentBulkMessages';
+import { useTranslation } from 'react-i18next';
 
 type UnlistenFn = () => void;
 import { ErrorBoundary } from './ErrorBoundary';
@@ -45,6 +46,7 @@ export interface ClaudeStreamMessage {
 }
 
 export function SessionOutputViewer({ session, onClose, className }: SessionOutputViewerProps) {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<ClaudeStreamMessage[]>([]);
   const [subagentTranscripts, setSubagentTranscripts] = useState<Record<string, ClaudeStreamMessage[]>>({});
   const [loading, setLoading] = useState(false);
@@ -244,7 +246,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
       }
     } catch (error) {
       console.error('Failed to load session output:', error);
-      setToast({ message: 'Failed to load session output', type: 'error' });
+      setToast({ message: t('viewer.noOutput'), type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -260,17 +262,17 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
 
       const errorUnlisten = listen(`agent-error:${session.id}`, (payload: string) => {
         console.error("Agent error:", payload);
-        setToast({ message: payload, type: 'error' });
+        setToast({ message: t('common.error'), type: 'error' });
       });
 
       const completeUnlisten = listen(`agent-complete:${session.id}`, () => {
-        setToast({ message: 'Agent execution completed', type: 'success' });
+        setToast({ message: t('viewer.agentRunOutput'), type: 'success' });
         void refreshSubagentTranscripts();
         // Don't set status here as the parent component should handle it
       });
 
       const cancelUnlisten = listen(`agent-cancelled:${session.id}`, () => {
-        setToast({ message: 'Agent execution was cancelled', type: 'error' });
+        setToast({ message: t('common.done'), type: 'error' });
         void refreshSubagentTranscripts();
       });
 
@@ -285,7 +287,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     const jsonl = messages.map(m => JSON.stringify(m)).join('\n');
     await navigator.clipboard.writeText(jsonl);
     setCopyPopoverOpen(false);
-    setToast({ message: 'Output copied as JSONL', type: 'success' });
+    setToast({ message: t('stream.copied'), type: 'success' });
   };
 
   const handleCopyAsMarkdown = async () => {
@@ -340,7 +342,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
 
     await navigator.clipboard.writeText(markdown);
     setCopyPopoverOpen(false);
-    setToast({ message: 'Output copied as Markdown', type: 'success' });
+    setToast({ message: t('stream.copied'), type: 'success' });
   };
 
 
@@ -348,10 +350,10 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
     setRefreshing(true);
     try {
       await loadOutput(true); // Skip cache when manually refreshing
-      setToast({ message: 'Output refreshed', type: 'success' });
+      setToast({ message: t('common.done'), type: 'success' });
     } catch (error) {
       console.error('Failed to refresh output:', error);
-      setToast({ message: 'Failed to refresh output', type: 'error' });
+      setToast({ message: t('common.error'), type: 'error' });
     } finally {
       setRefreshing(false);
     }
@@ -411,7 +413,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
               <div className="flex items-center space-x-3">
                 <div className="text-2xl">{session.agent_icon}</div>
                 <div>
-                  <CardTitle className="text-base">{session.agent_name} - Output</CardTitle>
+                  <CardTitle className="text-base">{session.agent_name} - {t('viewer.agentRunOutput')}</CardTitle>
                   <div className="flex items-center space-x-2 mt-1">
                     <Badge variant={session.status === 'running' ? 'default' : 'secondary'}>
                       {session.status}
@@ -447,7 +449,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                           className="flex items-center gap-2"
                         >
                           <Copy className="h-4 w-4" />
-                          Copy Output
+                          {t('viewer.clearOutput')}
                           <ChevronDown className="h-3 w-3" />
                         </Button>
                       }
@@ -459,7 +461,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                             className="w-full justify-start"
                             onClick={handleCopyAsJsonl}
                           >
-                            Copy as JSONL
+                            {t('stream.copyCode')}
                           </Button>
                           <Button
                             variant="ghost"
@@ -467,7 +469,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                             className="w-full justify-start"
                             onClick={handleCopyAsMarkdown}
                           >
-                            Copy as Markdown
+                            {t('stream.copyCode')}
                           </Button>
                         </div>
                       }
@@ -497,7 +499,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
               <div className="flex items-center justify-center h-full">
                 <div className="flex items-center space-x-2">
                   <RefreshCw className="h-4 w-4 animate-spin" />
-                  <span>Loading output...</span>
+                  <span>{t('common.loading')}</span>
                 </div>
               </div>
             ) : messages.length === 0 ? (
@@ -505,14 +507,14 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                 {session.status === 'running' ? (
                   <>
                     <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground mb-2" />
-                    <p className="text-muted-foreground">Waiting for output...</p>
+                    <p className="text-muted-foreground">{t('viewer.noOutput')}</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       Agent is running but no output received yet
                     </p>
                   </>
                 ) : (
                   <>
-                    <p className="text-muted-foreground">No output available</p>
+                    <p className="text-muted-foreground">{t('viewer.noOutput')}</p>
                     <Button
                       variant="outline"
                       size="sm"
@@ -566,11 +568,11 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
           <div className="flex items-center justify-between p-4 border-b border-border">
             <div className="flex items-center gap-2">
               <div className="text-2xl">{session.agent_icon}</div>
-              <h2 className="text-lg font-semibold">{session.agent_name} - Output</h2>
+              <h2 className="text-lg font-semibold">{session.agent_name} - {t('viewer.agentRunOutput')}</h2>
               {session.status === 'running' && (
                 <div className="flex items-center gap-1">
                   <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-xs text-green-600 font-medium">Running</span>
+                  <span className="text-xs text-green-600 font-medium">{t('common.status')}</span>
                 </div>
               )}
             </div>
@@ -584,7 +586,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                       className="flex items-center gap-2"
                     >
                       <Copy className="h-4 w-4" />
-                      Copy Output
+                      {t('viewer.clearOutput')}
                       <ChevronDown className="h-3 w-3" />
                     </Button>
                   }
@@ -596,7 +598,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                         className="w-full justify-start"
                         onClick={handleCopyAsJsonl}
                       >
-                        Copy as JSONL
+                        {t('stream.copyCode')}
                       </Button>
                       <Button
                         variant="ghost"
@@ -604,7 +606,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                         className="w-full justify-start"
                         onClick={handleCopyAsMarkdown}
                       >
-                        Copy as Markdown
+                        {t('stream.copyCode')}
                       </Button>
                     </div>
                   }
@@ -620,7 +622,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                 className="flex items-center gap-2"
               >
                 <X className="h-4 w-4" />
-                Close
+                {t('common.close')}
               </Button>
             </div>
           </div>
@@ -632,7 +634,7 @@ export function SessionOutputViewer({ session, onClose, className }: SessionOutp
                 {session.status === 'running' ? (
                   <>
                     <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground mb-2" />
-                    <p className="text-muted-foreground">Waiting for output...</p>
+                    <p className="text-muted-foreground">{t('viewer.noOutput')}</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       Agent is running but no output received yet
                     </p>

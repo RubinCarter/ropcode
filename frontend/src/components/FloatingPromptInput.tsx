@@ -47,6 +47,7 @@ import {
   getStopStatusControlLayoutClassName,
 } from './ai-code-session/utils/stopStatusBubble';
 import { resolveWorkspacePath } from "@/lib/pathUtils";
+import { useTranslation } from 'react-i18next';
 
 type FileEntry = main.FileEntry & {
   entry_type?: "file" | "directory" | "agent";
@@ -620,6 +621,7 @@ const FloatingPromptInputInner = (
   }: FloatingPromptInputProps,
   ref: React.Ref<FloatingPromptInputRef>,
 ) => {
+  const { t } = useTranslation();
   const [prompt, setPrompt] = useState("");
   const [selectedModel, setSelectedModel] = useState<string>(defaultModel);
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider);
@@ -1707,7 +1709,7 @@ const FloatingPromptInputInner = (
       if (error instanceof UploadError) {
         setUploadError(error.message);
       } else {
-        setUploadError('Upload failed, please retry');
+        setUploadError(t('prompt.uploadFailed'));
       }
       // Clear error after 5 seconds
       setTimeout(() => setUploadError(null), 5000);
@@ -1772,8 +1774,8 @@ const FloatingPromptInputInner = (
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-medium">Compose your prompt</h3>
-                <TooltipSimple content="Minimize" side="bottom">
+                <h3 className="text-sm font-medium">{t('prompt.composePrompt')}</h3>
+                <TooltipSimple content={t('prompt.minimize')} side="bottom">
                   <motion.div
                     whileTap={{ scale: 0.97 }}
                     transition={{ duration: 0.15 }}
@@ -1806,7 +1808,7 @@ const FloatingPromptInputInner = (
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
                 onPaste={handlePaste}
-                placeholder="Type your message (@ for files/agents, / for commands, : for skills)..."
+                placeholder={t('prompt.placeholderExpanded')}
                 className="min-h-[200px] resize-none"
                 disabled={disabled}
                 onDragEnter={handleDrag}
@@ -1818,7 +1820,7 @@ const FloatingPromptInputInner = (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">Model:</span>
+                    <span className="text-xs text-muted-foreground">{t('prompt.model')}:</span>
                     <Popover
                       trigger={
                         <Button
@@ -1872,7 +1874,7 @@ const FloatingPromptInputInner = (
 
                   {/* Thinking mode selector - available for all providers */}
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">Thinking:</span>
+                    <span className="text-xs text-muted-foreground">{t('prompt.thinking')}:</span>
                     <Popover
                       trigger={
                         <Tooltip>
@@ -1892,7 +1894,7 @@ const FloatingPromptInputInner = (
                               </Button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p className="font-medium">{selectedThinkingModeData?.name || "Auto"}</p>
+                              <p className="font-medium">{selectedThinkingModeData?.name || t('prompt.thinkingAuto')}</p>
                               <p className="text-xs text-muted-foreground">{selectedThinkingModeData?.description}</p>
                             </TooltipContent>
                           </Tooltip>
@@ -1936,7 +1938,7 @@ const FloatingPromptInputInner = (
                   </div>
                 </div>
 
-                <TooltipSimple content="Send message" side="top">
+                <TooltipSimple content={t('prompt.sendMessage')} side="top">
                   <motion.div
                     whileTap={{ scale: 0.97 }}
                     transition={{ duration: 0.15 }}
@@ -2158,7 +2160,7 @@ const FloatingPromptInputInner = (
                               </Button>
                               </TooltipTrigger>
                               <TooltipContent side="top">
-                                <p className="text-xs font-medium">Thinking: {selectedThinkingModeData?.name || "Auto"}</p>
+                                <p className="text-xs font-medium">{t('prompt.thinking')}: {selectedThinkingModeData?.name || t('prompt.thinkingAuto')}</p>
                                 <p className="text-xs text-muted-foreground">{selectedThinkingModeData?.description}</p>
                               </TooltipContent>
                             </Tooltip>
@@ -2215,10 +2217,10 @@ const FloatingPromptInputInner = (
                   onPaste={handlePaste}
                   placeholder={
                     dragActive
-                      ? "Drop images here..."
+                      ? t('prompt.dropImagesHere')
                       : usesClaudeCapabilityPicker
-                        ? "@ for files/agents, / for Claude capabilities..."
-                        : "@ for files/agents, / for commands, : for skills..."
+                        ? t('prompt.placeholderClaude')
+                        : t('prompt.placeholderGeneric')
                   }
                   disabled={disabled}
                   className={cn(
@@ -2234,7 +2236,7 @@ const FloatingPromptInputInner = (
 
                 {/* Action buttons inside input - fixed at bottom right */}
                 <div className="absolute right-1.5 bottom-1.5 flex items-center gap-0.5">
-                  <TooltipSimple content="Expand (Ctrl+Shift+E)" side="top">
+                  <TooltipSimple content={t('prompt.expand')} side="top">
                     <Button
                       variant="ghost"
                       size="icon"
@@ -2251,7 +2253,7 @@ const FloatingPromptInputInner = (
                     disabled={isLoading || disabled}
                   />
 
-                  <TooltipSimple content="Send message (⌘+Enter)" side="top">
+                  <TooltipSimple content={t('prompt.sendMessageShortcut')} side="top">
                     <Button
                       onClick={handleSend}
                       disabled={!prompt.trim() || disabled || !isProviderApiConfigLoaded}
@@ -2276,8 +2278,8 @@ const FloatingPromptInputInner = (
                       <TooltipSimple
                         content={
                           interactiveSessionId
-                            ? (isLoading ? "Stop current task" : "Terminate interactive session")
-                            : "Stop generation"
+                            ? (isLoading ? t('prompt.stopCurrentTask') : t('prompt.terminateSession'))
+                            : t('prompt.stopGeneration')
                         }
                         side="top"
                       >

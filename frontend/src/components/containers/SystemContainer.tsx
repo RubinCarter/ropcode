@@ -1,12 +1,12 @@
 import React, { Suspense, lazy } from 'react';
 import { useSystemTabContext } from '@/contexts/SystemTabContext';
 import { Loader2 } from 'lucide-react';
+import { Settings } from '@/components/Settings';
 
 // Lazy load components with named exports
 const Agents = lazy(() => import('@/components/Agents').then(m => ({ default: m.Agents })));
 const UsageDashboard = lazy(() => import('@/components/UsageDashboard').then(m => ({ default: m.UsageDashboard })));
 const MCPManager = lazy(() => import('@/components/MCPManager').then(m => ({ default: m.MCPManager })));
-const Settings = lazy(() => import('@/components/Settings').then(m => ({ default: m.Settings })));
 const MarkdownEditor = lazy(() => import('@/components/MarkdownEditor').then(m => ({ default: m.MarkdownEditor })));
 const CreateAgent = lazy(() => import('@/components/CreateAgent').then(m => ({ default: m.CreateAgent })));
 

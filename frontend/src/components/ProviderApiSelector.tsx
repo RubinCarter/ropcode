@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Globe, CheckCircle, Loader2, AlertCircle } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,6 +29,7 @@ export const ProviderApiSelector: React.FC<ProviderApiSelectorProps> = ({
   className,
   onConfigChanged,
 }) => {
+  const { t } = useTranslation();
   const [configs, setConfigs] = useState<ProviderApiConfig[]>([]);
   const [selectedConfigId, setSelectedConfigId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,19 +124,19 @@ export const ProviderApiSelector: React.FC<ProviderApiSelectorProps> = ({
   return (
     <div className={cn("space-y-4", className)}>
       <div className="space-y-2">
-        <Label htmlFor="api-config">API Configuration</Label>
+        <Label htmlFor="api-config">{t('providers.title')}</Label>
         <Select
           value={selectedConfigId || "default"}
           onValueChange={handleConfigChange}
           disabled={saving}
         >
           <SelectTrigger id="api-config" className="w-full">
-            <SelectValue placeholder="Select API configuration" />
+            <SelectValue placeholder={t('providers.configNamePlaceholder')} />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="default">
               <div className="flex items-center gap-2">
-                <span>Use Default</span>
+                <span>{t('common.default')}</span>
                 {defaultConfig && (
                   <span className="text-xs text-muted-foreground">
                     ({defaultConfig.name})
@@ -147,7 +149,7 @@ export const ProviderApiSelector: React.FC<ProviderApiSelectorProps> = ({
                 <div className="flex items-center gap-2">
                   <span>{config.name}</span>
                   {config.is_default && (
-                    <span className="text-xs text-muted-foreground">(Default)</span>
+                    <span className="text-xs text-muted-foreground">({t('common.default')})</span>
                   )}
                 </div>
               </SelectItem>
@@ -166,7 +168,7 @@ export const ProviderApiSelector: React.FC<ProviderApiSelectorProps> = ({
           <div className="flex items-center gap-2">
             <CheckCircle className="h-4 w-4 text-primary" />
             <span className="text-sm font-medium">
-              {selectedConfigId ? "Custom Configuration" : "Using Default"}
+              {selectedConfigId ? t('providers.editConfig') : t('providers.isDefault')}
             </span>
           </div>
 

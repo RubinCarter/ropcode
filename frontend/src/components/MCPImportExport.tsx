@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Download, Upload, FileText, Loader2, Info, Network, Settings2 } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
   onImportCompleted,
   onError,
 }) => {
+  const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [importingDesktop, setImportingDesktop] = useState(false);
   const [importingJson, setImportingJson] = useState(false);
@@ -152,9 +154,9 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
   return (
     <div className={`${isMobile ? 'p-3' : 'p-6'} space-y-6`}>
       <div>
-        <h3 className="text-base font-semibold">Import & Export</h3>
+        <h3 className="text-base font-semibold">{t('mcp.importExport')}</h3>
         <p className="text-sm text-muted-foreground mt-1">
-          Import MCP servers from other sources or export your configuration
+          {t('common.import')} MCP servers from other sources or {t('common.export').toLowerCase()} your configuration
         </p>
       </div>
 
@@ -164,15 +166,15 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
           <div className="space-y-3">
             <div className="flex items-center gap-2 mb-2">
               <Settings2 className="h-4 w-4 text-slate-500" />
-              <Label className="text-sm font-medium">Import Scope</Label>
+              <Label className="text-sm font-medium">{t('mcp.scope')}</Label>
             </div>
             <SelectComponent
               value={importScope}
               onValueChange={(value: string) => setImportScope(value)}
               options={[
-                { value: "local", label: "Local (this project only)" },
-                { value: "project", label: "Project (shared via .mcp.json)" },
-                { value: "user", label: "User (all projects)" },
+                { value: "local", label: t('mcp.scopeLocal') },
+                { value: "project", label: t('mcp.scopeProject') },
+                { value: "user", label: t('mcp.scopeUser') },
               ]}
             />
             <p className="text-xs text-muted-foreground">
@@ -203,7 +205,7 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
               {importingDesktop ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Importing...
+                  {t('common.loading')}
                 </>
               ) : (
                 <>
@@ -247,7 +249,7 @@ export const MCPImportExport: React.FC<MCPImportExportProps> = ({
                 {importingJson ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Importing...
+                    {t('common.loading')}
                   </>
                 ) : (
                   <>

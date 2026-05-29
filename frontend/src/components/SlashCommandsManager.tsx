@@ -32,6 +32,7 @@ import { api, type SlashCommand, type CommandType } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { COMMON_TOOL_MATCHERS } from "@/types/hooks";
 import { useTrackEvent } from "@/hooks";
+import { useTranslation } from 'react-i18next';
 
 interface SlashCommandsManagerProps {
   projectPath?: string;
@@ -123,6 +124,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
   className,
   scopeFilter = 'all',
 }) => {
+  const { t } = useTranslation();
   const [commands, setCommands] = useState<SlashCommand[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -172,7 +174,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
       setCommands(loadedCommands);
     } catch (err) {
       console.error("Failed to load slash commands:", err);
-      setError("Failed to load commands");
+      setError(t('commands.loadError'));
     } finally {
       setLoading(false);
     }
@@ -230,7 +232,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
       await loadCommands();
     } catch (err) {
       console.error("Failed to save command:", err);
-      setError(err instanceof Error ? err.message : "Failed to save command");
+      setError(err instanceof Error ? err.message : t('commands.saveError'));
     } finally {
       setSaving(false);
     }
@@ -253,7 +255,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
       await loadCommands();
     } catch (err) {
       console.error("Failed to delete command:", err);
-      const errorMessage = err instanceof Error ? err.message : "Failed to delete command";
+      const errorMessage = err instanceof Error ? err.message : t('commands.deleteError');
       setError(errorMessage);
     } finally {
       setDeleting(false);
@@ -306,7 +308,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
       await loadCommands();
     } catch (err) {
       console.error("Failed to convert command:", err);
-      const errorMessage = err instanceof Error ? err.message : "Failed to convert command";
+      const errorMessage = err instanceof Error ? err.message : t('commands.saveError');
       setError(errorMessage);
     } finally {
       setConverting(false);
@@ -435,17 +437,17 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">
-            {scopeFilter === 'project' ? 'Project Slash Commands' : 'Slash Commands'}
+            {scopeFilter === 'project' ? t('commands.title') : t('commands.title')}
           </h3>
           <p className="text-sm text-muted-foreground mt-1">
             {scopeFilter === 'project'
-              ? 'Create custom commands for this project'
-              : 'Create custom commands to streamline your workflow'}
+              ? t('commands.subtitle')
+              : t('commands.subtitle')}
           </p>
         </div>
         <Button onClick={handleCreateNew} size="sm" className="gap-2">
           <Plus className="h-4 w-4" />
-          New Command
+          {t('commands.createCommand')}
         </Button>
       </div>
 
@@ -463,7 +465,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search commands..."
+              placeholder={t('commands.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-9"
@@ -505,16 +507,12 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
             <Command className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <p className="text-sm text-muted-foreground">
               {searchQuery
-                ? "No commands found"
-                : scopeFilter === 'project'
-                  ? `No ${selectedCommandType === 'claude' ? 'Claude' : 'Codex'} project commands created yet`
-                  : `No ${selectedCommandType === 'claude' ? 'Claude' : 'Codex'} commands created yet`}
+                ? t('common.noResults')
+                : t('commands.noCommandsDesc')}
             </p>
             {!searchQuery && (
               <Button onClick={handleCreateNew} variant="outline" size="sm" className="mt-4">
-                {scopeFilter === 'project'
-                  ? `Create your first ${selectedCommandType === 'claude' ? 'Claude' : 'Codex'} project command`
-                  : `Create your first ${selectedCommandType === 'claude' ? 'Claude' : 'Codex'} command`}
+                {t('commands.createCommand')}
               </Button>
             )}
           </div>
@@ -672,14 +670,14 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {editingCommand ? "Edit Command" : "Create New Command"}
+              {editingCommand ? t('commands.editCommand') : t('commands.createCommand')}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             {/* Command Type */}
             <div className="space-y-2">
-              <Label>Command Type</Label>
+              <Label>{t('commands.commandType')}</Label>
               <div className="flex items-center gap-2 p-3 bg-muted rounded-md">
                 <Badge variant={commandForm.commandType === 'claude' ? 'default' : 'secondary'}>
                   {commandForm.commandType === 'claude' ? 'Claude' : 'Codex'}
@@ -694,7 +692,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
 
             {/* Scope */}
             <div className="space-y-2">
-              <Label>Scope</Label>
+              <Label>{t('commands.scope')}</Label>
               <Select
                 value={commandForm.scope}
                 onValueChange={(value: 'project' | 'user') => setCommandForm(prev => ({ ...prev, scope: value }))}
@@ -708,7 +706,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
                     <SelectItem value="user">
                       <div className="flex items-center gap-2">
                         <Globe className="h-4 w-4" />
-                        User (Global)
+                        {t('commands.scopeUser')}
                       </div>
                     </SelectItem>
                   )}
@@ -716,7 +714,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
                     <SelectItem value="project" disabled={!projectPath}>
                       <div className="flex items-center gap-2">
                         <FolderOpen className="h-4 w-4" />
-                        Project
+                        {t('commands.scopeProject')}
                       </div>
                     </SelectItem>
                   )}
@@ -732,16 +730,16 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
             {/* Name and Namespace */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Command Name*</Label>
+                <Label>{t('commands.commandName')}*</Label>
                 <Input
-                  placeholder="e.g., review, fix-issue"
+                  placeholder={t('commands.commandNamePlaceholder')}
                   value={commandForm.name}
                   onChange={(e) => setCommandForm(prev => ({ ...prev, name: e.target.value }))}
                 />
               </div>
               
               <div className="space-y-2">
-                <Label>Namespace (Optional)</Label>
+                <Label>{t('commands.namespace')}</Label>
                 <Input
                   placeholder="e.g., frontend, backend"
                   value={commandForm.namespace}
@@ -762,9 +760,9 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
 
             {/* Content */}
             <div className="space-y-2">
-              <Label>Command Content*</Label>
+              <Label>{t('commands.content')}*</Label>
               <Textarea
-                placeholder="Enter the prompt content. Use $ARGUMENTS for dynamic values."
+                placeholder={t('commands.contentPlaceholder')}
                 value={commandForm.content}
                 onChange={(e) => setCommandForm(prev => ({ ...prev, content: e.target.value }))}
                 className="min-h-[150px] font-mono text-sm"
@@ -779,7 +777,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
             {commandForm.commandType === 'claude' ? (
               /* Claude: Allowed Tools */
               <div className="space-y-2">
-                <Label>Allowed Tools</Label>
+                <Label>{t('commands.allowedTools')}</Label>
                 <div className="flex flex-wrap gap-2">
                   {COMMON_TOOL_MATCHERS.map((tool) => (
                     <Button
@@ -800,7 +798,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
             ) : (
               /* Codex: Argument Hint */
               <div className="space-y-2">
-                <Label>Argument Hint (Optional)</Label>
+                <Label>{t('commands.argumentHint')}</Label>
                 <Input
                   placeholder="e.g., FILE=<path> [TYPE=unit|integration]"
                   value={commandForm.argumentHint}
@@ -816,7 +814,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
             {/* Examples */}
             {!editingCommand && (
               <div className="space-y-2">
-                <Label>Examples</Label>
+                <Label>{t('commands.examples')}</Label>
                 <div className="grid grid-cols-2 gap-2">
                   {(commandForm.commandType === 'claude' ? CLAUDE_EXAMPLES : CODEX_EXAMPLES).map((example) => (
                     <Button
@@ -852,7 +850,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={handleSave}
@@ -861,12 +859,12 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
               {saving ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving...
+                  {t('common.loading')}
                 </>
               ) : (
                 <>
                   <Save className="h-4 w-4 mr-2" />
-                  Save
+                  {t('common.save')}
                 </>
               )}
             </Button>
@@ -878,11 +876,11 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete Command</DialogTitle>
+            <DialogTitle>{t('commands.deleteCommand')}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
-            <p>Are you sure you want to delete this command?</p>
+            <p>{t('commands.deleteConfirm')}</p>
             {commandToDelete && (
               <div className="p-3 bg-muted rounded-md">
                 <code className="text-sm font-mono">{commandToDelete.full_command}</code>
@@ -898,7 +896,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
 
           <DialogFooter>
             <Button variant="outline" onClick={cancelDelete} disabled={deleting}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -908,12 +906,12 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
               {deleting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Deleting...
+                  {t('common.loading')}
                 </>
               ) : (
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
+                  {t('common.delete')}
                 </>
               )}
             </Button>
@@ -976,7 +974,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
 
           <DialogFooter>
             <Button variant="outline" onClick={cancelConvert} disabled={converting}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={confirmConvert}
@@ -985,7 +983,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
               {converting ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Converting...
+                  {t('common.loading')}
                 </>
               ) : (
                 <>

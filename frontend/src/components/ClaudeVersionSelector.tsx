@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -59,6 +60,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
   isSaving = false,
   simplified = false,
 }) => {
+  const { t } = useTranslation();
   const [installations, setInstallations] = useState<ClaudeInstallation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -149,7 +151,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
       <Card className={className}>
         <CardHeader>
           <CardTitle>Claude Code Installation</CardTitle>
-          <CardDescription>Loading available installations...</CardDescription>
+          <CardDescription>{t("common.loading")}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-center py-4">
@@ -168,7 +170,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
           <div className="p-3 border border-destructive/50 rounded-lg bg-destructive/10">
             <p className="text-sm text-destructive mb-2">{error}</p>
             <Button onClick={loadInstallations} variant="outline" size="sm">
-              Retry
+              {t("common.retry")}
             </Button>
           </div>
         </div>
@@ -183,7 +185,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
         <CardContent>
           <div className="text-sm text-destructive mb-4">{error}</div>
           <Button onClick={loadInstallations} variant="outline" size="sm">
-            Retry
+            {t("common.retry")}
           </Button>
         </CardContent>
       </Card>
@@ -228,7 +230,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
           <SelectContent side="bottom" align="start" sideOffset={5}>
             {installations.length === 0 ? (
               <div className="p-4 text-center text-sm text-muted-foreground">
-                No Claude installations found
+                {t("common.noResults")}
               </div>
             ) : (
               <>
@@ -239,7 +241,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
                       <div className="flex-1">
                         <div className="font-mono text-sm">{installation.path}</div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>{installation.version || "Unknown version"}</span>
+                          <span>{installation.version || t("common.unknown")}</span>
                           <span>•</span>
                           <span>{installation.source}</span>
                           <Badge variant={getInstallationTypeColor(installation)} className="text-xs ml-2">
@@ -308,7 +310,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{installation.path}</div>
                           <div className="text-xs text-muted-foreground">
-                            {installation.version || "Version unknown"} • {installation.source}
+                            {installation.version || t("common.unknown")} • {installation.source}
                           </div>
                         </div>
                         <Badge variant="outline" className="text-xs">
@@ -330,7 +332,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{installation.path}</div>
                           <div className="text-xs text-muted-foreground">
-                            {installation.version || "Version unknown"} • {installation.source}
+                            {installation.version || t("common.unknown")} • {installation.source}
                           </div>
                         </div>
                         <Badge variant="outline" className="text-xs">
@@ -371,7 +373,7 @@ export const ClaudeVersionSelector: React.FC<ClaudeVersionSelectorProps> = ({
             disabled={isSaving || !selectedInstallation}
             className="w-full"
           >
-            {isSaving ? "Saving..." : "Save Selection"}
+            {isSaving ? t("settings.saving") : t("common.save")}
           </Button>
         )}
       </CardContent>

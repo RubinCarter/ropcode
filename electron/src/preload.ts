@@ -74,5 +74,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     };
   },
 
+  setLocale: (locale: string) => ipcRenderer.invoke('app:setLocale', locale),
+
 });
 

@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { Toast, ToastContainer } from "./ui/toast";
+import { useTranslation } from 'react-i18next';
 
 // Note: API returns string[] for table names, we convert to TableInfo for internal use
 interface TableInfo {
@@ -76,6 +77,7 @@ interface QueryResult {
  * StorageTab component - A beautiful SQLite database viewer/editor
  */
 export const StorageTab: React.FC = () => {
+  const { t } = useTranslation();
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [selectedTable, setSelectedTable] = useState<string>("");
   const [tableData, setTableData] = useState<TableData | null>(null);
@@ -337,7 +339,7 @@ export const StorageTab: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Database className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-semibold">Database Storage</h3>
+              <h3 className="text-sm font-semibold">{t('storage.title')}</h3>
             </div>
             <div className="flex items-center gap-2">
               <Button
@@ -347,7 +349,7 @@ export const StorageTab: React.FC = () => {
                 className="gap-2 h-8 text-xs"
               >
                 <Terminal className="h-3 w-3" />
-                SQL Query
+                {t('storage.sqlEditor')}
               </Button>
               <Button
                 variant="destructive"
@@ -356,7 +358,7 @@ export const StorageTab: React.FC = () => {
                 className="gap-2 h-8 text-xs"
               >
                 <RefreshCw className="h-3 w-3" />
-                Reset DB
+                {t('storage.resetDatabase')}
               </Button>
             </div>
           </div>
@@ -389,7 +391,7 @@ export const StorageTab: React.FC = () => {
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3 w-3 text-muted-foreground" />
               <Input
-                placeholder="Search in table..."
+                placeholder={t('storage.selectTable')}
                 value={searchQuery}
                 onChange={(e) => handleSearch(e.target.value)}
                 className="pl-8 h-8 text-xs"
@@ -404,7 +406,7 @@ export const StorageTab: React.FC = () => {
                 className="gap-2 h-8 text-xs"
               >
                 <Plus className="h-3 w-3" />
-                New Row
+                {t('storage.addRow')}
               </Button>
             )}
           </div>
@@ -427,7 +429,7 @@ export const StorageTab: React.FC = () => {
                     </th>
                   ))}
                   <th className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">
-                    Actions
+                    {t('common.actions')}
                   </th>
                 </tr>
               </thead>
@@ -523,10 +525,10 @@ export const StorageTab: React.FC = () => {
                   className="h-7 text-xs"
                 >
                   <ChevronLeft className="h-3 w-3" />
-                  Previous
+                  {t('common.previous')}
                 </Button>
                 <div className="text-xs">
-                  Page {currentPage} of {tableData.total_pages}
+                  {t('storage.page', { current: currentPage, total: tableData.total_pages })}
                 </div>
                 <Button
                   variant="outline"
@@ -535,7 +537,7 @@ export const StorageTab: React.FC = () => {
                   disabled={currentPage === tableData.total_pages}
                   className="h-7 text-xs"
                 >
-                  Next
+                  {t('common.next')}
                   <ChevronRight className="h-3 w-3" />
                 </Button>
               </div>
@@ -565,7 +567,7 @@ export const StorageTab: React.FC = () => {
       <Dialog open={!!editingRow} onOpenChange={() => setEditingRow(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Row</DialogTitle>
+            <DialogTitle>{t('storage.editRow')}</DialogTitle>
             <DialogDescription>
               Update the values for this row in the {selectedTable} table.
             </DialogDescription>
@@ -610,7 +612,7 @@ export const StorageTab: React.FC = () => {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingRow(null)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={() => handleUpdateRow(editingRow!)}
@@ -619,7 +621,7 @@ export const StorageTab: React.FC = () => {
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Update"
+                t('common.update')
               )}
             </Button>
           </DialogFooter>
@@ -630,7 +632,7 @@ export const StorageTab: React.FC = () => {
       <Dialog open={!!newRow} onOpenChange={() => setNewRow(null)}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>New Row</DialogTitle>
+            <DialogTitle>{t('storage.addRow')}</DialogTitle>
             <DialogDescription>
               Add a new row to the {selectedTable} table.
             </DialogDescription>
@@ -660,7 +662,7 @@ export const StorageTab: React.FC = () => {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setNewRow(null)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={() => handleInsertRow(newRow!)}
@@ -669,7 +671,7 @@ export const StorageTab: React.FC = () => {
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Insert"
+                t('common.add')
               )}
             </Button>
           </DialogFooter>
@@ -680,10 +682,9 @@ export const StorageTab: React.FC = () => {
       <Dialog open={!!deletingRow} onOpenChange={() => setDeletingRow(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Row</DialogTitle>
+            <DialogTitle>{t('storage.deleteRow')}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete this row? This action cannot be
-              undone.
+              {t('storage.deleteRowConfirm')}
             </DialogDescription>
           </DialogHeader>
           {deletingRow && (
@@ -706,7 +707,7 @@ export const StorageTab: React.FC = () => {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeletingRow(null)}>
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -716,7 +717,7 @@ export const StorageTab: React.FC = () => {
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Delete"
+                t('common.delete')
               )}
             </Button>
           </DialogFooter>
@@ -727,12 +728,9 @@ export const StorageTab: React.FC = () => {
       <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reset Database</DialogTitle>
+            <DialogTitle>{t('storage.resetDatabase')}</DialogTitle>
             <DialogDescription>
-              This will delete all data and recreate the database with its default structure 
-              (empty tables for agents, agent_runs, and app_settings). The database will be 
-              restored to the same state as when you first installed the app. This action 
-              cannot be undone.
+              {t('storage.resetConfirm')}
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-3 p-4 rounded-md bg-destructive/10 text-destructive">
@@ -746,7 +744,7 @@ export const StorageTab: React.FC = () => {
               variant="outline"
               onClick={() => setShowResetConfirm(false)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -756,7 +754,7 @@ export const StorageTab: React.FC = () => {
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Reset Database"
+                t('storage.resetDatabase')
               )}
             </Button>
           </DialogFooter>
@@ -767,19 +765,19 @@ export const StorageTab: React.FC = () => {
       <Dialog open={showSqlEditor} onOpenChange={setShowSqlEditor}>
         <DialogContent className="max-w-4xl max-h-[80vh]">
           <DialogHeader>
-            <DialogTitle>SQL Query Editor</DialogTitle>
+            <DialogTitle>{t('storage.sqlEditor')}</DialogTitle>
             <DialogDescription>
               Execute raw SQL queries on the database. Use with caution.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="sql-query">SQL Query</Label>
+              <Label htmlFor="sql-query">{t('storage.sqlEditor')}</Label>
               <Textarea
                 id="sql-query"
                 value={sqlQuery}
                 onChange={(e) => setSqlQuery(e.target.value)}
-                placeholder="SELECT * FROM agents LIMIT 10;"
+                placeholder={t('storage.sqlPlaceholder')}
                 className="font-mono text-sm h-32"
               />
             </div>
@@ -881,7 +879,7 @@ export const StorageTab: React.FC = () => {
                 setSqlError(null);
               }}
             >
-              Close
+              {t('common.close')}
             </Button>
             <Button
               onClick={handleExecuteSql}
@@ -890,7 +888,7 @@ export const StorageTab: React.FC = () => {
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                "Execute"
+                t('storage.executeSql')
               )}
             </Button>
           </DialogFooter>

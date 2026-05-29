@@ -1,23 +1,24 @@
 import type { MenuItemConstructorOptions } from 'electron';
+import { t } from './i18n';
 
 export function buildAppMenuTemplate(
   platform: NodeJS.Platform,
   onInstallCliToPath: () => void | Promise<void>,
 ): MenuItemConstructorOptions[] {
   const installCliItem: MenuItemConstructorOptions = {
-    label: 'Install CLI to PATH',
+    label: t('menu.installCli'),
     click: () => {
       void onInstallCliToPath();
     },
   };
 
   const fileMenu: MenuItemConstructorOptions = {
-    label: 'File',
+    label: t('menu.file'),
     submenu: [installCliItem, { type: 'separator' }, { role: platform === 'darwin' ? 'close' : 'quit' }],
   };
 
   const editMenu: MenuItemConstructorOptions = {
-    label: 'Edit',
+    label: t('menu.edit'),
     submenu: [
       { role: 'undo' },
       { role: 'redo' },
@@ -30,7 +31,7 @@ export function buildAppMenuTemplate(
   };
 
   const viewMenu: MenuItemConstructorOptions = {
-    label: 'View',
+    label: t('menu.view'),
     submenu: [{ role: 'reload' }, { role: 'togglefullscreen' }],
   };
 

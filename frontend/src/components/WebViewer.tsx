@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { convertFileSrc } from '@/lib/file-utils';
 import { parentPath, resolveWorkspacePath } from '@/lib/pathUtils';
 import { useWebStore } from '@/widgets/web/WebModel';
+import { useTranslation } from 'react-i18next';
 
 interface WebViewerProps {
   url: string;
@@ -323,6 +324,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
   className,
   onUrlChange,
 }) => {
+  const { t } = useTranslation();
   // Use store for UI state management
   const storeUrl = useWebStore((state) => state.url);
   const setStoreUrl = useWebStore((state) => state.setUrl);
@@ -643,7 +645,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             value={inputUrl}
             onChange={(e) => setInputUrl(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Enter URL (e.g., https://example.com)"
+            placeholder={t('viewer.urlPlaceholder')}
             className="flex-1 h-8 text-sm font-mono"
             spellCheck={false}
           />
@@ -656,7 +658,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             disabled={!inputUrl.trim() || isLoading}
             className="h-8 px-3"
           >
-            Go
+            {t('viewer.go')}
           </Button>
 
           {/* Refresh button */}
@@ -721,7 +723,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                 />
               </svg>
-              <span className="text-sm">Loading webpage...</span>
+              <span className="text-sm">{t('common.loading')}</span>
             </div>
           </div>
         )}
@@ -740,7 +742,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                   />
                 </svg>
               </div>
-              <div className="text-sm font-medium mb-2 text-foreground">Failed to Load</div>
+              <div className="text-sm font-medium mb-2 text-foreground">{t('common.error')}</div>
               <div className="text-xs text-muted-foreground mb-4">{storeError}</div>
               <Button
                 size="sm"
@@ -748,7 +750,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                 onClick={handleRefresh}
                 className="mx-auto"
               >
-                Try Again
+                {t('common.retry')}
               </Button>
             </div>
           </div>
@@ -778,7 +780,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
             <div className="p-4 space-y-4">
               {/* Title bar */}
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">Selected Element</h3>
+                <h3 className="text-sm font-semibold">{t('viewer.elementSelected')}</h3>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -829,7 +831,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
               {/* Message input area */}
               <div className="space-y-2">
                 <label className="text-sm font-medium">
-                  Add a message (optional)
+                  {t('viewer.sendToPrompt')}
                 </label>
                 <Textarea
                   value={userMessage}
@@ -853,7 +855,7 @@ export const WebViewer: React.FC<WebViewerProps> = ({
                       setUserMessage('');
                     }}
                   >
-                    Cancel
+                    {t('common.cancel')}
                   </Button>
                   <Button
                     size="sm"
@@ -875,13 +877,13 @@ export const WebViewer: React.FC<WebViewerProps> = ({
 
                       // Show success toast
                       window.dispatchEvent(new CustomEvent('show-toast', {
-                        detail: { message: 'Element sent to chat successfully!', type: 'success' }
+                        detail: { message: t('viewer.elementSelected'), type: 'success' }
                       }));
                     }}
                     className="gap-2"
                   >
                     <Send className="h-4 w-4" />
-                    Send to Chat
+                    {t('viewer.sendToPrompt')}
                   </Button>
                 </div>
               </div>

@@ -3,6 +3,7 @@ import { Server, FolderOpen, AlertCircle, CheckCircle2, Loader2, X, Plus, Trash2
 import { Button } from '@/components/ui/button';
 import { api, type SSHConfig, type SSHSyncProgress, type SSHAuthMethod } from '@/lib/api';
 import { SSHConnectionsManager } from './SSHConnectionsManager';
+import { useTranslation } from 'react-i18next';
 
 interface SyncFromSSHDialogProps {
   /** Whether the dialog is open */
@@ -21,6 +22,7 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { t } = useTranslation();
   // Form state
   const [host, setHost] = useState('');
   const [port, setPort] = useState(22);
@@ -84,17 +86,17 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
   const handleSync = async () => {
     // Validation
     if (!host || !username || !remotePath || !localPath) {
-      setError('Please fill in all required fields');
+      setError(t('ssh.fillAllRequired'));
       return;
     }
 
     if (authType === 'password' && !password) {
-      setError('Please enter password');
+      setError(t('ssh.enterPassword'));
       return;
     }
 
     if (authType === 'privateKey' && !privateKeyPath) {
-      setError('Please select private key file');
+      setError(t('ssh.selectPrivateKey'));
       return;
     }
 
@@ -186,11 +188,11 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
     if (!progress) return null;
 
     const stageText = {
-      connecting: 'Connecting to server...',
-      authenticating: 'Authenticating...',
-      downloading: 'Downloading files...',
-      completed: 'Sync completed!',
-      error: 'Error occurred',
+      connecting: t('common.loading'),
+      authenticating: t('common.loading'),
+      downloading: t('ssh.syncing'),
+      completed: t('common.done'),
+      error: t('common.error'),
     };
 
     const stageIcon = {
@@ -256,7 +258,7 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
               <Play className="h-3 w-3 mr-1" /> Resume
             </Button>
             <Button size="sm" variant="destructive" onClick={handleCancel}>
-              <Square className="h-3 w-3 mr-1" /> Cancel
+              <Square className="h-3 w-3 mr-1" /> {t('common.cancel')}
             </Button>
           </div>
         )}
@@ -315,10 +317,10 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
             <Server className="h-5 w-5 text-primary" />
             <div>
               <h2 className="text-lg font-semibold leading-none tracking-tight">
-                Sync Project from SSH
+                {t('ssh.syncFromSsh')}
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Connect to a remote server via SSH and sync a project to your local machine
+                {t('ssh.syncSubtitle')}
               </p>
             </div>
           </div>
@@ -342,9 +344,9 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
             {/* SSH Connection Selection */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-medium">SSH Connection</div>
+                <div className="text-sm font-medium">{t('ssh.title')}</div>
                 <Button size="sm" variant="ghost" className="h-7 px-2" onClick={()=>setShowManager(true)}>
-                  Manage Connections
+                  {t('ssh.manageConnections')}
                 </Button>
               </div>
 
@@ -373,7 +375,7 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
             <div className="space-y-3">
               <h4 className="text-sm font-medium">Paths</h4>
               <div>
-                <label className="text-xs text-muted-foreground">Remote Path</label>
+                <label className="text-xs text-muted-foreground">{t('ssh.remotePath')}</label>
                 <input
                   type="text"
                   value={remotePath}
@@ -383,7 +385,7 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
                 />
               </div>
               <div>
-                <label className="text-xs text-muted-foreground">Local Target</label>
+                <label className="text-xs text-muted-foreground">{t('ssh.localPath')}</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -596,16 +598,16 @@ export const SyncFromSSHDialog: React.FC<SyncFromSSHDialogProps> = ({
           {!syncing && (
             <>
               <Button variant="outline" onClick={handleCancel}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button onClick={handleSync}>
-                Connect & Sync
+                {t('ssh.sync')}
               </Button>
             </>
           )}
           {syncing && progress?.stage === 'completed' && (
             <Button onClick={onClose}>
-              Done
+              {t('common.done')}
             </Button>
           )}
         </div>

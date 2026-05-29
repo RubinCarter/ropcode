@@ -29,3 +29,4 @@ export * from './useEventSubscription';
 export * from './usePageVisibilityPolling';
 export { useIsMobile } from './useIsMobile';
 export { useSubagentTranscriptSync } from './useSubagentTranscriptSync';
+export { useLanguage } from './useLanguage';

@@ -3,6 +3,7 @@ import type { RuntimeStatusCopy } from './runtimePresentation';
 import type { SubagentProgressSummary } from '@/lib/subagentProgress';
 import type { TokenUsageTotals } from '../hooks/useSessionMessages';
 import { formatCompactNumber } from '@/lib/subagentProgress';
+import i18n from '@/lib/i18n';
 
 export type SessionStatusTone = 'neutral' | 'info' | 'success' | 'warning' | 'error';
 export type SessionStatusGlyph = 'idle' | 'thinking' | 'tool' | 'retry' | 'warning' | 'success' | 'error' | 'reconnect' | 'subagents';
@@ -98,27 +99,27 @@ export function buildSessionStatusBarModel(input: BuildSessionStatusBarInput): S
   }
 
   if (runtime.activeTool) {
-    metrics.push({ key: 'tool', label: `Tool · ${runtime.activeTool}`, priority: 'high' });
+    metrics.push({ key: 'tool', label: i18n.t('stream.toolActive', { name: runtime.activeTool }), priority: 'high' });
   }
 
   if (subagentProgress.subagents.length > 0) {
     const agentParts = [
-      hasRunningSubagents ? `${subagentProgress.runningCount} running` : null,
-      subagentProgress.completedCount > 0 ? `${subagentProgress.completedCount} done` : null,
-      subagentProgress.failedCount > 0 ? `${subagentProgress.failedCount} failed` : null,
+      hasRunningSubagents ? i18n.t('stream.agentsRunning', { count: subagentProgress.runningCount }) : null,
+      subagentProgress.completedCount > 0 ? i18n.t('stream.agentsDone', { count: subagentProgress.completedCount }) : null,
+      subagentProgress.failedCount > 0 ? i18n.t('stream.agentsFailed', { count: subagentProgress.failedCount }) : null,
     ].filter(Boolean).join(' · ');
 
     metrics.push({
       key: 'subagents',
-      label: agentParts || `${subagentProgress.subagents.length} agents`,
+      label: agentParts || i18n.t('stream.agentsTotal', { count: subagentProgress.subagents.length }),
       priority: subagentProgress.failedCount > 0 || hasRunningSubagents ? 'high' : 'low',
     });
 
     if (subagentProgress.totalToolUseCount > 0) {
-      metrics.push({ key: 'subagent-tools', label: `${formatCompactNumber(subagentProgress.totalToolUseCount)} tools`, priority: 'low' });
+      metrics.push({ key: 'subagent-tools', label: i18n.t('stream.toolsCount', { count: formatCompactNumber(subagentProgress.totalToolUseCount) }), priority: 'low' });
     }
     if (subagentProgress.totalTokenCount > 0) {
-      metrics.push({ key: 'subagent-tokens', label: `${formatCompactNumber(subagentProgress.totalTokenCount)} agent tokens`, priority: 'low' });
+      metrics.push({ key: 'subagent-tokens', label: i18n.t('stream.agentTokens', { count: formatCompactNumber(subagentProgress.totalTokenCount) }), priority: 'low' });
     }
   }
 
@@ -206,11 +207,11 @@ function getPrimaryState({
   }
 
   if (runtime.phase === 'initializing') {
-    return { primary: `Starting ${providerLabel}…`, secondary: runtimeCopy.secondary, glyph: 'reconnect', tone: 'info' };
+    return { primary: i18n.t('prompt.statusStarting', { provider: providerLabel }), secondary: runtimeCopy.secondary, glyph: 'reconnect', tone: 'info' };
   }
 
   if (runtime.phase === 'waiting') {
-    return { primary: `Waiting for ${providerLabel}…`, secondary: runtimeCopy.secondary, glyph: 'idle', tone: runtime.isStuckLikely ? 'warning' : 'neutral' };
+    return { primary: i18n.t('prompt.statusWaitingFor', { provider: providerLabel }), secondary: runtimeCopy.secondary, glyph: 'idle', tone: runtime.isStuckLikely ? 'warning' : 'neutral' };
   }
 
   if (runtime.phase === 'failed') {

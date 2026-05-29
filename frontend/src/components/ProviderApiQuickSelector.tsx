@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import { Globe, ChevronUp, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
   onHotSwapDuringStream,
   className,
 }) => {
+  const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   // Use global store for configs
@@ -156,7 +158,7 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
       content={
         <div className="w-[280px] p-1">
           <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground border-b mb-1">
-            Provider API Configuration
+            {t('providers.title')}
           </div>
 
           {/* Available configs */}
@@ -182,7 +184,7 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
                   {config.name}
                   {config.is_default && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                      Default
+                      {t('common.default')}
                     </span>
                   )}
                 </div>

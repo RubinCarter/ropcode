@@ -4,6 +4,7 @@ import { X, MessageSquare, Bot, AlertCircle, FileText, Globe, FileDiff, File, Mo
 import { useWorkspaceTabContext, WorkspaceTab } from '@/contexts/WorkspaceTabContext';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 interface TabItemProps {
   tab: WorkspaceTab;
@@ -27,6 +28,7 @@ const TabItem: React.FC<TabItemProps> = ({
   canCloseOthers,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const { t } = useTranslation();
 
   const getIcon = () => {
     switch (tab.type) {
@@ -142,13 +144,13 @@ const TabItem: React.FC<TabItemProps> = ({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-44 window-no-drag">
           <DropdownMenuItem onClick={() => onClose(tab.id)}>
-            Close tab
+            {t('tabs.closeTab')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onCloseOthers(tab.id)} disabled={!canCloseOthers}>
-            Close other tabs
+            {t('tabs.closeOtherTabs')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => onCloseRight(tab.id)} disabled={!canCloseRight}>
-            Close tabs to the right
+            {t('tabs.closeTabsToRight')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { GitBranch, FolderOpen, AlertCircle, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api, type GitCloneProgress } from '@/lib/api';
+import { useTranslation } from 'react-i18next';
 
 interface CloneFromURLDialogProps {
   /** Whether the dialog is open */
@@ -20,6 +21,7 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const { t } = useTranslation();
   const [repoUrl, setRepoUrl] = useState('');
   const [localPath, setLocalPath] = useState('');
   const [branch, setBranch] = useState('');
@@ -47,7 +49,7 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
   const handleClone = async () => {
     // Validation
     if (!repoUrl || !localPath) {
-      setError('Please fill in all required fields');
+      setError(t('clone.fillRequired'));
       return;
     }
 
@@ -83,7 +85,7 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
       setProgress(null);
     } catch (err) {
       console.error('Clone failed:', err);
-      setError(err instanceof Error ? err.message : 'Failed to clone repository');
+      setError(err instanceof Error ? err.message : t('clone.cloneFailed'));
     } finally {
       setCloning(false);
     }
@@ -115,17 +117,17 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
   const getStageText = (stage: string): string => {
     switch (stage) {
       case 'initializing':
-        return 'Initializing...';
+        return t('clone.stageInitializing');
       case 'cloning':
-        return 'Cloning repository...';
+        return t('clone.stageCloning');
       case 'resolving':
-        return 'Resolving deltas...';
+        return t('clone.stageResolving');
       case 'completed':
-        return 'Clone completed!';
+        return t('clone.stageCompleted');
       case 'error':
-        return 'Clone failed';
+        return t('clone.stageError');
       default:
-        return 'Processing...';
+        return t('clone.stageProcessing');
     }
   };
 
@@ -145,10 +147,10 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
             <GitBranch className="h-5 w-5 text-primary" />
             <div>
               <h2 className="text-lg font-semibold leading-none tracking-tight">
-                Clone from URL
+                {t('clone.title')}
               </h2>
               <p className="text-sm text-muted-foreground mt-1">
-                Clone a Git repository from a remote URL
+                {t('clone.subtitle')}
               </p>
             </div>
           </div>
@@ -167,12 +169,12 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
         <div className="p-6 space-y-4">
           {/* Repository URL */}
           <div>
-            <label className="text-xs text-muted-foreground">Repository URL</label>
+            <label className="text-xs text-muted-foreground">{t('clone.repoUrl')}</label>
             <input
               type="text"
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/username/repository.git"
+              placeholder={t('clone.repoUrlPlaceholder')}
               className="w-full px-3 py-2 text-sm border rounded-md bg-background mt-1"
               disabled={cloning}
             />
@@ -180,13 +182,13 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
 
           {/* Local Path */}
           <div>
-            <label className="text-xs text-muted-foreground">Target Directory</label>
+            <label className="text-xs text-muted-foreground">{t('clone.targetDirectory')}</label>
             <div className="flex gap-2 mt-1">
               <input
                 type="text"
                 value={localPath}
                 onChange={(e) => setLocalPath(e.target.value)}
-                placeholder="Select target directory"
+                placeholder={t('clone.targetDirPlaceholder')}
                 className="flex-1 px-3 py-2 text-sm border rounded-md bg-background"
                 disabled={cloning}
               />
@@ -205,13 +207,13 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
           {/* Branch (Optional) */}
           <div>
             <label className="text-xs text-muted-foreground">
-              Branch (optional)
+              {t('clone.branch')}
             </label>
             <input
               type="text"
               value={branch}
               onChange={(e) => setBranch(e.target.value)}
-              placeholder="main"
+              placeholder={t('clone.branchPlaceholder')}
               className="w-full px-3 py-2 text-sm border rounded-md bg-background mt-1"
               disabled={cloning}
             />
@@ -247,10 +249,10 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
               {progress.totalObjects > 0 && (
                 <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
                   <div>
-                    Objects: {progress.objectsReceived} / {progress.totalObjects}
+                    {t('clone.objects', { received: progress.objectsReceived, total: progress.totalObjects })}
                   </div>
                   {progress.bytesReceived > 0 && (
-                    <div>Downloaded: {formatBytes(progress.bytesReceived)}</div>
+                    <div>{t('clone.downloaded', { size: formatBytes(progress.bytesReceived) })}</div>
                   )}
                 </div>
               )}
@@ -269,16 +271,16 @@ export const CloneFromURLDialog: React.FC<CloneFromURLDialogProps> = ({
         {/* Footer */}
         <div className="flex justify-end gap-2 p-6 pt-4 border-t">
           <Button variant="outline" onClick={handleCancel} disabled={cloning}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleClone} disabled={cloning || !repoUrl || !localPath}>
             {cloning ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Cloning...
+                {t('clone.cloning')}
               </>
             ) : (
-              'Clone Repository'
+              t('clone.cloneRepository')
             )}
           </Button>
         </div>
