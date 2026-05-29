@@ -35,6 +35,7 @@ export interface RuntimeLocalState {
   stopRequested: boolean;
   lastTransportConnectAt: number | null;
   loadingStartedAt?: number | null;
+  loadingStartedFrameSeq?: number | null;
   frameRuntime?: RuntimeSnapshot;
   frameLastSeq?: number;
 }
@@ -131,11 +132,6 @@ function isBackgroundTaskScoped(message: RuntimeTrackerMessage): boolean {
 }
 
 export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeViewStateInput): SessionRuntimeViewState {
-  const snapshot = tracker.snapshot ?? snapshotFromFrameRuntime(local.frameRuntime ?? null);
-  const retry = getRetryState(snapshot);
-  const activeTool = snapshot?.active_tool?.trim() || null;
-  const toolProgressText = formatToolProgress(snapshot);
-  const transportState = local.transportConnected ? 'connected' : 'reconnecting';
   const loadingIsTerminatedByTurn = Boolean(
     tracker.lastResultAt &&
     (!local.loadingStartedAt || tracker.lastResultAt >= local.loadingStartedAt)
@@ -144,6 +140,19 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
   const loadingElapsedMs = effectiveIsLoading
     ? Math.max(0, now - (local.loadingStartedAt ?? 0))
     : 0;
+  const frameRuntimeBelongsToCurrentTurn = !effectiveIsLoading ||
+    local.loadingStartedFrameSeq === undefined ||
+    local.loadingStartedFrameSeq === null ||
+    typeof local.frameLastSeq !== 'number' ||
+    local.frameLastSeq > local.loadingStartedFrameSeq;
+  const currentFrameRuntime = frameRuntimeBelongsToCurrentTurn
+    ? local.frameRuntime
+    : undefined;
+  const snapshot = tracker.snapshot ?? snapshotFromFrameRuntime(currentFrameRuntime ?? null);
+  const retry = getRetryState(snapshot);
+  const activeTool = snapshot?.active_tool?.trim() || null;
+  const toolProgressText = formatToolProgress(snapshot);
+  const transportState = local.transportConnected ? 'connected' : 'reconnecting';
 
   // If we have evidence of recent activity (text growth or tool change) AFTER
   // the last snapshot update, the snapshot's rate_limited/retrying flags are stale.
@@ -182,18 +191,18 @@ export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeVie
     severity = 'warning';
     waitingReason = 'reconnect';
     detail = 'Waiting for WebSocket reconnection';
-  } else if (local.frameRuntime?.phase === 'failed') {
+  } else if (currentFrameRuntime?.phase === 'failed') {
     phase = 'failed';
     label = 'Failed';
     severity = 'error';
     waitingReason = null;
-    detail = local.frameRuntime.waitingOn ?? null;
-  } else if (local.frameRuntime?.phase === 'completed') {
+    detail = currentFrameRuntime.waitingOn ?? null;
+  } else if (currentFrameRuntime?.phase === 'completed') {
     phase = 'completed';
     label = 'Completed';
     severity = 'success';
     waitingReason = null;
-    detail = local.frameRuntime.waitingOn ?? null;
+    detail = currentFrameRuntime.waitingOn ?? null;
   } else if (snapshot?.status === 'compacting') {
     phase = 'compacting';
     label = 'Compacting context';

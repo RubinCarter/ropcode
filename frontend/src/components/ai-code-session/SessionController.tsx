@@ -210,12 +210,8 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     ? projectChatId
     : streamIdForRuntimeSession(defaultProvider, processState.interactiveSessionId || sessionState.extractedSessionInfo?.runtimeSessionId);
 
-  // Debug: log activeStreamId changes
-  useEffect(() => {
-    console.log('[SessionController] activeStreamId changed:', activeStreamId, 'projectChatSegments:', projectChatSegments?.length, 'defaultProvider:', defaultProvider);
-  }, [activeStreamId, projectChatSegments?.length, defaultProvider]);
-
   const frameRuntimeState = useSessionRuntime(activeStreamId);
+  const loadingStartedFrameSeqRef = useRef<{ streamId: string | null; seq: number } | null>(null);
 
   // ProjectChat: load all segment history when segments change
   useEffect(() => {
@@ -250,6 +246,23 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     terminalFrameRuntimePhase === 'completed' ||
     terminalFrameRuntimePhase === 'failed' ||
     terminalFrameRuntimePhase === 'cancelled';
+
+  if (!processState.isLoading) {
+    loadingStartedFrameSeqRef.current = null;
+  } else if (!loadingStartedFrameSeqRef.current || loadingStartedFrameSeqRef.current.streamId !== activeStreamId) {
+    loadingStartedFrameSeqRef.current = {
+      streamId: activeStreamId,
+      seq: frameRuntimeState.lastSeq,
+    };
+  }
+
+  const effectiveLoadingStartedFrameSeq = processState.isLoading
+    ? loadingStartedFrameSeqRef.current?.seq ?? frameRuntimeState.lastSeq
+    : null;
+  const terminalFrameRuntimeIsCurrentTurn =
+    terminalFrameRuntime &&
+    effectiveLoadingStartedFrameSeq !== null &&
+    frameRuntimeState.lastSeq > effectiveLoadingStartedFrameSeq;
 
   // Session events - depends on all other hooks
   // Note: eventsState sets up event listeners internally, doesn't need to be used explicitly
@@ -306,14 +319,10 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   });
 
   useEffect(() => {
-    if (processState.isLoading && terminalFrameRuntime) {
-      console.log('[SessionController] Clearing stale loading state from terminal frame runtime', {
-        streamId: activeStreamId,
-        phase: terminalFrameRuntimePhase,
-      });
+    if (processState.isLoading && terminalFrameRuntimeIsCurrentTurn) {
       processState.setIsLoading(false);
     }
-  }, [activeStreamId, processState.isLoading, processState.setIsLoading, terminalFrameRuntime, terminalFrameRuntimePhase]);
+  }, [processState.isLoading, processState.setIsLoading, terminalFrameRuntimeIsCurrentTurn]);
 
   // ==================================================================
   // UI STATE (not extracted to hooks - pure UI concerns)
@@ -445,6 +454,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     stopRequested: stopStatus.stopRequestedRef.current || stopStatus.stopStatusBubble.visible,
     lastTransportConnectAt: transportStatus.lastTransportConnectAt,
     loadingStartedAt: processState.loadingStartedAt,
+    loadingStartedFrameSeq: effectiveLoadingStartedFrameSeq,
     frameRuntime: frameRuntimeState.runtime,
     frameLastSeq: frameRuntimeState.lastSeq,
     tokenUsage: messagesState.tokenUsage,

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { api } from './api';
 import { useProcessChanged } from '@/hooks';
 
@@ -38,6 +38,11 @@ interface OutputCacheContextType {
 
 const OutputCacheContext = createContext<OutputCacheContextType | null>(null);
 
+function isMissingSessionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /session not found:/i.test(message);
+}
+
 export function useOutputCache() {
   const context = useContext(OutputCacheContext);
   if (!context) {
@@ -53,6 +58,7 @@ interface OutputCacheProviderProps {
 export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
   const [cache, setCache] = useState<Map<number, CachedSessionOutput>>(new Map());
   const [isPolling, setIsPolling] = useState(false);
+  const staleRunIdsRef = useRef<Set<number>>(new Set());
 
   const getCachedOutput = useCallback((sessionId: number): CachedSessionOutput | null => {
     return cache.get(sessionId) || null;
@@ -76,12 +82,14 @@ export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
 
   const clearCache = useCallback((sessionId?: number) => {
     if (sessionId) {
+      staleRunIdsRef.current.delete(sessionId);
       setCache(prev => {
         const updated = new Map(prev);
         updated.delete(sessionId);
         return updated;
       });
     } else {
+      staleRunIdsRef.current.clear();
       setCache(new Map());
     }
   }, []);
@@ -122,27 +130,38 @@ export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
         status
       });
     } catch (error) {
+      if (isMissingSessionError(error)) {
+        staleRunIdsRef.current.add(runId);
+        updateSessionStatus(runId, 'failed');
+        return;
+      }
       console.warn(`Failed to update cache for agent run ${runId}:`, error);
     }
-  }, [parseOutput, setCachedOutput]);
+  }, [parseOutput, setCachedOutput, updateSessionStatus]);
 
   const pollRunningAgentRuns = useCallback(async () => {
     try {
       const runningRuns = await api.listRunningAgentRuns();
-      
-      // Update cache for all running agent runs.
-      for (const run of runningRuns) {
-        if (typeof run.id === 'number' && run.status === 'running') {
-          await updateAgentRunCache(run.id, run.status);
-        }
-      }
-
-      // Clean up cache for agent runs that are no longer running.
       const runningIds = new Set(
         runningRuns
           .map(run => run.id)
           .filter((id): id is number => typeof id === 'number')
       );
+
+      for (const staleRunId of staleRunIdsRef.current) {
+        if (!runningIds.has(staleRunId)) {
+          staleRunIdsRef.current.delete(staleRunId);
+        }
+      }
+      
+      // Update cache for all running agent runs.
+      for (const run of runningRuns) {
+        if (typeof run.id === 'number' && run.status === 'running' && !staleRunIdsRef.current.has(run.id)) {
+          await updateAgentRunCache(run.id, run.status);
+        }
+      }
+
+      // Clean up cache for agent runs that are no longer running.
       setCache(prev => {
         const updated = new Map();
         for (const [runId, data] of prev) {

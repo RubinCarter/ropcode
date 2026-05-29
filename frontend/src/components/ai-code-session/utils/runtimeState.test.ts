@@ -789,6 +789,33 @@ test('terminal frame runtime overrides stale processing tracker snapshot', async
   assert.equal(state.waitingReason, null);
 });
 
+test('stale terminal frame runtime does not override a new loading turn', async () => {
+  const { createInitialRuntimeTracker, deriveRuntimeViewState } = await loadModule();
+
+  const state = deriveRuntimeViewState({
+    now: 6_000,
+    tracker: createInitialRuntimeTracker(),
+    local: {
+      isLoading: true,
+      interactiveSessionId: 'runtime-1',
+      hasActiveProcess: true,
+      transportConnected: true,
+      isRecoveringHistory: false,
+      isRestoringSession: false,
+      stopRequested: false,
+      lastTransportConnectAt: null,
+      loadingStartedAt: 5_000,
+      loadingStartedFrameSeq: 10,
+      frameRuntime: { phase: 'completed', waitingOn: null },
+      frameLastSeq: 10,
+    },
+  });
+
+  assert.equal(state.phase, 'waiting');
+  assert.equal(state.label, 'Waiting');
+  assert.equal(state.waitingReason, 'model');
+});
+
 test('does not treat api retry error detail as a failed runtime state', async () => {
   const { createInitialRuntimeTracker, reduceRuntimeTracker, deriveRuntimeViewState } = await loadModule();
 

@@ -88,24 +88,10 @@ func (b *ProviderBridge) applyTaskNotificationReplyScope(streamID string, event 
 	b.mu.Lock()
 	if taskID != "" {
 		b.taskNotificationReplies[streamID] = taskID
-		log.Printf("[stream] task notification reply scope started stream=%s task=%s event_type=%s subtype=%s frame=%s",
-			streamID,
-			taskID,
-			event.Type,
-			event.Subtype,
-			frame.FrameID,
-		)
 	}
 	activeTaskID := b.taskNotificationReplies[streamID]
 	if activeTaskID != "" && eventIsTerminalTurn(event) {
 		delete(b.taskNotificationReplies, streamID)
-		log.Printf("[stream] task notification reply scope ended stream=%s task=%s event_type=%s subtype=%s frame=%s",
-			streamID,
-			activeTaskID,
-			event.Type,
-			event.Subtype,
-			frame.FrameID,
-		)
 	}
 	b.mu.Unlock()
 

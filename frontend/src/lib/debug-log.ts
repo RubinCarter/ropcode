@@ -8,6 +8,13 @@ const MAX_ENTRIES = 500;
 const entries: LogEntry[] = [];
 const listeners = new Set<() => void>();
 
+function isEnabled(): boolean {
+  const v = (import.meta as any).env?.VITE_DEBUG_LOGS;
+  if (typeof v !== 'string') return false;
+  const s = v.trim().toLowerCase();
+  return s !== '' && s !== '0' && s !== 'false' && s !== 'no';
+}
+
 function serialize(args: unknown[]): string[] {
   return args.map(a => {
     if (typeof a === 'string') return a;
@@ -17,6 +24,7 @@ function serialize(args: unknown[]): string[] {
 }
 
 function push(level: LogEntry['level'], args: unknown[]) {
+  if (!isEnabled()) return;
   const serializedArgs = serialize(args);
   entries.push({ timestamp: Date.now(), level, args: serializedArgs });
   if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
@@ -33,21 +41,26 @@ const orig = {
   debug: console.debug.bind(console),
 };
 
-console.log = (...a: unknown[]) => { push('log', a); orig.log(...a); };
-console.warn = (...a: unknown[]) => { push('warn', a); orig.warn(...a); };
-console.error = (...a: unknown[]) => { push('error', a); orig.error(...a); };
-console.info = (...a: unknown[]) => { push('info', a); orig.info(...a); };
-console.debug = (...a: unknown[]) => { push('debug', a); orig.debug(...a); };
+if (isEnabled()) {
+  console.log = (...a: unknown[]) => { push('log', a); orig.log(...a); };
+  console.warn = (...a: unknown[]) => { push('warn', a); orig.warn(...a); };
+  console.error = (...a: unknown[]) => { push('error', a); orig.error(...a); };
+  console.info = (...a: unknown[]) => { push('info', a); orig.info(...a); };
+  console.debug = (...a: unknown[]) => { push('debug', a); orig.debug(...a); };
 
-// Capture unhandled errors & rejections
-window.addEventListener('error', (e) => {
-  push('error', [`[Uncaught] ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`]);
-});
-window.addEventListener('unhandledrejection', (e) => {
-  push('error', [`[UnhandledRejection] ${e.reason}`]);
-});
+  // Capture unhandled errors & rejections
+  window.addEventListener('error', (e) => {
+    push('error', [`[Uncaught] ${e.message} at ${e.filename}:${e.lineno}:${e.colno}`]);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    push('error', [`[UnhandledRejection] ${e.reason}`]);
+  });
+}
 
 export const debugLog = {
+  log: (...args: unknown[]) => { push('log', args); },
+  info: (...args: unknown[]) => { push('info', args); },
+  debug: (...args: unknown[]) => { push('debug', args); },
   getEntries: () => entries,
   clear: () => { entries.length = 0; listeners.forEach(fn => fn()); },
   subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn); }; },

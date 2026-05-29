@@ -119,7 +119,6 @@ export class TermWrap {
     this.options = wrapOptions || {};
 
     // Create Terminal instance
-    console.log('[TermWrap] Creating Terminal instance');
     this.terminal = new Terminal(terminalOptions);
 
     // Initialize FitAddon
@@ -188,7 +187,6 @@ export class TermWrap {
 
       this.terminal.loadAddon(this.webglAddon);
       this.webglLoaded = true;
-      console.log('WebGL addon loaded successfully');
     } catch (error) {
       console.error('Failed to load WebGL addon, falling back to canvas renderer:', error);
       this.webglAddon = undefined;

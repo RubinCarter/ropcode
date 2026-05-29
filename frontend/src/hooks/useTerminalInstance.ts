@@ -21,7 +21,6 @@ class TerminalInstanceManager {
     let instance = this.instances.get(key);
 
     if (!instance) {
-      console.log('[TerminalManager] Creating instance placeholder:', key);
       instance = {
         termWrap: null,
         container: null,
@@ -31,7 +30,6 @@ class TerminalInstanceManager {
     }
 
     instance.refCount++;
-    console.log('[TerminalManager] Ref count increased:', key, instance.refCount);
 
     return {
       termWrap: instance.termWrap,
@@ -50,7 +48,6 @@ class TerminalInstanceManager {
 
     // If TermWrap hasn't been created yet, create it
     if (!instance.termWrap) {
-      console.log('[TerminalManager] Creating TermWrap:', key);
       instance.termWrap = new TermWrap(
         container,
         {
@@ -67,14 +64,12 @@ class TerminalInstanceManager {
         }
       );
       instance.container = container;
-      console.log('[TerminalManager] TermWrap created, WebGL:', instance.termWrap.isWebGLLoaded());
     } else {
       // TermWrap already exists, handle container change
       const terminal = instance.termWrap.getTerminal();
       const currentElement = (terminal as any)?.element as HTMLElement | null;
 
       if (currentElement && currentElement.parentElement !== container) {
-        console.log('[TerminalManager] Moving xterm DOM to new container:', key);
         container.appendChild(currentElement);
         instance.container = container;
       }
@@ -99,7 +94,6 @@ class TerminalInstanceManager {
     const instance = this.instances.get(key);
     if (!instance) return;
 
-    console.log('[TerminalManager] Detaching container:', key);
     instance.container = null;
   }
 
@@ -111,7 +105,6 @@ class TerminalInstanceManager {
     if (!instance) return;
 
     instance.refCount--;
-    console.log('[TerminalManager] Ref count decreased:', key, instance.refCount);
   }
 
   /**
@@ -120,8 +113,6 @@ class TerminalInstanceManager {
   destroy(key: string): void {
     const instance = this.instances.get(key);
     if (!instance) return;
-
-    console.log('[TerminalManager] Destroying instance:', key);
 
     if (instance.termWrap) {
       instance.termWrap.dispose();
@@ -153,7 +144,6 @@ class TerminalInstanceManager {
    * Clear all instances
    */
   clear(): void {
-    console.log('[TerminalManager] Clearing all instances');
     this.instances.forEach((_instance, key) => {
       this.destroy(key);
     });
@@ -179,7 +169,6 @@ export function useTerminalInstance(
 
   // Create/get instance
   useEffect(() => {
-    console.log('[useTerminalInstance] Initializing:', { key });
     const inst = terminalManager.getOrCreate(key);
     setTermWrap(inst.termWrap);
 

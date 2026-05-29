@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
@@ -106,6 +107,7 @@ func (a *App) startup(ctx context.Context) {
 		eventHub:       a.eventHub,
 		bridge:         stream.NewProviderBridge(a.sessionStreamHub),
 		claudeActivity: a.claudeActivity,
+		db:             a.dbManager,
 	}
 
 	// Initialize PTY manager with event emitter
@@ -229,10 +231,14 @@ type providerStreamEmitter struct {
 	eventHub       *eventhub.EventHub
 	bridge         *stream.ProviderBridge
 	claudeActivity *claudeactivity.Service
+	db             *database.Database
 }
 
 func (e *providerStreamEmitter) Emit(eventName string, data interface{}) {
 	if eventName != "provider-output" {
+		if eventName == "process:changed" {
+			e.updateAgentRunFromProcessEvent(data)
+		}
 		e.eventHub.Emit(eventName, data)
 		return
 	}
@@ -279,6 +285,49 @@ func providerOutputEventFrom(data interface{}) (provider.OutputEvent, bool) {
 	default:
 		return provider.OutputEvent{}, false
 	}
+}
+
+func providerProcessChangedEventFrom(data interface{}) (provider.ProcessChangedEvent, bool) {
+	switch event := data.(type) {
+	case provider.ProcessChangedEvent:
+		return event, true
+	case *provider.ProcessChangedEvent:
+		if event == nil {
+			return provider.ProcessChangedEvent{}, false
+		}
+		return *event, true
+	default:
+		return provider.ProcessChangedEvent{}, false
+	}
+}
+
+func (e *providerStreamEmitter) updateAgentRunFromProcessEvent(data interface{}) {
+	if e.db == nil {
+		return
+	}
+	event, ok := providerProcessChangedEventFrom(data)
+	if !ok || event.State != "stopped" || event.SessionID == "" {
+		return
+	}
+
+	run, err := e.db.GetAgentRunBySessionID(event.SessionID)
+	if err != nil || run == nil {
+		return
+	}
+	if run.Status != "running" && run.Status != "pending" {
+		return
+	}
+
+	status := "completed"
+	if event.ExitCode != nil && *event.ExitCode != 0 {
+		status = "failed"
+	}
+	pid := event.PID
+	if pid == 0 {
+		pid = run.PID
+	}
+	completedAt := time.Now()
+	_ = e.db.UpdateAgentRunStatus(run.ID, status, pid, run.ProcessStartedAt, &completedAt)
 }
 
 func replayClaudeActivityOutput(activity *claudeactivity.Service, sessionID, output string) {

@@ -63,11 +63,6 @@ export function usePromptQueue(options: UsePromptQueueOptions): UsePromptQueueRe
     }
 
     const [nextPrompt, ...remainingPrompts] = queuedPromptsRef.current;
-    console.log('[usePromptQueue] Processing next queued prompt:', {
-      prompt: nextPrompt.prompt.substring(0, 50) + '...',
-      model: nextPrompt.model,
-      remainingCount: remainingPrompts.length,
-    });
 
     queuedPromptsRef.current = remainingPrompts;  // sync ref immediately
     setQueuedPrompts(remainingPrompts);
@@ -93,17 +88,14 @@ export function usePromptQueue(options: UsePromptQueueOptions): UsePromptQueueRe
       queuedPromptsRef.current = updated;  // sync ref immediately
       return updated;
     });
-    console.log('[usePromptQueue] Added prompt to queue:', newPrompt.id);
   };
 
   const removeFromQueue = (id: string) => {
     setQueuedPrompts(prev => prev.filter(p => p.id !== id));
-    console.log('[usePromptQueue] Removed prompt from queue:', id);
   };
 
   const clearQueue = () => {
     setQueuedPrompts([]);
-    console.log('[usePromptQueue] Cleared queue');
   };
 
   return {

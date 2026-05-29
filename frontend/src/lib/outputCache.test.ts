@@ -12,5 +12,7 @@ test('OutputCache polls agent run output instead of provider session output', ()
   assert.match(source, /api\.listRunningAgentRuns\(\)/);
   assert.match(source, /api\.getAgentRunOutput\(runId\)/);
   assert.doesNotMatch(source, /api\.getSessionOutput\(sessionId\)/);
+  assert.match(source, /isMissingSessionError\(error\)/);
+  assert.match(source, /staleRunIdsRef\.current\.add\(runId\)/);
   assert.match(source, /Failed to update cache for agent run \$\{runId\}/);
 });

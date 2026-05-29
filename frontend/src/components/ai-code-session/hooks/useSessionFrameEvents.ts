@@ -291,11 +291,6 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
       if (message.type === 'system' && message.subtype === 'init' && message.session_id) {
         const oldSessionId = claudeSessionId;
         const runtimeSessionId = (message as any).runtime_session_id || message.session_id;
-        console.log('[SessionFrameEvents] Session initialized', {
-          provider,
-          runtimeSessionId,
-          streamId,
-        });
         setClaudeSessionId(runtimeSessionId);
 
         // Set workspace status to 'working' when session starts
@@ -421,12 +416,6 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
           extractedSessionInfoRef.current?.runtimeSessionId ||
           claudeSessionId ||
           undefined;
-        console.log('[SessionFrameEvents] Terminal turn received', {
-          provider,
-          streamId,
-          completionSessionId,
-          status: isAssistantEndTurn ? 'completed' : ((message as any).is_error ? 'failed' : 'completed'),
-        });
         void onComplete?.({
           success: !(message as any).is_error,
           status: isAssistantEndTurn ? 'completed' : ((message as any).is_error ? 'failed' : 'completed'),

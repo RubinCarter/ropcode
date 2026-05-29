@@ -33,7 +33,6 @@ export function useSessionPreview(): UseSessionPreviewReturn {
   }, []);
 
   const handlePreviewUrlChange = useCallback((url: string) => {
-    console.log('[AiCodeSession] Preview URL changed to:', url);
     setPreviewUrl(url);
   }, []);
 

@@ -67,14 +67,6 @@ export function useSessionControllerLifecycle({
   }, []);
 
   useEffect(() => {
-    console.log('[AiCodeSession] 🔑 ProjectPath initialized/changed:', {
-      projectPath: sessionState.projectPath,
-      initialProjectPath,
-      sessionPath: session?.project_path
-    });
-  }, [sessionState.projectPath, initialProjectPath, session?.project_path]);
-
-  useEffect(() => {
     onStreamingChange?.(processState.isLoading, sessionState.claudeSessionId);
   }, [processState.isLoading, sessionState.claudeSessionId, onStreamingChange]);
 
@@ -84,11 +76,6 @@ export function useSessionControllerLifecycle({
 
   useEffect(() => {
     if (prevProjectPathRef.current && prevProjectPathRef.current !== sessionState.projectPath) {
-      console.log('[AiCodeSession] Project path changed, resetting session state:', {
-        from: prevProjectPathRef.current,
-        to: sessionState.projectPath
-      });
-
       isProjectSwitchingRef.current = true;
       messagesState.clearMessages();
       sessionState.setClaudeSessionId(null);
@@ -106,17 +93,14 @@ export function useSessionControllerLifecycle({
 
   useEffect(() => {
     if (skipSessionRestore) {
-      console.log('[AiCodeSession] Skipping session restore for explicit new session');
       return;
     }
 
     if (session) {
-      console.log('[AiCodeSession] Skipping session restore for explicit historical session');
       return;
     }
 
     if (loadedSessionIdRef.current) {
-      console.log('[AiCodeSession] Already loaded session, skipping:', loadedSessionIdRef.current);
       return;
     }
 
@@ -125,19 +109,12 @@ export function useSessionControllerLifecycle({
     if (currentProjectPath && !sessionState.extractedSessionInfo) {
       requestAnimationFrame(() => {
         if (loadedSessionIdRef.current || isProjectSwitchingRef.current) {
-          console.log('[AiCodeSession] Skipping session restore: switching=', isProjectSwitchingRef.current, 'loaded=', loadedSessionIdRef.current);
           return;
         }
 
         if (sessionState.projectPathRef.current !== currentProjectPath) {
-          console.log('[AiCodeSession] ProjectPath changed while waiting, skipping restore:', {
-            captured: currentProjectPath,
-            current: sessionState.projectPathRef.current
-          });
           return;
         }
-
-        console.log('[AiCodeSession] Attempting to restore session from localStorage for provider:', defaultProvider, 'projectPath:', currentProjectPath);
 
         const sessions = SessionPersistenceService.getSessionIndex();
         const projectSessions = sessions
@@ -151,7 +128,6 @@ export function useSessionControllerLifecycle({
 
         if (projectSessions.length > 0 && projectSessions[0]) {
           const restoredSession = projectSessions[0];
-          console.log('[AiCodeSession] Restoring session:', restoredSession.sessionId, 'for provider:', restoredSession.provider);
 
           loadedSessionIdRef.current = restoredSession.sessionId;
           sessionState.setExtractedSessionInfo({
@@ -161,8 +137,6 @@ export function useSessionControllerLifecycle({
           sessionState.setClaudeSessionId(restoredSession.sessionId);
           sessionState.setIsFirstPrompt(false);
           historyLoader.loadRestoredHistory(restoredSession);
-        } else {
-          console.log('[AiCodeSession] No sessions found for project:', currentProjectPath, 'provider:', defaultProvider);
         }
       });
     }
@@ -171,7 +145,6 @@ export function useSessionControllerLifecycle({
   useEffect(() => {
     if (session) {
       if (loadedSessionIdRef.current) {
-        console.log('[AiCodeSession] Already loaded session, skipping');
         return;
       }
 
@@ -195,7 +168,6 @@ export function useSessionControllerLifecycle({
 
     return () => {
       const snapshot = unmountSnapshotRef.current;
-      console.log('[AiCodeSession] Unmounting, cleaning up');
       isMountedRef.current = false;
 
       if (snapshot.effectiveSession) {
@@ -211,7 +183,6 @@ export function useSessionControllerLifecycle({
           snapshot.defaultProvider,
           snapshot.messages.length
         );
-        console.log('[AiCodeSession] Saved session to localStorage on unmount');
       }
     };
   }, []);

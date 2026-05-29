@@ -71,13 +71,10 @@ export async function startGoServer(): Promise<GoServerInfo> {
   let viteEnv: NodeJS.ProcessEnv = {};
   if (isDev) {
     const vitePort = await discoverVitePort();
-    console.log(`[GoServer] Discovered Vite port: ${vitePort}`);
     viteEnv = { ROPCODE_VITE_URL: `http://localhost:${vitePort}` };
   }
 
   return new Promise((resolve, reject) => {
-    console.log('[GoServer] Starting:', goBinaryPath);
-
     goProcess = spawn(goBinaryPath, [], {
       env: {
         ...process.env,
@@ -96,19 +93,18 @@ export async function startGoServer(): Promise<GoServerInfo> {
     // 监听 stdout 获取端口号
     goProcess.stdout?.on('data', (data: Buffer) => {
       const output = data.toString();
-      console.log('[GoServer stdout]', output);
 
       // 解析端口号
       const portMatch = output.match(/WS_PORT:(\d+)/);
       if (portMatch && !resolved) {
         resolved = true;
         const port = parseInt(portMatch[1], 10);
-        console.log('[GoServer] Started on port:', port);
         resolve({ port, authKey });
       }
     });
 
     goProcess.stderr?.on('data', (data: Buffer) => {
+      // stderr 默认保留：这里通常是需要看的错误
       console.error('[GoServer stderr]', data.toString());
     });
 
@@ -120,7 +116,6 @@ export async function startGoServer(): Promise<GoServerInfo> {
     });
 
     goProcess.on('exit', (code, signal) => {
-      console.log('[GoServer] Process exited:', { code, signal });
       goProcess = null;
       if (!resolved) {
         reject(new Error(`Go server exited with code ${code}`));
@@ -139,7 +134,6 @@ export async function startGoServer(): Promise<GoServerInfo> {
 
 export function stopGoServer(): void {
   if (goProcess) {
-    console.log('[GoServer] Stopping...');
     goProcess.kill('SIGTERM');
 
     // 给进程时间优雅退出

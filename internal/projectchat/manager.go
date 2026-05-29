@@ -146,8 +146,6 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 	if seg.ProviderSessionID == "" {
 		seg.ProviderSessionID = m.captureProviderSessionID(seg.ID, seg.RuntimeSessionID)
 	}
-	log.Printf("[projectchat] SendMessage: chatID=%s segID=%s provider=%s runtime=%s providerSID=%s",
-		chatID, seg.ID, seg.Provider, seg.RuntimeSessionID, seg.ProviderSessionID)
 
 	// If this segment has context to inject (first message after switch),
 	// prepend the context to the user's message
@@ -183,7 +181,6 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 				if err == nil && contextText != "" {
 					actualMessage = InjectContext(message, contextText)
 					contextSyncMessage = contextText
-					log.Printf("[projectchat] SendMessage: injected context (%d chars) into first message", len(contextText))
 				}
 			}
 		}
@@ -194,7 +191,6 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 	sentRuntimeSessionID := seg.RuntimeSessionID
 	if err := m.provider.SendMessage(seg.RuntimeSessionID, actualMessage); err != nil {
 		// Session might be gone (after restart/hot-reload) - try to restart it
-		log.Printf("[projectchat] SendMessage: failed (%v), attempting session restart", err)
 		config := provider.SessionConfig{
 			ProjectPath:     chat.ProjectPath,
 			Model:           model,
@@ -219,7 +215,6 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 		if m.streamHub != nil {
 			m.streamHub.RegisterAlias(realStream, chatID)
 		}
-		log.Printf("[projectchat] SendMessage: session restarted, new runtime=%s", newRuntimeID)
 		if err := m.provider.SendMessage(newRuntimeID, actualMessage); err != nil {
 			return "", fmt.Errorf("send message after restart: %w", err)
 		}
@@ -251,8 +246,6 @@ func (m *Manager) SwitchProvider(chatID, newProviderID, model, providerApiID str
 	if currentSeg.ProviderSessionID == "" && currentSeg.RuntimeSessionID != "" {
 		currentSeg.ProviderSessionID = m.captureProviderSessionID(currentSeg.ID, currentSeg.RuntimeSessionID)
 	}
-	log.Printf("[projectchat] SwitchProvider: chatID=%s from=%s to=%s currentSeg.ProviderSessionID=%s currentSeg.RuntimeSessionID=%s",
-		chatID, chat.ActiveProvider, newProviderID, currentSeg.ProviderSessionID, currentSeg.RuntimeSessionID)
 
 	// Terminate current session
 	if currentSeg.RuntimeSessionID != "" {
@@ -298,11 +291,9 @@ func (m *Manager) SwitchProvider(chatID, newProviderID, model, providerApiID str
 	if lastTargetSegIdx >= 0 {
 		// Incremental: only segments after the target provider's last segment
 		contextSegments = segments[lastTargetSegIdx+1:]
-		log.Printf("[projectchat] SwitchProvider: incremental sync for %s (segments after idx %d: %d segments)", newProviderID, lastTargetSegIdx, len(contextSegments))
 	} else {
 		// Full: all segments (target provider never had a session)
 		contextSegments = segments
-		log.Printf("[projectchat] SwitchProvider: full sync for %s (%d segments)", newProviderID, len(contextSegments))
 	}
 
 	contextText, err := m.buildContextFromSegments(contextSegments, chat.ProjectPath)
@@ -350,9 +341,7 @@ func (m *Manager) SwitchProvider(chatID, newProviderID, model, providerApiID str
 		runtimeSessionID = m.provider.ResolveRunningSessionID(newProviderID, chat.ProjectPath, lastTargetSeg.RuntimeSessionID)
 	}
 
-	if runtimeSessionID != "" {
-		log.Printf("[projectchat] SwitchProvider: reusing running runtime session provider=%s runtime=%s provider_session=%s", newProviderID, runtimeSessionID, resumeProviderSessionID)
-	} else {
+	if runtimeSessionID == "" {
 		// Start or resume provider session (without context in prompt - send after init)
 		config := provider.SessionConfig{
 			ProjectPath:   chat.ProjectPath,
@@ -363,9 +352,6 @@ func (m *Manager) SwitchProvider(chatID, newProviderID, model, providerApiID str
 		if resumeProviderSessionID != "" {
 			config.Resume = true
 			config.ResumeSessionID = resumeProviderSessionID
-			log.Printf("[projectchat] SwitchProvider: resuming provider=%s provider_session=%s from segment=%s", newProviderID, resumeProviderSessionID, lastTargetSeg.ID)
-		} else {
-			log.Printf("[projectchat] SwitchProvider: starting fresh provider=%s (no prior provider session)", newProviderID)
 		}
 
 		var startErr error
@@ -547,18 +533,14 @@ func (m *Manager) LoadAllSegmentFrames(chatID string) ([]stream.SessionFrame, er
 // --- Private helpers ---
 
 func (m *Manager) buildContextFromSegments(segments []*database.ChatSegment, projectPath string) (string, error) {
-	log.Printf("[projectchat] buildContextFromSegments: projectPath=%s segments=%d", projectPath, len(segments))
-
 	// Resolve providerSessionIDs from live sessions if missing
 	liveSessions := m.provider.ListAllSessions()
-	log.Printf("[projectchat] buildContextFromSegments: liveSessions=%d", len(liveSessions))
 	for _, seg := range segments {
 		if seg.ProviderSessionID == "" && seg.RuntimeSessionID != "" {
 			for _, s := range liveSessions {
 				if s.SessionID == seg.RuntimeSessionID && s.ProviderSessionID != "" {
 					seg.ProviderSessionID = s.ProviderSessionID
 					_ = m.db.UpdateChatSegmentRuntime(seg.ID, seg.RuntimeSessionID, s.ProviderSessionID)
-					log.Printf("[projectchat] buildContext: resolved providerSessionID=%s for seg=%s", s.ProviderSessionID, seg.ID)
 					break
 				}
 			}
@@ -566,7 +548,6 @@ func (m *Manager) buildContextFromSegments(segments []*database.ChatSegment, pro
 	}
 
 	projectID := projectPathToID(projectPath)
-	log.Printf("[projectchat] buildContext: projectID=%s", projectID)
 
 	var allFrames []stream.SessionFrame
 	for _, seg := range segments {
@@ -575,39 +556,26 @@ func (m *Manager) buildContextFromSegments(segments []*database.ChatSegment, pro
 			sessionID = seg.RuntimeSessionID
 		}
 		if sessionID == "" {
-			log.Printf("[projectchat] buildContext: skipping segment=%s (no sessionID)", seg.ID)
 			continue
 		}
 
-		log.Printf("[projectchat] buildContext: loading history for segment=%s provider=%s sessionID=%s", seg.ID, seg.Provider, sessionID)
 		events, err := m.provider.LoadHistoryEvents(seg.Provider, projectID, sessionID)
 		if err != nil {
-			log.Printf("[projectchat] buildContext: LoadHistoryEvents failed for seg=%s: %v", seg.ID, err)
 			continue
 		}
-		log.Printf("[projectchat] buildContext: loaded %d events for segment=%s", len(events), seg.ID)
 
 		frames, err := stream.FramesFromEvents(seg.Provider, stream.ProviderOutputContext{
 			RuntimeSessionID: seg.RuntimeSessionID,
 			ProjectPath:      projectPath,
 		}, events)
 		if err != nil {
-			log.Printf("[projectchat] buildContext: FramesFromEvents failed for seg=%s: %v", seg.ID, err)
 			continue
 		}
-		log.Printf("[projectchat] buildContext: got %d frames for segment=%s", len(frames), seg.ID)
 
 		allFrames = append(allFrames, frames...)
 	}
 
 	contextText := BuildContextFromFrames(allFrames)
-	log.Printf("[projectchat] buildContext: total frames=%d contextLen=%d", len(allFrames), len(contextText))
-	if len(contextText) > 200 {
-		log.Printf("[projectchat] buildContext: contextPreview=%s...", contextText[:200])
-	} else if contextText != "" {
-		log.Printf("[projectchat] buildContext: context=%s", contextText)
-	}
-
 	return contextText, nil
 }
 
@@ -620,7 +588,6 @@ func (m *Manager) captureProviderSessionID(segmentID, runtimeSessionID string) s
 			continue
 		}
 		_ = m.db.UpdateChatSegmentRuntime(segmentID, runtimeSessionID, s.ProviderSessionID)
-		log.Printf("[projectchat] captured providerSessionID=%s for segment=%s runtime=%s", s.ProviderSessionID, segmentID, runtimeSessionID)
 		return s.ProviderSessionID
 	}
 	return ""

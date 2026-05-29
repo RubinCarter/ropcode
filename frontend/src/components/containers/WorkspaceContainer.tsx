@@ -151,7 +151,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
           if (tabIdRef.current) {
             const initialTab = tabsRef.current.find(tab => tab.id === tabIdRef.current);
             if (initialTab?.skipSessionRestore) {
-              console.log('[WorkspaceContainer] Skipping background session restore for explicit new tab');
               return;
             }
 

@@ -295,7 +295,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
 
       if (savedState && savedState.sessions.length > 0) {
         // Use saved state
-        console.log('[RightSidebar] Loading workspace terminal state from local storage:', key);
         const outputs: Record<string, TerminalOutput[]> = {};
         savedState.sessions.forEach((session: TerminalSession) => {
           outputs[session.id] = [];
@@ -313,7 +312,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         });
       } else {
         // Create default state
-        console.log('[RightSidebar] Creating new workspace terminal state:', key);
         const firstTerminalId = generateTerminalId();
         workspaceStates.current.set(key, {
           sessions: [{ id: firstTerminalId, title: 'Terminal 1', type: 'bash', isPty: true }],
@@ -344,15 +342,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     const prevKey = prevProjectPathRef.current || 'default';
 
     if (prevKey !== key) {
-      console.log('[RightSidebar] Workspace changed:', prevKey, '->', key);
-      const currentState = getCurrentState();
-      console.log('[RightSidebar] New workspace state:', {
-        sessions: currentState.sessions.length,
-        activeSessionId: currentState.activeSessionId,
-        outputCount: Object.keys(currentState.outputs).length,
-        historyCount: currentState.commandHistory.length
-      });
-
       // Force update to show new workspace state
       triggerUpdate();
     }
@@ -432,7 +421,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     const key = getWorkspaceStorageKey(currentProjectPath);
     saveTerminalState(key, currentState);
 
-    console.log('[RightSidebar] Creating new terminal:', { id: newId, title: newSession.title });
     triggerUpdate();
   }, [getCurrentState, currentProjectPath]);
 
@@ -440,7 +428,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const handleGitFileClick = useCallback((file: GitFileChange) => {
     if (!currentProjectPath) return;
 
-    console.log('[RightSidebar] Git file clicked, creating diff tab:', file.path);
     createDiffTab(file.path, currentProjectPath, file.status);
   }, [currentProjectPath, createDiffTab]);
 
@@ -448,7 +435,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const handleFileTreeClick = useCallback((filePath: string) => {
     if (!currentProjectPath) return;
 
-    console.log('[RightSidebar] File tree clicked, creating file tab:', filePath);
     createFileTab(filePath, currentProjectPath);
   }, [currentProjectPath, createFileTab]);
 
@@ -456,16 +442,12 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
   const handleCloseSession = useCallback(async (id: string) => {
     const currentState = getCurrentState();
     if (currentState.sessions.length === 1) {
-      console.log('[RightSidebar] Cannot close the last terminal');
       return; // Keep at least one session
     }
-
-    console.log('[RightSidebar] Closing terminal:', id);
 
     // Clean up PTY session
     try {
       await api.closePtySession(id);
-      console.log('[RightSidebar] PTY session closed:', id);
     } catch (error) {
       console.error('[RightSidebar] Failed to close PTY session:', id, error);
     }
@@ -528,7 +510,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     currentState.commandToSessionMap.set(commandId, sessionId);
     // Record command start time
     currentState.commandStartTime.set(commandId, Date.now());
-    console.log('[RightSidebar] Recording command mapping:', { commandId, sessionId, command: command.substring(0, 50) });
 
     try {
       // Execute command via async streaming API
@@ -673,7 +654,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     const key = getWorkspaceStorageKey(currentProjectPath);
     saveTerminalState(key, currentState);
 
-    console.log('[RightSidebar] Switched to terminal:', id);
     triggerUpdate();
   }, [getCurrentState, currentProjectPath]);
 
@@ -701,8 +681,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           console.warn('[RightSidebar] Received output for an unknown command:', command_id);
           return;
         }
-
-        console.log('[RightSidebar] Routing output to session:', { command_id, sessionId, output_type, exit_code });
 
         // Detect ANSI clear screen sequence (clear command output)
         const clearScreenPattern = /\x1b\[(?:2J|3J|H)/;
@@ -747,7 +725,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           // Clean up command mappings and timestamps
           currentState.commandToSessionMap.delete(command_id);
           currentState.commandStartTime.delete(command_id);
-          console.log('[RightSidebar] Cleared command mapping and running state:', command_id, sessionId);
         }
       });
 
@@ -980,11 +957,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
           console.warn('[RightSidebar] Cannot open Actions config: failed to parse project path:', currentProjectPath);
           return null;
         }
-
-        console.log('[RightSidebar] Opening Actions config dialog:', {
-          currentProjectPath,
-          parsed
-        });
 
         return (
           <ActionsConfigDialog

@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"os/exec"
 	"sync"
 	"time"
@@ -183,15 +182,6 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 				event.ProjectPath = s.config.ProjectPath
 				event.Cwd = s.config.ProjectPath
 				event.ProviderSessionID = s.GetProviderSessionID()
-				if event.Subtype == "init" || event.Subtype == "thread_created" || event.Subtype == "result" || event.Type == "result" {
-					log.Printf("[provider] session event provider=%s runtime=%s provider_session=%s type=%s subtype=%s",
-						event.Provider,
-						event.SessionID,
-						event.ProviderSessionID,
-						event.Type,
-						event.Subtype,
-					)
-				}
 				if s.emitter != nil {
 					s.emitter.Emit("provider-output", event)
 				}

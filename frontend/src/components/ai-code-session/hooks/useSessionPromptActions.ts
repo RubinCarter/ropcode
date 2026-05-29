@@ -71,8 +71,6 @@ export function useSessionPromptActions({
   trackEvent,
 }: UseSessionPromptActionsOptions): UseSessionPromptActionsReturn {
   const handleLocalClearFallback = useCallback(async () => {
-    console.log('[AiCodeSession] Clearing local conversation fallback');
-
     const shouldShowStopFeedback = shouldShowStopFeedbackOnLocalClear({
       provider: defaultProvider,
       isLoading: processState.isLoading,
@@ -135,7 +133,6 @@ export function useSessionPromptActions({
     provider?: string,
     options?: { forceFreshClaudeSession?: boolean }
   ): Promise<boolean> => {
-    console.log('[AiCodeSession] Sending prompt with thinkingMode:', thinkingMode);
     const activeProvider = provider || defaultProvider;
     // Store first prompt for title generation after first round completes
     if (sessionState.isFirstPrompt && prompt.trim().length > 0) {
@@ -166,7 +163,6 @@ export function useSessionPromptActions({
     }
 
     if (classification.action === 'enqueue') {
-      console.log('[AiCodeSession] Session busy (batch mode), queueing prompt');
       queueState.addToQueue(prompt, model, providerApiId, thinkingMode, activeProvider);
       return true;
     }
@@ -257,12 +253,10 @@ export function useSessionPromptActions({
       }
 
       if (activeChatId) {
-        console.log('[AiCodeSession] Sending via ProjectChat:', activeChatId);
         trackEvent.modelSelected(model);
         await SendProjectChatMessage(activeChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
       } else if (currentInteractiveSessionId) {
         // Interactive session is alive (real-time state), send message directly
-        console.log('[AiCodeSession] Sending to active interactive session:', currentInteractiveSessionId);
         trackEvent.sessionResumed(currentInteractiveSessionId);
         trackEvent.modelSelected(model);
 
@@ -274,7 +268,6 @@ export function useSessionPromptActions({
         }
       } else if (currentEffectiveSession && !sessionState.isFirstPrompt && activeProvider !== 'claude') {
         // For non-Claude providers (batch mode), can safely resume from effectiveSession
-        console.log('[AiCodeSession] Resuming batch mode session');
         trackEvent.sessionResumed(currentEffectiveSession.id);
         trackEvent.modelSelected(model);
 
@@ -284,7 +277,6 @@ export function useSessionPromptActions({
         // Start new session:
         // - For Claude: always start new if no interactiveSessionId
         // - For others: start new if no effectiveSession or isFirstPrompt
-        console.log('[AiCodeSession] Starting new session');
         sessionState.setIsFirstPrompt(false);
         trackEvent.sessionCreated(model, 'prompt_input');
         trackEvent.modelSelected(model);
@@ -312,7 +304,6 @@ export function useSessionPromptActions({
       // Clear pending flag after init message arrives
       setTimeout(() => {
         processState.setIsPendingSend(false);
-        console.log('[AiCodeSession] isPendingSend cleared');
       }, 500);
 
       return true;

@@ -75,22 +75,16 @@ export async function maybeWrapFirstMessage(
   userMessage: string,
   isFirstPrompt: boolean
 ): Promise<string> {
-  console.log('[Worktree] maybeWrapFirstMessage called:', { projectPath, isFirstPrompt });
-
   // Only check on first message
   if (!isFirstPrompt) {
-    console.log('[Worktree] Skipping wrap: not first prompt');
     return userMessage;
   }
 
   const worktreeInfo = await detectWorktree(projectPath);
-  console.log('[Worktree] detectWorktree result:', worktreeInfo);
 
   if (worktreeInfo.is_worktree) {
-    console.log('[Worktree] Wrapping first message with worktree instructions');
     return wrapFirstMessageWithWorktreeInstructions(worktreeInfo, userMessage);
   }
 
-  console.log('[Worktree] Not a worktree child, returning original message');
   return userMessage;
 }

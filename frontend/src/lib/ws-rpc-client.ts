@@ -162,7 +162,6 @@ class WSRpcClient {
    */
   private safeConnect(): void {
     if (this.connecting) {
-      console.log('[WSRpc] Already connecting, skipping duplicate attempt');
       return;
     }
     this.doConnect().catch(console.error);
@@ -174,8 +173,6 @@ class WSRpcClient {
    * onclose events make the normal reconnect path unreliable.
    */
   private forceReconnect(): void {
-    console.log('[WSRpc] Force reconnect (visibility restore)');
-
     // 1. Cancel any frozen/pending scheduled reconnect timer
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -241,7 +238,6 @@ class WSRpcClient {
         ws.onopen = () => {
           connected = true;
           this.connecting = false;
-          console.log('[WSRpc] Connected');
           this.reconnectAttempts = 0;
           // Notify all waiting connection resolvers
           this.connectResolvers.forEach(r => r.resolve());
@@ -259,7 +255,6 @@ class WSRpcClient {
           // Ignore close events from superseded sockets
           if (this.ws !== ws) return;
 
-          console.log('[WSRpc] Disconnected');
           this.connecting = false;
           if (!connected) {
             // Connection never opened — reject pending waiters
@@ -305,7 +300,6 @@ class WSRpcClient {
       const html = await resp.text();
       const match = html.match(/__ROPCODE_AUTH_KEY__="([^"]+)"/);
       if (match && match[1] && match[1] !== this.authKey) {
-        console.log('[WSRpc] AuthKey refreshed');
         this.authKey = match[1];
         // Rebuild wsUrl with new authKey
         const url = new URL(this.wsUrl);
@@ -330,7 +324,6 @@ class WSRpcClient {
       this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
       this.maxReconnectDelay
     );
-    console.log(`[WSRpc] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
@@ -386,7 +379,6 @@ class WSRpcClient {
         const isTransient = err instanceof Error &&
           (err.message === 'WebSocket force reconnect' || err.message === 'WebSocket disconnected');
         if (isTransient && attempt < maxAttempts) {
-          console.log(`[WSRpc] Transient error on ${method}, retrying after reconnect (attempt ${attempt}/${maxAttempts})`);
           await this.waitForConnection(10000);
           continue;
         }

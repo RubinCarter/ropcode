@@ -3,6 +3,8 @@ package rpc
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"ropcode/internal/database"
 )
@@ -221,7 +223,36 @@ func AgentHandlers(d *Deps) map[string]Handler {
 			if d.DB == nil {
 				return nil, nil
 			}
-			return d.DB.ListRunningAgentRuns()
+			runs, err := d.DB.ListRunningAgentRuns()
+			if err != nil {
+				return nil, err
+			}
+			if d.Provider == nil {
+				return runs, nil
+			}
+			activeRuns := make([]*database.AgentRun, 0, len(runs))
+			for _, run := range runs {
+				if run == nil || run.SessionID == "" {
+					activeRuns = append(activeRuns, run)
+					continue
+				}
+				session := d.Provider.GetSession(run.SessionID)
+				if session != nil {
+					switch session.Status {
+					case "running", "starting", "created", "cancelling":
+						activeRuns = append(activeRuns, run)
+					case "completed", "failed", "cancelled":
+						completedAt := time.Now()
+						_ = d.DB.UpdateAgentRunStatus(run.ID, session.Status, run.PID, run.ProcessStartedAt, &completedAt)
+					default:
+						activeRuns = append(activeRuns, run)
+					}
+					continue
+				}
+				completedAt := time.Now()
+				_ = d.DB.UpdateAgentRunStatus(run.ID, "failed", run.PID, run.ProcessStartedAt, &completedAt)
+			}
+			return activeRuns, nil
 		},
 		"CancelAgentRun": func(p json.RawMessage) (any, error) {
 			if d.DB == nil || d.Provider == nil {
@@ -255,7 +286,12 @@ func AgentHandlers(d *Deps) map[string]Handler {
 			if run.SessionID == "" {
 				return "", nil
 			}
-			return d.Provider.GetSessionOutput(run.SessionID)
+			output, outputErr := d.Provider.GetSessionOutput(run.SessionID)
+			if outputErr != nil && strings.Contains(outputErr.Error(), "session not found:") && (run.Status == "running" || run.Status == "pending") {
+				completedAt := time.Now()
+				_ = d.DB.UpdateAgentRunStatus(run.ID, "failed", run.PID, run.ProcessStartedAt, &completedAt)
+			}
+			return output, outputErr
 		},
 	}
 }

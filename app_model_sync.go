@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"sort"
@@ -46,26 +45,19 @@ func (a *App) SyncProviderModelsFromAPI(providerID, providerApiID string) ([]*da
 
 func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*database.ProviderApiConfig, error) {
 	if strings.TrimSpace(providerApiID) != "" {
-		cfg, err := a.dbManager.GetProviderApiConfig(providerApiID)
-		if err == nil && cfg != nil {
-			log.Printf("[ModelsSync] %s using explicit api config id=%s base=%q", providerID, cfg.ID, cfg.BaseURL)
-		}
-		return cfg, err
+		return a.dbManager.GetProviderApiConfig(providerApiID)
 	}
 	if cfg, err := a.dbManager.GetDefaultProviderApiConfig(providerID); err == nil && cfg != nil {
-		log.Printf("[ModelsSync] %s using default api config id=%s base=%q", providerID, cfg.ID, cfg.BaseURL)
 		return cfg, nil
 	}
 	if providerID == "codex" {
 		if cfg := codexConfigToProviderAPI(); cfg != nil {
-			log.Printf("[ModelsSync] codex using ~/.codex/config.toml provider=%q base=%q", cfg.Name, cfg.BaseURL)
 			return cfg, nil
 		}
 	}
 	if all, err := a.dbManager.GetAllProviderApiConfigs(); err == nil {
 		for _, cfg := range all {
 			if cfg != nil && cfg.ProviderID == providerID {
-				log.Printf("[ModelsSync] %s using first api config id=%s base=%q (no default flagged)", providerID, cfg.ID, cfg.BaseURL)
 				return cfg, nil
 			}
 		}
@@ -158,8 +150,6 @@ func fetchAnthropicModelIDs(apiConfig *database.ProviderApiConfig) ([]string, er
 }
 
 func doModelsListRequest(req *http.Request, label string) ([]string, error) {
-	log.Printf("[ModelsSync] %s GET %s", label, req.URL.String())
-
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {

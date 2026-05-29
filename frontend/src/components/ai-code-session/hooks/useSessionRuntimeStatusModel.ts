@@ -17,6 +17,7 @@ interface UseSessionRuntimeStatusModelOptions {
   stopRequested: boolean;
   lastTransportConnectAt: number | null;
   loadingStartedAt: number | null;
+  loadingStartedFrameSeq?: number | null;
   frameRuntime: any;
   frameLastSeq: number;
   runtimeTracker: any;
@@ -59,6 +60,7 @@ export function useSessionRuntimeStatusModel(options: UseSessionRuntimeStatusMod
       stopRequested: options.stopRequested,
       lastTransportConnectAt: options.lastTransportConnectAt,
       loadingStartedAt: options.loadingStartedAt,
+      loadingStartedFrameSeq: options.loadingStartedFrameSeq,
       frameRuntime: options.frameRuntime,
       frameLastSeq: options.frameLastSeq,
     },

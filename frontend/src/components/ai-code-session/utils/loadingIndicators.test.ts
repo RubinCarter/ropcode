@@ -77,5 +77,15 @@ test('terminal frame runtime reconciles stale local loading state', async () => 
 
   assert.match(source, /const terminalFrameRuntimePhase = frameRuntimeState\.runtime\?\.phase;/);
   assert.match(source, /terminalFrameRuntimePhase === 'completed' \|\|[\s\S]*terminalFrameRuntimePhase === 'failed' \|\|[\s\S]*terminalFrameRuntimePhase === 'cancelled'/);
-  assert.match(source, /if \(processState\.isLoading && terminalFrameRuntime\) \{[\s\S]*processState\.setIsLoading\(false\);[\s\S]*\}/);
+  assert.match(source, /const loadingStartedFrameSeqRef = useRef<\{ streamId: string \| null; seq: number \} \| null>\(null\);/);
+  assert.match(source, /frameRuntimeState\.lastSeq > effectiveLoadingStartedFrameSeq/);
+  assert.match(source, /if \(processState\.isLoading && terminalFrameRuntimeIsCurrentTurn\) \{[\s\S]*processState\.setIsLoading\(false\);[\s\S]*\}/);
+});
+
+test('workspace chat tabs expose running status indicators', async () => {
+  const source = await readSource(path.resolve(currentDir, '../../containers/WorkspaceTabManager.tsx'));
+  const getStatusIconBody = source.match(/const getStatusIcon = \(\) => \{([\s\S]*?)\n  \};/)?.[1] || '';
+
+  assert.match(getStatusIconBody, /case 'running':/);
+  assert.doesNotMatch(getStatusIconBody, /tab\.type === 'chat'[\s\S]*return null/);
 });

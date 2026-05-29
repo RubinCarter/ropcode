@@ -43,23 +43,19 @@ export function useSessionRecovery({
 
       const localCount = messagesState.messagesLengthRef.current;
       if (localCount === 0) {
-        console.log(`[AiCodeSession] Recovery (${trigger}): skipped - no local messages yet, initial restore will handle`);
         return;
       }
 
       if (processState.isLoading) {
-        console.log(`[AiCodeSession] Recovery (${trigger}): skipped - still streaming`);
         return;
       }
 
       if (isRecovering) {
-        console.log(`[AiCodeSession] Recovery (${trigger}): skipped - component recovery already running`);
         return;
       }
 
       const now = Date.now();
       if (now - lastRecoveryTime < minRecoveryInterval) {
-        console.log(`[AiCodeSession] Recovery (${trigger}): skipped - too soon (${Math.round((now - lastRecoveryTime) / 1000)}s since last)`);
         return;
       }
 
@@ -76,22 +72,15 @@ export function useSessionRecovery({
         if (saved.length > 0 && saved[0]) {
           sessionId = sessionId || saved[0].sessionId;
           projectId = projectId || saved[0].projectId;
-          console.log(`[AiCodeSession] Recovery (${trigger}): used localStorage fallback`);
         }
       }
 
       if (!sessionId || !projectPath || !projectId) {
-        console.log(`[AiCodeSession] Recovery (${trigger}): skipped - missing identifiers`, {
-          sessionId: !!sessionId,
-          projectPath: !!projectPath,
-          projectId: !!projectId,
-        });
         return;
       }
 
       const recoveryKey = `${defaultProvider}::${projectPath}::${projectId}::${sessionId}`;
       if (activeRecoveryKeys.has(recoveryKey)) {
-        console.log(`[AiCodeSession] Recovery (${trigger}): skipped - recovery already active for ${recoveryKey}`);
         return;
       }
 
@@ -117,7 +106,6 @@ export function useSessionRecovery({
         if (!isMounted) return;
 
         if (!history || history.length === 0) {
-          console.log(`[AiCodeSession] Recovery (${trigger}): backend returned empty history`);
           return;
         }
 
@@ -128,16 +116,12 @@ export function useSessionRecovery({
         const backendLastTs = loadedMessages[loadedMessages.length - 1]?.timestamp as string || '';
         const localLastTs = currentMessages[currentMessages.length - 1]?.timestamp as string || '';
 
-        console.log(`[AiCodeSession] Recovery (${trigger}): backend last ts=${backendLastTs}, local last ts=${localLastTs}, local count=${currentMessages.length}`);
-
         if (backendLastTs > localLastTs) {
-          console.log(`[AiCodeSession] Recovery (${trigger}): backend has newer messages, replacing local (${currentMessages.length}) with backend (${loadedMessages.length})`);
           messagesState.setMessages(loadedMessages);
           await refreshSubagentTranscripts(sessionId, projectId);
           setTimeout(() => scrollToBottom('auto'), 100);
         } else {
           await refreshSubagentTranscripts(sessionId, projectId);
-          console.log(`[AiCodeSession] Recovery (${trigger}): local is up to date, skipping`);
         }
       } catch (err) {
         console.error(`[AiCodeSession] Recovery (${trigger}) failed`, {
@@ -161,14 +145,12 @@ export function useSessionRecovery({
 
     const scheduleRecover = (trigger: string) => {
       if (shouldSkipRecovery()) {
-        console.log(`[AiCodeSession] Skipping recovery (${trigger}) during clear cooldown`);
         return;
       }
       if (recoverTimer) clearTimeout(recoverTimer);
       recoverTimer = setTimeout(() => {
         recoverTimer = null;
         if (shouldSkipRecovery()) {
-          console.log(`[AiCodeSession] Skipping recovery (${trigger}) during clear cooldown`);
           return;
         }
         recoverMessages(trigger);
@@ -176,13 +158,11 @@ export function useSessionRecovery({
     };
 
     const unsub = wsClient.onConnect(() => {
-      console.log('[AiCodeSession] WS connected, scheduling recovery check');
       scheduleRecover('onConnect');
     });
 
     const handleVisibility = () => {
       if (document.visibilityState === 'visible' && wsClient.isConnected()) {
-        console.log('[AiCodeSession] Page visible + WS connected, scheduling recovery check');
         scheduleRecover('visibilitychange');
       }
     };

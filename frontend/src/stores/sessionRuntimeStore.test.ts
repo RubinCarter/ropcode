@@ -68,3 +68,25 @@ test('assistant end_turn frames mark root session runtime completed', () => {
   assert.equal(state.runtime?.phase, 'completed');
   assert.equal(state.runtime?.waitingOn, null);
 });
+
+test('new non-runtime frames clear stale terminal runtime state', () => {
+  clearSessionRuntime('claude:runtime-1');
+
+  applySessionRuntimeFrame(frame({
+    frameId: 'turn-one-result',
+    seq: 1,
+    kind: 'result',
+  }));
+
+  applySessionRuntimeFrame(frame({
+    frameId: 'turn-two-init',
+    seq: 2,
+    kind: 'message',
+    role: 'user',
+  }));
+
+  const state = getSessionRuntime('claude:runtime-1');
+  assert.equal(state.lastSeq, 2);
+  assert.equal(state.lastFrameId, 'turn-two-init');
+  assert.equal(state.runtime, undefined);
+});

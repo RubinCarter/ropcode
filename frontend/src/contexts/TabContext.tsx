@@ -102,7 +102,6 @@ export const TabProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     TabPersistenceService.migrateFromOldFormat();
 
     // Clear saved tabs to ensure no project opens automatically on startup
-    console.log('[TabContext] Initializing: clearing saved tabs and starting blank...');
     TabPersistenceService.clearTabs();
     setTabs([]);
     setActiveTabId(null);

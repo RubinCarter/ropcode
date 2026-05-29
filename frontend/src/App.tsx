@@ -39,7 +39,6 @@ let wsConnectionPromise: Promise<void> | null = null;
 // Initialize WebSocket connection (only in Electron or when configured)
 if (wsPort) {
   wsConnectionPromise = wsClient.connect(parseInt(String(wsPort), 10), authKey || undefined)
-    .then(() => console.log('[App] WebSocket connected'))
     .catch((err) => {
       console.error('[App] WebSocket connection failed:', err);
       throw err;

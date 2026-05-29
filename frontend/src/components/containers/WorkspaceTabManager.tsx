@@ -48,10 +48,6 @@ const TabItem: React.FC<TabItemProps> = ({
   };
 
   const getStatusIcon = () => {
-    if (tab.type === 'chat') {
-      return null;
-    }
-
     switch (tab.status) {
       case 'running':
         return <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" title="Task running" />;

@@ -34,7 +34,6 @@ class PtySessionManager {
     // Listen for pty-ready event
     this.readyUnsubscribe = EventsOn('pty-ready', (payload: PtyReadyEvent) => {
       const { session_id, success, error } = payload;
-      console.log('[PtyManager] Received pty-ready event:', { session_id, success, error });
 
       const session = this.sessions.get(session_id);
       if (session) {
@@ -60,13 +59,11 @@ class PtySessionManager {
     let session = this.sessions.get(sessionId);
 
     if (session?.created) {
-      console.log('[PtyManager] PTY session already exists:', sessionId);
       return;
     }
 
     // If already waiting for backend startup, return immediately (non-blocking)
     if (session?.pending) {
-      console.log('[PtyManager] PTY session is already starting:', sessionId);
       return;
     }
 
@@ -83,8 +80,6 @@ class PtySessionManager {
     });
 
     try {
-      console.log('[PtyManager] Creating PTY session asynchronously:', { sessionId, cwd, rows, cols });
-
       // RPC call returns immediately without waiting for shell startup
       await api.createPtySession(
         sessionId,
@@ -93,8 +88,6 @@ class PtySessionManager {
         cols,
         undefined
       );
-
-      console.log('[PtyManager] PTY session create request sent:', sessionId);
     } catch (error) {
       console.error('[PtyManager] Failed to create PTY session:', sessionId, error);
       this.sessions.delete(sessionId);
@@ -152,7 +145,6 @@ class PtySessionManager {
 
     // If PTY is not ready yet, skip resize (backend will use dimensions from creation)
     if (!session.ready) {
-      console.log('[PtyManager] PTY is not ready yet, skipping resize:', sessionId);
       session.rows = rows;
       session.cols = cols;
       return;
@@ -162,7 +154,6 @@ class PtySessionManager {
       await api.resizePty(sessionId, rows, cols);
       session.rows = rows;
       session.cols = cols;
-      console.log('[PtyManager] PTY size adjusted:', { sessionId, rows, cols });
     } catch (error) {
       console.error('[PtyManager] Failed to resize PTY:', sessionId, error);
     }
@@ -179,7 +170,6 @@ class PtySessionManager {
     }
 
     try {
-      console.log('[PtyManager] Closing PTY session:', sessionId);
       await api.closePtySession(sessionId);
       this.sessions.delete(sessionId);
     } catch (error) {
@@ -196,7 +186,6 @@ class PtySessionManager {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.listeners.add(listenerId);
-      console.log('[PtyManager] Registered listener:', { sessionId, listenerId, count: session.listeners.size });
     }
   }
 
@@ -207,7 +196,6 @@ class PtySessionManager {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.listeners.delete(listenerId);
-      console.log('[PtyManager] Unregistered listener:', { sessionId, listenerId, count: session.listeners.size });
     }
   }
 
@@ -229,7 +217,6 @@ class PtySessionManager {
    * Clear all sessions
    */
   async clear(): Promise<void> {
-    console.log('[PtyManager] Clearing all sessions');
     const promises = Array.from(this.sessions.keys()).map(id => this.close(id));
     await Promise.allSettled(promises);
   }
@@ -286,13 +273,10 @@ export function usePtySession(options: UsePtySessionOptions) {
 
   // Unified init flow: set up listeners first, then create PTY session
   useEffect(() => {
-    console.log('[usePtySession] useEffect triggered:', { sessionId, terminalExists: !!terminal, initialized: initializedRef.current });
     if (!terminal || initializedRef.current) return;
 
     const init = async () => {
       try {
-        console.log('[usePtySession] Starting initialization:', sessionId);
-
         // 1. Set up PTY output listener (must be before PTY creation)
         const listenerId = listenerIdRef.current;
         ptySessionManager.registerListener(sessionId, listenerId);
@@ -301,7 +285,6 @@ export function usePtySession(options: UsePtySessionOptions) {
         const readyUnsubscribe = EventsOn('pty-ready', (payload: PtyReadyEvent) => {
           if (payload.session_id === sessionId) {
             if (payload.success) {
-              console.log('[usePtySession] PTY is ready:', sessionId);
               setIsReady(true);
             } else {
               console.error('[usePtySession] PTY failed to start:', payload.error);
@@ -310,8 +293,6 @@ export function usePtySession(options: UsePtySessionOptions) {
           }
         });
         readyUnsubscribeRef.current = readyUnsubscribe;
-
-        console.log('[usePtySession] PTY bulk output listener is set:', { sessionId, listenerId });
 
         // 2. Set up input handler
         const handleData = async (data: string) => {
@@ -330,11 +311,9 @@ export function usePtySession(options: UsePtySessionOptions) {
           ? { rows: terminal.rows, cols: terminal.cols }
           : { rows, cols };
 
-        console.log('[usePtySession] Creating PTY session asynchronously:', { sessionId, dims });
         await ptySessionManager.getOrCreate(sessionId, cwd, dims.rows, dims.cols);
 
         initializedRef.current = true;
-        console.log('[usePtySession] PTY create request sent, waiting for pty-ready event:', sessionId);
       } catch (error) {
         console.error('[usePtySession] Failed to initialize PTY session:', error);
         terminal?.writeln('\x1b[1;31mError: Failed to create PTY session\x1b[0m');
@@ -344,7 +323,6 @@ export function usePtySession(options: UsePtySessionOptions) {
     init();
 
     return () => {
-      console.log('[usePtySession] Cleaning up PTY session:', sessionId);
       unsubscribeRef.current?.();
       unsubscribeRef.current = null;
       readyUnsubscribeRef.current?.();

@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"ropcode/internal/provider"
-
 )
 
 // CodexDir returns the Codex config directory. Honours $CODEX_HOME (set by
@@ -186,8 +184,6 @@ func LoadSessionHistory(codexDir, projectID, sessionID string) ([]provider.Messa
 		return nil, err
 	}
 
-	log.Printf("[Codex History] Converting %d events to messages", len(events))
-
 	messages := make([]provider.Message, 0, len(events))
 	for _, ev := range events {
 		if ev.Message == nil {
@@ -220,7 +216,6 @@ func LoadSessionHistory(codexDir, projectID, sessionID string) ([]provider.Messa
 		messages = append(messages, msg)
 	}
 
-	log.Printf("[Codex History] Loaded %d messages", len(messages))
 	return messages, nil
 }
 
@@ -371,7 +366,6 @@ func ListProjectSessionsLimit(codexDir, projectPath string, limit int) (provider
 	sessionsDir := filepath.Join(codexDir, "sessions")
 
 	if _, err := os.Stat(sessionsDir); os.IsNotExist(err) {
-		log.Printf("[Codex History] Sessions directory does not exist: %s", sessionsDir)
 		return provider.HistorySessionsResult{}, nil
 	}
 
@@ -430,7 +424,6 @@ func ListProjectSessionsLimit(codexDir, projectPath string, limit int) (provider
 		}
 	}
 
-	log.Printf("[Codex History] Found %d sessions for project: %s", len(sessions), projectPath)
 	return provider.HistorySessionsResult{Sessions: sessions, HasMore: hasMore}, nil
 }
 
@@ -573,4 +566,3 @@ func isInjectedCodexUserContext(text string) bool {
 	}
 	return false
 }
-

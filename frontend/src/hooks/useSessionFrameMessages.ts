@@ -14,20 +14,17 @@ export function useSessionFrameMessages(
 
   useEffect(() => {
     if (!streamId) {
-      console.log('[useSessionFrameMessages] No streamId, resetting');
       consumedFrameIdsRef.current.clear();
       subscribedStreamIdRef.current = null;
       return;
     }
 
-    console.log('[useSessionFrameMessages] Subscribing to streamId:', streamId, 'skipInitial:', options.skipInitial);
     if (subscribedStreamIdRef.current !== streamId) {
       consumedFrameIdsRef.current.clear();
       subscribedStreamIdRef.current = streamId;
     }
 
     const frames = getSessionFrames(streamId);
-    console.log('[useSessionFrameMessages] Initial frames count:', frames.length);
     if (options.skipInitial) {
       for (const frame of frames) {
         consumedFrameIdsRef.current.add(frame.frameId);
@@ -38,7 +35,6 @@ export function useSessionFrameMessages(
       const nextFrames = getSessionFrames(streamId);
       const pending = getUnconsumedSessionFrames(nextFrames, consumedFrameIdsRef.current);
       if (pending.length === 0) return;
-      console.log('[useSessionFrameMessages] Consuming', pending.length, 'frames for streamId:', streamId);
       for (const frame of pending) {
         consumedFrameIdsRef.current.add(frame.frameId);
         const payload = legacyPayloadFromFrame(frame);

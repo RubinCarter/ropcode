@@ -39,17 +39,22 @@ export function applySessionRuntimeFrame(frame: SessionFrame): void {
   }
 
   const previous = getSessionRuntime(frame.streamId);
-  const runtime = frame.runtime ?? terminalRuntimeFromFrame(frame) ?? previous.runtime;
+  const nextRuntime = frame.runtime ?? terminalRuntimeFromFrame(frame);
+  const previousRuntimeIsTerminal = isTerminalRuntime(previous.runtime?.phase);
   states.set(frame.streamId, {
     ...previous,
     streamId: frame.streamId,
     lastSeq: Math.max(previous.lastSeq, frame.seq),
     lastFrameId: frame.frameId,
     lastUpdatedAt: Date.now(),
-    runtime,
+    runtime: nextRuntime ?? (frame.seq > previous.lastSeq && previousRuntimeIsTerminal ? undefined : previous.runtime),
     error: frame.error ?? previous.error,
   });
   notify(frame.streamId);
+}
+
+function isTerminalRuntime(phase: string | undefined): boolean {
+  return phase === 'completed' || phase === 'failed' || phase === 'cancelled';
 }
 
 function terminalRuntimeFromFrame(frame: SessionFrame): RuntimeSnapshot | null {

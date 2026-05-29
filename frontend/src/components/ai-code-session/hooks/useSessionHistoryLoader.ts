@@ -96,10 +96,6 @@ export function useSessionHistoryLoader({
       const historyFrames = await loadHistoryFrames(restoredSession.sessionId, restoredSession.projectId, provider, 'restored');
 
       if (sessionState.projectPathRef.current !== targetProjectPath) {
-        console.log('[AiCodeSession] ProjectPath changed during history load, discarding results:', {
-          target: targetProjectPath,
-          current: sessionState.projectPathRef.current,
-        });
         loadedSessionIdRef.current = null;
         return;
       }

@@ -23,7 +23,6 @@ export function useElementSelectionPrompt({
       const { element, message, workspaceId } = event.detail;
 
       if (workspaceId !== projectPath) {
-        console.log('[AiCodeSession] Ignoring element selection for different workspace');
         return;
       }
 
@@ -46,7 +45,6 @@ ${message ? `**Description**:\n${message}` : ''}`;
       }
 
       inputRef.current.setText(formattedMessage);
-      console.log('[AiCodeSession] Element selection set as prompt');
 
       setTimeout(() => {
         void (async () => {
@@ -61,7 +59,6 @@ ${message ? `**Description**:\n${message}` : ''}`;
             config.providerApiId,
             config.thinkingMode
           );
-          console.log('[AiCodeSession] Auto-submitting element selection with config:', config);
 
           if (consumed) {
             inputRef.current.setText('');
