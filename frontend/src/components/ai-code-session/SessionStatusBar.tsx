@@ -55,23 +55,60 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
   const { t } = useTranslation();
   const Icon = glyphIcon[model.glyph];
 
-  // Translate known static primary labels produced by sessionStatusBarPresentation.ts
+  // Translate known static primary labels produced by runtimeState.ts / sessionStatusBarPresentation.ts
   const translatePrimary = (label: string): string => {
     const map: Record<string, string> = {
       'Ready': t('prompt.statusReady'),
+      'Idle': t('prompt.statusIdle'),
       'Stopping…': t('prompt.statusStopping'),
       'Cancelled': t('prompt.statusCancelled'),
+      'Reconnecting': t('prompt.statusReconnecting'),
       'Reconnecting…': t('prompt.statusReconnecting'),
+      'Recovering session': t('prompt.statusRecovering'),
       'Recovering session…': t('prompt.statusRecovering'),
+      'Restoring session': t('prompt.statusRestoring'),
       'Rate limit wait': t('prompt.statusRateLimit'),
+      'Retrying': t('prompt.statusRetrying'),
       'Retrying request…': t('prompt.statusRetrying'),
       'Running subagents…': t('prompt.statusRunningSubagents'),
+      'Compacting context': t('prompt.statusCompacting'),
       'Compacting context…': t('prompt.statusCompacting'),
+      'Thinking': t('prompt.statusThinking'),
       'Thinking…': t('prompt.statusThinking'),
+      'Initializing': t('prompt.statusInitializing'),
+      'Waiting': t('prompt.statusWaiting'),
       'Failed': t('prompt.statusFailed'),
       'Completed': t('prompt.statusCompleted'),
     };
-    return map[label] ?? label;
+    if (map[label]) return map[label];
+    // Handle interpolated labels from runtimeState.ts
+    if (label.startsWith('Executing ')) {
+      return t('prompt.statusExecuting', { tool: label.slice('Executing '.length) });
+    }
+    if (label.startsWith('Starting ') && label.endsWith('…')) {
+      return t('prompt.statusStarting', { provider: label.slice('Starting '.length, -1) });
+    }
+    if (label.startsWith('Waiting for ') && label.endsWith('…')) {
+      return t('prompt.statusWaitingFor', { provider: label.slice('Waiting for '.length, -1) });
+    }
+    return label;
+  };
+
+  // Translate known detail/secondary strings produced by runtimeState.ts
+  const translateDetail = (detail: string): string => {
+    if (detail === 'Waiting for WebSocket reconnection') return t('prompt.detailWsReconnect');
+    if (detail === 'Summarizing previous conversation') return t('prompt.detailCompacting');
+    if (detail === 'Loading saved conversation state') return t('prompt.detailRestoring');
+    if (detail === 'Recovering messages after reconnect') return t('prompt.detailRecovering');
+    if (detail === 'Initialization is slow') return t('prompt.detailInitSlow');
+    if (detail === 'Waiting for Claude session ready') return t('prompt.detailWaitingReady');
+    if (detail === 'Waiting for model output') return t('prompt.detailWaitingModel');
+    if (detail === 'Waiting for Claude after tool result') return t('prompt.detailWaitingAfterTool');
+    if (detail === 'Waiting for model output, possibly stuck') return t('prompt.detailPossiblyStuck');
+    if (detail.startsWith('Possible stuck in ')) {
+      return t('prompt.detailStuckInTool', { tool: detail.slice('Possible stuck in '.length) });
+    }
+    return detail;
   };
 
   // Translate known hint labels
@@ -131,7 +168,7 @@ export const SessionStatusBar: React.FC<SessionStatusBarProps> = ({
                 ))}
               </div>
               {model.secondary && (
-                <div className="mt-0.5 truncate text-xs text-muted-foreground">{model.secondary}</div>
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">{translateDetail(model.secondary)}</div>
               )}
             </div>
           </div>

@@ -207,11 +207,11 @@ function getPrimaryState({
   }
 
   if (runtime.phase === 'initializing') {
-    return { primary: `Starting ${providerLabel}…`, secondary: runtimeCopy.secondary, glyph: 'reconnect', tone: 'info' };
+    return { primary: i18n.t('prompt.statusStarting', { provider: providerLabel }), secondary: runtimeCopy.secondary, glyph: 'reconnect', tone: 'info' };
   }
 
   if (runtime.phase === 'waiting') {
-    return { primary: `Waiting for ${providerLabel}…`, secondary: runtimeCopy.secondary, glyph: 'idle', tone: runtime.isStuckLikely ? 'warning' : 'neutral' };
+    return { primary: i18n.t('prompt.statusWaitingFor', { provider: providerLabel }), secondary: runtimeCopy.secondary, glyph: 'idle', tone: runtime.isStuckLikely ? 'warning' : 'neutral' };
   }
 
   if (runtime.phase === 'failed') {
