@@ -603,7 +603,13 @@
     "agentTokens": "{{count}} 代理 token",
     "referenceDetails": "参考详情",
     "skillDetails": "技能详情",
-    "message": "消息"
+    "message": "消息",
+    "executionComplete": "执行完成",
+    "executionFailed": "执行失败",
+    "eventDetails": "事件详情",
+    "webSearch": "网页搜索",
+    "searchNoResults": "无结果",
+    "searchResults": "{{count}} 条结果"
   },
   "capability": {
     "title": "Claude 能力",

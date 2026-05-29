@@ -603,7 +603,13 @@
     "agentTokens": "{{count}} agent tokens",
     "referenceDetails": "Reference details",
     "skillDetails": "Skill details",
-    "message": "Message"
+    "message": "Message",
+    "executionComplete": "Execution Complete",
+    "executionFailed": "Execution Failed",
+    "eventDetails": "Event details",
+    "webSearch": "Web Search",
+    "searchNoResults": "No results",
+    "searchResults": "{{count}} results"
   },
   "capability": {
     "title": "Claude Capabilities",

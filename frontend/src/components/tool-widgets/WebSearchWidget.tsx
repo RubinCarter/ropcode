@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import i18n from '@/lib/i18n';
 import { 
   CheckCircle2, 
   Circle, 
@@ -296,7 +297,7 @@ export const WebSearchWidget: React.FC<{
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Globe className="h-4 w-4 text-blue-500/70 flex-shrink-0" />
           <span className="text-xs font-medium uppercase tracking-wider text-blue-600/70 dark:text-blue-400/70 flex-shrink-0">
-            Web Search
+            {i18n.t('stream.webSearch')}
           </span>
           <span className="text-sm text-muted-foreground/80 truncate">{query}</span>
         </div>
@@ -308,9 +309,9 @@ export const WebSearchWidget: React.FC<{
               <div className="h-1 w-1 bg-blue-500 rounded-full"></div>
             </div>
           ) : searchResults.noResults ? (
-            <span className="text-xs text-muted-foreground">No results</span>
+            <span className="text-xs text-muted-foreground">{i18n.t('stream.searchNoResults')}</span>
           ) : totalLinks > 0 ? (
-            <span className="text-xs text-muted-foreground">{totalLinks} results</span>
+            <span className="text-xs text-muted-foreground">{i18n.t('stream.searchResults', { count: totalLinks })}</span>
           ) : null}
           {!isLoading && (
             <ChevronRight className={cn(

@@ -1,4 +1,6 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
+import i18n from '@/lib/i18n';
 import { AlertCircle, CheckCircle2, ChevronDown, Terminal } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -79,6 +81,7 @@ export const ErrorMessageCard: React.FC<ErrorMessageCardProps> = ({ message, cla
 };
 
 export const ResultMessageCard: React.FC<ResultMessageCardProps> = ({ message, runtimeSummary, syntaxTheme, className, expansion }) => {
+  const { t } = useTranslation();
   const isError = message.is_error || message.subtype?.includes("error");
   const expanded = Boolean(expansion.expanded);
 
@@ -102,7 +105,7 @@ export const ResultMessageCard: React.FC<ResultMessageCardProps> = ({ message, r
           )}
           <div className="flex-1">
             <h4 className="font-semibold text-sm">
-              {isError ? "Execution Failed" : "Execution Complete"}
+              {isError ? t('stream.executionFailed') : t('stream.executionComplete')}
             </h4>
           </div>
           <ChevronDown className={cn(
@@ -154,7 +157,7 @@ export const RuntimeEventCard: React.FC<RuntimeEventCardProps> = ({ runtimeSumma
             <span className="text-sm font-medium">{runtimeSummary}</span>
             <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{eventLabel}</span>
           </div>
-          <CollapsibleTextCard title="Event details" preview="Click to expand event JSON" {...expansion}>
+          <CollapsibleTextCard title={i18n.t('stream.eventDetails')} preview="Click to expand event JSON" {...expansion}>
             <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md bg-background p-3 text-xs text-muted-foreground">
               {eventDetails}
             </pre>
