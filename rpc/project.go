@@ -12,6 +12,7 @@ import (
 	"ropcode/internal/database"
 	"ropcode/internal/eventhub"
 	"ropcode/internal/git"
+	providerPi "ropcode/internal/provider/pi"
 
 	"github.com/google/uuid"
 )
@@ -265,7 +266,7 @@ func ProjectHandlers(d *Deps) map[string]Handler {
 			if d.DB == nil {
 				return nil, nil
 			}
-			return d.DB.GetProviderApiConfig(argString(p, 0))
+			return getProviderAPIConfigByID(d, argString(p, 0))
 		},
 		"GetAllProviderApiConfigs": func(p json.RawMessage) (any, error) {
 			if d.DB == nil {
@@ -278,7 +279,7 @@ func ProjectHandlers(d *Deps) map[string]Handler {
 			if configs == nil {
 				return []*database.ProviderApiConfig{}, nil
 			}
-			return configs, nil
+			return withPiLocalProviderAPIConfigs(configs), nil
 		},
 		"DeleteProviderApiConfig": func(p json.RawMessage) (any, error) {
 			if d.DB == nil {
@@ -543,14 +544,64 @@ func getProjectProviderApiConfig(d *Deps, projectPath, providerName string) (*da
 	name := filepath.Base(projectPath)
 	project, err := d.DB.GetProjectIndex(name)
 	if err != nil {
-		return d.DB.GetDefaultProviderApiConfig(providerName)
+		return getDefaultProviderAPIConfig(d, providerName)
 	}
 	for _, provider := range project.Providers {
 		if provider.ProviderID == providerName && provider.ProviderApiID != "" {
-			return d.DB.GetProviderApiConfig(provider.ProviderApiID)
+			return getProviderAPIConfigByID(d, provider.ProviderApiID)
 		}
 	}
-	return d.DB.GetDefaultProviderApiConfig(providerName)
+	return getDefaultProviderAPIConfig(d, providerName)
+}
+
+func getProviderAPIConfigByID(d *Deps, id string) (*database.ProviderApiConfig, error) {
+	if d.DB != nil {
+		if cfg, err := d.DB.GetProviderApiConfig(id); err == nil && cfg != nil {
+			return cfg, nil
+		}
+	}
+	if strings.HasPrefix(id, providerPi.LocalProviderAPIConfigID("")) {
+		if cfg, err := providerPi.LocalProviderAPIConfig(id); err == nil && cfg != nil {
+			return cfg, nil
+		}
+	}
+	return nil, fmt.Errorf("provider api config not found: %s", id)
+}
+
+func getDefaultProviderAPIConfig(d *Deps, providerName string) (*database.ProviderApiConfig, error) {
+	if d.DB != nil {
+		if cfg, err := d.DB.GetDefaultProviderApiConfig(providerName); err == nil && cfg != nil {
+			return cfg, nil
+		}
+	}
+	if providerName == "pi" {
+		if cfg, err := providerPi.LocalDefaultProviderAPIConfig(); err == nil && cfg != nil {
+			return cfg, nil
+		}
+	}
+	return nil, nil
+}
+
+func withPiLocalProviderAPIConfigs(configs []*database.ProviderApiConfig) []*database.ProviderApiConfig {
+	localConfigs, err := providerPi.LocalProviderAPIConfigs()
+	if err != nil || len(localConfigs) == 0 {
+		return configs
+	}
+	seen := make(map[string]bool, len(configs)+len(localConfigs))
+	out := make([]*database.ProviderApiConfig, 0, len(configs)+len(localConfigs))
+	for _, cfg := range configs {
+		if cfg == nil {
+			continue
+		}
+		seen[cfg.ID] = true
+		out = append(out, cfg)
+	}
+	for _, cfg := range localConfigs {
+		if cfg != nil && !seen[cfg.ID] {
+			out = append(out, cfg)
+		}
+	}
+	return out
 }
 
 func setProjectProviderApiConfig(d *Deps, projectPath, providerName, configId string, emit projectChangedFn) error {

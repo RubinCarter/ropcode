@@ -300,6 +300,40 @@ func TestClaudeAdapterMarksRawResultEventAsResultFrame(t *testing.T) {
 	}
 }
 
+func TestProviderAdapterPreservesResultErrorMessage(t *testing.T) {
+	frame, err := AdaptUnifiedOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "assistant",
+		Subtype:   "result",
+		SessionID: "runtime-1",
+		Provider:  "pi",
+		Message: map[string]any{
+			"type":    "result",
+			"subtype": "error",
+			"error":   "Request timed out.",
+			"message": "Request timed out.",
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if frame.Kind != FrameKindResult {
+		t.Fatalf("result error should be a result frame, got %q", frame.Kind)
+	}
+	if frame.Success == nil || *frame.Success {
+		t.Fatalf("result error should be unsuccessful: %#v", frame.Success)
+	}
+	if !frame.IsError {
+		t.Fatal("result error should set IsError")
+	}
+	if frame.Error != "Request timed out." {
+		t.Fatalf("result error message = %q", frame.Error)
+	}
+	if len(frame.Content) != 1 || frame.Content[0].Text != "Request timed out." {
+		t.Fatalf("result error content = %#v", frame.Content)
+	}
+}
+
 func TestClaudeAdapterHandlesRealSubagentFixture(t *testing.T) {
 	path := filepath.Join("..", "..", "frontend", "src", "lib", "__fixtures__", "claude-real-subagent-stream.jsonl")
 	data, err := os.ReadFile(path)

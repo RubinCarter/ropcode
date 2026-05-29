@@ -98,6 +98,18 @@ func BuiltinModels() []*database.ModelConfig {
 			ThinkingLevels: codexThinkingLevels(),
 		},
 
+		// Pi models - use native Pi provider/model routing and thinking levels
+		{
+			ModelID:        "anthropic/claude-sonnet-4-20250514",
+			ProviderID:     "pi",
+			DisplayName:    "Pi Claude Sonnet",
+			Description:    "Pi coding agent default model pattern",
+			IsBuiltin:      true,
+			IsEnabled:      true,
+			IsDefault:      true,
+			ThinkingLevels: piThinkingLevels(),
+		},
+
 		// Gemini models - use Claude-style prompt engineering for thinking depth
 		{
 			ModelID:     "gemini-3-pro",

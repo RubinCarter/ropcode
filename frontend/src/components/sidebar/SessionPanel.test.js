@@ -24,6 +24,8 @@ test('SessionPanel preserves open, new session, and title-regeneration semantics
   assert.match(source, /useSpaceSessions/);
   assert.match(source, /DeepSeekIcon/);
   assert.match(source, /provider === 'deepseek'\) return DeepSeekIcon/);
+  assert.match(source, /PiIcon/);
+  assert.match(source, /provider === 'pi'\) return PiIcon/);
   assert.match(source, /__ROPCODE_PENDING_PROVIDER_SESSION__/);
   assert.match(source, /new CustomEvent\('open-provider-session'/);
   assert.match(source, /__ROPCODE_PENDING_NEW_SESSION__/);

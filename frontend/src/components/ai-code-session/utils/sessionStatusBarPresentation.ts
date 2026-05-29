@@ -264,6 +264,7 @@ function formatProviderLabel(provider: string): string {
   if (normalized === 'codex') return 'Codex';
   if (normalized === 'deepseek') return 'DeepSeek';
   if (normalized === 'gemini') return 'Gemini';
+  if (normalized === 'pi') return 'Pi';
   return provider.trim() || 'model';
 }
 

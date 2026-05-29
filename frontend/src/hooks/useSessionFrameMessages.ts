@@ -61,6 +61,9 @@ export function legacyPayloadFromFrame(frame: SessionFrame): string | null {
     return null;
   }
   const raw = frame.meta?.raw as Record<string, unknown> | undefined;
+  if (isHiddenByDefault(raw)) {
+    return null;
+  }
   if (typeof raw?.raw === 'string') {
     return raw.raw;
   }
@@ -88,6 +91,15 @@ function withFrameRuntimeIdentity(frame: SessionFrame, payload: Record<string, u
 }
 
 function withFrameSemantics(frame: SessionFrame, payload: Record<string, unknown>): Record<string, unknown> {
+  if (frame.kind === 'result' && (payload.type === 'result' || frame.isError || frame.error)) {
+    return {
+      ...payload,
+      type: 'result',
+      subtype: payload.subtype ?? (frame.isError ? 'error' : 'success'),
+      is_error: payload.is_error ?? frame.isError,
+      error: payload.error ?? frame.error,
+    };
+  }
   if (frame.kind !== 'delta') {
     return payload;
   }
@@ -101,6 +113,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isHiddenByDefault(payload: Record<string, unknown> | undefined): boolean {
+  if (!payload) {
+    return false;
+  }
+  if (payload.hidden_by_default === true) {
+    return true;
+  }
+  const debugMeta = isRecord(payload.debug_meta) ? payload.debug_meta : undefined;
+  return debugMeta?.hidden_by_default === true;
+}
+
 function sessionFrameToLegacyMessage(frame: SessionFrame): Record<string, unknown> {
   return {
     type: frame.kind === 'init' ? 'system' : frame.role || 'assistant',
@@ -110,6 +133,7 @@ function sessionFrameToLegacyMessage(frame: SessionFrame): Record<string, unknow
     provider: frame.provider,
     timestamp: frame.timestamp,
     result: frame.result,
+    error: frame.error,
     is_error: frame.isError,
     message: frame.content.length > 0 ? { content: frame.content.map(legacyContentBlock) } : undefined,
     usage: frame.usage,

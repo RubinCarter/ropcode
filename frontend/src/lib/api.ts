@@ -199,6 +199,7 @@ const api = new Proxy({ ...rpcMethods }, {
       listRunningAgentSessions: 'ListRunningAgentRuns',
       // Session
       resumeProviderSession: 'ResumeProviderSession',
+      sendProviderSessionMessage: 'SendProviderSessionMessage',
       startProviderSession: 'StartProviderSession',
       cancelClaudeExecutionByProject: 'CancelClaudeExecutionByProject',
       startInteractiveClaudeSession: 'StartInteractiveClaudeSession',

@@ -9,8 +9,8 @@ const repoRoot = path.resolve(automationRoot, '..');
 const artifactsDir = path.join(automationRoot, 'artifacts');
 const headed = process.argv.includes('--headed');
 const skipBuild = process.argv.includes('--skip-build');
-const grepIndex = process.argv.indexOf('--grep');
-const grep = grepIndex >= 0 ? process.argv[grepIndex + 1] : '';
+const scriptArgs = process.argv.slice(2);
+const grep = parseGrepArg(scriptArgs);
 
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const npxCmd = process.platform === 'win32' ? 'npx.cmd' : 'npx';
@@ -20,12 +20,14 @@ const serverExe = process.platform === 'win32'
 const cliExe = process.platform === 'win32'
   ? path.join(repoRoot, 'bin', 'win32', 'x64', 'ropcode.exe')
   : path.join(repoRoot, 'bin', 'ropcode');
+const e2eHome = path.join(artifactsDir, 'home');
 
 const children = new Set();
 const ansiPattern = /\x1b\[[0-9;]*m/g;
 
 async function main() {
   await mkdir(artifactsDir, { recursive: true });
+  await mkdir(e2eHome, { recursive: true });
 
   if (!skipBuild) {
     await run('go', ['build', '-tags', 'server', '-o', serverExe, '.'], { cwd: repoRoot, label: 'build-server' });
@@ -57,6 +59,17 @@ async function main() {
     await stopChild(server.child);
     await stopChild(vite.child);
   }
+}
+
+function parseGrepArg(args) {
+  const grepIndex = args.indexOf('--grep');
+  if (grepIndex >= 0) {
+    return args[grepIndex + 1] || '';
+  }
+
+  return args
+    .filter((arg) => arg !== '--headed' && arg !== '--skip-build')
+    .join(' ');
 }
 
 function spawnLogged(command, args, options) {
@@ -127,10 +140,14 @@ async function startVite() {
 
 async function startServer(viteUrl, authKey) {
   const logPath = path.join(artifactsDir, 'ropcode-server.log');
+  const homeEnv = process.platform === 'win32'
+    ? { USERPROFILE: e2eHome, HOME: e2eHome }
+    : { HOME: e2eHome, XDG_CONFIG_HOME: path.join(e2eHome, '.config') };
   const child = spawnLogged(serverExe, [], {
     cwd: repoRoot,
     env: {
       ...process.env,
+      ...homeEnv,
       ROPCODE_AUTH_KEY: authKey,
       ROPCODE_MODE: 'websocket',
       ROPCODE_VITE_URL: viteUrl,

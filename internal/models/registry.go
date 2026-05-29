@@ -203,6 +203,8 @@ func defaultThinkingLevelsForProvider(providerID, modelID string) []database.Thi
 	switch providerID {
 	case "codex":
 		return codexThinkingLevels()
+	case "pi":
+		return piThinkingLevels()
 	case "claude":
 		// haiku-class models on Claude don't support extended thinking; mirror
 		// the builtin haiku entry which has no thinking levels.
@@ -230,6 +232,17 @@ func claudePromptThinkingLevels() []database.ThinkingLevel {
 func codexThinkingLevels() []database.ThinkingLevel {
 	return []database.ThinkingLevel{
 		{ID: "none", Name: "None", Budget: "none", IsDefault: false},
+		{ID: "minimal", Name: "Minimal", Budget: "minimal", IsDefault: false},
+		{ID: "low", Name: "Low", Budget: "low", IsDefault: false},
+		{ID: "medium", Name: "Medium", Budget: "medium", IsDefault: true},
+		{ID: "high", Name: "High", Budget: "high", IsDefault: false},
+		{ID: "xhigh", Name: "Extra High", Budget: "xhigh", IsDefault: false},
+	}
+}
+
+func piThinkingLevels() []database.ThinkingLevel {
+	return []database.ThinkingLevel{
+		{ID: "off", Name: "Off", Budget: "off", IsDefault: false},
 		{ID: "minimal", Name: "Minimal", Budget: "minimal", IsDefault: false},
 		{ID: "low", Name: "Low", Budget: "low", IsDefault: false},
 		{ID: "medium", Name: "Medium", Budget: "medium", IsDefault: true},
@@ -370,7 +383,7 @@ func shouldHideBuiltin(builtin *database.ModelConfig, hasUserModels map[string]b
 // getDefaultModelChoices returns a map of provider_id -> default model_id from settings
 func (r *Registry) getDefaultModelChoices() map[string]string {
 	defaults := make(map[string]string)
-	providers := []string{"claude", "codex", "gemini"}
+	providers := []string{"claude", "codex", "gemini", "pi"}
 	for _, p := range providers {
 		if val, err := r.db.GetSetting(defaultModelSettingKey(p)); err == nil && val != "" {
 			defaults[p] = val

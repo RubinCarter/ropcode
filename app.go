@@ -26,6 +26,7 @@ import (
 	providerCodex "ropcode/internal/provider/codex"
 	providerDeepseek "ropcode/internal/provider/deepseek"
 	providerGemini "ropcode/internal/provider/gemini"
+	providerPi "ropcode/internal/provider/pi"
 	"ropcode/internal/pty"
 	appRuntime "ropcode/internal/runtime"
 	"ropcode/internal/ssh"
@@ -90,6 +91,7 @@ func (a *App) startup(ctx context.Context) {
 		if err := a.modelRegistry.Initialize(); err != nil {
 			log.Printf("Failed to initialize model registry: %v", err)
 		}
+		a.SyncPiModelsFromLocalConfig()
 
 		a.loadGeneratedSessionTitles()
 	}
@@ -124,6 +126,7 @@ func (a *App) startup(ctx context.Context) {
 	a.providerManager.RegisterDriver(&providerCodex.Driver{})
 	a.providerManager.RegisterDriver(&providerGemini.Driver{})
 	a.providerManager.RegisterDriver(&providerDeepseek.Driver{})
+	a.providerManager.RegisterDriver(&providerPi.Driver{})
 
 	// Initialize project chat manager
 	a.projectChatManager = projectchat.NewManager(a.dbManager, a.providerManager, a.eventHub, a.sessionStreamHub)

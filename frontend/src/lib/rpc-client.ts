@@ -862,6 +862,15 @@ export function ResumeProviderSession(
   return wsClient.call('ResumeProviderSession', provider, projectPath, prompt, model, sessionId, providerApiId || '', reasoningEffort || '');
 }
 
+export function SendProviderSessionMessage(
+  provider: string,
+  projectPath: string,
+  sessionId: string,
+  prompt: string
+): Promise<string> {
+  return wsClient.call('SendProviderSessionMessage', provider, projectPath, sessionId, prompt);
+}
+
 export function ListProviderSessions(projectPath: string, providerName: string): Promise<main.ProviderSession[]> {
   return wsClient.call('ListProviderSessions', projectPath, providerName);
 }

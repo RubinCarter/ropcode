@@ -12,6 +12,7 @@ import (
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/database"
 	"ropcode/internal/provider"
+	providerPi "ropcode/internal/provider/pi"
 	"ropcode/internal/stream"
 )
 
@@ -114,7 +115,14 @@ func SessionHandlers(d *Deps) map[string]Handler {
 			if d.Provider == nil {
 				return "", fmt.Errorf("provider manager not initialized")
 			}
+			providerName := argString(p, 0)
+			projectPath := argString(p, 1)
 			sessionID := argString(p, 2)
+			if providerName == "pi" {
+				if resolved := d.Provider.ResolveRunningSessionID("pi", projectPath, sessionID); resolved != "" {
+					sessionID = resolved
+				}
+			}
 			if err := d.Provider.SendMessage(sessionID, argString(p, 3)); err != nil {
 				return "", err
 			}
@@ -166,6 +174,9 @@ func SessionHandlers(d *Deps) map[string]Handler {
 					}
 					return nil, nil
 				}
+			}
+			if sessionID := d.Provider.GetRunningSessionForProject("pi", projectPath); sessionID != "" {
+				return nil, d.Provider.InterruptSession(sessionID)
 			}
 			return nil, nil
 		},
@@ -230,7 +241,7 @@ func SessionHandlers(d *Deps) map[string]Handler {
 			projectPath := argString(p, 0)
 			providerOrSessionID := argString(p, 1)
 			switch providerOrSessionID {
-			case "gemini", "codex", "deepseek":
+			case "gemini", "codex", "deepseek", "pi":
 				return d.Provider.IsRunningForProject(providerOrSessionID, projectPath), nil
 			default:
 				if d.Provider.IsRunning(providerOrSessionID) {
@@ -358,18 +369,30 @@ func buildUnifiedConfig(d *Deps, providerID, projectPath, prompt, model, provide
 		}
 		config.Extra["reasoning_effort"] = reasoningEffort
 	}
+	if providerID == "pi" {
+		config.Interactive = true
+		if reasoningEffort != "" {
+			if config.Extra == nil {
+				config.Extra = make(map[string]string)
+			}
+			config.Extra["thinking_level"] = reasoningEffort
+		}
+	}
 	if providerApiID != "" && d.DB != nil {
 		apiConfig, err := d.DB.GetProviderApiConfig(providerApiID)
 		if err == nil && apiConfig != nil {
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
 		}
-	} else if providerID == "deepseek" && d.DB != nil {
-		if apiConfig, _ := resolveRuntimeAPIConfig(d, "deepseek", providerApiID); apiConfig != nil {
+	} else if (providerID == "deepseek" || providerID == "pi") && d.DB != nil {
+		if apiConfig, _ := resolveRuntimeAPIConfig(d, providerID, providerApiID); apiConfig != nil {
 			config.ProviderApiID = apiConfig.ID
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
 		}
+	}
+	if providerID == "pi" {
+		providerPi.ApplyLocalDefaults(&config)
 	}
 	return config
 }
@@ -379,10 +402,21 @@ func resolveRuntimeAPIConfig(d *Deps, providerID, providerApiID string) (*databa
 		return nil, nil
 	}
 	if strings.TrimSpace(providerApiID) != "" {
-		return d.DB.GetProviderApiConfig(providerApiID)
+		if cfg, err := d.DB.GetProviderApiConfig(providerApiID); err == nil && cfg != nil {
+			return cfg, nil
+		}
+		if providerID == "pi" {
+			return providerPi.LocalProviderAPIConfig(providerApiID)
+		}
+		return nil, nil
 	}
 	if cfg, err := d.DB.GetDefaultProviderApiConfig(providerID); err == nil && cfg != nil {
 		return cfg, nil
+	}
+	if providerID == "pi" {
+		if cfg, err := providerPi.LocalDefaultProviderAPIConfig(); err == nil && cfg != nil {
+			return cfg, nil
+		}
 	}
 	all, err := d.DB.GetAllProviderApiConfigs()
 	if err != nil {
@@ -486,11 +520,11 @@ func switchSessionProviderApi(d *Deps, sessionID, providerApiID string) error {
 
 func formatCapabilityLayers(layers claude.CapabilityLayers) map[string]any {
 	return map[string]any{
-		"system":      layers.System,
-		"user_only":   layers.UserOnly,
+		"system":       layers.System,
+		"user_only":    layers.UserOnly,
 		"project_only": layers.ProjectOnly,
-		"all_visible": layers.AllVisible,
-		"fetched_at":  time.Now().UTC(),
+		"all_visible":  layers.AllVisible,
+		"fetched_at":   time.Now().UTC(),
 	}
 }
 

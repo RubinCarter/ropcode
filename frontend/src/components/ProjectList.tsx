@@ -17,6 +17,7 @@ import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
 import { DeepSeekIcon } from "./icons/DeepSeekIcon";
+import { PiIcon } from "./icons/PiIcon";
 
 interface ProjectListProps {
   /**
@@ -128,6 +129,7 @@ const getProviderLabel = (provider: string): string => {
   if (provider === 'codex') return 'Codex';
   if (provider === 'gemini') return 'Gemini';
   if (provider === 'deepseek') return 'DeepSeek';
+  if (provider === 'pi') return 'Pi';
   return provider;
 };
 
@@ -136,6 +138,7 @@ const getProviderIcon = (provider: string) => {
   if (provider === 'codex') return OpenAIIcon;
   if (provider === 'gemini') return GeminiIcon;
   if (provider === 'deepseek') return DeepSeekIcon;
+  if (provider === 'pi') return PiIcon;
   return MessageSquare;
 };
 
@@ -371,7 +374,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         project.workspaces.forEach(ws => {
           // Find any AI provider (claude, codex, etc.)
           const aiProvider = ws.providers?.find(p =>
-            p.provider_id === 'claude' || p.provider_id === 'codex' || p.provider_id === 'gemini'
+            p.provider_id === 'claude' || p.provider_id === 'codex' || p.provider_id === 'gemini' || p.provider_id === 'pi'
           );
           if (aiProvider) {
             paths.push(aiProvider.path);

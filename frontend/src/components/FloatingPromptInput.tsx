@@ -34,6 +34,7 @@ import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
 import { GeminiIcon } from "./icons/GeminiIcon";
 import { DeepSeekIcon } from "./icons/DeepSeekIcon";
+import { PiIcon } from "./icons/PiIcon";
 import { EventsOn } from "@/lib/rpc-events";
 import { AttachmentButton } from './attachment';
 import { uploadAttachment, UploadError } from '../utils/uploadAttachment';
@@ -160,7 +161,8 @@ export interface FloatingPromptInputRef {
 type ClaudeThinkingMode = "auto" | "think" | "think_hard" | "think_harder" | "ultrathink";
 type CodexThinkingMode = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 type DeepSeekThinkingMode = "auto";
-export type ThinkingMode = ClaudeThinkingMode | CodexThinkingMode | DeepSeekThinkingMode;
+type PiThinkingMode = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ThinkingMode = ClaudeThinkingMode | CodexThinkingMode | DeepSeekThinkingMode | PiThinkingMode;
 
 /**
  * Thinking mode configuration
@@ -294,6 +296,69 @@ const CODEX_THINKING_MODES: ThinkingModeConfig[] = [
   }
 ];
 
+const PI_THINKING_MODES: ThinkingModeConfig[] = [
+  {
+    id: "off",
+    name: "Off",
+    description: "No Pi thinking",
+    level: 0,
+    value: "off",
+    icon: <Sparkles className="h-3.5 w-3.5" />,
+    color: "text-muted-foreground",
+    shortName: "Off"
+  },
+  {
+    id: "minimal",
+    name: "Minimal",
+    description: "Minimal Pi thinking",
+    level: 1,
+    value: "minimal",
+    icon: <Lightbulb className="h-3.5 w-3.5" />,
+    color: "text-muted-foreground",
+    shortName: "Min"
+  },
+  {
+    id: "low",
+    name: "Low",
+    description: "Light Pi thinking",
+    level: 1,
+    value: "low",
+    icon: <Lightbulb className="h-3.5 w-3.5" />,
+    color: "text-green-500",
+    shortName: "L"
+  },
+  {
+    id: "medium",
+    name: "Medium",
+    description: "Balanced Pi thinking",
+    level: 2,
+    value: "medium",
+    icon: <Cpu className="h-3.5 w-3.5" />,
+    color: "text-muted-foreground",
+    shortName: "M"
+  },
+  {
+    id: "high",
+    name: "High",
+    description: "Greater Pi thinking depth",
+    level: 3,
+    value: "high",
+    icon: <Brain className="h-3.5 w-3.5" />,
+    color: "text-blue-500",
+    shortName: "H"
+  },
+  {
+    id: "xhigh",
+    name: "Extra high",
+    description: "Extra high Pi thinking depth",
+    level: 4,
+    value: "xhigh",
+    icon: <Rocket className="h-3.5 w-3.5" />,
+    color: "text-primary",
+    shortName: "XH"
+  }
+];
+
 // Model-specific thinking modes (takes precedence over provider-level)
 const MODEL_THINKING_MODES: Record<string, ThinkingModeConfig[]> = {};
 
@@ -303,6 +368,7 @@ const PROVIDER_THINKING_MODES: Record<string, ThinkingModeConfig[]> = {
   codex: CODEX_THINKING_MODES,
   gemini: CLAUDE_THINKING_MODES, // Gemini uses Claude-style thinking modes (prompt engineering)
   deepseek: [CLAUDE_THINKING_MODES[0]],
+  pi: PI_THINKING_MODES,
 };
 
 /**
@@ -451,12 +517,25 @@ const DEEPSEEK_MODELS: Model[] = [
   }
 ];
 
+const PI_MODELS: Model[] = [
+  {
+    id: "anthropic/claude-sonnet-4-20250514",
+    name: "Pi Claude Sonnet",
+    description: "Pi default coding agent model pattern",
+    icon: <PiIcon className="h-3.5 w-3.5" />,
+    shortName: "Pi",
+    color: "text-primary",
+    provider: "pi"
+  }
+];
+
 // Map of provider ID to their models
 const PROVIDER_MODELS: Record<string, Model[]> = {
   claude: CLAUDE_MODELS,
   codex: CODEX_MODELS,
   gemini: GEMINI_MODELS,
   deepseek: DEEPSEEK_MODELS,
+  pi: PI_MODELS,
 };
 
 type Provider = {
@@ -500,6 +579,14 @@ const PROVIDERS: Provider[] = [
     icon: <DeepSeekIcon className="h-3.5 w-3.5" />,
     shortName: "D",
     color: "text-cyan-500"
+  },
+  {
+    id: "pi",
+    name: "Pi",
+    description: "Pi coding agent RPC",
+    icon: <PiIcon className="h-3.5 w-3.5" />,
+    shortName: "Pi",
+    color: "text-primary"
   }
 ];
 
@@ -537,7 +624,7 @@ const FloatingPromptInputInner = (
   const [selectedModel, setSelectedModel] = useState<string>(defaultModel);
   const [selectedProvider, setSelectedProvider] = useState<string>(defaultProvider);
   const [selectedThinkingMode, setSelectedThinkingMode] = useState<ThinkingMode>(
-    defaultProvider === 'codex' ? 'medium' : 'auto' // Gemini defaults to 'auto' like Claude
+    defaultProvider === 'codex' || defaultProvider === 'pi' ? 'medium' : 'auto' // Gemini defaults to 'auto' like Claude
   );
   const [selectedProviderApiId, setSelectedProviderApiId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -604,6 +691,8 @@ const FloatingPromptInputInner = (
         return <GeminiIcon className="h-3.5 w-3.5" />;
       case 'deepseek':
         return <DeepSeekIcon className="h-3.5 w-3.5" />;
+      case 'pi':
+        return <PiIcon className="h-3.5 w-3.5" />;
       default:
         return <Sparkles className="h-3.5 w-3.5" />;
     }
@@ -790,7 +879,7 @@ const FloatingPromptInputInner = (
           name: t.name,
           description: t.name,
           level: index,
-          value: providerId === 'codex' ? (t.budget as string) : undefined,
+          value: providerId === 'codex' || providerId === 'pi' ? (t.budget as string) : undefined,
           icon: getThinkingModeIcon(t.id),
           color: t.is_default ? "text-muted-foreground" : "text-primary",
           shortName: t.name.substring(0, 2),
@@ -2236,7 +2325,7 @@ const FloatingPromptInputInner = (
                         onSelect={handleSlashCommandSelect}
                         onClose={handleSlashCommandPickerClose}
                         initialQuery={slashCommandQuery}
-                        provider={effectiveProvider as 'codex' | 'gemini' | 'deepseek'}
+                        provider={effectiveProvider as 'codex' | 'gemini' | 'deepseek' | 'pi'}
                         anchorRef={inputContainerRef}
                       />
                     )

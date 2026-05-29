@@ -262,6 +262,8 @@ export function useSessionPromptActions({
 
         if (activeProvider === 'claude') {
           await api.SendClaudeMessage(sessionState.projectPath, currentInteractiveSessionId, wrappedPrompt);
+        } else if (activeProvider === 'pi') {
+          await api.sendProviderSessionMessage(activeProvider, sessionState.projectPath, currentInteractiveSessionId, wrappedPrompt);
         } else {
           const runtimeSessionId = await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentInteractiveSessionId, providerApiId || undefined, thinkingMode);
           processState.setInteractiveSessionId(runtimeSessionId);

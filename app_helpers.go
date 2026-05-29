@@ -14,6 +14,7 @@ import (
 	"ropcode/internal/eventhub"
 	"ropcode/internal/git"
 	"ropcode/internal/provider"
+	providerPi "ropcode/internal/provider/pi"
 )
 
 func resolveInteractiveClaudeSessionStart(resumeSessionID string, hasExistingSession bool) (string, bool, bool, bool) {
@@ -51,14 +52,29 @@ func (a *App) StartProviderSession(providerName, projectPath, prompt, model, pro
 	if reasoningEffort != "" {
 		config.Extra = map[string]string{"reasoning_effort": reasoningEffort}
 	}
+	if providerName == "pi" {
+		config.Interactive = true
+		if reasoningEffort != "" {
+			if config.Extra == nil {
+				config.Extra = make(map[string]string)
+			}
+			config.Extra["thinking_level"] = reasoningEffort
+		}
+		providerPi.ApplyLocalDefaults(&config)
+	}
 	if providerApiID != "" && a.dbManager != nil {
 		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
 		if err == nil && apiConfig != nil {
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
+		} else if providerName == "pi" {
+			if apiConfig, err := providerPi.LocalProviderAPIConfig(providerApiID); err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
+			}
 		}
-	} else if providerName == "deepseek" && a.dbManager != nil {
-		if apiConfig, _ := a.resolveProviderAPIConfig("deepseek", providerApiID); apiConfig != nil {
+	} else if (providerName == "deepseek" || providerName == "pi") && a.dbManager != nil {
+		if apiConfig, _ := a.resolveProviderAPIConfig(providerName, providerApiID); apiConfig != nil {
 			config.ProviderApiID = apiConfig.ID
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
@@ -129,14 +145,29 @@ func (a *App) ResumeProviderSession(providerName, projectPath, prompt, model, se
 	if reasoningEffort != "" {
 		config.Extra = map[string]string{"reasoning_effort": reasoningEffort}
 	}
+	if providerName == "pi" {
+		config.Interactive = true
+		if reasoningEffort != "" {
+			if config.Extra == nil {
+				config.Extra = make(map[string]string)
+			}
+			config.Extra["thinking_level"] = reasoningEffort
+		}
+		providerPi.ApplyLocalDefaults(&config)
+	}
 	if providerApiID != "" && a.dbManager != nil {
 		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
 		if err == nil && apiConfig != nil {
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
+		} else if providerName == "pi" {
+			if apiConfig, err := providerPi.LocalProviderAPIConfig(providerApiID); err == nil && apiConfig != nil {
+				config.AuthToken = apiConfig.AuthToken
+				config.BaseURL = apiConfig.BaseURL
+			}
 		}
-	} else if providerName == "deepseek" && a.dbManager != nil {
-		if apiConfig, _ := a.resolveProviderAPIConfig("deepseek", providerApiID); apiConfig != nil {
+	} else if (providerName == "deepseek" || providerName == "pi") && a.dbManager != nil {
+		if apiConfig, _ := a.resolveProviderAPIConfig(providerName, providerApiID); apiConfig != nil {
 			config.ProviderApiID = apiConfig.ID
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
@@ -357,6 +388,11 @@ func (a *App) emitProjectChanged(project *database.ProjectIndex, reason string, 
 func (a *App) SendProviderSessionMessage(providerName, projectPath, sessionID, prompt string) (string, error) {
 	if a.providerManager == nil {
 		return "", fmt.Errorf("provider manager not initialized")
+	}
+	if providerName == "pi" {
+		if resolved := a.providerManager.ResolveRunningSessionID("pi", projectPath, sessionID); resolved != "" {
+			sessionID = resolved
+		}
 	}
 	if err := a.providerManager.SendMessage(sessionID, prompt); err != nil {
 		return "", err

@@ -280,6 +280,14 @@ func (s *Session) extractProviderSessionID(event *OutputEvent) {
 				}
 			}
 		}
+	case "pi":
+		if event.Subtype == "response" {
+			if sid, ok := event.Message["session_id"].(string); ok && sid != "" {
+				s.mu.Lock()
+				s.providerSessionID = sid
+				s.mu.Unlock()
+			}
+		}
 	}
 }
 

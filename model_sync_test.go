@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"ropcode/internal/database"
 	"ropcode/internal/models"
+	providerPi "ropcode/internal/provider/pi"
 )
 
 func newModelSyncTestApp(t *testing.T, providerID, baseURL string) *App {
@@ -40,6 +44,112 @@ func newModelSyncTestApp(t *testing.T, providerID, baseURL string) *App {
 	return &App{
 		dbManager:     db,
 		modelRegistry: models.NewRegistry(db),
+	}
+}
+
+func TestSyncProviderModelsFromAPIPiUsesPiListModelsCLI(t *testing.T) {
+	if _, err := exec.LookPath("pi"); err != nil {
+		t.Skipf("pi CLI not installed on PATH: %v", err)
+	}
+
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	app := &App{dbManager: db, modelRegistry: models.NewRegistry(db)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	synced, err := app.syncProviderModelsFromAPI(ctx, "pi", "")
+	if err != nil {
+		t.Fatalf("syncProviderModelsFromAPI failed: %v", err)
+	}
+
+	got := map[string]bool{}
+	for _, m := range synced {
+		got[m.ModelID] = true
+		if m.ProviderID != "pi" {
+			t.Fatalf("synced model provider = %q, want pi", m.ProviderID)
+		}
+	}
+	if len(got) == 0 {
+		t.Fatal("expected at least one model from real pi --list-models")
+	}
+	for modelID := range got {
+		if !strings.Contains(modelID, "/") {
+			t.Fatalf("expected provider/model id from real pi --list-models, got %q", modelID)
+		}
+	}
+}
+
+func TestSyncProviderModelsFromAPIFiltersUnsupportedPiRows(t *testing.T) {
+	modelIDs := parsePiListModelsOutput(`provider  model                  context  max-out  thinking  images
+deepseek  deepseek-v4-flash      1M       384K     yes       no
+openai    gpt-5.5                272K     128K     yes       yes
+openai    text-embedding-3-large  8K       8K       no        no
+`)
+
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	synced, err := models.NewRegistry(db).SyncProviderModels("pi", modelIDs)
+	if err != nil {
+		t.Fatalf("SyncProviderModels failed: %v", err)
+	}
+	got := map[string]bool{}
+	for _, model := range synced {
+		got[model.ModelID] = true
+	}
+	for _, want := range []string{"deepseek/deepseek-v4-flash", "openai/gpt-5.5"} {
+		if !got[want] {
+			t.Fatalf("expected %q from parsed pi --list-models output, got %v", want, got)
+		}
+	}
+	if got["openai/text-embedding-3-large"] {
+		t.Fatalf("expected embedding model to be filtered out, got %v", got)
+	}
+}
+
+func TestFilterPiModelIDsByLocalConfigKeepsOnlyConfiguredProviders(t *testing.T) {
+	modelIDs := filterPiModelIDsByLocalConfig([]string{
+		"deepseek/deepseek-v4-flash",
+		"openai/gpt-5.5",
+	}, providerPi.LocalConfig{AuthProviders: []string{"deepseek"}})
+
+	if len(modelIDs) != 1 || modelIDs[0] != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("filtered model ids = %#v, want only deepseek", modelIDs)
+	}
+}
+
+func TestPrependModelIDMovesPiConfiguredDefaultFirst(t *testing.T) {
+	modelIDs := prependModelID([]string{
+		"deepseek/deepseek-v4-pro",
+		"deepseek/deepseek-v4-flash",
+	}, "deepseek/deepseek-v4-flash")
+
+	want := []string{"deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"}
+	if strings.Join(modelIDs, ",") != strings.Join(want, ",") {
+		t.Fatalf("model ids = %#v, want %#v", modelIDs, want)
+	}
+}
+
+func TestChoosePiDefaultModelFallsBackToConfiguredProviderWhenSettingsDefaultMissingAuth(t *testing.T) {
+	modelID := choosePiDefaultModelID([]string{
+		"deepseek/deepseek-v4-flash",
+		"deepseek/deepseek-v4-pro",
+	}, providerPi.LocalConfig{
+		AuthProviders:   []string{"deepseek"},
+		DefaultProvider: "openai",
+		DefaultModel:    "gpt-5.5",
+	})
+
+	if modelID != "deepseek/deepseek-v4-flash" {
+		t.Fatalf("default model = %q, want first configured DeepSeek model", modelID)
 	}
 }
 
@@ -108,8 +218,8 @@ func TestSyncProviderModelsFromAPIUsesProviderConfigAndFiltersUnsupportedCodexMo
 
 func TestSyncProviderModelsFromAPIClaudeUsesAnthropicHeaders(t *testing.T) {
 	cases := map[string]string{
-		"base url at host root":           "",        // becomes server.URL
-		"base url with trailing /v1":      "/v1",     // OpenAI-style suffix
+		"base url at host root":           "",           // becomes server.URL
+		"base url with trailing /v1":      "/v1",        // OpenAI-style suffix
 		"base url with anthropic gateway": "/anthropic", // gateway prefix without /v1
 	}
 
@@ -161,7 +271,7 @@ func TestSyncProviderModelsFromAPIClaudeUsesAnthropicHeaders(t *testing.T) {
 			for _, m := range synced {
 				if m.ModelID == "claude-haiku-4-5-20251001" && len(m.ThinkingLevels) != 0 {
 					t.Fatalf("haiku should have no thinking levels, got %#v", m.ThinkingLevels)
-					}
+				}
 				if m.ModelID == "claude-opus-4-7" {
 					if len(m.ThinkingLevels) != 5 || m.ThinkingLevels[0].ID != "auto" {
 						t.Fatalf("opus should have 5 thinking levels with auto first, got %#v", m.ThinkingLevels)

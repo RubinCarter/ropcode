@@ -58,6 +58,7 @@ const PROVIDERS = [
   { id: "codex", name: "Codex (OpenAI)" },
   { id: "gemini", name: "Gemini" },
   { id: "deepseek", name: "DeepSeek" },
+  { id: "pi", name: "Pi" },
 ];
 
 export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
@@ -417,7 +418,7 @@ export const ModelManager: React.FC<ModelManagerProps> = ({ setToast }) => {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  {(provider.id === "codex" || provider.id === "claude") && (
+                  {(provider.id === "codex" || provider.id === "claude" || provider.id === "pi") && (
                     <Button
                       variant="ghost"
                       size="sm"

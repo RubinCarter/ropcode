@@ -71,6 +71,48 @@ func TestBuiltinCodexModelsIncludeLatestRecommendedModels(t *testing.T) {
 	}
 }
 
+func TestBuiltinModelsIncludePiDefault(t *testing.T) {
+	models := GetBuiltinModelsByProvider("pi")
+	if len(models) != 1 {
+		t.Fatalf("expected one Pi builtin model, got %d", len(models))
+	}
+	model := models[0]
+	if model.ModelID != "anthropic/claude-sonnet-4-20250514" {
+		t.Fatalf("Pi builtin model = %q, want anthropic/claude-sonnet-4-20250514", model.ModelID)
+	}
+	if !model.IsDefault {
+		t.Fatal("expected Pi builtin model to be default")
+	}
+	assertPiThinkingLevels(t, model.ThinkingLevels)
+}
+
+func TestPiSyncedModelsAcceptProviderSlashIDsAndFilterNonChatModels(t *testing.T) {
+	registry := newTestRegistry(t)
+
+	synced, err := registry.SyncProviderModels("pi", []string{
+		"anthropic/claude-sonnet-4-20250514",
+		"openai/gpt-5.5",
+		"openai/text-embedding-3-large",
+	})
+	if err != nil {
+		t.Fatalf("SyncProviderModels failed: %v", err)
+	}
+
+	got := map[string]*database.ModelConfig{}
+	for _, m := range synced {
+		got[m.ModelID] = m
+	}
+	for _, want := range []string{"anthropic/claude-sonnet-4-20250514", "openai/gpt-5.5"} {
+		if got[want] == nil {
+			t.Fatalf("expected %q to be synced, got %v", want, keys(got))
+		}
+		assertPiThinkingLevels(t, got[want].ThinkingLevels)
+	}
+	if got["openai/text-embedding-3-large"] != nil {
+		t.Fatal("expected embedding model to be filtered out")
+	}
+}
+
 func assertCodexThinkingLevels(t *testing.T, levels []database.ThinkingLevel) {
 	t.Helper()
 
@@ -88,6 +130,26 @@ func assertCodexThinkingLevels(t *testing.T, levels []database.ThinkingLevel) {
 	}
 	if defaultLevel != "medium" {
 		t.Fatalf("expected medium as default Codex thinking level, got %q", defaultLevel)
+	}
+}
+
+func assertPiThinkingLevels(t *testing.T, levels []database.ThinkingLevel) {
+	t.Helper()
+
+	var got []string
+	var defaultLevel string
+	for _, level := range levels {
+		got = append(got, level.ID)
+		if level.IsDefault {
+			defaultLevel = level.ID
+		}
+	}
+	want := []string{"off", "minimal", "low", "medium", "high", "xhigh"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected Pi thinking levels %v, got %v", want, got)
+	}
+	if defaultLevel != "medium" {
+		t.Fatalf("expected medium as default Pi thinking level, got %q", defaultLevel)
 	}
 }
 

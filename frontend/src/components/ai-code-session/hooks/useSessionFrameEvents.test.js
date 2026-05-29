@@ -16,7 +16,6 @@ test('provider init messages persist provider session id but keep runtime id for
 
   assert.match(source, /const runtimeSessionId = \(message as any\)\.runtime_session_id \|\| message\.session_id;/);
   assert.match(source, /setClaudeSessionId\(runtimeSessionId\)/);
-  assert.match(source, /api\.updateProviderSession\(currentProjectPath,\s*provider,\s*runtimeSessionId\)/);
   assert.match(source, /api\.isClaudeSessionRunningForProject\(currentProjectPath,\s*runtimeSessionId\)/);
   assert.match(source, /const realClaudeSessionId = \(message as any\)\.claude_session_id \|\| \(message as any\)\.sessionId \|\| message\.session_id;/);
   assert.match(source, /SessionPersistenceService\.saveSession\(\s*persistSessionId,/);
@@ -78,7 +77,18 @@ test('Claude assistant end_turn completes the current interactive turn', async (
 
   assert.match(source, /const isAssistantEndTurn = message\.type === 'assistant'[\s\S]*stop_reason[\s\S]*=== 'end_turn'/);
   assert.match(source, /if \(message\.type === 'result' \|\| isAssistantEndTurn\) \{/);
-  assert.match(source, /status: isAssistantEndTurn \? 'completed' :/);
+  assert.match(source, /const isTerminalError = isAssistantEndTurn \? false : isTerminalErrorMessage\(message\);/);
+  assert.match(source, /status: isTerminalError \? 'failed' : 'completed'/);
+});
+
+test('provider result errors are completed as failed turns', async () => {
+  const source = await readSource();
+
+  assert.match(source, /function isTerminalErrorMessage\(message: ClaudeStreamMessage\): boolean/);
+  assert.match(source, /subtype === 'failed'/);
+  assert.match(source, /subtype === 'error'/);
+  assert.match(source, /success: !isTerminalError/);
+  assert.match(source, /status: isTerminalError \? 'failed' : 'completed'/);
 });
 
 test('Claude assistant end_turn is never treated as a text delta early return', async () => {

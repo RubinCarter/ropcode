@@ -129,6 +129,21 @@ func newDeepSeekSpaceSessionSummary(s provider.HistorySessionInfo, isRunning boo
 	}
 }
 
+func newPiSpaceSessionSummary(s provider.HistorySessionInfo, isRunning bool) ProviderSessionSummary {
+	title := strings.TrimSpace(s.FirstMessage)
+	return ProviderSessionSummary{
+		ID:           s.ID,
+		Provider:     "pi",
+		ProjectPath:  s.ProjectPath,
+		ProjectID:    s.ProjectID,
+		CreatedAt:    s.CreatedAt,
+		LastActivity: parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
+		Title:        title,
+		FirstMessage: title,
+		IsRunning:    isRunning,
+	}
+}
+
 func parseSessionActivityTime(timestamp string, fallback int64) int64 {
 	if strings.TrimSpace(timestamp) == "" {
 		return fallback
@@ -185,6 +200,18 @@ func (a *App) ListSpaceSessions(projectPath string, limit int) (SpaceSessionsRes
 			for _, s := range r.Sessions {
 				isRunning := a.providerManager.IsRunning(s.ID)
 				sessions = append(sessions, applyStoredSessionTitle(newDeepSeekSpaceSessionSummary(s, isRunning), a.sessionTitles))
+			}
+			return spaceSessionScanResult{sessions: sessions, hasMore: r.HasMore}, nil
+		}},
+		{provider: "pi", scan: func(pp string, lim int) (spaceSessionScanResult, error) {
+			r, err := a.providerManager.ListProviderSessionsLimit("pi", pp, lim)
+			if err != nil {
+				return spaceSessionScanResult{}, err
+			}
+			sessions := make([]ProviderSessionSummary, 0, len(r.Sessions))
+			for _, s := range r.Sessions {
+				isRunning := a.providerManager.IsRunning(s.ID)
+				sessions = append(sessions, applyStoredSessionTitle(newPiSpaceSessionSummary(s, isRunning), a.sessionTitles))
 			}
 			return spaceSessionScanResult{sessions: sessions, hasMore: r.HasMore}, nil
 		}},
