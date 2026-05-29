@@ -188,7 +188,7 @@ export const Settings: React.FC<SettingsProps> = ({
   /**
    * Loads the current Claude settings
    */
-  const loadSettings = async () => {
+  const loadSettings = async (retries = 3) => {
     try {
       setLoading(true);
       setError(null);
@@ -234,8 +234,12 @@ export const Settings: React.FC<SettingsProps> = ({
         );
       }
     } catch (err) {
+      if (retries > 0) {
+        await new Promise(r => setTimeout(r, 500));
+        return loadSettings(retries - 1);
+      }
       console.error("Failed to load settings:", err);
-      setError("Failed to load settings. Please ensure ~/.claude directory exists.");
+      setError(t('settings.loadError'));
       setSettings({});
     } finally {
       setLoading(false);
