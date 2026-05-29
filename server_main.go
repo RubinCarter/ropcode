@@ -50,13 +50,13 @@ func main() {
 		return app.GenerateSessionTitle(rpc.ArgString(p, 0))
 	}
 	methods["GenerateSessionTitleAsync"] = func(p json.RawMessage) (any, error) {
-		return app.GenerateSessionTitle(rpc.ArgString(p, 0))
+		return app.GenerateSessionTitleAsync(rpc.ArgString(p, 0))
 	}
 	methods["GenerateSessionTitleForSession"] = func(p json.RawMessage) (any, error) {
 		return app.GenerateSessionTitleForSession(rpc.ArgString(p, 0), rpc.ArgString(p, 1), rpc.ArgString(p, 2))
 	}
 	methods["GenerateSessionTitleForSessionAsync"] = func(p json.RawMessage) (any, error) {
-		return app.GenerateSessionTitleForSession(rpc.ArgString(p, 0), rpc.ArgString(p, 1), rpc.ArgString(p, 2))
+		return app.GenerateSessionTitleForSessionAsync(rpc.ArgString(p, 0), rpc.ArgString(p, 1), rpc.ArgString(p, 2))
 	}
 	methods["GetSessionTitleAvailableModels"] = func(p json.RawMessage) (any, error) {
 		return app.GetSessionTitleAvailableModels()
@@ -68,7 +68,7 @@ func main() {
 		return app.GenerateBranchName(rpc.ArgString(p, 0))
 	}
 	methods["GenerateBranchNameAsync"] = func(p json.RawMessage) (any, error) {
-		return app.GenerateBranchName(rpc.ArgString(p, 0))
+		return app.GenerateBranchNameAsync(rpc.ArgString(p, 0))
 	}
 	methods["RenameGitBranch"] = func(p json.RawMessage) (any, error) {
 		return app.RenameGitBranch(rpc.ArgString(p, 0), rpc.ArgString(p, 1))
