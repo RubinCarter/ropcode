@@ -11,6 +11,7 @@ import (
 )
 
 var _ provider.ProviderDriver = (*Driver)(nil)
+var _ provider.ProviderSessionIdentifier = (*Driver)(nil)
 
 type Driver struct {
 	cacheMu   sync.Mutex
@@ -23,6 +24,16 @@ const cacheTTL = 30 * time.Second
 
 func (d *Driver) ID() string         { return "gemini" }
 func (d *Driver) BinaryName() string { return "gemini" }
+
+func (d *Driver) ProviderSessionID(event *provider.OutputEvent) string {
+	if event == nil || event.Subtype != "init" || event.Message == nil {
+		return ""
+	}
+	if sid, ok := event.Message["session_id"].(string); ok {
+		return sid
+	}
+	return ""
+}
 
 func (d *Driver) BinaryCandidates() []string {
 	home, _ := os.UserHomeDir()
@@ -90,6 +101,12 @@ func (d *Driver) SetPermissionMode(session provider.SessionHandle, mode string) 
 
 func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars map[string]string) error {
 	session.UpdateConfig(func(c *provider.SessionConfig) {
+		if v, ok := vars["AUTH_TOKEN"]; ok {
+			c.AuthToken = v
+		}
+		if v, ok := vars["BASE_URL"]; ok {
+			c.BaseURL = v
+		}
 		if v, ok := vars["GEMINI_API_KEY"]; ok {
 			c.AuthToken = v
 		}
@@ -108,6 +125,10 @@ func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars
 
 func (d *Driver) WaitForInit(session provider.SessionHandle, timeout time.Duration) error {
 	return nil
+}
+
+func (d *Driver) QuerySessionActivity(session provider.SessionHandle, timeout time.Duration) (*provider.SessionActivity, error) {
+	return provider.DefaultSessionActivity(session), nil
 }
 
 func (d *Driver) OnProcessStart(_ context.Context, _ provider.SessionHandle, _ int) error { return nil }

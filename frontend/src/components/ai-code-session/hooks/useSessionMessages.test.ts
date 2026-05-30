@@ -39,7 +39,7 @@ test('maintains hot message derived state incrementally', async () => {
 test('adds streaming delta output estimates and replaces them with real usage', async () => {
   const source = await readSource();
 
-  assert.match(source, /if \(bufferedText\) \{[\s\S]*estimatedOutputTokens: estimateTokensForCharacters\(bufferedText\.length\)/);
+  assert.match(source, /for \(const delta of bufferedDeltas\) \{[\s\S]*estimatedOutputTokens: estimateTokensForCharacters\(bufferedText\.length\)/);
   assert.match(source, /function replaceEstimatedWithUsage\(totals: TokenUsageTotals, message: ClaudeStreamMessage\): TokenUsageTotals \{/);
   assert.match(source, /const estimatedToReplace = estimateTokensForCharacters\(textContentLength\(message\)\);/);
   assert.match(source, /estimatedOutputTokens: Math\.max\(0, totals\.estimatedOutputTokens - estimatedToReplace\)/);
@@ -49,4 +49,23 @@ test('does not count project chat context sync as a local user prompt for echo s
   const source = await readSource();
 
   assert.match(source, /source !== 'broadcast' && \(message as any\)\.source !== 'projectchat_context_sync'/);
+});
+
+test('keeps provider completed text from duplicating a matching streamed delta', async () => {
+  const source = await readSource();
+
+  assert.match(source, /function mergeCompletedTextEcho/);
+  assert.match(source, /messageId\(message\)/);
+  assert.match(source, /return 'drop'/);
+  assert.match(source, /messages\[i\] = message/);
+  assert.match(source, /const completedTextMerge = mergeCompletedTextEcho\(msg, msgs\)/);
+});
+
+test('uses message id when merging streaming deltas across metadata frames', async () => {
+  const source = await readSource();
+
+  assert.match(source, /interface PendingTextDelta/);
+  assert.match(source, /const id = messageId\(message\);/);
+  assert.match(source, /findDeltaTargetIndex\(msgs, delta\.id\)/);
+  assert.match(source, /appendTextToAssistantMessage\(msgs\[targetIndex\], bufferedText, delta\.id\)/);
 });

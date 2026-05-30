@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,10 +16,48 @@ import (
 )
 
 var _ provider.ProviderDriver = (*Driver)(nil)
+var _ provider.ProviderSessionMode = (*Driver)(nil)
+var _ provider.ProviderSessionIdentifier = (*Driver)(nil)
 
 var requestSeq atomic.Uint64
 
-type Driver struct{}
+const initializeRequestID = "codex_initialize_1"
+
+type Driver struct {
+	mu                 sync.Mutex
+	agentMessageDeltas map[string]string
+	subagentsByCallID  map[string]codexSubagentState
+	subagentCallByID   map[string]string
+	activeTurnByThread map[string]string
+	webSearchToolUses  map[string]string
+}
+
+type codexSubagentState struct {
+	CallID          string
+	AgentID         string
+	Prompt          string
+	Description     string
+	SubagentType    string
+	Model           string
+	ReasoningEffort string
+	StartedAtMs     int64
+}
+
+func (d *Driver) UseLongLivedSession(config provider.SessionConfig) bool {
+	return true
+}
+
+func (d *Driver) ProviderSessionID(event *provider.OutputEvent) string {
+	if event == nil || event.Message == nil {
+		return ""
+	}
+	if event.Subtype == "init" || event.Subtype == "thread_created" {
+		if tid, ok := event.Message["thread_id"].(string); ok {
+			return tid
+		}
+	}
+	return ""
+}
 
 func (d *Driver) ID() string         { return "codex" }
 func (d *Driver) BinaryName() string { return "codex" }
@@ -173,9 +212,72 @@ func (d *Driver) Interrupt(session provider.SessionHandle) error {
 			"threadId": threadID,
 		},
 	}
+	targetThreadID, targetTurnID := d.currentInterruptTarget(threadID)
+	req["params"].(map[string]interface{})["threadId"] = targetThreadID
+	if targetTurnID != "" {
+		req["params"].(map[string]interface{})["turnId"] = targetTurnID
+	}
 	data, _ := json.Marshal(req)
 	data = append(data, '\n')
 	return session.WriteStdin(data)
+}
+
+func (d *Driver) QuerySessionActivity(session provider.SessionHandle, timeout time.Duration) (*provider.SessionActivity, error) {
+	config := session.GetConfig()
+	state := session.GetState()
+	running := state == provider.StateRunning || state == provider.StateStarting
+	if !config.Interactive {
+		status := provider.SessionActivityIdle
+		if running {
+			status = provider.SessionActivityActive
+		}
+		return &provider.SessionActivity{
+			Status:       status,
+			Running:      running,
+			Active:       running,
+			CanInterrupt: running,
+		}, nil
+	}
+
+	threadID := session.GetProviderSessionID()
+	if threadID == "" {
+		return &provider.SessionActivity{
+			Status:  provider.SessionActivityUnknown,
+			Running: running,
+		}, nil
+	}
+
+	id := nextRequestID()
+	requestID := fmt.Sprintf("%d", id)
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "thread/read",
+		"params": map[string]interface{}{
+			"threadId":     threadID,
+			"includeTurns": true,
+		},
+	}
+	data, _ := json.Marshal(req)
+	data = append(data, '\n')
+
+	ch, err := session.SendControlRequest(requestID, data)
+	if err != nil {
+		return nil, err
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case resp := <-ch:
+		if resp.Err != nil {
+			return nil, resp.Err
+		}
+		return d.activityFromThreadRead(threadID, running, resp.Data), nil
+	case <-timer.C:
+		session.CancelControlRequest(requestID)
+		return nil, fmt.Errorf("codex thread/read timed out after %v", timeout)
+	}
 }
 
 func (d *Driver) SetModel(session provider.SessionHandle, model string) error {
@@ -215,6 +317,12 @@ func (d *Driver) SetPermissionMode(session provider.SessionHandle, mode string) 
 
 func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars map[string]string) error {
 	session.UpdateConfig(func(c *provider.SessionConfig) {
+		if v, ok := vars["AUTH_TOKEN"]; ok {
+			c.AuthToken = v
+		}
+		if v, ok := vars["BASE_URL"]; ok {
+			c.BaseURL = v
+		}
 		if v, ok := vars["OPENAI_API_KEY"]; ok {
 			c.AuthToken = v
 		}
@@ -248,7 +356,7 @@ func (d *Driver) OnProcessStart(_ context.Context, session provider.SessionHandl
 	// 1. Send initialize
 	initReq := map[string]interface{}{
 		"jsonrpc": "2.0",
-		"id":      "init_1",
+		"id":      initializeRequestID,
 		"method":  "initialize",
 		"params": map[string]interface{}{
 			"clientInfo": map[string]interface{}{
@@ -425,6 +533,110 @@ func (d *Driver) LoadSubagentTranscripts(projectID, sessionID string) (map[strin
 	return LoadSubagentTranscripts(dir, sessionID)
 }
 
+func (d *Driver) activityFromThreadRead(threadID string, running bool, raw map[string]interface{}) *provider.SessionActivity {
+	activity := &provider.SessionActivity{
+		ProviderSessionID: threadID,
+		Status:            provider.SessionActivityUnknown,
+		Running:           running,
+	}
+	result, _ := raw["result"].(map[string]interface{})
+	thread, _ := result["thread"].(map[string]interface{})
+	if thread == nil {
+		if errObj, ok := raw["error"].(map[string]interface{}); ok {
+			activity.Status = provider.SessionActivityError
+			activity.Error = fmt.Sprint(errObj["message"])
+		}
+		return activity
+	}
+
+	threadStatus := ""
+	if status, ok := thread["status"].(map[string]interface{}); ok {
+		threadStatus, _ = status["type"].(string)
+	}
+	activity.ThreadStatus = threadStatus
+	switch threadStatus {
+	case "active":
+		activity.Status = provider.SessionActivityActive
+		activity.Active = true
+		activity.CanInterrupt = true
+	case "idle", "notLoaded":
+		activity.Status = provider.SessionActivityIdle
+	case "systemError":
+		activity.Status = provider.SessionActivityError
+	default:
+		activity.Status = provider.SessionActivityUnknown
+	}
+
+	if turnID := d.activeTurnFromThread(thread); turnID != "" {
+		activity.TurnID = turnID
+		d.mu.Lock()
+		if d.activeTurnByThread == nil {
+			d.activeTurnByThread = make(map[string]string)
+		}
+		d.activeTurnByThread[threadID] = turnID
+		d.mu.Unlock()
+		activity.Status = provider.SessionActivityActive
+		activity.Active = true
+		activity.CanInterrupt = true
+	}
+	if _, subagentTurnID := d.activeSubagentTurn(); subagentTurnID != "" {
+		activity.ThreadStatus = "active"
+		activity.TurnID = subagentTurnID
+		activity.Status = provider.SessionActivityActive
+		activity.Active = true
+		activity.CanInterrupt = true
+	}
+	activity.UpdatedAt = time.Now()
+	return activity
+}
+
+func (d *Driver) activeTurnFromThread(thread map[string]interface{}) string {
+	turns, _ := thread["turns"].([]interface{})
+	for i := len(turns) - 1; i >= 0; i-- {
+		turn, _ := turns[i].(map[string]interface{})
+		if turn == nil {
+			continue
+		}
+		status, _ := turn["status"].(string)
+		if status == "inProgress" {
+			id, _ := turn["id"].(string)
+			return id
+		}
+	}
+	return ""
+}
+
 func nextRequestID() int {
 	return int(requestSeq.Add(1))
+}
+
+func (d *Driver) currentInterruptTarget(rootThreadID string) (string, string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if turnID := d.activeTurnByThread[rootThreadID]; turnID != "" {
+		return rootThreadID, turnID
+	}
+	threadID, turnID := d.activeSubagentTurnLocked()
+	if threadID != "" && turnID != "" {
+		return threadID, turnID
+	}
+	return rootThreadID, ""
+}
+
+func (d *Driver) activeSubagentTurn() (string, string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.activeSubagentTurnLocked()
+}
+
+func (d *Driver) activeSubagentTurnLocked() (string, string) {
+	for _, state := range d.subagentsByCallID {
+		if state.AgentID == "" {
+			continue
+		}
+		if turnID := d.activeTurnByThread[state.AgentID]; turnID != "" {
+			return state.AgentID, turnID
+		}
+	}
+	return "", ""
 }

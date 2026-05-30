@@ -17,14 +17,12 @@ interface SessionPromptActionsTracking {
   enhancedPromptSubmitted: (payload: any) => void;
   enhancedSessionStopped: (payload: any) => void;
   modelSelected: (model: string) => void;
-  sessionCreated: (model: string, source: string) => void;
-  sessionResumed: (sessionId: string) => void;
 }
 
 export interface UseSessionPromptActionsOptions {
   defaultProvider: string;
   projectChatId?: string;
-  onProjectChatCreated?: (chatId: string, streamId: string) => void;
+  onProjectChatCreated?: (chatId: string, streamId: string, segmentId?: string) => void;
   sessionState: UseSessionStateReturn;
   messagesState: UseSessionMessagesReturn;
   processState: UseProcessStateReturn;
@@ -33,7 +31,7 @@ export interface UseSessionPromptActionsOptions {
   stopStatus: UseStopStatusFeedbackReturn;
   firstPromptForTitleRef: React.MutableRefObject<string | null>;
   loadedSessionIdRef: React.MutableRefObject<string | null>;
-  pendingFreshClaudeSessionRef: React.MutableRefObject<boolean>;
+  pendingFreshProviderSessionRef: React.MutableRefObject<boolean>;
   skipRecoveryUntilRef: React.MutableRefObject<number>;
   setError: (error: string | null) => void;
   refreshCurrentSubagentTranscripts: (sessionIdOverride?: string | null) => Promise<void>;
@@ -47,7 +45,7 @@ export interface UseSessionPromptActionsReturn {
     providerApiId?: string | null,
     thinkingMode?: string,
     provider?: string,
-    options?: { forceFreshClaudeSession?: boolean },
+    options?: { forceFreshProviderSession?: boolean },
   ) => Promise<boolean>;
   handleCancelExecution: () => Promise<void>;
 }
@@ -64,7 +62,7 @@ export function useSessionPromptActions({
   stopStatus,
   firstPromptForTitleRef,
   loadedSessionIdRef,
-  pendingFreshClaudeSessionRef,
+  pendingFreshProviderSessionRef,
   skipRecoveryUntilRef,
   setError,
   refreshCurrentSubagentTranscripts,
@@ -85,15 +83,15 @@ export function useSessionPromptActions({
       stopStatus.stopRequestedRef.current = false;
     }
 
-    if (defaultProvider === 'claude' && processState.interactiveSessionId) {
+    if (processState.interactiveSessionId) {
       try {
-        await api.cancelClaudeExecutionByProject(sessionState.projectPath);
+        await api.stopProviderSessionsByProject(sessionState.projectPath);
       } catch (err) {
-        console.error('[AiCodeSession] Failed to stop Claude session during clear:', err);
+        console.error('[AiCodeSession] Failed to stop provider session during clear:', err);
       }
     }
 
-    pendingFreshClaudeSessionRef.current = defaultProvider === 'claude';
+    pendingFreshProviderSessionRef.current = true;
     messagesState.clearMessages();
     sessionState.setClaudeSessionId(null);
     sessionState.setExtractedSessionInfo(null);
@@ -116,7 +114,7 @@ export function useSessionPromptActions({
     defaultProvider,
     messagesState,
     metricsState,
-    pendingFreshClaudeSessionRef,
+    pendingFreshProviderSessionRef,
     processState,
     queueState,
     sessionState,
@@ -131,7 +129,7 @@ export function useSessionPromptActions({
     providerApiId?: string | null,
     thinkingMode?: string,
     provider?: string,
-    options?: { forceFreshClaudeSession?: boolean }
+    options?: { forceFreshProviderSession?: boolean }
   ): Promise<boolean> => {
     const activeProvider = provider || defaultProvider;
     // Store first prompt for title generation after first round completes
@@ -145,7 +143,7 @@ export function useSessionPromptActions({
       hasProjectPath: Boolean(sessionState.projectPath),
       isLoading: processState.isLoading,
       hasInteractiveSession: Boolean(processState.interactiveSessionIdRef.current),
-      forceFreshSession: options?.forceFreshClaudeSession,
+      forceFreshSession: options?.forceFreshProviderSession,
     });
 
     if (classification.action === 'ignore') {
@@ -174,12 +172,12 @@ export function useSessionPromptActions({
       resetRuntimeTracker(sessionState.projectPath);
       processState.hasActiveSessionRef.current = true;
 
-      const forceFreshClaudeSession =
-        options?.forceFreshClaudeSession === true ||
-        (activeProvider === 'claude' && pendingFreshClaudeSessionRef.current);
-      pendingFreshClaudeSessionRef.current = false;
+      const forceFreshProviderSession =
+        options?.forceFreshProviderSession === true ||
+        pendingFreshProviderSessionRef.current;
+      pendingFreshProviderSessionRef.current = false;
 
-      if (forceFreshClaudeSession) {
+      if (forceFreshProviderSession) {
         loadedSessionIdRef.current = null;
         processState.setInteractiveSessionId(null);
         processState.hasActiveSessionRef.current = false;
@@ -191,14 +189,11 @@ export function useSessionPromptActions({
         sessionState.setClaudeSessionId(sessionState.effectiveSession.id);
       }
 
-      const shouldWrapPrompt = !(activeProvider === 'claude' && prompt.trim() === '/clear');
-      const wrappedPrompt = shouldWrapPrompt
-        ? await maybeWrapFirstMessage(
-            sessionState.projectPath,
-            prompt,
-            sessionState.isFirstPrompt
-          )
-        : prompt;
+      const wrappedPrompt = await maybeWrapFirstMessage(
+        sessionState.projectPath,
+        prompt,
+        sessionState.isFirstPrompt
+      );
 
       // Add user message to UI
       const userMessage: ClaudeStreamMessage = {
@@ -231,77 +226,25 @@ export function useSessionPromptActions({
         session_age_ms: Date.now() - metricsState.sessionStartTime.current
       });
 
-      // Execute command
-      // Different logic for Claude (interactive) vs other providers (batch)
-      // Use ref to get latest value, avoiding stale closures in queued callbacks
       const currentInteractiveSessionId = processState.interactiveSessionIdRef.current;
-      const currentEffectiveSession = sessionState.effectiveSession;
-
-      // ProjectChat mode: route through virtual session
-      // Auto-create ProjectChat on first send if not exists
-      let activeChatId = projectChatId;
+      let activeChatId = forceFreshProviderSession ? undefined : projectChatId;
       if (!activeChatId && sessionState.projectPath) {
-        try {
-          const chat = await CreateProjectChat(
-            sessionState.projectPath, activeProvider, model, providerApiId || '', currentInteractiveSessionId || ''
-          );
-          activeChatId = chat.chat_id;
-          onProjectChatCreated?.(chat.chat_id, chat.stream_id);
-        } catch (err) {
-          console.warn('[AiCodeSession] Failed to auto-create ProjectChat, using legacy path:', err);
-        }
+        const chat = await CreateProjectChat(
+          sessionState.projectPath,
+          activeProvider,
+          model,
+          providerApiId || '',
+          forceFreshProviderSession ? '' : currentInteractiveSessionId || ''
+        );
+        activeChatId = chat.chat_id;
+        onProjectChatCreated?.(chat.chat_id, chat.stream_id, chat.segment_id);
       }
 
-      if (activeChatId) {
-        trackEvent.modelSelected(model);
-        await SendProjectChatMessage(activeChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
-      } else if (currentInteractiveSessionId) {
-        // Interactive session is alive (real-time state), send message directly
-        trackEvent.sessionResumed(currentInteractiveSessionId);
-        trackEvent.modelSelected(model);
-
-        if (activeProvider === 'claude') {
-          await api.SendClaudeMessage(sessionState.projectPath, currentInteractiveSessionId, wrappedPrompt);
-        } else if (activeProvider === 'pi') {
-          await api.sendProviderSessionMessage(activeProvider, sessionState.projectPath, currentInteractiveSessionId, wrappedPrompt);
-        } else {
-          const runtimeSessionId = await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentInteractiveSessionId, providerApiId || undefined, thinkingMode);
-          processState.setInteractiveSessionId(runtimeSessionId);
-        }
-      } else if (currentEffectiveSession && !sessionState.isFirstPrompt && activeProvider !== 'claude') {
-        // For non-Claude providers (batch mode), can safely resume from effectiveSession
-        trackEvent.sessionResumed(currentEffectiveSession.id);
-        trackEvent.modelSelected(model);
-
-        const runtimeSessionId = await api.resumeProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, currentEffectiveSession.id, providerApiId || undefined, thinkingMode);
-        processState.setInteractiveSessionId(runtimeSessionId);
-      } else {
-        // Start new session:
-        // - For Claude: always start new if no interactiveSessionId
-        // - For others: start new if no effectiveSession or isFirstPrompt
-        sessionState.setIsFirstPrompt(false);
-        trackEvent.sessionCreated(model, 'prompt_input');
-        trackEvent.modelSelected(model);
-
-        if (activeProvider === 'claude') {
-          // Interactive mode: start long-lived process, then send first message.
-          // Pass the persisted Claude session ID (from effectiveSession) so the
-          // CLI can resume the conversation with --resume <id> after a stop or restart.
-          const resumeId = forceFreshClaudeSession
-            ? '__ROP_FRESH_SESSION__'
-            : (!sessionState.isFirstPrompt ? (sessionState.effectiveSession?.id ?? '') : '');
-          const interactiveSessionId = await api.StartInteractiveClaudeSession(
-            sessionState.projectPath, model, providerApiId || undefined, resumeId
-          );
-          // Save interactive session ID immediately so subsequent messages bypass the queue
-          processState.setInteractiveSessionId(interactiveSessionId);
-          // Send the first message
-          await api.SendClaudeMessage(sessionState.projectPath, interactiveSessionId, wrappedPrompt);
-        } else {
-          const runtimeSessionId = await api.startProviderSession(activeProvider, sessionState.projectPath, wrappedPrompt, model, providerApiId, thinkingMode);
-          processState.setInteractiveSessionId(runtimeSessionId);
-        }
+      if (!activeChatId) {
+        throw new Error("ProjectChat is not available for this session");
       }
+      trackEvent.modelSelected(model);
+      await SendProjectChatMessage(activeChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
 
       // Clear pending flag after init message arrives
       setTimeout(() => {
@@ -325,8 +268,10 @@ export function useSessionPromptActions({
     loadedSessionIdRef,
     messagesState,
     metricsState,
-    pendingFreshClaudeSessionRef,
+    onProjectChatCreated,
+    pendingFreshProviderSessionRef,
     processState,
+    projectChatId,
     queueState,
     sessionState,
     setError,
@@ -343,7 +288,7 @@ export function useSessionPromptActions({
       const sessionStartTimeValue = messagesState.messages.length > 0 ? messagesState.messages[0].timestamp || Date.now() : Date.now();
       const duration = Date.now() - sessionStartTimeValue;
 
-      await api.cancelClaudeExecutionByProject(sessionState.projectPath);
+      await api.stopProviderSessionsByProject(sessionState.projectPath);
       await processState.syncProcessState();
 
       // Track enhanced session stopped

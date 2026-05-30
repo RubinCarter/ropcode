@@ -52,25 +52,26 @@ test('session prompt actions route prompt submission through the classifier', as
 
   assert.match(source, /import \{ classifyPromptSubmit \} from "\.\.\/utils\/promptSubmitClassification";/);
   assert.match(source, /const activeProvider = provider \|\| defaultProvider;/);
-  assert.match(source, /const classification = classifyPromptSubmit\(\{[\s\S]*prompt,[\s\S]*provider: activeProvider,[\s\S]*hasProjectPath: Boolean\(sessionState\.projectPath\),[\s\S]*isLoading: processState\.isLoading,[\s\S]*hasInteractiveSession: Boolean\(processState\.interactiveSessionIdRef\.current\),[\s\S]*forceFreshSession: options\?\.forceFreshClaudeSession,[\s\S]*\}\);/);
+  assert.match(source, /const classification = classifyPromptSubmit\(\{[\s\S]*prompt,[\s\S]*provider: activeProvider,[\s\S]*hasProjectPath: Boolean\(sessionState\.projectPath\),[\s\S]*isLoading: processState\.isLoading,[\s\S]*hasInteractiveSession: Boolean\(processState\.interactiveSessionIdRef\.current\),[\s\S]*forceFreshSession: options\?\.forceFreshProviderSession,[\s\S]*\}\);/);
   assert.match(source, /if \(classification\.action === 'local-clear'\) \{[\s\S]*await handleLocalClearFallback\(\);[\s\S]*return true;[\s\S]*\}/);
   assert.match(source, /if \(classification\.action === 'enqueue'\) \{[\s\S]*queueState\.addToQueue\(prompt, model, providerApiId, thinkingMode, activeProvider\);[\s\S]*return true;[\s\S]*\}/);
 });
 
-test('session prompt actions use selected prompt provider when starting provider sessions', async () => {
+test('session prompt actions use selected prompt provider when creating project chats', async () => {
   const source = await readSessionPromptActionsSource();
 
   assert.match(source, /provider\?: string,/);
-  assert.match(source, /activeProvider === 'claude'/);
-  assert.match(source, /api\.resumeProviderSession\(activeProvider,/);
-  assert.match(source, /api\.startProviderSession\(activeProvider,/);
+  assert.match(source, /CreateProjectChat\(\s*sessionState\.projectPath,[\s\S]*activeProvider,/);
+  assert.doesNotMatch(source, /api\.startProviderSession/);
+  assert.doesNotMatch(source, /api\.resumeProviderSession/);
 });
 
-test('session prompt actions send Pi follow-ups to the existing provider runtime', async () => {
+test('session prompt actions send follow-ups through project chat', async () => {
   const source = await readSessionPromptActionsSource();
 
-  assert.match(source, /activeProvider === 'pi'/);
-  assert.match(source, /api\.sendProviderSessionMessage\(activeProvider, sessionState\.projectPath, currentInteractiveSessionId, wrappedPrompt\)/);
+  assert.match(source, /let activeChatId = forceFreshProviderSession \? undefined : projectChatId;/);
+  assert.match(source, /SendProjectChatMessage\(activeChatId, wrappedPrompt, model, providerApiId \|\| undefined, thinkingMode\)/);
+  assert.doesNotMatch(source, /api\.sendProviderSessionMessage/);
 });
 
 test('FloatingPromptInput only clears drafts when the session consumes the prompt', async () => {

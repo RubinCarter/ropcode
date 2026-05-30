@@ -1,0 +1,17 @@
+{
+  "parentUuid": "ae4963b9-f46d-4b2a-83ba-f9c0bb8f8280",
+  "isSidechain": false,
+  "type": "system",
+  "subtype": "turn_duration",
+  "durationMs": 1261289,
+  "messageCount": 133,
+  "timestamp": "2026-04-27T11:24:14.154Z",
+  "uuid": "d8aec51e-fe76-4c87-8818-1c380e9e0ac6",
+  "isMeta": false,
+  "userType": "external",
+  "entrypoint": "cli",
+  "cwd": "/Users/rubin",
+  "sessionId": "45491627-371f-4cd6-a271-71dd4b608cdd",
+  "version": "2.1.108",
+  "gitBranch": "HEAD"
+}

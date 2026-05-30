@@ -233,60 +233,8 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         return;
       }
 
-      // Auto-create ProjectChat on first provider switch if there's an active session
       const actualProjectPath = tab.sessionData?.project_path || tab.projectPath || workspaceId;
-      if (tab.sessionId && tab.providerId && actualProjectPath) {
-        try {
-          const chat = await rpcClient.CreateProjectChat(
-            actualProjectPath, tab.providerId, tab.sessionData?.model || '', '', tab.sessionId
-          );
-
-          const initialSegment = {
-            id: chat.segment_id,
-            provider: tab.providerId,
-            model: tab.sessionData?.model || '',
-            runtimeSessionId: tab.sessionId,
-            streamId: chat.stream_id,
-            seq: 0,
-          };
-
-          const result = await rpcClient.SwitchProjectChatProvider(
-            chat.chat_id, providerId, tab.sessionData?.model || ''
-          );
-
-          const newSegment = {
-            id: result.segment_id,
-            provider: result.provider,
-            model: result.model,
-            runtimeSessionId: result.runtime_session_id,
-            streamId: result.stream_id,
-            seq: 1,
-          };
-
-          updateTab(tabId, {
-            providerId,
-            sessionId: result.runtime_session_id,
-            projectChatId: chat.chat_id,
-            projectChatSegments: [initialSegment, newSegment],
-          });
-          return;
-        } catch (err) {
-          console.warn('[WorkspaceContainer] Failed to create ProjectChat, falling back to legacy:', err);
-        }
-      }
-
-      // Legacy mode: per-provider session switching
-      // Save current provider's session before switching
-      const currentProviderSessions = tab.providerSessions || {};
-      if (tab.providerId && tab.sessionId && tab.sessionData) {
-        currentProviderSessions[tab.providerId] = {
-          sessionId: tab.sessionId,
-          sessionData: tab.sessionData
-        };
-      }
-
       if (tab.skipSessionRestore && !tab.sessionId && !tab.sessionData) {
-        // Keep explicit new sessions blank when switching providers.
         updateTab(tabId, {
           providerId,
           sessionData: undefined,
@@ -296,67 +244,62 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         return;
       }
 
-      // Get the actual project path
-      const legacyProjectPath = tab.sessionData?.project_path || tab.projectPath || workspaceId;
-
-      // Check if we have a previous session for this provider
-      const previousSession = currentProviderSessions[providerId];
-
-      if (previousSession) {
-        // Restore previous session for this provider
+      if (!actualProjectPath) {
         updateTab(tabId, {
           providerId,
-          sessionData: previousSession.sessionData,
-          sessionId: previousSession.sessionId,
-          providerSessions: currentProviderSessions,
+          sessionData: undefined,
+          sessionId: undefined,
+          providerSessions: undefined,
         });
-      } else {
-        // No previous session - load sessions and pick the latest one
-        try {
-          const sessionList = await providers.listSessions(legacyProjectPath, providerId);
-
-          if (sessionList.length === 0) {
-            // No sessions exist - clear current session and start fresh
-            updateTab(tabId, {
-              providerId,
-              sessionData: undefined,
-              sessionId: undefined,
-              providerSessions: currentProviderSessions,
-            });
-          } else {
-            // Sort sessions by timestamp and select the latest one
-            const sortedSessions = [...sessionList].sort((a, b) => {
-              const timeA = a.message_timestamp ? new Date(a.message_timestamp).getTime() : a.created_at * 1000;
-              const timeB = b.message_timestamp ? new Date(b.message_timestamp).getTime() : b.created_at * 1000;
-              return timeB - timeA;
-            });
-            const latestSession = sortedSessions[0];
-
-            // Add provider info to session
-            const sessionWithProvider = {
-              ...latestSession,
-              provider: providerId
-            };
-
-            // Update tab with the latest session
-            updateTab(tabId, {
-              providerId,
-              sessionData: sessionWithProvider,
-              sessionId: latestSession.id,
-              providerSessions: currentProviderSessions,
-            });
-          }
-        } catch (err) {
-          console.error(`[WorkspaceContainer] Failed to load sessions for provider ${providerId}:`, err);
-          // Fallback: start fresh
-          updateTab(tabId, {
-            providerId,
-            sessionData: undefined,
-            sessionId: undefined,
-            providerSessions: currentProviderSessions,
-          });
-        }
+        return;
       }
+
+      const chat = await rpcClient.CreateProjectChat(
+        actualProjectPath,
+        tab.providerId || providerId,
+        tab.sessionData?.model || '',
+        '',
+        tab.sessionId || ''
+      );
+
+      const initialSegment = {
+        id: chat.segment_id,
+        provider: tab.providerId || providerId,
+        model: tab.sessionData?.model || '',
+        runtimeSessionId: chat.runtime_session_id,
+        streamId: chat.stream_id,
+        seq: 0,
+      };
+
+      if ((tab.providerId || providerId) === providerId) {
+        updateTab(tabId, {
+          providerId,
+          sessionId: chat.runtime_session_id,
+          projectChatId: chat.chat_id,
+          projectChatSegments: [initialSegment],
+        });
+        return;
+      }
+
+      const result = await rpcClient.SwitchProjectChatProvider(
+        chat.chat_id, providerId, tab.sessionData?.model || ''
+      );
+
+      const newSegment = {
+        id: result.segment_id,
+        provider: result.provider,
+        model: result.model,
+        runtimeSessionId: result.runtime_session_id,
+        streamId: result.stream_id,
+        seq: 1,
+      };
+
+      updateTab(tabId, {
+        providerId,
+        sessionId: result.runtime_session_id,
+        projectChatId: chat.chat_id,
+        projectChatSegments: [initialSegment, newSegment],
+      });
     } catch (err) {
       console.error('[WorkspaceContainer] Failed to change provider:', err);
     }
@@ -542,17 +485,27 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             onProviderChange={handleProviderChange}
             onSessionTitleGenerated={(title) => updateTab(tab.id, { title })}
             onSessionActivityComplete={(sessionId) => handleSessionActivityComplete(tab.id, sessionId)}
-            onProjectChatCreated={(chatId, streamId) => {
+            onProjectChatCreated={(chatId, streamId, segmentId) => {
               updateTab(tab.id, {
                 projectChatId: chatId,
                 projectChatSegments: [{
-                  id: chatId,
+                  id: segmentId || chatId,
                   provider: tab.providerId || 'claude',
                   model: '',
                   runtimeSessionId: '',
                   streamId,
                   seq: 0,
                 }],
+              });
+            }}
+            onProjectChatSegmentRuntimeSession={(segmentId, runtimeSessionId) => {
+              updateTab(tab.id, {
+                sessionId: runtimeSessionId,
+                projectChatSegments: (tab.projectChatSegments || []).map((segment) =>
+                  segment.id === segmentId
+                    ? { ...segment, runtimeSessionId }
+                    : segment
+                ),
               });
             }}
           />

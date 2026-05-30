@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-05-25T09:46:10.147Z",
+  "type": "event_msg",
+  "payload": {
+    "type": "user_message",
+    "message": "<system_instruction>\nYou are working inside Ropcode, a Mac app that lets the user run many coding agents in parallel.\nYour work should take place in the /Users/rubin/Documents/data/rubin/code/u-claw/.ropcode/minimal-lynx, which has been set up for you to work in.\n\nDo NOT read or write files outside the workspace directory. DO NOT EVER read or write files at /Users/rubin/Documents/data/rubin/code/u-claw. EVERY absolute path you use should start with /Users/rubin/Documents/data/rubin/code/u-claw/.... [truncated, total 1428 chars]",
+    "images": [],
+    "local_images": [],
+    "text_elements": []
+  }
+}

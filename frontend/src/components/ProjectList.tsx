@@ -400,7 +400,7 @@ export const ProjectList: React.FC<ProjectListProps> = ({
         const results = await Promise.all(
           allWorkspacePaths.map(async (path) => {
             try {
-              const running = await api.isClaudeSessionRunningForProject(path);
+              const running = await api.isProviderSessionRunningForProject(path, '');
               return [path, running] as const;
             } catch (err) {
               console.error(`[ProjectList] Failed to check ${path}:`, err);

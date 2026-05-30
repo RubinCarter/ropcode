@@ -10,6 +10,9 @@ interface RuntimeTrackerMessage {
   subtype?: string;
   ropcode_scope?: string;
   ropcode_task_id?: string;
+  isSidechain?: boolean;
+  parent_tool_use_id?: string;
+  task_id?: string;
   debug_meta?: {
     runtime_state?: ClaudeRuntimeStateSnapshot | null;
     ropcode_scope?: string;
@@ -112,7 +115,7 @@ export function reduceRuntimeTracker(
     }
   }
 
-  if (message.type === 'result' || isAssistantEndTurn(message)) {
+  if (!backgroundTaskScoped && (message.type === 'result' || isAssistantEndTurn(message))) {
     next.lastResultAt = now;
   }
 
@@ -128,7 +131,11 @@ export function reduceRuntimeTracker(
 }
 
 function isBackgroundTaskScoped(message: RuntimeTrackerMessage): boolean {
-  return message.ropcode_scope === 'background_task' || message.debug_meta?.ropcode_scope === 'background_task';
+  return message.isSidechain === true ||
+    Boolean(message.parent_tool_use_id) ||
+    Boolean(message.task_id) ||
+    message.ropcode_scope === 'background_task' ||
+    message.debug_meta?.ropcode_scope === 'background_task';
 }
 
 export function deriveRuntimeViewState({ tracker, local, now }: DeriveRuntimeViewStateInput): SessionRuntimeViewState {

@@ -143,13 +143,13 @@ func getTodos(t *testing.T, input map[string]interface{}) []map[string]interface
 // --- 1A. Session Lifecycle ---
 
 func TestInteractive_ResponseInit(t *testing.T) {
-	ev := parseOutput(t, `{"id":"init_1","result":{"userAgent":"codex/0.133.0","codexHome":"/home/.codex","platformOs":"macos"}}`)
+	ev := parseOutput(t, `{"id":"codex_initialize_1","result":{"userAgent":"codex/0.133.0","codexHome":"/home/.codex","platformOs":"macos"}}`)
 	assertTypeSubtype(t, ev, "system", "control_response", "init response")
 }
 
 func TestInteractive_ResponseThread(t *testing.T) {
 	ev := parseOutput(t, `{"id":"thread_1","result":{"thread":{"id":"thread-abc-123"},"model":"gpt-5.5"}}`)
-	assertTypeSubtype(t, ev, "system", "thread_created", "thread response")
+	assertTypeSubtype(t, ev, "system", "init", "thread response")
 	if ev.Message["session_id"] != "thread-abc-123" {
 		t.Fatalf("expected session_id=thread-abc-123, got %v", ev.Message["session_id"])
 	}
@@ -157,7 +157,7 @@ func TestInteractive_ResponseThread(t *testing.T) {
 
 func TestInteractive_ResponseError(t *testing.T) {
 	ev := parseOutput(t, `{"id":"turn_1","error":{"code":-32600,"message":"invalid request"}}`)
-	assertType(t, ev, "error", "error response")
+	assertTypeSubtype(t, ev, "system", "response", "error response")
 }
 
 func TestInteractive_ResponseTurn(t *testing.T) {
@@ -178,6 +178,79 @@ func TestInteractive_TurnCompleted(t *testing.T) {
 	}
 }
 
+func TestInteractive_TurnStateTracking(t *testing.T) {
+	d := &Driver{}
+	_ = d.ParseOutput([]byte(`{"method":"turn/started","params":{"threadId":"t1","turn":{"id":"turn1","status":"inProgress"}}}`))
+	if got := d.currentActiveTurn("t1"); got != "turn1" {
+		t.Fatalf("expected active turn turn1, got %q", got)
+	}
+	_ = d.ParseOutput([]byte(`{"method":"turn/completed","params":{"threadId":"t1","turnId":"turn1"}}`))
+	if got := d.currentActiveTurn("t1"); got != "" {
+		t.Fatalf("expected active turn to be cleared, got %q", got)
+	}
+}
+
+func TestInteractive_ThreadReadActivityActiveTurn(t *testing.T) {
+	d := &Driver{}
+	activity := d.activityFromThreadRead("thread1", true, map[string]interface{}{
+		"result": map[string]interface{}{
+			"thread": map[string]interface{}{
+				"id":     "thread1",
+				"status": map[string]interface{}{"type": "active"},
+				"turns": []interface{}{
+					map[string]interface{}{"id": "turn1", "status": "completed"},
+					map[string]interface{}{"id": "turn2", "status": "inProgress"},
+				},
+			},
+		},
+	})
+	if activity.Status != provider.SessionActivityActive || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected active interruptible activity, got %#v", activity)
+	}
+	if activity.TurnID != "turn2" {
+		t.Fatalf("expected active turn turn2, got %q", activity.TurnID)
+	}
+	if got := d.currentActiveTurn("thread1"); got != "turn2" {
+		t.Fatalf("expected cached turn turn2, got %q", got)
+	}
+}
+
+func TestInteractive_ThreadReadActivityUsesActiveChildTurn(t *testing.T) {
+	d := &Driver{}
+	_ = d.ParseOutput([]byte(`{"method":"item/started","params":{"item":{"type":"collabAgentToolCall","id":"call_abc123","tool":"spawnAgent","status":"inProgress","senderThreadId":"root","receiverThreadIds":[],"prompt":"search","agentsStates":{}},"threadId":"root","turnId":"turn1"}}`))
+	_ = d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"collabAgentToolCall","id":"call_abc123","tool":"spawnAgent","status":"completed","senderThreadId":"root","receiverThreadIds":["child1"],"prompt":"search","agentsStates":{"child1":{"status":"pendingInit","message":null}}},"threadId":"root","turnId":"turn1"}}`))
+	_ = d.ParseOutput([]byte(`{"method":"turn/started","params":{"threadId":"child1","turn":{"id":"child-turn","status":"inProgress"}}}`))
+
+	activity := d.activityFromThreadRead("root", true, map[string]interface{}{
+		"result": map[string]interface{}{
+			"thread": map[string]interface{}{
+				"id":     "root",
+				"status": map[string]interface{}{"type": "idle"},
+				"turns": []interface{}{
+					map[string]interface{}{"id": "turn1", "status": "inProgress"},
+				},
+			},
+		},
+	})
+
+	if activity.Status != provider.SessionActivityActive || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected active activity from child turn, got %#v", activity)
+	}
+	if activity.TurnID != "child-turn" {
+		t.Fatalf("expected child active turn, got %q", activity.TurnID)
+	}
+	threadID, turnID := d.currentInterruptTarget("root")
+	if threadID != "root" || turnID != "turn1" {
+		t.Fatalf("expected root turn to remain interrupt target when root is active, got %q/%q", threadID, turnID)
+	}
+
+	d.rememberTurnCompleted(map[string]interface{}{"threadId": "root"})
+	threadID, turnID = d.currentInterruptTarget("root")
+	if threadID != "child1" || turnID != "child-turn" {
+		t.Fatalf("expected child turn interrupt target after root turn clears, got %q/%q", threadID, turnID)
+	}
+}
+
 func TestInteractive_ThreadStarted(t *testing.T) {
 	ev := parseOutput(t, `{"method":"thread/started","params":{"thread":{"id":"t1","status":{"type":"idle"}}}}`)
 	assertTypeSubtype(t, ev, "system", "thread_started", "thread/started")
@@ -194,6 +267,10 @@ func TestInteractive_AgentMessageDelta(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn1","itemId":"msg1","delta":"Hello"}}`)
 	assertType(t, ev, "assistant", "agentMessage/delta")
 	assertIsDelta(t, ev, true, "agentMessage/delta")
+	message, _ := ev.Message["message"].(map[string]interface{})
+	if message["id"] != "t1:turn1:msg1" {
+		t.Fatalf("expected delta message id t1:turn1:msg1, got %v", message["id"])
+	}
 	assertContentBlockType(t, ev, 0, "text", "delta content type")
 	assertContentField(t, ev, 0, "text", "Hello", "delta text")
 }
@@ -207,8 +284,26 @@ func TestInteractive_AgentMessageStarted(t *testing.T) {
 func TestInteractive_AgentMessageCompleted(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg1","text":"Here are the results.","phase":"commentary"},"threadId":"t1","turnId":"turn1"}}`)
 	assertType(t, ev, "assistant", "agentMessage completed")
+	message, _ := ev.Message["message"].(map[string]interface{})
+	if message["id"] != "t1:turn1:msg1" {
+		t.Fatalf("expected completed message id t1:turn1:msg1, got %v", message["id"])
+	}
 	assertContentBlockType(t, ev, 0, "text", "agentMessage completed content")
 	assertContentField(t, ev, 0, "text", "Here are the results.", "agentMessage text")
+}
+
+func TestInteractive_AgentMessageCompletedAfterDeltasIsSuppressed(t *testing.T) {
+	d := &Driver{}
+	if ev := d.ParseOutput([]byte(`{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn1","itemId":"msg1","delta":"Here are "}}`)); ev == nil {
+		t.Fatal("expected first delta")
+	}
+	if ev := d.ParseOutput([]byte(`{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn1","itemId":"msg1","delta":"the results."}}`)); ev == nil {
+		t.Fatal("expected second delta")
+	}
+	ev := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg1","text":"Here are the results.","phase":"commentary"},"threadId":"t1","turnId":"turn1"}}`))
+	if ev != nil {
+		t.Fatalf("completed agentMessage duplicated delta text and should be suppressed, got Type=%q Subtype=%q", ev.Type, ev.Subtype)
+	}
 }
 
 // --- 1C. Reasoning ---
@@ -436,46 +531,94 @@ func TestInteractive_CollabAgentToolCall_WaitStarted(t *testing.T) {
 
 func TestInteractive_CollabAgentToolCall_SpawnCompleted(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"collabAgentToolCall","id":"call_abc123","tool":"spawnAgent","status":"completed","senderThreadId":"t1","receiverThreadIds":["sub1"],"prompt":"search for X","model":"gpt-5.5","reasoningEffort":"xhigh","agentsStates":{"sub1":{"status":"pendingInit","message":null}}},"threadId":"t1","turnId":"turn1"}}`)
-	assertType(t, ev, "user", "collabAgentToolCall spawn completed")
-	assertContentBlockType(t, ev, 0, "tool_result", "spawn completed tool_result")
-	assertContentField(t, ev, 0, "tool_use_id", "call_abc123", "spawn completed id")
+	assertTypeSubtype(t, ev, "system", "task_started", "collabAgentToolCall spawn completed")
+	if ev.Message["task_id"] != "sub1" {
+		t.Fatalf("expected task_id=sub1, got %v", ev.Message["task_id"])
+	}
+	if ev.Message["tool_use_id"] != "call_abc123" {
+		t.Fatalf("expected tool_use_id=call_abc123, got %v", ev.Message["tool_use_id"])
+	}
 }
 
 func TestInteractive_CollabAgentToolCall_WaitCompleted_WithResult(t *testing.T) {
-	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"collabAgentToolCall","id":"call_wait1","tool":"wait","status":"completed","senderThreadId":"t1","receiverThreadIds":["sub1"],"prompt":null,"model":null,"reasoningEffort":null,"agentsStates":{"sub1":{"status":"completed","message":"stdout: subagent_done\nexit code: 0"}}},"threadId":"t1","turnId":"turn1"}}`)
+	d := &Driver{}
+	_ = d.ParseOutput([]byte(`{"method":"item/started","params":{"item":{"type":"collabAgentToolCall","id":"call_abc123","tool":"spawnAgent","status":"inProgress","senderThreadId":"t1","receiverThreadIds":[],"prompt":"run echo","model":"","reasoningEffort":"medium","agentsStates":{}},"threadId":"t1","turnId":"turn1"}}`))
+	_ = d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"collabAgentToolCall","id":"call_abc123","tool":"spawnAgent","status":"completed","senderThreadId":"t1","receiverThreadIds":["sub1"],"prompt":"run echo","model":"gpt-5.5","reasoningEffort":"xhigh","agentsStates":{"sub1":{"status":"pendingInit","message":null}}},"threadId":"t1","turnId":"turn1"}}`))
+	ev := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"collabAgentToolCall","id":"call_wait1","tool":"wait","status":"completed","senderThreadId":"t1","receiverThreadIds":["sub1"],"prompt":null,"model":null,"reasoningEffort":null,"agentsStates":{"sub1":{"status":"completed","message":"stdout: subagent_done\nexit code: 0"}}},"threadId":"t1","turnId":"turn1"}}`))
 	assertType(t, ev, "user", "collabAgentToolCall wait completed")
 	assertContentBlockType(t, ev, 0, "tool_result", "wait completed tool_result")
-	assertContentField(t, ev, 0, "tool_use_id", "call_wait1", "wait completed id")
-	assertContentField(t, ev, 0, "content", "stdout: subagent_done\nexit code: 0", "wait completed content from agentsStates")
+	assertContentField(t, ev, 0, "tool_use_id", "call_abc123", "wait completed resolves launcher id")
+	result, _ := ev.Message["tool_use_result"].(map[string]interface{})
+	if result["agentId"] != "sub1" {
+		t.Fatalf("expected tool_use_result.agentId=sub1, got %v", result["agentId"])
+	}
 }
 
 // --- 1E-3. Web Search (webSearch) ---
 
 func TestInteractive_WebSearchStarted(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"webSearch","id":"ws_abc123","query":"","action":{"type":"other"}},"threadId":"t1","turnId":"turn1"}}`)
-	if ev == nil {
-		t.Fatal("webSearch started should not be nil")
-	}
+	assertNil(t, ev, "webSearch started without query")
+}
+
+func TestInteractive_WebSearchStartedWithQuery(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"webSearch","id":"ws_abc123","query":"OpenAI Codex CLI","action":{"type":"search","queries":["OpenAI Codex CLI"]}},"threadId":"t1","turnId":"turn1"}}`)
 	assertType(t, ev, "assistant", "webSearch started")
+	assertContentBlockType(t, ev, 0, "tool_use", "webSearch tool_use")
+	assertContentField(t, ev, 0, "id", "ws_abc123", "webSearch id")
+	assertContentField(t, ev, 0, "name", "WebSearch", "webSearch name")
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]any)
+	if input["query"] != "OpenAI Codex CLI" {
+		t.Fatalf("expected query from started event, got %v", input["query"])
+	}
+}
+
+func TestInteractive_WebSearchCompleted(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"webSearch","id":"ws_abc123","query":"OpenAI Codex CLI","action":{"type":"search","queries":["OpenAI Codex CLI release date"]}},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "assistant", "webSearch completed")
 	assertContentBlockType(t, ev, 0, "tool_use", "webSearch tool_use")
 	assertContentField(t, ev, 0, "id", "ws_abc123", "webSearch id")
 	assertContentField(t, ev, 0, "name", "WebSearch", "webSearch name")
 }
 
-func TestInteractive_WebSearchCompleted(t *testing.T) {
-	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"webSearch","id":"ws_abc123","query":"OpenAI Codex CLI","action":{"type":"search","queries":["OpenAI Codex CLI release date"]}},"threadId":"t1","turnId":"turn1"}}`)
-	assertType(t, ev, "user", "webSearch completed")
-	assertContentBlockType(t, ev, 0, "tool_result", "webSearch tool_result")
-	assertContentField(t, ev, 0, "tool_use_id", "ws_abc123", "webSearch result id")
-}
-
 func TestInteractive_WebSearchCompleted_HasQuery(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"webSearch","id":"ws_xyz","query":"test query","action":{"type":"search","queries":["test query","another query"]}},"threadId":"t1","turnId":"turn1"}}`)
-	assertType(t, ev, "user", "webSearch completed with query")
+	assertType(t, ev, "assistant", "webSearch completed with query")
 	blocks := getContentBlocks(t, ev)
-	content, _ := blocks[0]["content"].(string)
-	if content == "" {
-		t.Fatal("webSearch result content should not be empty")
+	input, _ := blocks[0]["input"].(map[string]any)
+	if input["query"] != "test query" {
+		t.Fatalf("expected webSearch input query, got %v", input["query"])
+	}
+}
+
+func TestInteractive_WebSearchCompletedUsesActionQueryFallback(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"webSearch","id":"ws_xyz","query":"","action":{"type":"search","queries":["fallback query"]}},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "assistant", "webSearch completed with fallback query")
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]any)
+	if input["query"] != "fallback query" {
+		t.Fatalf("expected fallback query, got %v", input["query"])
+	}
+}
+
+func TestInteractive_WebSearchDeduplicatesStartedAndCompleted(t *testing.T) {
+	d := &Driver{}
+	started := d.ParseOutput([]byte(`{"method":"item/started","params":{"item":{"type":"webSearch","id":"ws_dupe","query":"same query","action":{"type":"search","queries":["same query"]}},"threadId":"t1","turnId":"turn1"}}`))
+	assertType(t, started, "assistant", "webSearch started")
+	completed := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"webSearch","id":"ws_dupe","query":"same query","action":{"type":"search","queries":["same query"]}},"threadId":"t1","turnId":"turn1"}}`))
+	assertNil(t, completed, "webSearch completed duplicate")
+}
+
+func TestInteractive_WebSearchOpenPageMapsToWebFetch(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"webSearch","id":"ws_fetch","query":"","action":{"type":"open_page","url":"https://openai.com/"}},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "assistant", "webSearch open_page")
+	assertContentBlockType(t, ev, 0, "tool_use", "webFetch tool_use")
+	assertContentField(t, ev, 0, "name", "WebFetch", "open_page should map to WebFetch")
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]any)
+	if input["url"] != "https://openai.com/" {
+		t.Fatalf("expected webFetch url, got %v", input["url"])
 	}
 }
 
@@ -988,9 +1131,28 @@ func TestHistory_ItemCompleted_LocalShellOutput(t *testing.T) {
 
 func TestHistory_ResponseItem_WebSearchCall(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"web_search_call","status":"completed","action":{"type":"search","queries":["OpenClaw GitHub"]}}}`)
-	// web_search_call doesn't have call_id, so it may not map to standard tool_use
-	// Current implementation: falls through to default (nil message)
 	assertHistoryType(t, ev, "assistant", "web_search_call")
+	blocks := getHistoryContentBlocks(t, ev)
+	if blocks[0]["name"] != "WebSearch" {
+		t.Fatalf("expected WebSearch, got %v", blocks[0]["name"])
+	}
+	input, _ := blocks[0]["input"].(map[string]any)
+	if input["query"] != "OpenClaw GitHub" {
+		t.Fatalf("expected query from history web search, got %v", input["query"])
+	}
+}
+
+func TestHistory_ResponseItem_WebSearchOpenPageMapsToWebFetch(t *testing.T) {
+	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"web_search_call","status":"completed","action":{"type":"open_page","url":"https://openai.com/"}}}`)
+	assertHistoryType(t, ev, "assistant", "web_search_call")
+	blocks := getHistoryContentBlocks(t, ev)
+	if blocks[0]["name"] != "WebFetch" {
+		t.Fatalf("expected WebFetch, got %v", blocks[0]["name"])
+	}
+	input, _ := blocks[0]["input"].(map[string]any)
+	if input["url"] != "https://openai.com/" {
+		t.Fatalf("expected WebFetch url, got %v", input["url"])
+	}
 }
 
 // --- 3H. Metadata (Stored) ---

@@ -145,6 +145,20 @@ export namespace main {
     pid?: number;
     provider: string;
   }
+  export interface ProviderSessionActivity {
+    session_id?: string;
+    provider_id?: string;
+    provider_session_id?: string;
+    project_path?: string;
+    status: 'unknown' | 'idle' | 'active' | 'error';
+    running: boolean;
+    active: boolean;
+    can_interrupt: boolean;
+    thread_status?: string;
+    turn_id?: string;
+    error?: string;
+    updated_at?: string;
+  }
   export interface ClaudeActivityUsage {
     input_tokens?: number;
     output_tokens?: number;
@@ -784,91 +798,42 @@ export function UpdateWorkspaceActions(workspaceId: string, actions: main.Action
   return wsClient.call('UpdateWorkspaceActions', workspaceId, actions);
 }
 
-// ==================== Claude Sessions ====================
+// ==================== Provider Sessions ====================
 
-export function CancelClaudeExecutionByProject(projectPath: string): Promise<void> {
-  return wsClient.call('CancelClaudeExecutionByProject', projectPath);
+export function StopProviderSessionsByProject(projectPath: string): Promise<void> {
+  return wsClient.call('StopProviderSessionsByProject', projectPath);
 }
 
-export function StartInteractiveClaudeSession(
-  projectPath: string,
-  model: string,
-  providerApiId?: string,
-  resumeSessionId?: string
-): Promise<string> {
-  return wsClient.call('StartInteractiveClaudeSession', projectPath, model, providerApiId || '', resumeSessionId || '');
-}
-
-export function SendClaudeMessage(
-  projectPath: string,
-  sessionId: string,
-  prompt: string
-): Promise<void> {
-  return wsClient.call('SendClaudeMessage', projectPath, sessionId, prompt);
-}
-
-export function SetClaudeSessionModel(
+export function SetProviderSessionModel(
   sessionId: string,
   model: string
 ): Promise<void> {
-  return wsClient.call('SetClaudeSessionModel', sessionId, model);
+  return wsClient.call('SetProviderSessionModel', sessionId, model);
 }
 
-export function SetClaudeSessionPermissionMode(
+export function SetProviderSessionPermissionMode(
   sessionId: string,
   mode: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk'
 ): Promise<void> {
-  return wsClient.call('SetClaudeSessionPermissionMode', sessionId, mode);
+  return wsClient.call('SetProviderSessionPermissionMode', sessionId, mode);
 }
 
-export function InterruptClaudeSession(sessionId: string): Promise<void> {
-  return wsClient.call('InterruptClaudeSession', sessionId);
+export function InterruptProviderSession(sessionId: string): Promise<void> {
+  return wsClient.call('InterruptProviderSession', sessionId);
 }
 
-export function UpdateClaudeSessionEnvironment(
+export function UpdateProviderSessionEnvironment(
   sessionId: string,
   variables: Record<string, string>
 ): Promise<void> {
-  return wsClient.call('UpdateClaudeSessionEnvironment', sessionId, variables);
+  return wsClient.call('UpdateProviderSessionEnvironment', sessionId, variables);
 }
 
-export function SwitchClaudeSessionProviderApi(
+export function SwitchProviderSessionApi(
   sessionId: string,
   providerApiId: string
 ): Promise<void> {
-  return wsClient.call('SwitchClaudeSessionProviderApi', sessionId, providerApiId || '');
-}
-
-export function StartProviderSession(
-  provider: string,
-  projectPath: string,
-  prompt: string,
-  model: string,
-  providerApiId?: string,
-  reasoningEffort?: string
-): Promise<string> {
-  return wsClient.call('StartProviderSession', provider, projectPath, prompt, model, providerApiId || '', reasoningEffort || '');
-}
-
-export function ResumeProviderSession(
-  provider: string,
-  projectPath: string,
-  prompt: string,
-  model: string,
-  sessionId: string,
-  providerApiId?: string,
-  reasoningEffort?: string
-): Promise<string> {
-  return wsClient.call('ResumeProviderSession', provider, projectPath, prompt, model, sessionId, providerApiId || '', reasoningEffort || '');
-}
-
-export function SendProviderSessionMessage(
-  provider: string,
-  projectPath: string,
-  sessionId: string,
-  prompt: string
-): Promise<string> {
-  return wsClient.call('SendProviderSessionMessage', provider, projectPath, sessionId, prompt);
+  return wsClient.call('SwitchProviderSessionApi', sessionId, providerApiId || '');
 }
 
 export function ListProviderSessions(projectPath: string, providerName: string): Promise<main.ProviderSession[]> {
@@ -1003,12 +968,16 @@ export function GetSessionStats(projectPath: string, sessionId: string): Promise
   return wsClient.call('GetSessionStats', projectPath, sessionId);
 }
 
-export function IsClaudeSessionRunning(sessionId: string): Promise<boolean> {
-  return wsClient.call('IsClaudeSessionRunning', sessionId);
+export function IsProviderSessionRunning(sessionId: string): Promise<boolean> {
+  return wsClient.call('IsProviderSessionRunning', sessionId);
 }
 
-export function IsClaudeSessionRunningForProject(projectPath: string, providerOrSessionId: string): Promise<boolean> {
-  return wsClient.call('IsClaudeSessionRunningForProject', projectPath, providerOrSessionId);
+export function IsProviderSessionRunningForProject(projectPath: string, providerOrSessionId: string): Promise<boolean> {
+  return wsClient.call('IsProviderSessionRunningForProject', projectPath, providerOrSessionId);
+}
+
+export function QueryProviderSessionActivityForProject(projectPath: string, providerOrSessionId: string): Promise<main.ProviderSessionActivity> {
+  return wsClient.call('QueryProviderSessionActivityForProject', projectPath, providerOrSessionId);
 }
 
 export function GetClaudeSessionActivities(sessionId: string): Promise<main.ClaudeActivitySnapshot> {

@@ -69,8 +69,7 @@ func (s *sessionEventStream) close() {
 }
 
 func (s *sessionEventStream) attachSplitStream(client rpcSession, sessionID string) {
-	connector, ok := client.(splitSessionStreamConnector)
-	if !ok || sessionID == "" {
+	if sessionID == "" {
 		return
 	}
 
@@ -78,6 +77,15 @@ func (s *sessionEventStream) attachSplitStream(client rpcSession, sessionID stri
 	provider := s.provider
 	s.mu.Unlock()
 	streamID := stream.StreamIDForSession(firstNonEmpty(provider, "claude"), sessionID)
+	s.attachStreamID(client, streamID)
+}
+
+func (s *sessionEventStream) attachStreamID(client rpcSession, streamID string) {
+	connector, ok := client.(splitSessionStreamConnector)
+	if !ok || streamID == "" {
+		return
+	}
+
 	closeFunc, err := connector.ConnectSessionStream(streamID, s.handleSessionFrame)
 	if err != nil {
 		return

@@ -1,0 +1,21 @@
+{
+  "provider": "claude",
+  "categories": [
+    "assistant/text",
+    "assistant/thinking",
+    "assistant/tool_use",
+    "attachment",
+    "file-history-snapshot",
+    "last-prompt",
+    "permission-mode",
+    "queue-operation",
+    "system/api_error",
+    "system/compact_boundary",
+    "system/local_command",
+    "system/scheduled_task_fire",
+    "system/turn_duration",
+    "user/text",
+    "user/tool_result"
+  ],
+  "total_categories": 15
+}

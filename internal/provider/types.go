@@ -32,6 +32,33 @@ type SessionStatus struct {
 	Extra             map[string]string `json:"extra,omitempty"`
 }
 
+type SessionActivityStatus string
+
+const (
+	SessionActivityUnknown SessionActivityStatus = "unknown"
+	SessionActivityIdle    SessionActivityStatus = "idle"
+	SessionActivityActive  SessionActivityStatus = "active"
+	SessionActivityError   SessionActivityStatus = "error"
+)
+
+// SessionActivity describes whether a provider session is alive and whether
+// its current turn is actively doing work. Providers may fill this from a
+// native query API, while callers consume one shared shape.
+type SessionActivity struct {
+	SessionID         string                `json:"session_id,omitempty"`
+	ProviderID        string                `json:"provider_id,omitempty"`
+	ProviderSessionID string                `json:"provider_session_id,omitempty"`
+	ProjectPath       string                `json:"project_path,omitempty"`
+	Status            SessionActivityStatus `json:"status"`
+	Running           bool                  `json:"running"`
+	Active            bool                  `json:"active"`
+	CanInterrupt      bool                  `json:"can_interrupt"`
+	ThreadStatus      string                `json:"thread_status,omitempty"`
+	TurnID            string                `json:"turn_id,omitempty"`
+	Error             string                `json:"error,omitempty"`
+	UpdatedAt         time.Time             `json:"updated_at,omitempty"`
+}
+
 // OutputEvent is the unified output event produced by driver.ParseOutput.
 type OutputEvent struct {
 	Type              string                 `json:"type"`

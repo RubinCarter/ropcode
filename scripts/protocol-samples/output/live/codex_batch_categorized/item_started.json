@@ -1,0 +1,11 @@
+{
+  "type": "item.started",
+  "item": {
+    "id": "item_0",
+    "type": "command_execution",
+    "command": "/bin/zsh -lc 'echo hello_protocol_test'",
+    "aggregated_output": "",
+    "exit_code": null,
+    "status": "in_progress"
+  }
+}

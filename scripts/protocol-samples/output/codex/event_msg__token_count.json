@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-05-25T09:46:10.147Z",
+  "type": "event_msg",
+  "payload": {
+    "type": "token_count",
+    "info": {
+      "total_token_usage": {
+        "input_tokens": 19397,
+        "cached_input_tokens": 10496,
+        "output_tokens": 155,
+        "reasoning_output_tokens": 121,
+        "total_tokens": 19552
+      },
+      "last_token_usage": {
+        "input_tokens": 19397,
+        "cached_input_tokens": 10496,
+        "output_tokens": 155,
+        "reasoning_output_tokens": 121,
+        "total_tokens": 19552
+      },
+      "model_context_window": 258400
+    },
+    "rate_limits": {
+      "limit_id": "codex",
+      "limit_name": null,
+      "primary": null,
+      "secondary": null,
+      "credits": null,
+      "plan_type": null,
+      "rate_limit_reached_type": null
+    }
+  }
+}

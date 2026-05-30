@@ -10,6 +10,11 @@ import type { UseSessionStateReturn } from './useSessionState';
 
 const activeRecoveryKeys = new Set<string>();
 
+function isMissingSessionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /session file not found|session not found:/i.test(message);
+}
+
 interface UseSessionRecoveryOptions {
   defaultProvider: string;
   messagesState: UseSessionMessagesReturn;
@@ -91,7 +96,7 @@ export function useSessionRecovery({
       try {
         setIsRecoveringHistory(true);
 
-        const running = await api.isClaudeSessionRunningForProject(projectPath, sessionId);
+        const running = await api.isProviderSessionRunningForProject(projectPath, sessionId);
         if (!isMounted) return;
         if (!running) {
           processState.setIsLoading(false);
@@ -124,6 +129,12 @@ export function useSessionRecovery({
           await refreshSubagentTranscripts(sessionId, projectId);
         }
       } catch (err) {
+        if (isMissingSessionError(err)) {
+          SessionPersistenceService.removeSession(sessionId);
+          processState.setIsLoading(false);
+          processState.hasActiveSessionRef.current = false;
+          return;
+        }
         console.error(`[AiCodeSession] Recovery (${trigger}) failed`, {
           recoveryKey,
           sessionId,

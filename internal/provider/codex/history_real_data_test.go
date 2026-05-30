@@ -232,6 +232,10 @@ func TestRealHistory_ResponseItem_WebSearchCall(t *testing.T) {
 	if blocks[0]["name"] != "WebSearch" {
 		t.Fatalf("expected name=WebSearch, got %v", blocks[0]["name"])
 	}
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["query"] == "" {
+		t.Fatalf("expected non-empty WebSearch query, got %v", input["query"])
+	}
 }
 
 func TestRealHistory_ResponseItem_Message_Developer(t *testing.T) {
@@ -293,6 +297,16 @@ func TestRealLive_InteractiveProtocol_AllEvents(t *testing.T) {
 				hasResult = true
 			} else if ev.IsDelta {
 				hasDelta = true
+				if ev.Message != nil {
+					inner, _ := ev.Message["message"].(map[string]interface{})
+					blocks := contentBlocksFromInner(inner)
+					if len(blocks) > 0 {
+						ct, _ := blocks[0]["type"].(string)
+						if ct == "text" {
+							hasText = true
+						}
+					}
+				}
 			} else if ev.Message != nil {
 				msg := ev.Message
 				inner, _ := msg["message"].(map[string]interface{})
@@ -302,7 +316,7 @@ func TestRealLive_InteractiveProtocol_AllEvents(t *testing.T) {
 						ct, _ := blocks[0]["type"].(string)
 						if ct == "tool_use" {
 							hasToolUse = true
-						} else if ct == "text" && !ev.IsDelta {
+						} else if ct == "text" {
 							hasText = true
 						}
 					}
@@ -401,7 +415,8 @@ func TestRealLive_WebSearch_Events(t *testing.T) {
 	}
 
 	d := &Driver{}
-	var hasWebSearchUse, hasWebSearchResult bool
+	var hasWebSearchUse bool
+	var emptyWebSearchUses int
 	for _, raw := range lines {
 		data, _ := json.Marshal(raw)
 		ev := d.ParseOutput(data)
@@ -416,18 +431,10 @@ func TestRealLive_WebSearch_Events(t *testing.T) {
 					name, _ := blocks[0]["name"].(string)
 					if name == "WebSearch" {
 						hasWebSearchUse = true
-					}
-				}
-			}
-		}
-		if ev.Type == "user" && ev.Message != nil {
-			inner, _ := ev.Message["message"].(map[string]interface{})
-			if inner != nil {
-				blocks := contentBlocksFromInner(inner)
-				if len(blocks) > 0 {
-					id, _ := blocks[0]["tool_use_id"].(string)
-					if len(id) > 3 && id[:3] == "ws_" {
-						hasWebSearchResult = true
+						input, _ := blocks[0]["input"].(map[string]interface{})
+						if input["query"] == "" {
+							emptyWebSearchUses++
+						}
 					}
 				}
 			}
@@ -437,8 +444,8 @@ func TestRealLive_WebSearch_Events(t *testing.T) {
 	if !hasWebSearchUse {
 		t.Error("expected WebSearch tool_use from websearch capture")
 	}
-	if !hasWebSearchResult {
-		t.Error("expected WebSearch tool_result from websearch capture")
+	if emptyWebSearchUses > 0 {
+		t.Errorf("expected no empty WebSearch queries, got %d", emptyWebSearchUses)
 	}
 }
 

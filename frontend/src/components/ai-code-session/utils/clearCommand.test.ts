@@ -34,37 +34,37 @@ test('uses local fallback for clear handling across providers', async () => {
   assert.equal(shouldUseLocalClearFallback('/clear', 'gemini'), true);
 });
 
-test('creates a fresh Claude session for /clear', async () => {
-  const { shouldCreateFreshClaudeSession } = await loadModule();
+test('creates a fresh provider session for /clear', async () => {
+  const { shouldCreateFreshProviderSession } = await loadModule();
 
-  assert.equal(shouldCreateFreshClaudeSession('/clear', 'claude'), true);
-  assert.equal(shouldCreateFreshClaudeSession('/clear', 'codex'), false);
-  assert.equal(shouldCreateFreshClaudeSession('/clear now', 'claude'), false);
+  assert.equal(shouldCreateFreshProviderSession('/clear', 'claude'), true);
+  assert.equal(shouldCreateFreshProviderSession('/clear', 'codex'), true);
+  assert.equal(shouldCreateFreshProviderSession('/clear now', 'claude'), false);
 });
 
-test('does not require immediately stopping the active Claude session on /clear', async () => {
-  const { shouldStopClaudeSessionImmediately } = await loadModule();
+test('does not require immediately stopping the active provider session on /clear', async () => {
+  const { shouldStopProviderSessionImmediately } = await loadModule();
 
-  assert.equal(shouldStopClaudeSessionImmediately('/clear', 'claude'), false);
-  assert.equal(shouldStopClaudeSessionImmediately('/clear', 'codex'), false);
-  assert.equal(shouldStopClaudeSessionImmediately('/clear now', 'claude'), false);
+  assert.equal(shouldStopProviderSessionImmediately('/clear', 'claude'), false);
+  assert.equal(shouldStopProviderSessionImmediately('/clear', 'codex'), false);
+  assert.equal(shouldStopProviderSessionImmediately('/clear now', 'claude'), false);
 });
 
-test('describes idle Claude clear without claiming a session was stopped', async () => {
+test('describes idle provider clear without claiming a session was stopped', async () => {
   const { getLocalClearMessage } = await loadModule();
 
   assert.equal(
     getLocalClearMessage({ provider: 'claude', didStopSession: false }),
-    'Conversation cleared. The next message will start a fresh Claude session.'
+    'Conversation cleared. The next message will start a fresh claude session.'
   );
 
   assert.equal(
     getLocalClearMessage({ provider: 'claude', didStopSession: true }),
-    'Conversation cleared. Claude session stopped; the next message will start fresh.'
+    'Conversation cleared. claude session stopped; the next message will start fresh.'
   );
 
   assert.equal(
     getLocalClearMessage({ provider: 'codex', didStopSession: false }),
-    'Local conversation view cleared. Provider session was not reset.'
+    'Conversation cleared. The next message will start a fresh codex session.'
   );
 });

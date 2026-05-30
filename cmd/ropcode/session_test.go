@@ -62,21 +62,30 @@ type testSpaceSessionSummary struct {
 	Provider string `json:"provider"`
 }
 
+type testProjectChat struct {
+	ID             string
+	ProjectPath    string
+	ActiveProvider string
+	SessionIDs     map[string]string
+}
+
 type sessionRPCTestApp struct {
-	db                   *database.Database
-	mu                   sync.Mutex
-	sessions             map[string]*rpcLiveSession
-	sends                []sessionSendCall
-	broadcaster          func(string, interface{})
-	streamHub            *stream.Hub
-	nextID               int
-	lastInteractiveAPIID string
+	db                *database.Database
+	mu                sync.Mutex
+	sessions          map[string]*rpcLiveSession
+	chats             map[string]*testProjectChat
+	sends             []sessionSendCall
+	broadcaster       func(string, interface{})
+	streamHub         *stream.Hub
+	nextID            int
+	lastProviderAPIID string
 }
 
 func newSessionRPCTestApp(db *database.Database) *sessionRPCTestApp {
 	return &sessionRPCTestApp{
 		db:        db,
 		sessions:  make(map[string]*rpcLiveSession),
+		chats:     make(map[string]*testProjectChat),
 		streamHub: stream.NewHub(),
 	}
 }
@@ -89,9 +98,31 @@ func (a *sessionRPCTestApp) SessionStreamHub() *stream.Hub {
 	return a.streamHub
 }
 
-func (a *sessionRPCTestApp) StartProviderSession(provider, projectPath, prompt, model, providerApiID string) (string, error) {
+func (a *sessionRPCTestApp) ensureUserSessionForTest(provider, projectPath, prompt, model, providerApiID string, extra ...string) (string, error) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.lastProviderAPIID = providerApiID
+	resumeSessionID := ""
+	if len(extra) > 1 {
+		resumeSessionID = extra[1]
+	}
+	if resumeSessionID == "__ROP_FRESH_SESSION__" {
+		for _, s := range a.sessions {
+			if s.ProjectPath == projectPath && s.Provider == provider && s.Status == "running" {
+				s.Status = "cancelled"
+			}
+		}
+	} else {
+		for id, s := range a.sessions {
+			if s.ProjectPath == projectPath && s.Provider == provider && s.Status == "running" {
+				if prompt != "" {
+					a.sends = append(a.sends, sessionSendCall{Provider: provider, SessionID: id, ProjectPath: projectPath, Prompt: prompt})
+					s.Output += prompt + "\nassistant follow-up\n"
+				}
+				a.mu.Unlock()
+				return id, nil
+			}
+		}
+	}
 
 	a.nextID++
 	sessionID := fmt.Sprintf("%s-session-%d", provider, a.nextID)
@@ -112,10 +143,121 @@ func (a *sessionRPCTestApp) StartProviderSession(provider, projectPath, prompt, 
 		a.emitComplete(sessionID, projectPath, provider)
 	}()
 
+	a.mu.Unlock()
 	return sessionID, nil
 }
 
-func (a *sessionRPCTestApp) SendProviderSessionMessage(provider, projectPath, sessionID, prompt string) (string, error) {
+func (a *sessionRPCTestApp) CreateProjectChat(projectPath, provider, model, providerApiID, existingSessionID string) (projectChatSwitchResult, error) {
+	sessionID := existingSessionID
+	var err error
+	if sessionID == "" {
+		sessionID, err = a.ensureUserSessionForTest(provider, projectPath, "", model, providerApiID)
+		if err != nil {
+			return projectChatSwitchResult{}, err
+		}
+	}
+
+	a.mu.Lock()
+	a.nextID++
+	chatID := fmt.Sprintf("chat-%d", a.nextID)
+	a.chats[chatID] = &testProjectChat{
+		ID:             chatID,
+		ProjectPath:    projectPath,
+		ActiveProvider: provider,
+		SessionIDs:     map[string]string{provider: sessionID},
+	}
+	a.lastProviderAPIID = providerApiID
+	a.mu.Unlock()
+
+	a.streamHub.RegisterAlias(stream.StreamIDForSession(provider, sessionID), chatID)
+	return projectChatSwitchResult{
+		ChatID:           chatID,
+		RuntimeSessionID: sessionID,
+		StreamID:         chatID,
+		Provider:         provider,
+		Model:            model,
+	}, nil
+}
+
+func (a *sessionRPCTestApp) GetActiveChatForProject(projectPath string) (*projectChatSummary, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, chat := range a.chats {
+		if chat.ProjectPath == projectPath {
+			return &projectChatSummary{
+				ID:             chat.ID,
+				ProjectPath:    chat.ProjectPath,
+				ActiveProvider: chat.ActiveProvider,
+			}, nil
+		}
+	}
+	return nil, nil
+}
+
+func (a *sessionRPCTestApp) SwitchProjectChatProvider(chatID, provider, model, providerApiID string) (projectChatSwitchResult, error) {
+	a.mu.Lock()
+	chat := a.chats[chatID]
+	if chat == nil {
+		a.mu.Unlock()
+		return projectChatSwitchResult{}, fmt.Errorf("chat not found: %s", chatID)
+	}
+	projectPath := chat.ProjectPath
+	sessionID := chat.SessionIDs[provider]
+	a.lastProviderAPIID = providerApiID
+	a.mu.Unlock()
+
+	var err error
+	if sessionID == "" {
+		sessionID, err = a.ensureUserSessionForTest(provider, projectPath, "", model, providerApiID)
+		if err != nil {
+			return projectChatSwitchResult{}, err
+		}
+	}
+
+	a.mu.Lock()
+	chat.ActiveProvider = provider
+	chat.SessionIDs[provider] = sessionID
+	a.mu.Unlock()
+
+	a.streamHub.RegisterAlias(stream.StreamIDForSession(provider, sessionID), chatID)
+	return projectChatSwitchResult{
+		ChatID:           chatID,
+		RuntimeSessionID: sessionID,
+		StreamID:         chatID,
+		Provider:         provider,
+		Model:            model,
+	}, nil
+}
+
+func (a *sessionRPCTestApp) SendProjectChatMessage(chatID, prompt, model, providerApiID, reasoningEffort string) (string, error) {
+	a.mu.Lock()
+	chat := a.chats[chatID]
+	if chat == nil {
+		a.mu.Unlock()
+		return "", fmt.Errorf("chat not found: %s", chatID)
+	}
+	provider := chat.ActiveProvider
+	sessionID := chat.SessionIDs[provider]
+	projectPath := chat.ProjectPath
+	a.lastProviderAPIID = providerApiID
+	a.mu.Unlock()
+
+	if sessionID == "" {
+		var err error
+		sessionID, err = a.ensureUserSessionForTest(provider, projectPath, "", model, providerApiID)
+		if err != nil {
+			return "", err
+		}
+		a.mu.Lock()
+		chat.SessionIDs[provider] = sessionID
+		a.mu.Unlock()
+		a.streamHub.RegisterAlias(stream.StreamIDForSession(provider, sessionID), chatID)
+	}
+	_, err := a.sendUserMessageForTest(provider, projectPath, sessionID, prompt)
+	return chatID, err
+}
+
+func (a *sessionRPCTestApp) sendUserMessageForTest(provider, projectPath, sessionID, prompt string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -158,36 +300,6 @@ func (a *sessionRPCTestApp) GetProviderSessionOutput(sessionID string) (string, 
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 	return session.Output, nil
-}
-
-func (a *sessionRPCTestApp) StartInteractiveClaudeSession(projectPath, model, providerApiID, resumeSessionID string) (string, error) {
-	a.mu.Lock()
-	a.lastInteractiveAPIID = providerApiID
-	// Find existing running session for this project
-	var existingID string
-	for id, s := range a.sessions {
-		if s.ProjectPath == projectPath && s.Status == "running" {
-			existingID = id
-			break
-		}
-	}
-	a.mu.Unlock()
-
-	if resumeSessionID == "__ROP_FRESH_SESSION__" && existingID != "" {
-		_ = a.StopProviderSession(existingID)
-		existingID = ""
-	}
-
-	if existingID != "" {
-		return existingID, nil
-	}
-
-	return a.StartProviderSession("claude", projectPath, "", model, providerApiID)
-}
-
-func (a *sessionRPCTestApp) SendClaudeMessage(projectPath, sessionID, prompt string) error {
-	_, err := a.SendProviderSessionMessage("claude", projectPath, sessionID, prompt)
-	return err
 }
 
 func (a *sessionRPCTestApp) GetClaudeCapabilityLayers(projectPath string) (rpcClaudeCapabilityLayers, error) {
@@ -253,6 +365,26 @@ func (a *sessionRPCTestApp) StopProviderSession(sessionID string) error {
 		time.Sleep(20 * time.Millisecond)
 		a.emitComplete(sessionID, session.ProjectPath, session.Provider)
 	}()
+	return nil
+}
+
+func (a *sessionRPCTestApp) StopProviderSessionsByProject(projectPath string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, session := range a.sessions {
+		if session.ProjectPath == projectPath && session.Status == "running" {
+			session.Status = "cancelled"
+			go func(sessionID, cwd, provider string) {
+				time.Sleep(20 * time.Millisecond)
+				a.emitComplete(sessionID, cwd, provider)
+			}(session.SessionID, session.ProjectPath, session.Provider)
+		}
+	}
+	for chatID, chat := range a.chats {
+		if chat.ProjectPath == projectPath {
+			delete(a.chats, chatID)
+		}
+	}
 	return nil
 }
 
@@ -427,6 +559,14 @@ func startRegisteredSessionInstance(t *testing.T) *registeredSessionInstance {
 	app := newSessionRPCTestApp(db)
 	server := websocket.NewServer(app)
 	app.broadcaster = server.BroadcastEvent
+	router := websocket.NewRouter(app)
+	server.SetDispatch(func(method string, params json.RawMessage) (any, error) {
+		var args []any
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &args)
+		}
+		return router.Call(method, args)
+	})
 
 	if _, err := server.Start(context.Background()); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -454,9 +594,9 @@ func TestSessionStartUsesGlobalCWDFlag(t *testing.T) {
 
 func TestSessionSendUsesGlobalCWDFlag(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
-	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	sessionID, err := inst.app.ensureUserSessionForTest("claude", inst.projectPath, "initial", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	_, stderr, err := runCLI(t, "send", "--session", sessionID, "--cwd", inst.projectPath, "--provider", "claude", "--prompt", "follow up", "--wait")
@@ -559,9 +699,9 @@ func TestRunSessionLogsFollow_ReplaysMissedOutputAndExitsWhenSessionAlreadyCompl
 
 func TestSessionLogsWithCWDAttachesLatestSession(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
-	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "hello", "", "")
+	sessionID, err := inst.app.ensureUserSessionForTest("claude", inst.projectPath, "hello", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	// logs with --cwd (no --session) should attach to the running session
@@ -633,9 +773,9 @@ func assertCapabilityLayerShape(t *testing.T, layers rpcClaudeCapabilityLayers) 
 
 func TestSessionStopAgainstLiveInstance(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
-	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	sessionID, err := inst.app.ensureUserSessionForTest("claude", inst.projectPath, "initial", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	stdout, stderr, err := runCLI(t, "stop", "--session", sessionID)
@@ -657,9 +797,9 @@ func TestSessionStopAgainstLiveInstance(t *testing.T) {
 
 func TestSessionSendWithCWDAutoResolvesSession(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
-	_, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	_, err := inst.app.ensureUserSessionForTest("claude", inst.projectPath, "initial", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	// send without --session, only --cwd
@@ -696,9 +836,9 @@ func TestSessionSendWaitUsesSplitSessionStream(t *testing.T) {
 
 func TestSessionStopWithCWDAutoResolvesSession(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
-	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	sessionID, err := inst.app.ensureUserSessionForTest("claude", inst.projectPath, "initial", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	// stop without --session, only --cwd
@@ -713,9 +853,9 @@ func TestSessionStopWithCWDAutoResolvesSession(t *testing.T) {
 
 func TestWorkspaceSendFreshStopsAndRestarts(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
-	oldSessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	oldSessionID, err := inst.app.ensureUserSessionForTest("claude", inst.projectPath, "initial", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	// --fresh should stop old session and start a new one
@@ -750,9 +890,9 @@ func TestWorkspaceStatus(t *testing.T) {
 	}
 
 	// running when a session exists
-	_, err = inst.app.StartProviderSession("claude", inst.projectPath, "initial", "", "")
+	_, err = inst.app.ensureUserSessionForTest("claude", inst.projectPath, "initial", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 	stdout, stderr, err = runCLI(t, "status", "--cwd", inst.projectPath)
 	if err != nil {
@@ -821,7 +961,7 @@ func TestAutoRegisterClearsSavedFocusContext(t *testing.T) {
 	if err := os.MkdirAll(newPath, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if _, err := inst.app.StartProviderSession("claude", newPath, "new path output", "", ""); err != nil {
+	if _, err := inst.app.ensureUserSessionForTest("claude", newPath, "new path output", "", ""); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
 
@@ -878,7 +1018,7 @@ func TestLogsAutoRegistersUnindexedPWDAsMainWorkspace(t *testing.T) {
 	if err := os.MkdirAll(newPath, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if _, err := inst.app.StartProviderSession("claude", newPath, "initial", "", ""); err != nil {
+	if _, err := inst.app.ensureUserSessionForTest("claude", newPath, "initial", "", ""); err != nil {
 		t.Fatalf("start session: %v", err)
 	}
 
@@ -903,7 +1043,7 @@ func TestStopAutoRegistersUnindexedPWDAsMainWorkspace(t *testing.T) {
 	if err := os.MkdirAll(newPath, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	sessionID, err := inst.app.StartProviderSession("claude", newPath, "initial", "", "")
+	sessionID, err := inst.app.ensureUserSessionForTest("claude", newPath, "initial", "", "")
 	if err != nil {
 		t.Fatalf("start session: %v", err)
 	}
@@ -1177,10 +1317,10 @@ func TestAutoRegisterPrintsImportedSessionCounts(t *testing.T) {
 	if err := os.MkdirAll(newPath, 0755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if _, err := inst.app.StartProviderSession("claude", newPath, "old claude", "", ""); err != nil {
+	if _, err := inst.app.ensureUserSessionForTest("claude", newPath, "old claude", "", ""); err != nil {
 		t.Fatalf("start claude: %v", err)
 	}
-	if _, err := inst.app.StartProviderSession("codex", newPath, "old codex", "", ""); err != nil {
+	if _, err := inst.app.ensureUserSessionForTest("codex", newPath, "old codex", "", ""); err != nil {
 		t.Fatalf("start codex: %v", err)
 	}
 
@@ -1295,7 +1435,7 @@ func TestStatusFromProjectRootFiltersMainWorkspace(t *testing.T) {
 			Providers: []database.ProviderInfo{{Path: inst.projectPath + "/.ropcode/feat-login"}},
 		}},
 	})
-	if _, err := inst.app.StartProviderSession("claude", inst.projectPath, "main prompt", "", ""); err != nil {
+	if _, err := inst.app.ensureUserSessionForTest("claude", inst.projectPath, "main prompt", "", ""); err != nil {
 		t.Fatalf("start main session: %v", err)
 	}
 
@@ -1351,7 +1491,7 @@ func TestSendForwardsResolvedProviderApiID(t *testing.T) {
 	}
 
 	inst.app.mu.Lock()
-	got := inst.app.lastInteractiveAPIID
+	got := inst.app.lastProviderAPIID
 	inst.app.mu.Unlock()
 	if got != apiCfg.ID {
 		t.Fatalf("expected CLI to forward providerApiID %q, got %q", apiCfg.ID, got)
@@ -1392,7 +1532,7 @@ func TestSendRespectsExplicitProviderApiID(t *testing.T) {
 	}
 
 	inst.app.mu.Lock()
-	got := inst.app.lastInteractiveAPIID
+	got := inst.app.lastProviderAPIID
 	inst.app.mu.Unlock()
 	if got != "explicit-cfg" {
 		t.Fatalf("expected explicit providerApiID forwarded verbatim, got %q", got)

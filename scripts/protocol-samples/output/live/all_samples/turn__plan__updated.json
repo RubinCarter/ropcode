@@ -1,0 +1,1 @@
+{"method":"turn/plan/updated","params":{"threadId":"019e6074-5c37-74d3-a022-d1e2d93bb57b","turnId":"019e6074-640d-7ec3-a15b-feada001e611","explanation":null,"plan":[{"step":"check files","status":"inProgress"},{"step":"summarize","status":"pending"}]}}

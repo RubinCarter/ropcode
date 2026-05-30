@@ -1,0 +1,211 @@
+{
+  "timestamp": "2026-05-25T09:41:27.715Z",
+  "type": "response_item",
+  "payload": {
+    "type": "tool_search_output",
+    "call_id": "call_lTCf278cItmQSXCy0ubHDEhm",
+    "status": "completed",
+    "execution": "client",
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "multi_agent_v1",
+        "description": "Tools for spawning and managing sub-agents.",
+        "tools": [
+          {
+            "type": "function",
+            "name": "spawn_agent",
+            "description": "\n        \n        Available model overrides (optional; inherited parent model is preferred):\n- `gpt-5.5`: Frontier model for complex coding, research, and real-world work. Reasoning efforts: low, medium (default), high, xhigh. Service tiers: priority.\n- `gpt-5.4`: Strong model for everyday coding. Reasoning efforts: low, medium (default), high, xhigh. Service tiers: priority.\n- `gpt-5.4-mini`: Small, fast, and cost-efficient model for simpler coding tasks. Reasoning efforts: low, medium (default... [truncated, total 4931 chars]",
+            "strict": false,
+            "defer_loading": true,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "agent_type": {
+                  "type": "string",
+                  "description": "Optional type name for the new agent. If omitted, `default` is used.\nAvailable roles:\ndefault: {\nDefault agent.\n}\nexplorer: {\nUse `explorer` for specific codebase questions.\nExplorers are fast and authoritative.\nThey must be used to ask specific, well-scoped questions on the codebase.\nRules:\n- In order to avoid redundant work, you should avoid exploring the same problem that explorers have already covered. Typically, you should trust the explorer results without additional verification. You are ... [truncated, total 2182 chars]"
+                },
+                "fork_context": {
+                  "type": "boolean",
+                  "description": "When true, fork the current thread history into the new agent before sending the initial prompt. This must be used when you want the new agent to have exactly the same context as you."
+                },
+                "items": {
+                  "type": "array",
+                  "description": "Structured input items. Use this to pass explicit mentions (for example app:// connector paths).",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "image_url": {
+                        "type": "string",
+                        "description": "Image URL when type is image."
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "Display name when type is skill or mention."
+                      },
+                      "path": {
+                        "type": "string",
+                        "description": "Path when type is local_image/skill, or structured mention target such as app://<connector-id> or plugin://<plugin-name>@<marketplace-name> when type is mention."
+                      },
+                      "text": {
+                        "type": "string",
+                        "description": "Text content when type is text."
+                      },
+                      "type": {
+                        "type": "string",
+                        "description": "Input item type: text, image, local_image, skill, or mention."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "message": {
+                  "type": "string",
+                  "description": "Initial plain-text task for the new agent. Use either message or items."
+                },
+                "model": {
+                  "type": "string",
+                  "description": "Optional model override for the new agent. Leave unset to inherit the same model as the parent, which is the preferred default. Only set this when the user explicitly asks for a different model or the task clearly requires one."
+                },
+                "reasoning_effort": {
+                  "type": "string",
+                  "description": "Optional reasoning effort override for the new agent. Replaces the inherited reasoning effort."
+                },
+                "service_tier": {
+                  "type": "string",
+                  "description": "Optional service tier override for the new agent. Leave unset unless the user explicitly asks for one."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "close_agent",
+            "description": "Close an agent and any open descendants when they are no longer needed, and return the target agent's previous status before shutdown was requested. Don't keep agents open for too long if they are not needed anymore.",
+            "strict": false,
+            "defer_loading": true,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "description": "Agent id to close (from spawn_agent)."
+                }
+              },
+              "required": [
+                "target"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "resume_agent",
+            "description": "Resume a previously closed agent by id so it can receive send_input and wait_agent calls.",
+            "strict": false,
+            "defer_loading": true,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Agent id to resume."
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "wait_agent",
+            "description": "Wait for agents to reach a final status. Completed statuses may include the agent's final message. Returns empty status when timed out. Once the agent reaches a final status, a notification message will be received containing the same completed status.",
+            "strict": false,
+            "defer_loading": true,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "targets": {
+                  "type": "array",
+                  "description": "Agent ids to wait on. Pass multiple ids to wait for whichever finishes first.",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "timeout_ms": {
+                  "type": "number",
+                  "description": "Optional timeout in milliseconds. Defaults to 30000, min 10000, max 3600000. Prefer longer waits (minutes) to avoid busy polling."
+                }
+              },
+              "required": [
+                "targets"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "type": "function",
+            "name": "send_input",
+            "description": "Send a message to an existing agent. Use interrupt=true to redirect work immediately. You should reuse the agent by send_input if you believe your assigned task is highly dependent on the context of a previous task.",
+            "strict": false,
+            "defer_loading": true,
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "interrupt": {
+                  "type": "boolean",
+                  "description": "When true, stop the agent's current task and handle this immediately. When false (default), queue this message."
+                },
+                "items": {
+                  "type": "array",
+                  "description": "Structured input items. Use this to pass explicit mentions (for example app:// connector paths).",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "image_url": {
+                        "type": "string",
+                        "description": "Image URL when type is image."
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "Display name when type is skill or mention."
+                      },
+                      "path": {
+                        "type": "string",
+                        "description": "Path when type is local_image/skill, or structured mention target such as app://<connector-id> or plugin://<plugin-name>@<marketplace-name> when type is mention."
+                      },
+                      "text": {
+                        "type": "string",
+                        "description": "Text content when type is text."
+                      },
+                      "type": {
+                        "type": "string",
+                        "description": "Input item type: text, image, local_image, skill, or mention."
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "message": {
+                  "type": "string",
+                  "description": "Legacy plain-text message to send to the agent. Use either message or items."
+                },
+                "target": {
+                  "type": "string",
+                  "description": "Agent id to message (from spawn_agent)."
+                }
+              },
+              "required": [
+                "target"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

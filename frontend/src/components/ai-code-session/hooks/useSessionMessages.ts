@@ -36,6 +36,11 @@ interface MessageDerivedState {
   agentOutputToolUseIds: Map<string, string>;
 }
 
+interface PendingTextDelta {
+  id: string;
+  text: string;
+}
+
 export interface UseSessionMessagesReturn {
   // State
   messages: ClaudeStreamMessage[];
@@ -99,6 +104,18 @@ function textContentLength(message: ClaudeStreamMessage): number {
     }
     return total;
   }, 0);
+}
+
+function messageText(message: ClaudeStreamMessage): string {
+  const content = message.message?.content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((block) => (block?.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+    .join('');
+}
+
+function messageId(message: ClaudeStreamMessage): string {
+  return String((message as any).message?.id || (message as any).uuid || '');
 }
 
 function messageTokenContribution(message: ClaudeStreamMessage): TokenUsageTotals {
@@ -391,7 +408,7 @@ export function useSessionMessages(): UseSessionMessagesReturn {
   const totalTokens = tokenUsage.totalTokens;
 
   // Batch delta and regular messages with rAF
-  const deltaBufferRef = useRef<string>('');
+  const deltaBufferRef = useRef<PendingTextDelta[]>([]);
   const flushRafRef = useRef<number | null>(null);
   const messageQueueRef = useRef<ClaudeStreamMessage[]>([]);
 
@@ -399,8 +416,8 @@ export function useSessionMessages(): UseSessionMessagesReturn {
 
   const flushPending = () => {
     flushRafRef.current = null;
-    const bufferedText = deltaBufferRef.current;
-    deltaBufferRef.current = '';
+    const bufferedDeltas = deltaBufferRef.current;
+    deltaBufferRef.current = [];
     const queued = messageQueueRef.current;
     messageQueueRef.current = [];
 
@@ -410,7 +427,11 @@ export function useSessionMessages(): UseSessionMessagesReturn {
     let structural = false;
 
     // Apply buffered delta text
-    if (bufferedText) {
+    for (const delta of bufferedDeltas) {
+      const bufferedText = delta.text;
+      if (!bufferedText) {
+        continue;
+      }
       derived = {
         ...derived,
         tokenUsage: addTokenContribution(derived.tokenUsage, {
@@ -420,27 +441,21 @@ export function useSessionMessages(): UseSessionMessagesReturn {
           totalTokens: 0,
         }),
       };
-      const lastIndex = msgs.length - 1;
-      if (lastIndex >= 0 && msgs[lastIndex].type === 'assistant' && !msgs[lastIndex].message?.usage) {
-        const lastMessage = msgs[lastIndex];
-        if (!lastMessage.message) {
-          lastMessage.message = { content: [{ type: 'text', text: bufferedText }] };
-        } else if (!lastMessage.message.content || lastMessage.message.content.length === 0) {
-          lastMessage.message.content = [{ type: 'text', text: bufferedText }];
-        } else {
-          const lastBlock = lastMessage.message.content[lastMessage.message.content.length - 1];
-          if (lastBlock.type === 'text') {
-            lastBlock.text += bufferedText;
-          } else {
-            lastMessage.message.content.push({ type: 'text', text: bufferedText });
-          }
-        }
+      const targetIndex = findDeltaTargetIndex(msgs, delta.id);
+      if (targetIndex >= 0) {
+        appendTextToAssistantMessage(msgs[targetIndex], bufferedText, delta.id);
         changed = true;
       } else {
         // Need a new assistant message
+        const messageBody: NonNullable<ClaudeStreamMessage['message']> = {
+          content: [{ type: 'text', text: bufferedText }],
+        };
+        if (delta.id) {
+          (messageBody as any).id = delta.id;
+        }
         const newMsg: ClaudeStreamMessage = {
           type: 'assistant',
-          message: { content: [{ type: 'text', text: bufferedText }] }
+          message: messageBody,
         };
         msgs.push(newMsg);
         derived = applyMessageToDerivedState(derived, newMsg);
@@ -451,6 +466,16 @@ export function useSessionMessages(): UseSessionMessagesReturn {
 
     // Apply queued regular messages
     for (const msg of queued) {
+      const completedTextMerge = mergeCompletedTextEcho(msg, msgs);
+      if (completedTextMerge === 'drop') {
+        continue;
+      }
+      if (completedTextMerge === 'replace') {
+        derived = buildDerivedMessagesState(msgs);
+        changed = true;
+        structural = true;
+        continue;
+      }
       msgs.push(msg);
       derived = applyMessageToDerivedState(derived, msg);
       changed = true;
@@ -501,7 +526,14 @@ export function useSessionMessages(): UseSessionMessagesReturn {
     // Delta messages — accumulate text in buffer
     if (message.type === 'assistant' && (message as any).is_delta && message.message?.content) {
       const deltaText = message.message.content[0]?.text || '';
-      deltaBufferRef.current += deltaText;
+      const id = messageId(message);
+      const pending = deltaBufferRef.current;
+      const lastPending = pending[pending.length - 1];
+      if (lastPending && lastPending.id === id) {
+        lastPending.text += deltaText;
+      } else {
+        pending.push({ id, text: deltaText });
+      }
       scheduleFlush();
       return;
     }
@@ -547,4 +579,82 @@ export function useSessionMessages(): UseSessionMessagesReturn {
     messagesLengthRef,
     messagesRef,
   };
+}
+
+type CompletedTextMergeResult = 'none' | 'drop' | 'replace';
+
+function mergeCompletedTextEcho(
+  message: ClaudeStreamMessage,
+  messages: ClaudeStreamMessage[],
+): CompletedTextMergeResult {
+  if (message.type !== 'assistant' || (message as any).is_delta === true) {
+    return 'none';
+  }
+  const id = messageId(message);
+  if (!id) {
+    return 'none';
+  }
+  const text = messageText(message);
+  if (!text) {
+    return 'none';
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const previous = messages[i];
+    if (previous.type === 'user') {
+      return 'none';
+    }
+    if (previous.type !== 'assistant' || messageId(previous) !== id) {
+      continue;
+    }
+    if (messageText(previous) === text) {
+      return 'drop';
+    }
+    messages[i] = message;
+    return 'replace';
+  }
+  return 'none';
+}
+
+function findDeltaTargetIndex(messages: ClaudeStreamMessage[], id: string): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.type === 'user') {
+      return -1;
+    }
+    if (message.type !== 'assistant' || message.message?.usage) {
+      continue;
+    }
+    if (id) {
+      if (messageId(message) === id) {
+        return i;
+      }
+      continue;
+    }
+    if (!messageId(message)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function appendTextToAssistantMessage(
+  message: ClaudeStreamMessage,
+  text: string,
+  id: string,
+): void {
+  if (!message.message) {
+    message.message = { content: [{ type: 'text', text }] };
+  } else if (!message.message.content || message.message.content.length === 0) {
+    message.message.content = [{ type: 'text', text }];
+  } else {
+    const lastBlock = message.message.content[message.message.content.length - 1];
+    if (lastBlock.type === 'text') {
+      lastBlock.text += text;
+    } else {
+      message.message.content.push({ type: 'text', text });
+    }
+  }
+  if (id && !(message.message as any).id) {
+    (message.message as any).id = id;
+  }
 }

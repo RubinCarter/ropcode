@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-05-25T09:42:08.927Z",
+  "type": "response_item",
+  "payload": {
+    "type": "function_call",
+    "name": "spawn_agent",
+    "namespace": "multi_agent_v1",
+    "arguments": "{\"agent_type\":\"explorer\",\"fork_context\":true,\"message\":\"在当前 workspace 里调研“openclaw”相关信息：1) 搜索出现位置/文件；2) 判断它是库/模块/命令还是协议；3) 记录关键入口点（函数/类/CLI）、配置项、依赖；4) 输出你找到的最重要 5-10 条结论并带上具体文件路径与大概行号范围（不需要贴大段代码）。\"}",
+    "call_id": "call_DdvFD0JPbOWrgcjEG7mqUwUI"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "method": "remoteControl/status/changed",
+  "params": {
+    "status": "disabled",
+    "serverName": "RubinWong",
+    "installationId": "eb650c3f-ffd8-495f-b1f2-2e90de97c956",
+    "environmentId": null
+  }
+}

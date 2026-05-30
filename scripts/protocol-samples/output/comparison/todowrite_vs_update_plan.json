@@ -1,0 +1,34 @@
+{
+  "claude_todowrite": {
+    "type": "tool_use",
+    "id": "tooluse_oM492JQnegcbVJiv7f0t5J",
+    "name": "TodoWrite",
+    "input": {
+      "todos": [
+        {"content": "Phase 1: 创建 internal/provider/ 基础设施", "status": "in_progress", "activeForm": "创建 provider 基础设施层"},
+        {"content": "Phase 2: 实现各 provider driver", "status": "pending", "activeForm": "实现各 provider driver"},
+        {"content": "Phase 3: 统一 Manager + Session + Monitor", "status": "pending", "activeForm": "实现统一 Manager 和 Monitor"}
+      ]
+    }
+  },
+  "codex_update_plan": {
+    "type": "function_call",
+    "name": "update_plan",
+    "call_id": "call_v2R4bMOK2nJAmy8Ffbn72NGt",
+    "arguments": {
+      "plan": [
+        {"step": "确认仓库与分支并重命名", "status": "in_progress"},
+        {"step": "检索 OpenClaw 项目与官方来源", "status": "pending"},
+        {"step": "统计维护活跃度与贡献者", "status": "pending"}
+      ],
+      "explanation": "先在工作区内确认当前 git 分支并按要求重命名..."
+    }
+  },
+  "mapping": {
+    "name": "update_plan → TodoWrite",
+    "plan[].step": "→ todos[].content",
+    "plan[].status": "→ todos[].status (直接保留)",
+    "activeForm": "Codex 没有此字段，用 step 内容生成",
+    "explanation": "Claude 没有对应字段，丢弃"
+  }
+}

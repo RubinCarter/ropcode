@@ -275,31 +275,9 @@ func (s *Session) Start(ctx context.Context, binaryPath string, emitter EventEmi
 		go s.watchProcessExit(emitter)
 		// Send initialize request to start the session protocol
 		go s.sendInitialize()
-	} else {
-		// Batch mode: broadcast user message to all clients for multi-client sync
-		// This ensures all connected clients (iOS, Mac, Web) see the user's prompt
-		if emitter != nil && s.Config.Prompt != "" {
-			userMessage := map[string]interface{}{
-				"type":   "user",
-				"source": "broadcast",
-				"message": map[string]interface{}{
-					"role": "user",
-					"content": []map[string]interface{}{
-						{
-							"type": "text",
-							"text": s.Config.Prompt,
-						},
-					},
-				},
-			}
-			s.enrichOutputMessage(userMessage)
-			userJSON, _ := json.Marshal(userMessage)
-			log.Printf("[Session] Broadcasting user message to all clients: session_id=%s, cwd=%s, prompt=%s", s.ID, s.Config.ProjectPath, s.Config.Prompt)
-			emitter.Emit("session-output", string(userJSON))
-		}
-
-		// Start reading output in goroutines
-		// Claude CLI will output its own system/init message - we just forward it
+		} else {
+			// Start reading output in goroutines
+			// Claude CLI will output its own system/init message - we just forward it
 		// This matches the Rust implementation which doesn't emit its own init
 		go s.readOutput(s.stdout, "stdout", emitter)
 		go s.readOutput(s.stderr, "stderr", emitter)
@@ -664,40 +642,16 @@ func (s *Session) SendMessage(prompt string, emitter EventEmitter) error {
 		s.mu.RUnlock()
 		return fmt.Errorf("session is not in interactive mode")
 	}
-	if !s.initialized {
-		s.mu.RUnlock()
-		log.Printf("[SendMessage] Session %s not yet initialized", s.ID)
-		return fmt.Errorf("session is not yet initialized")
-	}
-	if s.Status != "running" {
-		s.mu.RUnlock()
-		log.Printf("[SendMessage] Session %s status is not running: %s", s.ID, s.Status)
-		return fmt.Errorf("session is not running")
-	}
-	stdin := s.stdin
-	s.mu.RUnlock()
-
-	log.Printf("[SendMessage] Sending to session %s: %s", s.ID, prompt[:min(50, len(prompt))])
-
-	// Broadcast user message to all frontend clients (same as existing behavior)
-	if emitter != nil {
-		userMessage := map[string]interface{}{
-			"type":   "user",
-			"source": "broadcast",
-			"message": map[string]interface{}{
-				"role": "user",
-				"content": []map[string]interface{}{
-					{
-						"type": "text",
-						"text": prompt,
-					},
-				},
-			},
+		if !s.initialized {
+			s.mu.RUnlock()
+			return fmt.Errorf("session is not yet initialized")
 		}
-		s.enrichOutputMessage(userMessage)
-		userJSON, _ := json.Marshal(userMessage)
-		emitter.Emit("session-output", string(userJSON))
-	}
+		if s.Status != "running" {
+			s.mu.RUnlock()
+			return fmt.Errorf("session is not running")
+		}
+		stdin := s.stdin
+		s.mu.RUnlock()
 
 	// Construct stdin message
 	stdinMessage := map[string]interface{}{
@@ -938,8 +892,8 @@ func (s *Session) handleOutputReadError(err error, outputType string, emitter Ev
 
 func (s *Session) enrichOutputMessage(msg map[string]interface{}) {
 	// Add session_id and cwd to the message for frontend routing.
-	// In interactive mode, always override session_id with Go-side session ID
-	// so frontend can use it for SendClaudeMessage RPC calls.
+	// In interactive mode, always override session_id with the Go-side runtime
+	// session ID; provider-native IDs are carried separately for resume.
 	if s.interactive || msg["session_id"] == nil {
 		msg["session_id"] = s.ID
 	}

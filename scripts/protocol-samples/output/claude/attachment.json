@@ -1,0 +1,23 @@
+{
+  "parentUuid": "b1dc039e-0daf-4c19-9463-2fd7333642f4",
+  "isSidechain": false,
+  "attachment": {
+    "type": "mcp_instructions_delta",
+    "addedNames": [
+      "pencil"
+    ],
+    "addedBlocks": [
+      "## pencil\nThe Pencil MCP server is the editor for reading and writing to .pen files and gives you tools to be an expert design generator and validator specifically for web and mobile applications and websites.\n\n- IMPORTANT: The contents of the .pen files are encrypted and can be only access via the \"pencil\" MCP tools. DO NOT use \"Read\" or \"Grep\" tools to read contents of .pen files.\n- IMPORTANT: Make sure to ONLY use the \"pencil\" MCP tools when reading or searching contents of .pen files (batch_... [truncated, total 2071 chars]"
+    ],
+    "removedNames": []
+  },
+  "type": "attachment",
+  "uuid": "0927467f-cf61-4233-8a4d-8b17e8ce5ea9",
+  "timestamp": "2026-04-27T11:03:12.858Z",
+  "userType": "external",
+  "entrypoint": "cli",
+  "cwd": "/Users/rubin",
+  "sessionId": "45491627-371f-4cd6-a271-71dd4b608cdd",
+  "version": "2.1.108",
+  "gitBranch": "HEAD"
+}

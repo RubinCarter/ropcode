@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-05-25T09:44:34.535Z",
+  "type": "response_item",
+  "payload": {
+    "type": "function_call",
+    "name": "wait_agent",
+    "namespace": "multi_agent_v1",
+    "arguments": "{\"targets\":[\"ag_68b68777856b8198822092be6a68b65f\",\"ag_68b68788e38c81988ddf550c1800fd51\",\"ag_68b68797b6f88198b9fe88c8e81b9c9a\"],\"timeout_ms\":180000}",
+    "call_id": "call_qPnyKdNf2CTUmyMASXgwxUPp"
+  }
+}

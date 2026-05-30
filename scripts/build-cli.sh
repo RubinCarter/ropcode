@@ -14,11 +14,16 @@ fi
 
 # Use sysctl to detect real hardware arch (handles Rosetta 2 on Apple Silicon)
 if [[ "$PLATFORM" == "darwin" ]]; then
-  HW_ARCH=$(sysctl -n hw.optional.arm64 2>/dev/null)
+  HW_ARCH=$(sysctl -n hw.optional.arm64 2>/dev/null || true)
   if [[ "$HW_ARCH" == "1" ]]; then
     ARCH="arm64"
   else
-    ARCH="x64"
+    RAW_ARCH=$(uname -m)
+    if [[ "$RAW_ARCH" == "arm64" ]] || [[ "$RAW_ARCH" == "aarch64" ]]; then
+      ARCH="arm64"
+    else
+      ARCH="x64"
+    fi
   fi
 else
   RAW_ARCH=$(uname -m)

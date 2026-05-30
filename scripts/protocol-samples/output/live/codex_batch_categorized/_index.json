@@ -1,0 +1,12 @@
+{
+  "provider": "codex_batch",
+  "categories": [
+    "item.completed/agent_message",
+    "item.completed/command_execution",
+    "item.started",
+    "thread.started",
+    "turn.completed",
+    "turn.started"
+  ],
+  "total": 6
+}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"testing"
 	"time"
 
@@ -25,6 +26,28 @@ type wsTestServer struct {
 
 func (a *testApp) Greet(name string) string {
 	return "Hello " + name + ", Welcome to ropcode!"
+}
+
+func setTestDispatch(server *ws.Server, app any) {
+	router := ws.NewRouter(app)
+	server.SetDispatch(func(method string, params json.RawMessage) (any, error) {
+		var args []any
+		_ = json.Unmarshal(params, &args)
+		return router.Call(method, normalizeNilArgs(args, app, method))
+	})
+}
+
+func normalizeNilArgs(args []any, app any, method string) []any {
+	appType := reflect.TypeOf(app)
+	m, ok := appType.MethodByName(method)
+	if !ok {
+		return args
+	}
+	want := m.Type.NumIn() - 1
+	if len(args) == 0 && want > 0 {
+		return make([]any, want)
+	}
+	return args
 }
 
 func startTestServer(t *testing.T, server *ws.Server) int {
@@ -81,6 +104,7 @@ func startWSTestServer(t *testing.T, handler func(*websocket.Conn)) *wsTestServe
 func TestRPCClient_Call(t *testing.T) {
 	app := &testApp{}
 	server := ws.NewServer(app)
+	setTestDispatch(server, app)
 	port := startTestServer(t, server)
 
 	client, err := Dial(fmt.Sprintf("ws://127.0.0.1:%d/ws", port), server.GetAuthKey())
@@ -101,6 +125,7 @@ func TestRPCClient_Call(t *testing.T) {
 func TestRPCClient_OnEvent(t *testing.T) {
 	app := &testApp{}
 	server := ws.NewServer(app)
+	setTestDispatch(server, app)
 	port := startTestServer(t, server)
 
 	client, err := Dial(fmt.Sprintf("ws://127.0.0.1:%d/ws", port), server.GetAuthKey())

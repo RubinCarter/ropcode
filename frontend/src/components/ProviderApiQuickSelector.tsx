@@ -71,22 +71,16 @@ export const ProviderApiQuickSelector: React.FC<ProviderApiQuickSelectorProps> =
   const selectedConfigId = value ?? null;
 
   const handleConfigChange = async (configId: string) => {
-    console.log('[ProviderApiQuickSelector] handleConfigChange called:', { configId, projectPath, providerId, interactiveSessionId, isStreaming });
     try {
       // Persist the user's choice on the project so future sessions inherit it.
       await api.setProjectProviderApiConfig(projectPath, providerId, configId);
-      console.log('[ProviderApiQuickSelector] Config saved successfully');
 
-      // Hot-swap the credentials on the running Claude session, if any.
-      // Only Claude sessions support runtime env updates today; other
-      // providers fall back to "next launch will use the new config".
-      // We deliberately do NOT interrupt an in-flight turn — the parent shows
-      // a notice instead so the user knows the swap takes effect on the next
-      // request.
-      if (providerId === 'claude' && interactiveSessionId) {
+      // Hot-swap credentials on the running provider session, if any. The
+      // provider driver decides whether the update takes effect immediately or
+      // on the next request/restart.
+      if (interactiveSessionId) {
         try {
-          await api.switchClaudeSessionProviderApi(interactiveSessionId, configId);
-          console.log('[ProviderApiQuickSelector] Hot-swapped provider api on running session');
+          await api.switchProviderSessionApi(interactiveSessionId, configId);
           if (isStreaming) {
             const swappedConfig = configs.find(c => c.id === configId);
             onHotSwapDuringStream?.(swappedConfig?.name ?? 'new API config');

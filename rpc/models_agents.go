@@ -290,6 +290,7 @@ func AgentHandlers(d *Deps) map[string]Handler {
 			if outputErr != nil && strings.Contains(outputErr.Error(), "session not found:") && (run.Status == "running" || run.Status == "pending") {
 				completedAt := time.Now()
 				_ = d.DB.UpdateAgentRunStatus(run.ID, "failed", run.PID, run.ProcessStartedAt, &completedAt)
+				return "", nil
 			}
 			return output, outputErr
 		},

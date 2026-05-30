@@ -34,6 +34,7 @@ type Session struct {
 	done            chan struct{}
 	initDone        chan struct{}
 	initialized     bool
+	activity        SessionActivity
 	pendingRequests map[string]chan ControlResponse
 	mu              sync.RWMutex
 
@@ -178,7 +179,10 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 				event.SessionID = s.ID
 				event.Provider = s.driver.ID()
 				s.extractProviderSessionID(event)
-				s.routeControlResponse(event)
+				if s.routeControlResponse(event) {
+					continue
+				}
+				s.updateActivityFromEvent(event)
 				event.ProjectPath = s.config.ProjectPath
 				event.Cwd = s.config.ProjectPath
 				event.ProviderSessionID = s.GetProviderSessionID()
@@ -201,15 +205,14 @@ func (s *Session) readStream(reader io.ReadCloser, streamType string) {
 }
 
 // routeControlResponse checks if the event is a control_response or an initialization signal.
-func (s *Session) routeControlResponse(event *OutputEvent) {
-	// Codex: thread_created means init is complete
-	if event.Subtype == "thread_created" {
+func (s *Session) routeControlResponse(event *OutputEvent) bool {
+	if event.Type == "system" && event.Subtype == "init" {
 		s.MarkInitialized()
-		return
+		return false
 	}
 
-	if event.Subtype != "control_response" || event.Message == nil {
-		return
+	if event.Message == nil {
+		return false
 	}
 	// request_id may be at top level or nested inside "response" object
 	requestID, _ := event.Message["request_id"].(string)
@@ -219,75 +222,162 @@ func (s *Session) routeControlResponse(event *OutputEvent) {
 		}
 	}
 	if requestID == "" {
-		return
+		requestID = responseID(event.Message["id"])
+	}
+	if requestID == "" {
+		return event.Subtype == "control_response"
 	}
 	if requestID == "init_1" {
 		s.MarkInitialized()
 	}
-	s.DeliverControlResponse(requestID, event.Message)
+	delivered := s.DeliverControlResponse(requestID, event.Message)
+	return delivered || event.Subtype == "control_response"
+}
+
+func responseID(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case int:
+		return fmt.Sprintf("%d", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case float64:
+		if v == float64(int64(v)) {
+			return fmt.Sprintf("%d", int64(v))
+		}
+		return fmt.Sprintf("%v", v)
+	default:
+		return ""
+	}
+}
+
+func (s *Session) updateActivityFromEvent(event *OutputEvent) {
+	if event == nil || event.Message == nil {
+		return
+	}
+	activity := *s.Activity()
+	status := activity.Status
+	threadStatus := activity.ThreadStatus
+	turnID := activity.TurnID
+	active := activity.Active
+	canInterrupt := activity.CanInterrupt
+	sidechain := isSidechainMessage(event.Message)
+
+	switch event.Subtype {
+	case "session_state_changed":
+		if stateValue, ok := event.Message["state"].(string); ok {
+			threadStatus = stateValue
+			switch stateValue {
+			case "running", "requires_action":
+				status = SessionActivityActive
+				active = true
+				canInterrupt = true
+			case "idle":
+				status = SessionActivityIdle
+				active = false
+				canInterrupt = false
+			}
+		}
+	case "turn_started":
+		status = SessionActivityActive
+		active = true
+		canInterrupt = true
+		if id, ok := nestedString(event.Message, "turn", "id"); ok {
+			turnID = id
+		}
+	case "status_changed":
+		if statusType, ok := nestedString(event.Message, "status", "type"); ok {
+			threadStatus = statusType
+			if sidechain && statusType != "active" {
+				break
+			}
+			switch statusType {
+			case "active":
+				status = SessionActivityActive
+				active = true
+				canInterrupt = true
+			case "idle", "notLoaded":
+				status = SessionActivityIdle
+				active = false
+				canInterrupt = false
+			case "systemError":
+				status = SessionActivityError
+				active = false
+				canInterrupt = false
+			}
+		}
+	}
+
+	if !sidechain && event.Type == "assistant" && hasEndTurn(event.Message) {
+		status = SessionActivityIdle
+		active = false
+		canInterrupt = false
+	}
+
+	if !sidechain && (event.Type == "result" || event.Subtype == "result" || event.Subtype == "turn_completed") {
+		status = SessionActivityIdle
+		active = false
+		canInterrupt = false
+	}
+
+	s.mu.Lock()
+	s.activity = activity
+	s.activity.Status = status
+	s.activity.ThreadStatus = threadStatus
+	s.activity.TurnID = turnID
+	s.activity.Running = s.state == StateRunning || s.state == StateStarting
+	s.activity.Active = active
+	s.activity.CanInterrupt = canInterrupt
+	s.activity.UpdatedAt = time.Now()
+	s.mu.Unlock()
+}
+
+func isSidechainMessage(message map[string]interface{}) bool {
+	if message == nil {
+		return false
+	}
+	if v, ok := message["isSidechain"].(bool); ok && v {
+		return true
+	}
+	if message["parent_tool_use_id"] != nil || message["parentToolUseID"] != nil || message["parentToolUseId"] != nil {
+		return true
+	}
+	return false
+}
+
+func nestedString(m map[string]interface{}, key, child string) (string, bool) {
+	nested, ok := m[key].(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	value, ok := nested[child].(string)
+	return value, ok && value != ""
+}
+
+func hasEndTurn(message map[string]interface{}) bool {
+	if message == nil {
+		return false
+	}
+	if stopReason, _ := message["stop_reason"].(string); stopReason == "end_turn" {
+		return true
+	}
+	nested, _ := message["message"].(map[string]interface{})
+	if stopReason, _ := nested["stop_reason"].(string); stopReason == "end_turn" {
+		return true
+	}
+	return false
 }
 
 func (s *Session) extractProviderSessionID(event *OutputEvent) {
-	if event.Message == nil {
+	identifier, ok := s.driver.(ProviderSessionIdentifier)
+	if !ok {
 		return
 	}
-	switch s.driver.ID() {
-	case "claude":
-		if event.Subtype == "init" {
-			if sid, ok := event.Message["session_id"].(string); ok {
-				s.mu.Lock()
-				s.providerSessionID = sid
-				s.mu.Unlock()
-			}
-		}
-	case "codex":
-		if event.Subtype == "init" {
-			if tid, ok := event.Message["thread_id"].(string); ok {
-				s.mu.Lock()
-				s.providerSessionID = tid
-				s.mu.Unlock()
-			}
-		}
-		if event.Subtype == "thread_created" {
-			if tid, ok := event.Message["thread_id"].(string); ok {
-				s.mu.Lock()
-				s.providerSessionID = tid
-				s.mu.Unlock()
-			}
-		}
-	case "gemini":
-		if event.Subtype == "init" {
-			if sid, ok := event.Message["session_id"].(string); ok {
-				s.mu.Lock()
-				s.providerSessionID = sid
-				s.mu.Unlock()
-			}
-		}
-	case "deepseek":
-		if event.Subtype == "session_capture" {
-			if content, ok := event.Message["content"].(string); ok {
-				s.mu.Lock()
-				s.providerSessionID = content
-				s.mu.Unlock()
-			}
-		}
-		if event.Subtype == "metadata" {
-			if meta, ok := event.Message["meta"].(map[string]interface{}); ok {
-				if sid, ok := meta["session_id"].(string); ok {
-					s.mu.Lock()
-					s.providerSessionID = sid
-					s.mu.Unlock()
-				}
-			}
-		}
-	case "pi":
-		if event.Subtype == "response" {
-			if sid, ok := event.Message["session_id"].(string); ok && sid != "" {
-				s.mu.Lock()
-				s.providerSessionID = sid
-				s.mu.Unlock()
-			}
-		}
+	if sid := identifier.ProviderSessionID(event); sid != "" {
+		s.mu.Lock()
+		s.providerSessionID = sid
+		s.mu.Unlock()
 	}
 }
 
@@ -398,6 +488,10 @@ func (s *Session) GetState() SessionState {
 	return s.state
 }
 
+func (s *Session) GetSessionID() string {
+	return s.ID
+}
+
 func (s *Session) GetProviderSessionID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -434,6 +528,64 @@ func (s *Session) Status() *SessionStatus {
 	}
 }
 
+func (s *Session) Activity() *SessionActivity {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	activity := s.activity
+	if activity.Status == "" {
+		activity = s.defaultActivityLocked()
+	} else {
+		activity.SessionID = s.ID
+		activity.ProviderID = s.driver.ID()
+		activity.ProviderSessionID = s.providerSessionID
+		activity.ProjectPath = s.config.ProjectPath
+		activity.Running = s.state == StateRunning || s.state == StateStarting
+	}
+	return &activity
+}
+
+func (s *Session) MarkActivityActive() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	running := s.state == StateRunning || s.state == StateStarting
+	s.activity.SessionID = s.ID
+	s.activity.ProviderID = s.driver.ID()
+	s.activity.ProviderSessionID = s.providerSessionID
+	s.activity.ProjectPath = s.config.ProjectPath
+	s.activity.Status = SessionActivityActive
+	s.activity.Running = running
+	s.activity.Active = running
+	s.activity.CanInterrupt = running
+	s.activity.UpdatedAt = time.Now()
+}
+
+func (s *Session) defaultActivity() SessionActivity {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.defaultActivityLocked()
+}
+
+func (s *Session) defaultActivityLocked() SessionActivity {
+	running := s.state == StateRunning || s.state == StateStarting
+	status := SessionActivityIdle
+	if !running {
+		status = SessionActivityIdle
+	} else if !s.config.Interactive {
+		status = SessionActivityActive
+	}
+	return SessionActivity{
+		SessionID:         s.ID,
+		ProviderID:        s.driver.ID(),
+		ProviderSessionID: s.providerSessionID,
+		ProjectPath:       s.config.ProjectPath,
+		Status:            status,
+		Running:           running,
+		Active:            running && !s.config.Interactive,
+		CanInterrupt:      running && !s.config.Interactive,
+		UpdatedAt:         time.Now(),
+	}
+}
+
 func (s *Session) Output() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -464,6 +616,12 @@ func (s *Session) SendControlRequest(requestID string, payload []byte) (<-chan C
 	}
 
 	return ch, nil
+}
+
+func (s *Session) CancelControlRequest(requestID string) {
+	s.mu.Lock()
+	delete(s.pendingRequests, requestID)
+	s.mu.Unlock()
 }
 
 // DeliverControlResponse routes a received control_response to the waiting caller.

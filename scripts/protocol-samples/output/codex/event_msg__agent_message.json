@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-05-25T09:54:22.138Z",
+  "type": "event_msg",
+  "payload": {
+    "type": "agent_message",
+    "message": "- **全仓出现位置概览**：`openclaw` 主要出现在 4 类内容里：安装/打包脚本（`portable/`、`install/`、`usb-release/`、`bootable/`）、桌面端入口（`u-claw-app/`）、文档站点（`website/`）、技能元数据（`*/skills*/**/SKILL.md`）。例如：`README.md:19`、`CLAUDE.md:82`、`HANDOFF.md:19`、`u-claw-app/src/loading.html:103`。  \n- **桌面版（Electron）关键入口与用途**：Electron 主进程通过 `node + openclaw.mjs` 启动 OpenClaw gateway，并在首次未配置模型时打开配置页，否则直达 dashboard。入口与端口范围：`u-claw-app/src/main.js:9`（`DEFAULT_PORT=18789`）、`u-claw-app/src/main.js:25`（`openclaw.mjs` 入口）、`u-claw-app/src/main.js:206`... [truncated, total 2574 chars]",
+    "phase": null,
+    "memory_citation": null
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "provider": "codex",
+  "categories": [
+    "event_msg/agent_message",
+    "event_msg/agent_reasoning",
+    "event_msg/task_complete",
+    "event_msg/task_started",
+    "event_msg/token_count",
+    "event_msg/user_message",
+    "event_msg/web_search_end",
+    "response_item/function_call/exec_command",
+    "response_item/function_call/multi_agent_v1.spawn_agent",
+    "response_item/function_call/multi_agent_v1.wait_agent",
+    "response_item/function_call/update_plan",
+    "response_item/function_call_output",
+    "response_item/message",
+    "response_item/reasoning",
+    "response_item/tool_search_call",
+    "response_item/tool_search_output",
+    "response_item/web_search_call",
+    "session_meta",
+    "session_meta/subagent",
+    "turn_context"
+  ],
+  "total_categories": 20
+}

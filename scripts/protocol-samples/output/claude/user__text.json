@@ -1,0 +1,19 @@
+{
+  "parentUuid": null,
+  "isSidechain": false,
+  "promptId": "be3ec2f7-862c-4b2e-a61b-a7f06e6210e0",
+  "type": "user",
+  "message": {
+    "role": "user",
+    "content": "\n❯ 看下 sglang 是否支持 qwen3.6 ，是否有 int4 的量化版本\n\n⏺ 我查一下 SGLang 对 Qwen3.6 的官方/模型卡支持，以及可用的 INT4/AWQ/GPTQ 量化版本。\n\n⏺ Web Search(\"SGLang Qwen3.6 support Qwen3.6-27B INT4 AWQ GPTQ\")\n  ⎿  Did 17 searches in 125s\n\n⏺ Web Search(\"Qwen3.6-27B INT4 AWQ GPTQ SGLang\")\n  ⎿  Did 4 searches in 45s\n\n⏺ Web Search(\"SGLang Qwen3.6 MTP NEXTN Qwen3_5MTP\")\n  ⎿  Did 6 searches in 72s\n\n⏺ 结论：SGLang 支持 Qwen3.6，而且官方 Qwen3.6-27B 模型卡明确推荐 sglang>=0.5.10。INT4 量化版本也有，主要是 AWQ / compressed-tensors / AutoRound/GPTQ 风格。\n\n  1. SGLang 是否支持 Q... [truncated, total 14023 chars]"
+  },
+  "uuid": "b1dc039e-0daf-4c19-9463-2fd7333642f4",
+  "timestamp": "2026-04-27T11:03:12.859Z",
+  "permissionMode": "bypassPermissions",
+  "userType": "external",
+  "entrypoint": "cli",
+  "cwd": "/Users/rubin",
+  "sessionId": "45491627-371f-4cd6-a271-71dd4b608cdd",
+  "version": "2.1.108",
+  "gitBranch": "HEAD"
+}

@@ -5,8 +5,6 @@ package main
 import (
 	"context"
 	"testing"
-
-	"ropcode/internal/websocket"
 )
 
 type wailsRuntimeTestApp struct{}
@@ -17,10 +15,9 @@ func (wailsRuntimeTestApp) Ping() string {
 
 func TestWailsRuntimeScriptUsesServerAuthKey(t *testing.T) {
 	shell := &wailsShell{
-		ctx:      context.Background(),
-		wsServer: websocket.NewServer(wailsRuntimeTestApp{}),
+		ctx:     context.Background(),
+		authKey: "",
 	}
-	shell.wsServer.SetAuthKey("")
 
 	script := shell.runtimeScript()
 	if !containsAll(script, "window.__ROPCODE_AUTH_KEY__ = \"\"", "authKey: \"\"") {

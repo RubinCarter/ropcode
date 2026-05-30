@@ -1,0 +1,26 @@
+{
+  "provider": "codex_live",
+  "protocol": "JSON-RPC over stdio",
+  "categories": [
+    "account__rateLimits__updated",
+    "item__agentMessage__delta",
+    "item__completed/agentMessage",
+    "item__completed/commandExecution",
+    "item__completed/reasoning",
+    "item__completed/userMessage",
+    "item__started/agentMessage",
+    "item__started/commandExecution",
+    "item__started/reasoning",
+    "item__started/userMessage",
+    "mcpServer__startupStatus__updated",
+    "remoteControl__status__changed",
+    "response/init_1",
+    "response/thread_1",
+    "response/turn_1",
+    "thread__started",
+    "thread__status__changed",
+    "thread__tokenUsage__updated",
+    "turn__started"
+  ],
+  "total": 19
+}

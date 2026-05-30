@@ -3,7 +3,6 @@ package claude
 import (
 	"bufio"
 	"encoding/json"
-	"log"
 	"os"
 	"time"
 
@@ -93,31 +92,14 @@ func (d *Driver) CompleteOutputEvent(event *provider.OutputEvent, config provide
 	projectID := GetProjectHash(config.ProjectPath)
 	filePath, err := FindSessionFile(claudeDir, projectID, providerSessionID)
 	if err != nil {
-		log.Printf("[claude] complete transcript lookup failed session=%s uuid=%s project=%s err=%v",
-			providerSessionID,
-			uuid,
-			config.ProjectPath,
-			err,
-		)
 		return event, false
 	}
 	deadline := time.Now().Add(1200 * time.Millisecond)
 	for {
 		if completed, ok := completeEventFromTranscriptFile(event, filePath); ok {
-			log.Printf("[claude] completed assistant event from transcript session=%s uuid=%s path=%s stop=%s",
-				providerSessionID,
-				uuid,
-				filePath,
-				stopReason(completed.Message),
-			)
 			return completed, true
 		}
 		if time.Now().After(deadline) {
-			log.Printf("[claude] complete transcript timed out session=%s uuid=%s path=%s",
-				providerSessionID,
-				uuid,
-				filePath,
-			)
 			return event, false
 		}
 		time.Sleep(50 * time.Millisecond)

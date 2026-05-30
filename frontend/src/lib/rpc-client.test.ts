@@ -24,10 +24,12 @@ function resetClient(wsClient: any) {
   wsClient.pending.clear();
 }
 
-test('uses longer timeout for interactive Claude session startup', async () => {
+test('uses longer timeout for project chat provider operations', async () => {
   const { getRpcTimeout } = await loadModule();
 
-  assert.equal(getRpcTimeout('StartInteractiveClaudeSession') > 30_000, true);
+  assert.equal(getRpcTimeout('CreateProjectChat') > 30_000, true);
+  assert.equal(getRpcTimeout('SendProjectChatMessage') > 30_000, true);
+  assert.equal(getRpcTimeout('SwitchProjectChatProvider') > 30_000, true);
 });
 
 async function loadWsConfigModule() {

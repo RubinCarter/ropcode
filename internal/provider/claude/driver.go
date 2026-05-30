@@ -8,12 +8,31 @@ import (
 	"path/filepath"
 	"time"
 
+	"ropcode/internal/claudeactivity"
 	"ropcode/internal/provider"
 )
 
 var _ provider.ProviderDriver = (*Driver)(nil)
+var _ provider.ProviderSessionMode = (*Driver)(nil)
+var _ provider.ProviderSessionIdentifier = (*Driver)(nil)
 
-type Driver struct{}
+type Driver struct {
+	Activity *claudeactivity.Service
+}
+
+func (d *Driver) UseLongLivedSession(config provider.SessionConfig) bool {
+	return true
+}
+
+func (d *Driver) ProviderSessionID(event *provider.OutputEvent) string {
+	if event == nil || event.Subtype != "init" || event.Message == nil {
+		return ""
+	}
+	if sid, ok := event.Message["session_id"].(string); ok {
+		return sid
+	}
+	return ""
+}
 
 func ClaudeDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -180,6 +199,7 @@ func (d *Driver) buildInteractiveArgs(config provider.SessionConfig) []string {
 func (d *Driver) EnvVars(config provider.SessionConfig) map[string]string {
 	vars := map[string]string{
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "true",
+		"CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS":    "true",
 	}
 	if config.BaseURL != "" {
 		vars["ANTHROPIC_BASE_URL"] = config.BaseURL
@@ -239,9 +259,21 @@ func (d *Driver) SetPermissionMode(session provider.SessionHandle, mode string) 
 }
 
 func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars map[string]string) error {
+	normalized := make(map[string]string, len(vars)+2)
+	for k, v := range vars {
+		normalized[k] = v
+	}
+	if v, ok := normalized["AUTH_TOKEN"]; ok {
+		normalized["ANTHROPIC_AUTH_TOKEN"] = v
+		delete(normalized, "AUTH_TOKEN")
+	}
+	if v, ok := normalized["BASE_URL"]; ok {
+		normalized["ANTHROPIC_BASE_URL"] = v
+		delete(normalized, "BASE_URL")
+	}
 	envelope := map[string]interface{}{
 		"type":      "update_environment_variables",
-		"variables": vars,
+		"variables": normalized,
 	}
 	data, err := json.Marshal(envelope)
 	if err != nil {
@@ -253,6 +285,23 @@ func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars
 
 func (d *Driver) WaitForInit(session provider.SessionHandle, timeout time.Duration) error {
 	return session.WaitForInit(timeout)
+}
+
+func (d *Driver) QuerySessionActivity(session provider.SessionHandle, timeout time.Duration) (*provider.SessionActivity, error) {
+	activity := provider.DefaultSessionActivity(session)
+	if d.Activity == nil {
+		return activity, nil
+	}
+	if snapshot, err := d.Activity.GetSnapshot(session.GetSessionID()); err == nil && activity.Running && snapshot.RunningCount > 0 {
+		activity.Status = provider.SessionActivityActive
+		activity.Running = true
+		activity.Active = true
+		activity.CanInterrupt = true
+		if activity.ThreadStatus == "" {
+			activity.ThreadStatus = "active"
+		}
+	}
+	return activity, nil
 }
 
 func (d *Driver) sendControlRequestAndWait(session provider.SessionHandle, requestID string, request map[string]interface{}) error {

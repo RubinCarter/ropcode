@@ -1,0 +1,27 @@
+{
+  "parentUuid": "550c2e38-51d5-4033-a061-fbe200121493",
+  "isSidechain": false,
+  "promptId": "be3ec2f7-862c-4b2e-a61b-a7f06e6210e0",
+  "type": "user",
+  "message": {
+    "role": "user",
+    "content": [
+      {
+        "type": "tool_result",
+        "content": "Exit code 255\n** WARNING: connection is not using a post-quantum key exchange algorithm.\r\n** This session may be vulnerable to \"store now, decrypt later\" attacks.\r\n** The server may need to be upgraded. See https://openssh.com/pq.html\r\n'awk' �����ڲ����ⲿ���Ҳ���ǿ����еĳ���\r\n���������ļ���",
+        "is_error": true,
+        "tool_use_id": "call_4yiOjgCSsYNKhEnqdOpcRVtL"
+      }
+    ]
+  },
+  "uuid": "3f568a05-a6fc-4a24-9546-c0b472fbb68f",
+  "timestamp": "2026-04-27T11:03:28.336Z",
+  "toolUseResult": "Error: Exit code 255\n** WARNING: connection is not using a post-quantum key exchange algorithm.\r\n** This session may be vulnerable to \"store now, decrypt later\" attacks.\r\n** The server may need to be upgraded. See https://openssh.com/pq.html\r\n'awk' �����ڲ����ⲿ���Ҳ���ǿ����еĳ���\r\n���������ļ���",
+  "sourceToolAssistantUUID": "550c2e38-51d5-4033-a061-fbe200121493",
+  "userType": "external",
+  "entrypoint": "cli",
+  "cwd": "/Users/rubin",
+  "sessionId": "45491627-371f-4cd6-a271-71dd4b608cdd",
+  "version": "2.1.108",
+  "gitBranch": "HEAD"
+}

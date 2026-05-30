@@ -1,0 +1,7 @@
+{
+  "type": "queue-operation",
+  "operation": "enqueue",
+  "timestamp": "2026-04-27T12:28:03.031Z",
+  "sessionId": "45491627-371f-4cd6-a271-71dd4b608cdd",
+  "content": "<task-notification>\n<task-id>bcbqkfd4p</task-id>\n<tool-use-id>call_bIww3eFyO0JwQBNa48zFPQCD</tool-use-id>\n<output-file>/private/tmp/claude-501/-Users-rubin/45491627-371f-4cd6-a271-71dd4b608cdd/tasks/bcbqkfd4p.output</output-file>\n<status>failed</status>\n<summary>Background command \"从 GitHub main 安装 SGLang\" failed with exit code 1</summary>\n</task-notification>"
+}

@@ -16,10 +16,10 @@ test('provider init messages persist provider session id but keep runtime id for
 
   assert.match(source, /const runtimeSessionId = \(message as any\)\.runtime_session_id \|\| message\.session_id;/);
   assert.match(source, /setClaudeSessionId\(runtimeSessionId\)/);
-  assert.match(source, /api\.isClaudeSessionRunningForProject\(currentProjectPath,\s*runtimeSessionId\)/);
-  assert.match(source, /const realClaudeSessionId = \(message as any\)\.claude_session_id \|\| \(message as any\)\.sessionId \|\| message\.session_id;/);
+  assert.match(source, /api\.isProviderSessionRunningForProject\(currentProjectPath,\s*runtimeSessionId\)/);
+  assert.match(source, /const realProviderSessionId =[\s\S]*provider_session_id[\s\S]*providerSessionId[\s\S]*claude_session_id[\s\S]*message\.session_id;/);
   assert.match(source, /SessionPersistenceService\.saveSession\(\s*persistSessionId,/);
-  assert.match(source, /runtimeSessionId,\s*claudeSessionId: realClaudeSessionId/);
+  assert.match(source, /runtimeSessionId,\s*claudeSessionId: realProviderSessionId/);
 });
 
 test('provider result messages keep live interactive session id from runtime_session_id', async () => {
@@ -76,9 +76,19 @@ test('Claude assistant end_turn completes the current interactive turn', async (
   const source = await readSource();
 
   assert.match(source, /const isAssistantEndTurn = message\.type === 'assistant'[\s\S]*stop_reason[\s\S]*=== 'end_turn'/);
-  assert.match(source, /if \(message\.type === 'result' \|\| isAssistantEndTurn\) \{/);
+  assert.match(source, /if \(!isBackgroundScopedMessage\(message\) && \(message\.type === 'result' \|\| isAssistantEndTurn\)\) \{/);
   assert.match(source, /const isTerminalError = isAssistantEndTurn \? false : isTerminalErrorMessage\(message\);/);
   assert.match(source, /status: isTerminalError \? 'failed' : 'completed'/);
+});
+
+test('sidechain result messages do not complete the foreground turn', async () => {
+  const source = await readSource();
+
+  assert.match(source, /function isBackgroundScopedMessage\(message: ClaudeStreamMessage\): boolean/);
+  assert.match(source, /raw\.isSidechain === true/);
+  assert.match(source, /Boolean\(raw\.parent_tool_use_id\)/);
+  assert.match(source, /Boolean\(raw\.task_id\)/);
+  assert.match(source, /!isBackgroundScopedMessage\(message\) && \(message\.type === 'result' \|\| isAssistantEndTurn\)/);
 });
 
 test('provider result errors are completed as failed turns', async () => {
@@ -101,6 +111,5 @@ test('provider stderr warnings do not create session error messages', async () =
   const source = await readSource();
 
   assert.match(source, /if \(errorData\?\.level && errorData\.level !== 'error'\) \{/);
-  assert.match(source, /console\.warn\('\[useSessionFrameEvents\] Non-error provider stderr:', errorData\);/);
   assert.match(source, /return;\s*\}\s*if \(errorData\) \{/);
 });

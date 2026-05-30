@@ -1,0 +1,9 @@
+{
+  "method": "item/agentMessage/delta",
+  "params": {
+    "threadId": "019e5e94-61d2-77e2-9325-d0e1c9c43e67",
+    "turnId": "019e5e94-69a2-7c93-a4df-b23e0a425ff3",
+    "itemId": "msg_015d31619437bed1016a141dddaca881948f454f70dd28d3a5",
+    "delta": "我"
+  }
+}

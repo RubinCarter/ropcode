@@ -34,6 +34,22 @@ type sessionCommandOptions struct {
 	create        bool
 }
 
+type projectChatSummary struct {
+	ID              string `json:"id"`
+	ProjectPath     string `json:"project_path"`
+	ActiveProvider  string `json:"active_provider"`
+	ActiveSegmentID string `json:"active_segment_id"`
+}
+
+type projectChatSwitchResult struct {
+	ChatID           string `json:"chat_id"`
+	SegmentID        string `json:"segment_id"`
+	RuntimeSessionID string `json:"runtime_session_id"`
+	StreamID         string `json:"stream_id"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+}
+
 func runSendCommand(state cliState, args []string) error {
 	if len(args) == 1 && isHelpArg(args[0]) {
 		writeSendUsage(state.stdout)
@@ -488,37 +504,81 @@ func writeStopUsage(w io.Writer) {
 }
 
 func runSessionSend(state cliState, client rpcSession, opts sessionCommandOptions) error {
-	resumeSessionID := ""
-	if opts.fresh {
-		resumeSessionID = "__ROP_FRESH_SESSION__"
-	}
-
 	if opts.providerAPIID == "" {
 		opts.providerAPIID = resolveProviderAPIID(state, client, opts.cwd, opts.provider)
 	}
 
-	var stream *sessionEventStream
-	if opts.wait {
-		stream = subscribeSessionEvents(client, state.stdout, state.stderr, "", opts.cwd, opts.provider)
+	if opts.fresh {
+		_ = client.Call("StopProviderSessionsByProject", []any{opts.cwd}, nil)
 	}
 
-	var sessionID string
-	if err := client.Call("StartInteractiveClaudeSession", []any{opts.cwd, opts.model, opts.providerAPIID, resumeSessionID}, &sessionID); err != nil {
-		return fmt.Errorf("start interactive session: %w", err)
-	}
-
-	if err := client.Call("SendClaudeMessage", []any{opts.cwd, sessionID, opts.prompt}, nil); err != nil {
-		return fmt.Errorf("send message: %w", err)
+	result, err := ensureProjectChatProvider(client, opts)
+	if err != nil {
+		return err
 	}
 
 	if !opts.wait {
+		if err := client.Call("SendProjectChatMessage", []any{result.ChatID, opts.prompt, opts.model, opts.providerAPIID, ""}, nil); err != nil {
+			return fmt.Errorf("send project chat message: %w", err)
+		}
 		fmt.Fprintln(state.stdout, "ok")
 		return nil
 	}
-	stream.setSessionID(sessionID)
-	stream.attachSplitStream(client, sessionID)
-	stream.markLiveBoundary()
-	return stream.wait()
+
+	eventStream := newSessionEventStream(state.stdout, state.stderr, result.RuntimeSessionID, opts.cwd, opts.provider)
+	eventStream.attachStreamID(client, result.ChatID)
+	subscribeSessionControlEvents(client, eventStream)
+	eventStream.markLiveBoundary()
+	if err := client.Call("SendProjectChatMessage", []any{result.ChatID, opts.prompt, opts.model, opts.providerAPIID, ""}, nil); err != nil {
+		eventStream.close()
+		return fmt.Errorf("send project chat message: %w", err)
+	}
+	return eventStream.wait()
+}
+
+func ensureProjectChatProvider(client rpcSession, opts sessionCommandOptions) (projectChatSwitchResult, error) {
+	if opts.fresh {
+		var created projectChatSwitchResult
+		existingSessionID := ""
+		if opts.sessionID != "" {
+			existingSessionID = opts.sessionID
+		}
+		if err := client.Call("CreateProjectChat", []any{opts.cwd, opts.provider, opts.model, opts.providerAPIID, existingSessionID}, &created); err != nil {
+			return projectChatSwitchResult{}, fmt.Errorf("create project chat: %w", err)
+		}
+		return created, nil
+	}
+
+	var active *projectChatSummary
+	if err := client.Call("GetActiveChatForProject", []any{opts.cwd}, &active); err != nil {
+		active = nil
+	}
+	if active == nil || active.ID == "" {
+		var created projectChatSwitchResult
+		existingSessionID := ""
+		if opts.sessionID != "" {
+			existingSessionID = opts.sessionID
+		}
+		if err := client.Call("CreateProjectChat", []any{opts.cwd, opts.provider, opts.model, opts.providerAPIID, existingSessionID}, &created); err != nil {
+			return projectChatSwitchResult{}, fmt.Errorf("create project chat: %w", err)
+		}
+		return created, nil
+	}
+
+	if active.ActiveProvider != opts.provider {
+		var switched projectChatSwitchResult
+		if err := client.Call("SwitchProjectChatProvider", []any{active.ID, opts.provider, opts.model, opts.providerAPIID}, &switched); err != nil {
+			return projectChatSwitchResult{}, fmt.Errorf("switch project chat provider: %w", err)
+		}
+		return switched, nil
+	}
+
+	return projectChatSwitchResult{
+		ChatID:   active.ID,
+		StreamID: active.ID,
+		Provider: active.ActiveProvider,
+		Model:    opts.model,
+	}, nil
 }
 
 // resolveProviderAPIID asks the server for the API config the GUI would have

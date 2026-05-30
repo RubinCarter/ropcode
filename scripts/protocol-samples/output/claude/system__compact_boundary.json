@@ -1,0 +1,25 @@
+{
+  "parentUuid": null,
+  "logicalParentUuid": "431945ca-6720-4bd2-866b-513a12fd3e25",
+  "isSidechain": false,
+  "type": "system",
+  "subtype": "compact_boundary",
+  "content": "Conversation compacted",
+  "isMeta": false,
+  "timestamp": "2026-04-27T16:16:46.289Z",
+  "uuid": "9449134c-386d-488b-b183-9324bb839d89",
+  "level": "info",
+  "compactMetadata": {
+    "trigger": "manual",
+    "preTokens": 271552,
+    "postTokens": 6355,
+    "durationMs": 413746
+  },
+  "userType": "external",
+  "entrypoint": "cli",
+  "cwd": "/Users/rubin",
+  "sessionId": "45491627-371f-4cd6-a271-71dd4b608cdd",
+  "version": "2.1.108",
+  "gitBranch": "HEAD",
+  "slug": "idempotent-leaping-swan"
+}

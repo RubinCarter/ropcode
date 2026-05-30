@@ -1,0 +1,14 @@
+{
+  "method": "item/started",
+  "params": {
+    "item": {
+      "type": "reasoning",
+      "id": "rs_015d31619437bed1016a141dd943bc8194ac00946dc7528df5",
+      "summary": [],
+      "content": []
+    },
+    "threadId": "019e5e94-61d2-77e2-9325-d0e1c9c43e67",
+    "turnId": "019e5e94-69a2-7c93-a4df-b23e0a425ff3",
+    "startedAtMs": 1779703258315
+  }
+}

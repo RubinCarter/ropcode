@@ -81,7 +81,11 @@ export interface AiCodeSessionProps {
   /**
    * Callback when a ProjectChat is auto-created on first message send.
    */
-  onProjectChatCreated?: (chatId: string, streamId: string) => void;
+  onProjectChatCreated?: (chatId: string, streamId: string, segmentId?: string) => void;
+  /**
+   * Callback when the active ProjectChat segment gets a runtime session id.
+   */
+  onProjectChatSegmentRuntimeSession?: (segmentId: string, runtimeSessionId: string) => void;
 }
 
 /**

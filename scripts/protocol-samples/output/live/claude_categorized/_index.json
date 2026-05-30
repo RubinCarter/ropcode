@@ -1,0 +1,13 @@
+{
+  "provider": "claude_live",
+  "categories": [
+    "assistant/text",
+    "assistant/tool_use",
+    "result",
+    "system/hook_response",
+    "system/hook_started",
+    "system/init",
+    "user/tool_result"
+  ],
+  "total": 7
+}

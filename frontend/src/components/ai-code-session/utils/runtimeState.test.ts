@@ -64,6 +64,25 @@ test('derives tool-running phase from active tool progress', async () => {
   assert.equal(state.isStuckLikely, false);
 });
 
+test('sidechain result does not terminate foreground loading', async () => {
+  const { createInitialRuntimeTracker, reduceRuntimeTracker } = await loadModule();
+
+  const tracker = reduceRuntimeTracker(
+    createInitialRuntimeTracker(),
+    {
+      type: 'assistant',
+      subtype: 'result',
+      isSidechain: true,
+      parent_tool_use_id: 'tool-1',
+      task_id: 'sub-thread-1',
+      message: { content: [] },
+    },
+    10_000
+  );
+
+  assert.equal(tracker.lastResultAt, null);
+});
+
 test('prioritizes compacting over generic thinking while Claude is summarizing context', async () => {
   const { deriveRuntimeViewState } = await loadModule();
 

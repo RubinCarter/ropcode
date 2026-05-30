@@ -106,9 +106,9 @@ func TestTUICommand_AttachesAndRendersLiveInstance(t *testing.T) {
 	})
 	_ = db
 
-	sessionID, err := inst.app.StartProviderSession("claude", inst.projectPath, "hello", "sonnet", "")
+	sessionID, err := inst.app.ensureUserSessionForTest("claude", inst.projectPath, "hello", "sonnet", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 	time.Sleep(40 * time.Millisecond)
 

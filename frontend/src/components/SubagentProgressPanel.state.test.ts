@@ -183,7 +183,7 @@ test('AiCodeSession keeps message card expansion state outside virtualized rows'
   assert.match(streamMessageContextSource, /expandedCards\?: Set<string>;/);
   assert.match(streamMessageContextSource, /onExpandedCardsChange\?: React\.Dispatch<React\.SetStateAction<Set<string>>>;/);
   assert.match(streamMessageSource, /const currentExpandedCards = expandedCards \?\? uncontrolledExpandedCards;/);
-  assert.match(userMessageSource, /expansionKey: `user-text-\$\{idx\}`/);
+  assert.match(userMessageSource, /expansionKey: isContextSync \? `projectchat-context-sync-\$\{\(message as any\)\.session_id \|\| 'unknown'\}` : `user-text-\$\{idx\}`/);
 });
 
 test('session event handling batches hot stream work', async () => {
@@ -205,8 +205,9 @@ test('stream message filtering avoids duplicate scans and backward tool result l
   const useSessionMessagesSource = await readSource(useSessionMessagesPath);
   const messageFilterSource = await readSource(messageFilterPath);
 
-  assert.match(useSessionMessagesSource, /import \{ getDisplayableMessages \} from "\.\.\/utils\/messageFilter";/);
-  assert.match(useSessionMessagesSource, /const displayable = useMemo\([\s\S]*getDisplayableMessages\(messages, stableSubagentIndexes\)/);
+  assert.match(useSessionMessagesSource, /import \{ createDisplayableMessagesAccumulator, type DisplayableMessagesAccumulator \} from "\.\.\/utils\/messageFilter";/);
+  assert.match(useSessionMessagesSource, /const displayableAccumulatorRef = useRef<DisplayableMessagesAccumulator \| null>\(null\);/);
+  assert.match(useSessionMessagesSource, /const displayable = useMemo\([\s\S]*displayableAccumulatorRef\.current!\.apply\(messages, stableSubagentIndexes\)/);
   assert.doesNotMatch(useSessionMessagesSource, /filterDisplayableMessages/);
   assert.match(messageFilterSource, /function buildToolUseNamesById\(messages: ClaudeStreamMessage\[\]\): Map<string, string>/);
   assert.match(messageFilterSource, /const toolUseNamesById = buildToolUseNamesById\(messages\);/);
@@ -220,7 +221,7 @@ test('virtualized message rows use consistent compact spacing', async () => {
   const messageStreamViewSource = await readSource(messageStreamViewPath);
 
   assert.match(messageStreamViewSource, /<div className="w-full max-w-6xl mx-auto px-4 py-2">/);
-  assert.match(messageStreamViewSource, /const message = messages\[originalIndex\];[\s\S]*if \(!message\) return;[\s\S]*items\.push\(\{/);
+  assert.match(messageStreamViewSource, /const message = messages\[originalIndex\];[\s\S]*if \(!message\) return;[\s\S]*built\.push\(\{/);
   assert.doesNotMatch(messageStreamViewSource, /px-4 pb-4 pt-2/);
 });
 
@@ -293,8 +294,10 @@ test('SessionController delegates lifecycle, runtime status, and element selecti
   assert.match(lifecycleHookSource, /SessionPersistenceService\.getSessionIndex\(\)/);
   assert.match(runtimeHookSource, /setInterval\(\(\) => \{/);
   assert.match(elementSelectionHookSource, /window\.addEventListener\('webview-element-selected'/);
-  assert.match(promptActionsHookSource, /api\.StartInteractiveClaudeSession/);
-  assert.match(promptActionsHookSource, /api\.cancelClaudeExecutionByProject/);
+  assert.match(promptActionsHookSource, /CreateProjectChat/);
+  assert.match(promptActionsHookSource, /SendProjectChatMessage/);
+  assert.doesNotMatch(promptActionsHookSource, /api\.startProviderSession/);
+  assert.match(promptActionsHookSource, /api\.stopProviderSessionsByProject/);
   assert.match(promptActionsHookSource, /classifyPromptSubmit/);
 });
 
@@ -388,6 +391,6 @@ test('SubagentProgressPanel memoizes transcript filtering while rendering all me
   assert.match(source, /const SubagentTranscript = React\.memo\(function SubagentTranscript/);
   assert.match(source, /const transcriptMessages = React\.useMemo\([\s\S]*subagent\.messages\.filter\(\(message\) => !isDuplicatePromptMessage\(message, subagent\.prompt\)\)/);
   assert.match(source, /return \[\.\.\.fallbackMessages, \.\.\.transcriptMessages\];/);
-  assert.match(source, /const streamContext = React\.useMemo\(\(\) => buildStreamMessageContext\(renderMessages as any\), \[renderMessages\]\);/);
+  assert.match(source, /const streamContext = React\.useMemo\(\(\) => buildStreamMessageContext\(visibleMessages as any\), \[visibleMessages\]\);/);
   assert.doesNotMatch(source, /MAX_RENDERED_SUBAGENT_MESSAGES|slice\(-MAX_RENDERED_SUBAGENT_MESSAGES\)|Showing latest/);
 });

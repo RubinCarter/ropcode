@@ -16,6 +16,7 @@ import { useProcessChanged } from "@/hooks";
 export interface UseProcessStateOptions {
   projectPath: string;
   provider?: string;  // Provider ID (claude, codex, etc.)
+  activeRuntimeSessionId?: string | null;
 }
 
 export interface UseProcessStateReturn {
@@ -41,7 +42,7 @@ export interface UseProcessStateReturn {
  * Hook to manage process state
  */
 export function useProcessState(options: UseProcessStateOptions): UseProcessStateReturn {
-  const { projectPath, provider = 'claude' } = options;
+  const { projectPath, provider = 'claude', activeRuntimeSessionId } = options;
 
   const [isLoading, setIsLoadingState] = useState(false);
   const [isPendingSend, setIsPendingSend] = useState(false);
@@ -87,27 +88,38 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
       return;
     }
 
+    if (activeRuntimeSessionId === null && !isPendingSendRef.current) {
+      setIsLoading(false);
+      hasActiveSessionRef.current = false;
+      return;
+    }
+
     // Don't sync if we're pending a send - let the process register first
     if (isPendingSendRef.current) {
       return;
     }
 
     try {
-      const running = interactiveSessionIdRef.current
-        ? await api.isClaudeSessionRunningForProject(projectPath, interactiveSessionIdRef.current)
-        : await api.isClaudeSessionRunningForProject(projectPath, provider);
+      const activity = await api.queryProviderSessionActivityForProject(
+        projectPath,
+        interactiveSessionIdRef.current || provider
+      );
+      const running = Boolean(activity?.running);
+      const active = Boolean(activity?.active);
       hasActiveSessionRef.current = running;
 
-      // In interactive mode, process is always running but isLoading
-      // should only reflect "AI is actively generating a response",
-      // which is controlled by message flow (send -> result), not process state.
-      if (!interactiveSessionIdRef.current) {
-        setIsLoading(running);
-      }
+      setIsLoading(active);
     } catch {
       // Keep current state on error
     }
-  }, [projectPath, provider]);
+  }, [activeRuntimeSessionId, projectPath, provider]);
+
+  useEffect(() => {
+    if (activeRuntimeSessionId === undefined) {
+      return;
+    }
+    setInteractiveSessionIdWithRef(activeRuntimeSessionId || null);
+  }, [activeRuntimeSessionId, setInteractiveSessionIdWithRef]);
 
   // Sync on mount, when project path changes, and on WebSocket reconnect
   // (reconnect sync catches missed process:changed events while disconnected)
@@ -122,17 +134,26 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
   // Subscribe to process state changes via event system
   // Note: useEventSubscription internally uses queueMicrotask to avoid flushSync warnings
   useProcessChanged(projectPath, (event) => {
+    if (event.provider_id && event.provider_id !== provider) {
+      return;
+    }
+    if (activeRuntimeSessionId === null && !isPendingSendRef.current) {
+      return;
+    }
+    if (
+      event.session_id &&
+      (activeRuntimeSessionId || interactiveSessionIdRef.current) &&
+      event.session_id !== (activeRuntimeSessionId || interactiveSessionIdRef.current)
+    ) {
+      return;
+    }
     if (event.state === "running") {
       hasActiveSessionRef.current = true;
       // Set interactiveSessionId from the event if available
       if (event.session_id) {
         setInteractiveSessionIdWithRef(event.session_id);
       }
-      // In interactive mode, don't set isLoading based on process state.
-      // isLoading is controlled by message flow (send -> result).
-      if (!interactiveSessionIdRef.current) {
-        setIsLoading(true);
-      }
+      void syncProcessState();
     } else if (event.state === "stopped") {
       setIsLoading(false);
       hasActiveSessionRef.current = false;

@@ -3,11 +3,14 @@ package provider
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+const FreshSessionSentinel = "__ROP_FRESH_SESSION__"
 
 // Manager is the unified session manager for all providers.
 type Manager struct {
@@ -48,6 +51,269 @@ func (m *Manager) RegisterDriver(d ProviderDriver) error {
 	return nil
 }
 
+// EnsureUserSession starts, resumes, or reuses the provider's user-facing session.
+// Provider-specific mode selection, config normalization, initialization, and
+// first-message delivery are owned here so callers do not branch per provider.
+func (m *Manager) EnsureUserSession(providerID string, config SessionConfig) (string, error) {
+	driver, err := m.driver(providerID)
+	if err != nil {
+		return "", err
+	}
+	m.prepareSessionConfig(driver, &config)
+
+	initialPrompt := config.Prompt
+	longLived := useLongLivedSession(driver, config)
+	config.Interactive = longLived
+	if longLived {
+		config.Prompt = ""
+	}
+
+	forceFresh := config.ResumeSessionID == FreshSessionSentinel
+	if forceFresh {
+		config.ResumeSessionID = ""
+		config.Resume = false
+	}
+
+	if longLived {
+		existing := ""
+		if config.ResumeSessionID != "" {
+			existing = m.ResolveRunningSessionID(providerID, config.ProjectPath, config.ResumeSessionID)
+		} else {
+			existing = m.GetRunningSessionForProject(providerID, config.ProjectPath)
+		}
+		if existing != "" {
+			if !forceFresh {
+				m.applyRuntimeConfig(existing, config)
+				if initialPrompt != "" {
+					if err := m.SendMessage(existing, initialPrompt); err != nil {
+						return "", err
+					}
+				}
+				return existing, nil
+			}
+			_ = m.TerminateSession(existing)
+		}
+	}
+
+	sessionID, err := m.StartSession(providerID, config)
+	if err != nil {
+		return "", err
+	}
+	if !longLived {
+		return sessionID, nil
+	}
+
+	sessionID, err = m.waitForProviderSessionInit(providerID, sessionID, config)
+	if err != nil {
+		return "", err
+	}
+	if initialPrompt != "" {
+		if err := m.SendMessage(sessionID, initialPrompt); err != nil {
+			return "", err
+		}
+	}
+	return sessionID, nil
+}
+
+func (m *Manager) applyRuntimeConfig(sessionID string, config SessionConfig) {
+	if config.Model != "" {
+		_ = m.SetModel(sessionID, config.Model)
+	}
+	vars := make(map[string]string)
+	if config.AuthToken != "" {
+		vars["AUTH_TOKEN"] = config.AuthToken
+	}
+	if config.BaseURL != "" {
+		vars["BASE_URL"] = config.BaseURL
+	}
+	if len(vars) > 0 {
+		_ = m.UpdateEnvironmentVariables(sessionID, vars)
+	}
+}
+
+// SendUserMessage resolves either a runtime ID or provider-native
+// session ID, then sends the message through the active provider session.
+func (m *Manager) SendUserMessage(providerID, projectPath, sessionID, message string) (string, error) {
+	if resolved := m.ResolveRunningSessionID(providerID, projectPath, sessionID); resolved != "" {
+		sessionID = resolved
+		if err := m.SendMessage(sessionID, message); err != nil {
+			return "", err
+		}
+		return sessionID, nil
+	}
+	if sessionID == "" {
+		return "", fmt.Errorf("session not found")
+	}
+
+	config, ok := m.resumeConfigForSessionMessage(providerID, projectPath, sessionID, message)
+	if !ok {
+		return "", fmt.Errorf("session not found: %s", sessionID)
+	}
+	return m.EnsureUserSession(providerID, config)
+}
+
+func (m *Manager) resumeConfigForSessionMessage(providerID, projectPath, sessionID, message string) (SessionConfig, bool) {
+	m.mu.RLock()
+	session, ok := m.sessions[sessionID]
+	if ok {
+		m.mu.RUnlock()
+		config := session.GetConfig()
+		config.Prompt = message
+		config.Resume = true
+		if providerSessionID := session.GetProviderSessionID(); providerSessionID != "" {
+			config.ResumeSessionID = providerSessionID
+		}
+		if config.Extra != nil {
+			config.Extra = cloneStringMap(config.Extra)
+		}
+		return config, true
+	}
+	m.mu.RUnlock()
+
+	if providerID == "" || projectPath == "" {
+		return SessionConfig{}, false
+	}
+	return SessionConfig{
+		ProjectPath:     projectPath,
+		Prompt:          message,
+		Resume:          true,
+		ResumeSessionID: sessionID,
+	}, true
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// IsProviderSessionRunningForProject checks either a provider ID, runtime ID,
+// or provider-native ID without callers knowing which identifier they hold.
+func (m *Manager) IsProviderSessionRunningForProject(projectPath, providerOrSessionID string) bool {
+	if providerOrSessionID == "" {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+		for _, s := range m.sessions {
+			if s.config.ProjectPath != projectPath {
+				continue
+			}
+			state := s.GetState()
+			if state == StateRunning || state == StateStarting {
+				return true
+			}
+		}
+		return false
+	}
+	if m.ResolveRunningSessionID("", projectPath, providerOrSessionID) != "" {
+		return true
+	}
+	return m.IsRunningForProject(providerOrSessionID, projectPath)
+}
+
+// QueryProviderSessionActivityForProject resolves either a provider ID,
+// runtime ID, or provider-native session ID and returns the provider-owned
+// activity snapshot. Native query APIs are hidden behind the driver interface.
+func (m *Manager) QueryProviderSessionActivityForProject(projectPath, providerOrSessionID string, timeout time.Duration) (*SessionActivity, error) {
+	session := m.resolveSession(projectPath, providerOrSessionID)
+	if session == nil {
+		return &SessionActivity{Status: SessionActivityIdle}, nil
+	}
+
+	activity := session.Activity()
+	queried, err := session.driver.QuerySessionActivity(session, timeout)
+	if err != nil {
+		return activity, err
+	}
+	if queried != nil {
+		activity = mergeSessionActivity(activity, queried)
+	}
+	return activity, nil
+}
+
+func (m *Manager) resolveSession(projectPath, providerOrSessionID string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if providerOrSessionID != "" {
+		if s, ok := m.sessions[providerOrSessionID]; ok {
+			if projectPath == "" || s.config.ProjectPath == projectPath {
+				return s
+			}
+		}
+		for _, s := range m.sessions {
+			if projectPath != "" && s.config.ProjectPath != projectPath {
+				continue
+			}
+			if s.driver.ID() == providerOrSessionID || s.GetProviderSessionID() == providerOrSessionID {
+				state := s.GetState()
+				if state == StateRunning || state == StateStarting {
+					return s
+				}
+			}
+		}
+		return nil
+	}
+	for _, s := range m.sessions {
+		if s.config.ProjectPath != projectPath {
+			continue
+		}
+		state := s.GetState()
+		if state == StateRunning || state == StateStarting {
+			return s
+		}
+	}
+	return nil
+}
+
+func mergeSessionActivity(base *SessionActivity, queried *SessionActivity) *SessionActivity {
+	if base == nil {
+		return queried
+	}
+	if queried == nil {
+		return base
+	}
+	merged := *base
+	if queried.Status != "" {
+		merged.Status = queried.Status
+	}
+	merged.Running = queried.Running
+	merged.Active = queried.Active
+	merged.CanInterrupt = queried.CanInterrupt
+	if queried.ThreadStatus != "" {
+		merged.ThreadStatus = queried.ThreadStatus
+	}
+	if queried.TurnID != "" {
+		merged.TurnID = queried.TurnID
+	}
+	if queried.Error != "" {
+		merged.Error = queried.Error
+	}
+	if !queried.UpdatedAt.IsZero() {
+		merged.UpdatedAt = queried.UpdatedAt
+	}
+	return &merged
+}
+
+// TerminateByProjectAll terminates all running sessions for a project.
+func (m *Manager) TerminateByProjectAll(projectPath string) error {
+	m.mu.RLock()
+	targets := make([]*Session, 0)
+	for _, s := range m.sessions {
+		if s.config.ProjectPath == projectPath {
+			state := s.GetState()
+			if state == StateRunning || state == StateStarting || state == StateCancelling {
+				targets = append(targets, s)
+			}
+		}
+	}
+	m.mu.RUnlock()
+	for _, s := range targets {
+		_ = s.terminate()
+	}
+	return nil
+}
+
 // StartSession starts a new provider session.
 func (m *Manager) StartSession(providerID string, config SessionConfig) (string, error) {
 	m.mu.RLock()
@@ -62,6 +328,7 @@ func (m *Manager) StartSession(providerID string, config SessionConfig) (string,
 	if sessionID == "" {
 		sessionID = uuid.New().String()
 	}
+	config.SessionID = sessionID
 
 	session := newSession(m.ctx, sessionID, driver, config, m.emitter, m.monitor, m.onSessionComplete)
 	session.binaryPath = binaryPath
@@ -88,6 +355,63 @@ func (m *Manager) StartSession(providerID string, config SessionConfig) (string,
 	}
 
 	return sessionID, nil
+}
+
+func (m *Manager) driver(providerID string) (ProviderDriver, error) {
+	m.mu.RLock()
+	driver, ok := m.drivers[providerID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("unknown provider: %s", providerID)
+	}
+	return driver, nil
+}
+
+func (m *Manager) prepareSessionConfig(driver ProviderDriver, config *SessionConfig) {
+	if config.Extra == nil {
+		config.Extra = make(map[string]string)
+	}
+	if preparer, ok := driver.(SessionConfigPreparer); ok {
+		preparer.PrepareSessionConfig(config)
+	}
+}
+
+func useLongLivedSession(driver ProviderDriver, config SessionConfig) bool {
+	if mode, ok := driver.(ProviderSessionMode); ok {
+		return mode.UseLongLivedSession(config)
+	}
+	return config.Interactive
+}
+
+func (m *Manager) waitForProviderSessionInit(providerID, sessionID string, config SessionConfig) (string, error) {
+	err := m.WaitForInit(sessionID, 30*time.Second)
+	if err == nil {
+		return sessionID, nil
+	}
+	_ = m.TerminateSession(sessionID)
+	if config.ResumeSessionID != "" && isRecoverableInitFailure(err) {
+		config.ResumeSessionID = ""
+		config.Resume = false
+		retryID, retryErr := m.StartSession(providerID, config)
+		if retryErr != nil {
+			return "", fmt.Errorf("provider session initialization failed: %w", retryErr)
+		}
+		if retryErr := m.WaitForInit(retryID, 30*time.Second); retryErr != nil {
+			_ = m.TerminateSession(retryID)
+			return "", fmt.Errorf("provider session initialization failed: %w", retryErr)
+		}
+		return retryID, nil
+	}
+	return "", fmt.Errorf("provider session initialization failed: %w", err)
+}
+
+func isRecoverableInitFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.HasPrefix(msg, "session init timeout") ||
+		strings.HasPrefix(msg, "session exited before initialization")
 }
 
 // TerminateSession terminates the specified session.
@@ -141,7 +465,11 @@ func (m *Manager) SendMessage(sessionID, message string) error {
 		session.EnqueueMessage(message)
 		return nil
 	default:
-		return session.driver.SendMessage(session, message)
+		if err := session.driver.SendMessage(session, message); err != nil {
+			return err
+		}
+		session.MarkActivityActive()
+		return nil
 	}
 }
 

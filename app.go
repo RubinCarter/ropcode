@@ -122,7 +122,7 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize unified provider manager
 	a.providerManager = provider.NewManager(ctx, providerEmitter, nil)
-	a.providerManager.RegisterDriver(&providerClaude.Driver{})
+	a.providerManager.RegisterDriver(&providerClaude.Driver{Activity: a.claudeActivity})
 	a.providerManager.RegisterDriver(&providerCodex.Driver{})
 	a.providerManager.RegisterDriver(&providerGemini.Driver{})
 	a.providerManager.RegisterDriver(&providerDeepseek.Driver{})
@@ -130,6 +130,7 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize project chat manager
 	a.projectChatManager = projectchat.NewManager(a.dbManager, a.providerManager, a.eventHub, a.sessionStreamHub)
+	a.projectChatManager.SetSessionConfigResolver(a.providerSessionConfig)
 
 	// Initialize MCP manager
 	// Note: MCP manager now uses dynamic claude binary detection on each command execution
@@ -148,25 +149,20 @@ func (a *App) startup(ctx context.Context) {
 	go func() {
 		service, err := a.getClaudeCapabilityDiscovery()
 		if err != nil {
-			log.Printf("[capability-discovery] startup prewarm init failed: %v", err)
 			return
 		}
-		ok := service.PrewarmSystem()
-		log.Printf("[capability-discovery] startup system prewarm ok=%t", ok)
+		_ = service.PrewarmSystem()
 	}()
 
 	go func() {
 		service, err := a.getClaudeCapabilityDiscovery()
 		if err != nil {
-			log.Printf("[capability-discovery] startup user prewarm init failed: %v", err)
 			return
 		}
-		ok := service.PrewarmUser()
-		log.Printf("[capability-discovery] startup user prewarm ok=%t", ok)
+		_ = service.PrewarmUser()
 	}()
 
 	log.Println("ropcode started successfully")
-	log.Printf("[claudeactivity] build=%s", claudeactivity.ActivityServiceBuild)
 }
 
 func (a *App) getClaudeCapabilityDiscovery() (claude.CapabilityDiscovery, error) {
@@ -248,32 +244,24 @@ func (e *providerStreamEmitter) Emit(eventName string, data interface{}) {
 
 	event, ok := providerOutputEventFrom(data)
 	if !ok || e.bridge == nil {
-		log.Printf("[provider] output event dropped event=%s parsed=%t bridge_ready=%t data_type=%T",
-			eventName,
-			ok,
-			e.bridge != nil,
-			data,
-		)
 		return
 	}
 	if event.Provider == "claude" && e.claudeActivity != nil {
+		e.claudeActivity.EnsureSession(
+			event.SessionID,
+			event.ProjectPath,
+			true,
+			nil,
+		)
 		e.claudeActivity.ObserveClaudeEvent(event.SessionID, event.Message)
 	}
-	if err := e.bridge.EmitProviderOutput(stream.ProviderOutputContext{
+	_ = e.bridge.EmitProviderOutput(stream.ProviderOutputContext{
 		RuntimeSessionID:  event.SessionID,
 		ProviderSessionID: event.ProviderSessionID,
 		Provider:          event.Provider,
 		Cwd:               event.Cwd,
 		ProjectPath:       event.ProjectPath,
-	}, event); err != nil {
-		log.Printf("[provider] stream bridge emit failed provider=%s runtime=%s event_type=%s subtype=%s err=%v",
-			event.Provider,
-			event.SessionID,
-			event.Type,
-			event.Subtype,
-			err,
-		)
-	}
+	}, event)
 }
 
 func providerOutputEventFrom(data interface{}) (provider.OutputEvent, bool) {

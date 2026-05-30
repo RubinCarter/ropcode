@@ -1,0 +1,32 @@
+{
+  "parentUuid": "789dffde-f723-4e9f-b323-76b87c5a2743",
+  "isSidechain": false,
+  "message": {
+    "id": "resp_0f10c5ad19e7cc7d0169ef427427348191b4e23d1747629105",
+    "type": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "我继续看 CPU offload 这轮的启动结果，并确认是否能通过 `/health`。"
+      }
+    ],
+    "model": "claude-opus-4-6",
+    "stop_reason": "",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    }
+  },
+  "type": "assistant",
+  "uuid": "6bb076c3-32ca-430e-8cb1-ab2dd325b0f1",
+  "timestamp": "2026-04-27T11:03:23.409Z",
+  "userType": "external",
+  "entrypoint": "cli",
+  "cwd": "/Users/rubin",
+  "sessionId": "45491627-371f-4cd6-a271-71dd4b608cdd",
+  "version": "2.1.108",
+  "gitBranch": "HEAD"
+}

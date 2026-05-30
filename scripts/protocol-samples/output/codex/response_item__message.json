@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-05-25T09:46:10.147Z",
+  "type": "response_item",
+  "payload": {
+    "type": "message",
+    "role": "developer",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "<permissions instructions>\nFilesystem sandboxing defines which files can be read or written. `sandbox_mode` is `danger-full-access`: No filesystem sandboxing - all commands are permitted. Network access is enabled.\nApproval policy is currently never. Do not provide the `sandbox_permissions` for any reason, commands will be rejected.\n</permissions instructions>"
+      },
+      {
+        "type": "input_text",
+        "text": "<skills_instructions>\n## Skills\nA skill is a set of local instructions to follow that is stored in a `SKILL.md` file. Below is the list of skills that can be used. Each entry includes a name, description, and file path so you can open the source for full instructions when using a specific skill.\n### Available skills\n- imagegen: Generate or edit raster images when the task benefits from AI-created bitmap visuals such as photos, illustrations, textures, sprites, mockups, or transparent-background ... [truncated, total 5974 chars]"
+      }
+    ]
+  }
+}

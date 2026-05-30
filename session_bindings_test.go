@@ -104,13 +104,24 @@ func runningSessionConfig(t *testing.T, mgr *provider.Manager, sessionID string)
 	return status.Model, status.ProviderApiID, reasoningEffort
 }
 
+func ensureUserSessionForTest(t *testing.T, app *App, providerName, projectPath, prompt, model, providerApiID, reasoningEffort string, resumeSessionID ...string) (string, error) {
+	t.Helper()
+	config := app.providerSessionConfig(providerName, projectPath, model, providerApiID, reasoningEffort)
+	config.Prompt = prompt
+	if len(resumeSessionID) > 0 && resumeSessionID[0] != "" {
+		config.ResumeSessionID = resumeSessionID[0]
+		config.Resume = true
+	}
+	return app.providerManager.EnsureUserSession(providerName, config)
+}
+
 func TestListRunningProviderSessions_IncludesProviderMetadata(t *testing.T) {
 	app := newGeminiTestApp(t)
 	projectPath := t.TempDir()
 
-	sessionID, err := app.StartProviderSession("gemini", projectPath, "hello", "gemini-test", "", "")
+	sessionID, err := ensureUserSessionForTest(t, app, "gemini", projectPath, "hello", "gemini-test", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 	defer app.StopProviderSession(sessionID)
 
@@ -134,7 +145,7 @@ func TestListRunningProviderSessions_IncludesProviderMetadata(t *testing.T) {
 	}
 }
 
-func TestStartProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T) {
+func TestEnsureUserSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T) {
 	app := newDeepSeekTestApp(t)
 	projectPath := t.TempDir()
 	apiCfg := &database.ProviderApiConfig{
@@ -149,9 +160,9 @@ func TestStartProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T) 
 		t.Fatalf("SaveProviderApiConfig failed: %v", err)
 	}
 
-	sessionID, err := app.StartProviderSession("deepseek", projectPath, "hello", "deepseek-v4-pro", "", "")
+	sessionID, err := ensureUserSessionForTest(t, app, "deepseek", projectPath, "hello", "deepseek-v4-pro", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 	defer app.StopProviderSession(sessionID)
 
@@ -161,7 +172,7 @@ func TestStartProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T) 
 	}
 }
 
-func TestResumeProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T) {
+func TestEnsureUserSessionWithResumeUsesDeepSeekDefaultProviderApiConfig(t *testing.T) {
 	app := newDeepSeekTestApp(t)
 	projectPath := t.TempDir()
 	apiCfg := &database.ProviderApiConfig{
@@ -176,9 +187,9 @@ func TestResumeProviderSessionUsesDeepSeekDefaultProviderApiConfig(t *testing.T)
 		t.Fatalf("SaveProviderApiConfig failed: %v", err)
 	}
 
-	sessionID, err := app.ResumeProviderSession("deepseek", projectPath, "hello again", "deepseek-v4-pro", "upstream-session-id", "", "")
+	sessionID, err := ensureUserSessionForTest(t, app, "deepseek", projectPath, "hello again", "deepseek-v4-pro", "", "", "upstream-session-id")
 	if err != nil {
-		t.Fatalf("ResumeProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 	defer app.StopProviderSession(sessionID)
 
@@ -220,14 +231,14 @@ func writeFakeClaudeInteractiveBinary(t *testing.T) string {
 	return binPath
 }
 
-func TestSendClaudeMessageAcceptsProviderSessionIDForRunningSession(t *testing.T) {
+func TestSendUserMessageAcceptsProviderSessionIDForRunningSession(t *testing.T) {
 	app := newGeminiTestApp(t)
 	app.providerManager.SetBinaryPath("claude", writeFakeClaudeInteractiveBinary(t))
 	projectPath := t.TempDir()
 
-	sessionID, err := app.StartInteractiveClaudeSession(projectPath, "sonnet", "", "")
+	sessionID, err := ensureUserSessionForTest(t, app, "claude", projectPath, "", "sonnet", "", "")
 	if err != nil {
-		t.Fatalf("StartInteractiveClaudeSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 	defer func() { _ = app.StopProviderSession(sessionID) }()
 
@@ -243,16 +254,16 @@ func TestSendClaudeMessageAcceptsProviderSessionIDForRunningSession(t *testing.T
 		t.Fatal("expected provider session id")
 	}
 
-	if err := app.SendClaudeMessage(projectPath, session.ProviderSessionID, "hello again"); err != nil {
-		t.Fatalf("SendClaudeMessage with provider session id failed: %v", err)
+	if _, err := app.providerManager.SendUserMessage("claude", projectPath, session.ProviderSessionID, "hello again"); err != nil {
+		t.Fatalf("SendUserMessage with provider session id failed: %v", err)
 	}
 }
 
 func TestGetProviderSessionOutputAndStopProviderSession(t *testing.T) {
 	app := newGeminiTestApp(t)
-	sessionID, err := app.StartProviderSession("gemini", t.TempDir(), "hello", "", "", "")
+	sessionID, err := ensureUserSessionForTest(t, app, "gemini", t.TempDir(), "hello", "", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	waitUntil(t, 2*time.Second, func() bool {
@@ -277,13 +288,13 @@ func TestGetProviderSessionOutputAndStopProviderSession(t *testing.T) {
 	})
 }
 
-func TestSendProviderSessionMessage_RestartsGeminiSession(t *testing.T) {
+func TestSendUserMessage_RestartsGeminiSession(t *testing.T) {
 	app := newGeminiTestApp(t)
 	projectPath := t.TempDir()
 
-	firstID, err := app.StartProviderSession("gemini", projectPath, "hello", "", "", "")
+	firstID, err := ensureUserSessionForTest(t, app, "gemini", projectPath, "hello", "", "", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	waitUntil(t, 2*time.Second, func() bool {
@@ -297,9 +308,9 @@ func TestSendProviderSessionMessage_RestartsGeminiSession(t *testing.T) {
 		return len(app.ListRunningProviderSessions()) == 0
 	})
 
-	nextID, err := app.SendProviderSessionMessage("gemini", projectPath, firstID, "follow up")
+	nextID, err := app.providerManager.SendUserMessage("gemini", projectPath, firstID, "follow up")
 	if err != nil {
-		t.Fatalf("SendProviderSessionMessage failed: %v", err)
+		t.Fatalf("SendUserMessage failed: %v", err)
 	}
 	// Same session ID — unified runtime reuses the session with resume
 	if nextID != firstID {
@@ -314,13 +325,13 @@ func TestSendProviderSessionMessage_RestartsGeminiSession(t *testing.T) {
 	_ = app.StopProviderSession(nextID)
 }
 
-func TestSendProviderSessionMessage_PreservesGeminiConfigOnRestart(t *testing.T) {
+func TestSendUserMessage_PreservesGeminiConfigOnRestart(t *testing.T) {
 	app := newGeminiTestApp(t)
 	projectPath := t.TempDir()
 
-	firstID, err := app.StartProviderSession("gemini", projectPath, "hello", "gemini-2.5-pro", "gemini-api", "")
+	firstID, err := ensureUserSessionForTest(t, app, "gemini", projectPath, "hello", "gemini-2.5-pro", "gemini-api", "")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	waitUntil(t, 2*time.Second, func() bool {
@@ -334,9 +345,9 @@ func TestSendProviderSessionMessage_PreservesGeminiConfigOnRestart(t *testing.T)
 		return len(app.ListRunningProviderSessions()) == 0
 	})
 
-	nextID, err := app.SendProviderSessionMessage("gemini", projectPath, firstID, "follow up")
+	nextID, err := app.providerManager.SendUserMessage("gemini", projectPath, firstID, "follow up")
 	if err != nil {
-		t.Fatalf("SendProviderSessionMessage failed: %v", err)
+		t.Fatalf("SendUserMessage failed: %v", err)
 	}
 	defer func() { _ = app.StopProviderSession(nextID) }()
 
@@ -354,13 +365,13 @@ func TestSendProviderSessionMessage_PreservesGeminiConfigOnRestart(t *testing.T)
 	}
 }
 
-func TestSendProviderSessionMessage_PreservesCodexConfigOnRestart(t *testing.T) {
+func TestSendUserMessage_PreservesCodexConfigOnRestart(t *testing.T) {
 	app := newCodexTestApp(t)
 	projectPath := t.TempDir()
 
-	firstID, err := app.StartProviderSession("codex", projectPath, "hello", "gpt-5.5", "codex-api", "medium")
+	firstID, err := ensureUserSessionForTest(t, app, "codex", projectPath, "hello", "gpt-5.5", "codex-api", "medium")
 	if err != nil {
-		t.Fatalf("StartProviderSession failed: %v", err)
+		t.Fatalf("EnsureUserSession failed: %v", err)
 	}
 
 	waitUntil(t, 2*time.Second, func() bool {
@@ -374,9 +385,9 @@ func TestSendProviderSessionMessage_PreservesCodexConfigOnRestart(t *testing.T) 
 		return len(app.ListRunningProviderSessions()) == 0
 	})
 
-	nextID, err := app.SendProviderSessionMessage("codex", projectPath, firstID, "follow up")
+	nextID, err := app.providerManager.SendUserMessage("codex", projectPath, firstID, "follow up")
 	if err != nil {
-		t.Fatalf("SendProviderSessionMessage failed: %v", err)
+		t.Fatalf("SendUserMessage failed: %v", err)
 	}
 	defer func() { _ = app.StopProviderSession(nextID) }()
 

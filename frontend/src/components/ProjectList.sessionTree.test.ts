@@ -194,12 +194,12 @@ test('AiCodeSession can skip automatic session restoration for explicit new tabs
   assert.match(lifecycleSource, /Skipping session restore for explicit new session/);
 });
 
-test('AiCodeSession forces a fresh Claude runtime for explicit new tabs', async () => {
+test('AiCodeSession forces a fresh provider runtime for explicit new tabs', async () => {
   const source = await readSource(path.resolve(currentDir, './ai-code-session/SessionController.tsx'));
   const promptActionsSource = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionPromptActions.ts'));
 
-  assert.match(source, /useRef\(skipSessionRestore && defaultProvider === 'claude'\)/);
-  assert.match(source, /pendingFreshClaudeSessionRef\.current = true/);
+  assert.match(source, /useRef\(skipSessionRestore\)/);
+  assert.match(source, /pendingFreshProviderSessionRef\.current = true/);
   assert.match(promptActionsSource, /__ROP_FRESH_SESSION__/);
 });
 
@@ -213,8 +213,8 @@ test('AiCodeSession does not auto-restore localStorage over an explicit historic
 test('AiCodeSession checks running state with the active session id, not provider id', async () => {
   const source = await readSource(path.resolve(currentDir, './ai-code-session/hooks/useSessionRecovery.ts'));
 
-  assert.match(source, /isClaudeSessionRunningForProject\(projectPath,\s*sessionId\)/);
-  assert.doesNotMatch(source, /isClaudeSessionRunningForProject\(projectPath,\s*defaultProvider\)/);
+  assert.match(source, /isProviderSessionRunningForProject\(projectPath,\s*sessionId\)/);
+  assert.doesNotMatch(source, /isProviderSessionRunningForProject\(projectPath,\s*defaultProvider\)/);
 });
 
 test('rpc client exposes ListSpaceSessions result types and wrapper', async () => {

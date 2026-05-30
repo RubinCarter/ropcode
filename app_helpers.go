@@ -14,22 +14,7 @@ import (
 	"ropcode/internal/eventhub"
 	"ropcode/internal/git"
 	"ropcode/internal/provider"
-	providerPi "ropcode/internal/provider/pi"
 )
-
-func resolveInteractiveClaudeSessionStart(resumeSessionID string, hasExistingSession bool) (string, bool, bool, bool) {
-	forceFresh := resumeSessionID == "__ROP_FRESH_SESSION__"
-	if forceFresh {
-		resumeSessionID = ""
-	}
-	if !hasExistingSession {
-		return resumeSessionID, false, false, !forceFresh
-	}
-	if forceFresh {
-		return resumeSessionID, false, true, false
-	}
-	return resumeSessionID, true, false, true
-}
 
 func shouldIgnoreMissingRunningSessionOnClear(err error) bool {
 	if err == nil {
@@ -38,49 +23,30 @@ func shouldIgnoreMissingRunningSessionOnClear(err error) bool {
 	return strings.Contains(err.Error(), "no running sessions found for project:")
 }
 
-// StartProviderSession starts a new provider session (kept for tests and session_title.go).
-func (a *App) StartProviderSession(providerName, projectPath, prompt, model, providerApiID, reasoningEffort string) (string, error) {
-	if a.providerManager == nil {
-		return "", fmt.Errorf("provider manager not initialized")
-	}
+func (a *App) providerSessionConfig(providerName, projectPath, model, providerApiID, reasoningEffort string) provider.SessionConfig {
 	config := provider.SessionConfig{
 		ProjectPath:   projectPath,
-		Prompt:        prompt,
 		Model:         model,
 		ProviderApiID: providerApiID,
 	}
 	if reasoningEffort != "" {
 		config.Extra = map[string]string{"reasoning_effort": reasoningEffort}
 	}
-	if providerName == "pi" {
-		config.Interactive = true
-		if reasoningEffort != "" {
-			if config.Extra == nil {
-				config.Extra = make(map[string]string)
-			}
-			config.Extra["thinking_level"] = reasoningEffort
-		}
-		providerPi.ApplyLocalDefaults(&config)
-	}
 	if providerApiID != "" && a.dbManager != nil {
 		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
 		if err == nil && apiConfig != nil {
+			config.ProviderApiID = apiConfig.ID
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
-		} else if providerName == "pi" {
-			if apiConfig, err := providerPi.LocalProviderAPIConfig(providerApiID); err == nil && apiConfig != nil {
-				config.AuthToken = apiConfig.AuthToken
-				config.BaseURL = apiConfig.BaseURL
-			}
 		}
-	} else if (providerName == "deepseek" || providerName == "pi") && a.dbManager != nil {
+	} else if a.dbManager != nil {
 		if apiConfig, _ := a.resolveProviderAPIConfig(providerName, providerApiID); apiConfig != nil {
 			config.ProviderApiID = apiConfig.ID
 			config.AuthToken = apiConfig.AuthToken
 			config.BaseURL = apiConfig.BaseURL
 		}
 	}
-	return a.providerManager.StartSession(providerName, config)
+	return config
 }
 
 // StopProviderSession stops a live provider session.
@@ -129,142 +95,12 @@ type LiveProviderSession struct {
 // ProjectChangedEvent alias for tests.
 type ProjectChangedEvent = eventhub.ProjectChangedEvent
 
-// ResumeProviderSession resumes an existing provider session.
-func (a *App) ResumeProviderSession(providerName, projectPath, prompt, model, sessionID, providerApiID, reasoningEffort string) (string, error) {
-	if a.providerManager == nil {
-		return "", fmt.Errorf("provider manager not initialized")
-	}
-	config := provider.SessionConfig{
-		ProjectPath:     projectPath,
-		Prompt:          prompt,
-		Model:           model,
-		ProviderApiID:   providerApiID,
-		ResumeSessionID: sessionID,
-		Resume:          true,
-	}
-	if reasoningEffort != "" {
-		config.Extra = map[string]string{"reasoning_effort": reasoningEffort}
-	}
-	if providerName == "pi" {
-		config.Interactive = true
-		if reasoningEffort != "" {
-			if config.Extra == nil {
-				config.Extra = make(map[string]string)
-			}
-			config.Extra["thinking_level"] = reasoningEffort
-		}
-		providerPi.ApplyLocalDefaults(&config)
-	}
-	if providerApiID != "" && a.dbManager != nil {
-		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-		if err == nil && apiConfig != nil {
-			config.AuthToken = apiConfig.AuthToken
-			config.BaseURL = apiConfig.BaseURL
-		} else if providerName == "pi" {
-			if apiConfig, err := providerPi.LocalProviderAPIConfig(providerApiID); err == nil && apiConfig != nil {
-				config.AuthToken = apiConfig.AuthToken
-				config.BaseURL = apiConfig.BaseURL
-			}
-		}
-	} else if (providerName == "deepseek" || providerName == "pi") && a.dbManager != nil {
-		if apiConfig, _ := a.resolveProviderAPIConfig(providerName, providerApiID); apiConfig != nil {
-			config.ProviderApiID = apiConfig.ID
-			config.AuthToken = apiConfig.AuthToken
-			config.BaseURL = apiConfig.BaseURL
-		}
-	}
-	return a.providerManager.StartSession(providerName, config)
-}
-
 // GetProviderSessionOutput returns buffered output for a live provider session.
 func (a *App) GetProviderSessionOutput(sessionID string) (string, error) {
 	if a.providerManager == nil {
 		return "", fmt.Errorf("provider manager not initialized")
 	}
 	return a.providerManager.GetSessionOutput(sessionID)
-}
-
-// SendClaudeMessage sends a message to a running interactive Claude session.
-func (a *App) SendClaudeMessage(projectPath, sessionID, prompt string) error {
-	if a.providerManager == nil {
-		return fmt.Errorf("provider manager not initialized")
-	}
-	if resolved := a.providerManager.ResolveRunningSessionID("claude", projectPath, sessionID); resolved != "" {
-		sessionID = resolved
-	}
-	return a.providerManager.SendMessage(sessionID, prompt)
-}
-
-// StartInteractiveClaudeSession starts or returns an existing interactive Claude session.
-func (a *App) StartInteractiveClaudeSession(projectPath, model, providerApiID, resumeSessionID string) (string, error) {
-	if a.providerManager == nil {
-		return "", fmt.Errorf("provider manager not initialized")
-	}
-
-	existingSessionID := a.providerManager.GetRunningSessionForProject("claude", projectPath)
-	resolvedResume, reuseExisting, terminateExisting, allowAutoResume := resolveInteractiveClaudeSessionStart(resumeSessionID, existingSessionID != "")
-	resumeSessionID = resolvedResume
-
-	if reuseExisting && existingSessionID != "" {
-		return existingSessionID, nil
-	}
-	if terminateExisting && existingSessionID != "" {
-		a.providerManager.TerminateSession(existingSessionID)
-	}
-
-	config := provider.SessionConfig{
-		ProjectPath:     projectPath,
-		Model:           model,
-		ProviderApiID:   providerApiID,
-		ResumeSessionID: resumeSessionID,
-		Resume:          resumeSessionID != "",
-		Interactive:     true,
-	}
-	if !allowAutoResume {
-		if config.Extra == nil {
-			config.Extra = make(map[string]string)
-		}
-		config.Extra["disable_auto_resume"] = "true"
-	}
-	if providerApiID != "" && a.dbManager != nil {
-		apiConfig, err := a.dbManager.GetProviderApiConfig(providerApiID)
-		if err == nil && apiConfig != nil {
-			config.AuthToken = apiConfig.AuthToken
-			config.BaseURL = apiConfig.BaseURL
-		}
-	}
-
-	sessionID, err := a.providerManager.StartSession("claude", config)
-	if err != nil {
-		return "", err
-	}
-
-	if a.claudeActivity != nil {
-		a.claudeActivity.EnsureSession(sessionID, projectPath, true, claudeActivityCtrlSender{
-			mgr:       a.providerManager,
-			sessionID: sessionID,
-		})
-	}
-
-	if err := a.providerManager.WaitForInit(sessionID, 30*time.Second); err != nil {
-		a.providerManager.TerminateSession(sessionID)
-		if resumeSessionID != "" && (strings.HasPrefix(err.Error(), "session init timeout") || strings.HasPrefix(err.Error(), "session exited before initialization")) {
-			config.ResumeSessionID = ""
-			config.Resume = false
-			retryID, retryErr := a.providerManager.StartSession("claude", config)
-			if retryErr != nil {
-				return "", fmt.Errorf("interactive session initialization failed: %w", retryErr)
-			}
-			if initErr := a.providerManager.WaitForInit(retryID, 30*time.Second); initErr != nil {
-				a.providerManager.TerminateSession(retryID)
-				return "", fmt.Errorf("interactive session initialization failed: %w", initErr)
-			}
-			return retryID, nil
-		}
-		return "", fmt.Errorf("interactive session initialization failed: %w", err)
-	}
-
-	return sessionID, nil
 }
 
 // CreateProject creates a new project directory and adds to index.
@@ -382,22 +218,6 @@ func (a *App) emitProjectChanged(project *database.ProjectIndex, reason string, 
 		}
 	}
 	a.eventHub.EmitProjectChanged(event)
-}
-
-// SendProviderSessionMessage sends a prompt to an existing provider session.
-func (a *App) SendProviderSessionMessage(providerName, projectPath, sessionID, prompt string) (string, error) {
-	if a.providerManager == nil {
-		return "", fmt.Errorf("provider manager not initialized")
-	}
-	if providerName == "pi" {
-		if resolved := a.providerManager.ResolveRunningSessionID("pi", projectPath, sessionID); resolved != "" {
-			sessionID = resolved
-		}
-	}
-	if err := a.providerManager.SendMessage(sessionID, prompt); err != nil {
-		return "", err
-	}
-	return sessionID, nil
 }
 
 // ExecuteAgent starts an agent run with the specified parameters.

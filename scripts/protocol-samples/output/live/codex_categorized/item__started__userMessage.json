@@ -1,0 +1,19 @@
+{
+  "method": "item/started",
+  "params": {
+    "item": {
+      "type": "userMessage",
+      "id": "2a88f66a-c3e4-4d4d-b61a-775c822bdfa2",
+      "content": [
+        {
+          "type": "text",
+          "text": "Run `echo hello_world` and `ls /tmp | head -3`, then tell me the results.",
+          "text_elements": []
+        }
+      ]
+    },
+    "threadId": "019e5e94-61d2-77e2-9325-d0e1c9c43e67",
+    "turnId": "019e5e94-69a2-7c93-a4df-b23e0a425ff3",
+    "startedAtMs": 1779703245278
+  }
+}

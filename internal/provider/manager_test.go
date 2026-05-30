@@ -155,6 +155,136 @@ func TestManager_SendMessage_Enqueue(t *testing.T) {
 	}
 }
 
+func TestManager_QueryProviderSessionActivity_UsesDriverQuery(t *testing.T) {
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&activityDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.SetProviderSessionID("native-1")
+	session.state = StateRunning
+
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	m.mu.Lock()
+	m.sessions[session.ID] = session
+	m.mu.Unlock()
+
+	activity, err := m.QueryProviderSessionActivityForProject(session.config.ProjectPath, "native-1", time.Second)
+	if err != nil {
+		t.Fatalf("query activity: %v", err)
+	}
+	if activity.Status != SessionActivityActive || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected active activity, got %#v", activity)
+	}
+	if activity.SessionID != "session-1" || activity.ProviderSessionID != "native-1" {
+		t.Fatalf("expected base session ids to be preserved, got %#v", activity)
+	}
+}
+
+func TestManager_QueryProviderSessionActivity_UsesDefaultDriverActivity(t *testing.T) {
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&echoDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.SetProviderSessionID("native-1")
+	session.state = StateRunning
+	session.MarkActivityActive()
+
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	m.mu.Lock()
+	m.sessions[session.ID] = session
+	m.mu.Unlock()
+
+	activity, err := m.QueryProviderSessionActivityForProject(session.config.ProjectPath, "native-1", time.Second)
+	if err != nil {
+		t.Fatalf("query activity: %v", err)
+	}
+	if activity.Status != SessionActivityActive || !activity.Running || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected active fallback activity, got %#v", activity)
+	}
+	if activity.ProviderID != "echo" || activity.SessionID != "session-1" || activity.ProviderSessionID != "native-1" {
+		t.Fatalf("expected fallback session metadata, got %#v", activity)
+	}
+}
+
+func TestSessionActivityUsesSessionStateChangedEvents(t *testing.T) {
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&echoDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.SetProviderSessionID("native-1")
+	session.state = StateRunning
+
+	session.updateActivityFromEvent(&OutputEvent{
+		Type:    "system",
+		Subtype: "session_state_changed",
+		Message: map[string]interface{}{
+			"state": "running",
+		},
+	})
+	activity := session.Activity()
+	if activity.Status != SessionActivityActive || !activity.Active || !activity.CanInterrupt || activity.ThreadStatus != "running" {
+		t.Fatalf("expected running session activity, got %#v", activity)
+	}
+
+	session.updateActivityFromEvent(&OutputEvent{
+		Type:    "system",
+		Subtype: "session_state_changed",
+		Message: map[string]interface{}{
+			"state": "idle",
+		},
+	})
+	activity = session.Activity()
+	if activity.Status != SessionActivityIdle || activity.Active || activity.CanInterrupt || activity.ThreadStatus != "idle" {
+		t.Fatalf("expected idle session activity, got %#v", activity)
+	}
+}
+
+func TestSessionActivityIgnoresSidechainTerminalEvents(t *testing.T) {
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&echoDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.state = StateRunning
+	session.MarkActivityActive()
+
+	session.updateActivityFromEvent(&OutputEvent{
+		Type:    "assistant",
+		Subtype: "result",
+		Message: map[string]interface{}{
+			"type":               "result",
+			"isSidechain":        true,
+			"parent_tool_use_id": "call-1",
+		},
+	})
+
+	activity := session.Activity()
+	if activity.Status != SessionActivityActive || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected sidechain result to preserve active main session, got %#v", activity)
+	}
+}
+
 func TestMonitor_HealthTransitions(t *testing.T) {
 	var mu sync.Mutex
 	var changes []ProcessHealth
@@ -295,6 +425,9 @@ func (d *echoDriver) UpdateEnvironmentVariables(session SessionHandle, vars map[
 	return nil
 }
 func (d *echoDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
+func (d *echoDriver) QuerySessionActivity(session SessionHandle, timeout time.Duration) (*SessionActivity, error) {
+	return DefaultSessionActivity(session), nil
+}
 func (d *echoDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error { return nil }
 func (d *echoDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {
 	if msg, ok := session.DequeueMessage(); ok {
@@ -338,6 +471,9 @@ func (d *sleepDriver) UpdateEnvironmentVariables(session SessionHandle, vars map
 	return nil
 }
 func (d *sleepDriver) WaitForInit(session SessionHandle, timeout time.Duration) error { return nil }
+func (d *sleepDriver) QuerySessionActivity(session SessionHandle, timeout time.Duration) (*SessionActivity, error) {
+	return DefaultSessionActivity(session), nil
+}
 func (d *sleepDriver) OnProcessStart(_ context.Context, _ SessionHandle, _ int) error { return nil }
 func (d *sleepDriver) OnProcessExit(session SessionHandle, exitCode int, err error)   {}
 
@@ -376,6 +512,9 @@ func (d *stdinProbeDriver) UpdateEnvironmentVariables(session SessionHandle, var
 func (d *stdinProbeDriver) WaitForInit(session SessionHandle, timeout time.Duration) error {
 	return nil
 }
+func (d *stdinProbeDriver) QuerySessionActivity(session SessionHandle, timeout time.Duration) (*SessionActivity, error) {
+	return DefaultSessionActivity(session), nil
+}
 func (d *stdinProbeDriver) OnProcessStart(_ context.Context, session SessionHandle, _ int) error {
 	if concrete, ok := session.(*Session); ok && concrete.stdin != nil {
 		return fmt.Errorf("batch session should not retain stdin pipe")
@@ -383,6 +522,22 @@ func (d *stdinProbeDriver) OnProcessStart(_ context.Context, session SessionHand
 	return nil
 }
 func (d *stdinProbeDriver) OnProcessExit(session SessionHandle, exitCode int, err error) {}
+
+type activityDriver struct {
+	echoDriver
+}
+
+func (d *activityDriver) ID() string { return "activity" }
+
+func (d *activityDriver) QuerySessionActivity(session SessionHandle, timeout time.Duration) (*SessionActivity, error) {
+	return &SessionActivity{
+		Status:       SessionActivityActive,
+		Running:      true,
+		Active:       true,
+		CanInterrupt: true,
+		TurnID:       "turn-1",
+	}, nil
+}
 
 func waitForSessionDone(t *testing.T, session *Session, timeout time.Duration) {
 	t.Helper()

@@ -39,7 +39,7 @@ test('merges queued prompts into the persistent runtime status bar', async () =>
   assert.doesNotMatch(source, /className="pointer-events-none absolute bottom-52 left-0 right-0 z-40 flex justify-end px-4"/);
   assert.match(layoutSource, /className="absolute bottom-0 right-0 left-0 transition-all duration-300 z-30"/);
   assert.doesNotMatch(source, /className="absolute bottom-40 left-0 right-0 z-30 px-4"/);
-  assert.match(statusBarSource, /Queued Prompts \(\{queuedPrompts\.length\}\)/);
+  assert.match(statusBarSource, /t\('prompt\.queuedPrompts', \{ count: queuedPrompts\.length \}\)/);
   assert.match(statusBarSource, /onQueueCollapsedChange\?\.\(!queueCollapsed\)/);
   assert.match(statusBarSource, /onRemoveQueuedPrompt\?\.\(queuedPrompt\.id\)/);
 });
@@ -79,7 +79,7 @@ test('terminal frame runtime reconciles stale local loading state', async () => 
   assert.match(source, /terminalFrameRuntimePhase === 'completed' \|\|[\s\S]*terminalFrameRuntimePhase === 'failed' \|\|[\s\S]*terminalFrameRuntimePhase === 'cancelled'/);
   assert.match(source, /const loadingStartedFrameSeqRef = useRef<\{ streamId: string \| null; seq: number \} \| null>\(null\);/);
   assert.match(source, /frameRuntimeState\.lastSeq > effectiveLoadingStartedFrameSeq/);
-  assert.match(source, /if \(processState\.isLoading && terminalFrameRuntimeIsCurrentTurn\) \{[\s\S]*processState\.setIsLoading\(false\);[\s\S]*\}/);
+  assert.match(source, /if \(processState\.isLoading && terminalFrameRuntimeIsCurrentTurn\) \{[\s\S]*processState\.syncProcessState\(\);[\s\S]*\}/);
 });
 
 test('workspace chat tabs expose running status indicators', async () => {

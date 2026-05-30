@@ -1,0 +1,9 @@
+{
+  "type": "system",
+  "subtype": "hook_started",
+  "hook_id": "ae333698-6b90-4376-8fc7-c9bc1efeec17",
+  "hook_name": "SessionStart:startup",
+  "hook_event": "SessionStart",
+  "uuid": "b788080f-1480-45f8-b9ad-79eeede6581e",
+  "session_id": "74ec1076-9980-44d2-9a97-0a2e06741971"
+}

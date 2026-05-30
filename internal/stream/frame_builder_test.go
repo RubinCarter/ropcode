@@ -162,6 +162,63 @@ func TestClaudeAdapterConvertsToolResultAndToolUseResult(t *testing.T) {
 	}
 }
 
+func TestCodexAdapterPreservesSubagentTaskAndResultIdentity(t *testing.T) {
+	task, err := AdaptCodexOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "system",
+		Subtype:   "task_started",
+		SessionID: "runtime-1",
+		Provider:  "codex",
+		Message: map[string]any{
+			"type":        "system",
+			"subtype":     "task_started",
+			"task_id":     "sub-thread-1",
+			"tool_use_id": "call_spawn",
+			"description": "run echo",
+			"task_type":   "local_agent",
+			"prompt":      "run echo",
+			"agentId":     "sub-thread-1",
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !task.Sidechain || task.TaskID != "sub-thread-1" || task.ToolUseID != "call_spawn" || task.AgentID != "sub-thread-1" {
+		t.Fatalf("unexpected codex subagent task frame: %#v", task)
+	}
+
+	result, err := AdaptCodexOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "user",
+		SessionID: "runtime-1",
+		Provider:  "codex",
+		Message: map[string]any{
+			"type": "user",
+			"message": map[string]any{
+				"role": "user",
+				"content": []any{
+					map[string]any{
+						"type":        "tool_result",
+						"tool_use_id": "call_spawn",
+						"content": []any{
+							map[string]any{"type": "text", "text": "stdout: done"},
+							map[string]any{"type": "text", "text": "agentId: sub-thread-1"},
+						},
+					},
+				},
+			},
+			"tool_use_result": map[string]any{
+				"status":  "completed",
+				"agentId": "sub-thread-1",
+			},
+		},
+	}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AgentID != "sub-thread-1" || result.Content[0].ToolUseID != "call_spawn" {
+		t.Fatalf("unexpected codex subagent result frame: %#v", result)
+	}
+}
+
 func TestClaudeAdapterMarksAsyncBackgroundAgentFramesAsSidechain(t *testing.T) {
 	launcher, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
 		Type:      "assistant",

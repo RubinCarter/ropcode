@@ -1,0 +1,10 @@
+{
+  "timestamp": "2026-05-25T09:41:44.717Z",
+  "type": "response_item",
+  "payload": {
+    "type": "function_call",
+    "name": "update_plan",
+    "arguments": "{\"plan\":[{\"step\":\"并行检索仓库中 openclaw 线索\",\"status\":\"in_progress\"},{\"step\":\"汇总用途、接口与依赖信息\",\"status\":\"pending\"},{\"step\":\"给出下一步运行/验证建议\",\"status\":\"pending\"}],\"explanation\":\"按你的要求用多 subagent 并行调研 openclaw；我这边同时做一次本地快速扫仓库，最后汇总成一份可执行的结论。\"}",
+    "call_id": "call_GTJKWlzoPbX0LtFdYZyHbkqc"
+  }
+}

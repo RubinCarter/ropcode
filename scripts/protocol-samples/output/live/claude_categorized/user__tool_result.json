@@ -1,0 +1,25 @@
+{
+  "type": "user",
+  "message": {
+    "role": "user",
+    "content": [
+      {
+        "tool_use_id": "tooluse_8X2zr8YgzCZNp6P9iYYqc3",
+        "type": "tool_result",
+        "content": "hello_protocol_test",
+        "is_error": false
+      }
+    ]
+  },
+  "parent_tool_use_id": null,
+  "session_id": "74ec1076-9980-44d2-9a97-0a2e06741971",
+  "uuid": "4ae49efc-b02a-4f7d-b3d8-88b807fa3649",
+  "timestamp": "2026-05-25T10:01:49.703Z",
+  "tool_use_result": {
+    "stdout": "hello_protocol_test",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  }
+}

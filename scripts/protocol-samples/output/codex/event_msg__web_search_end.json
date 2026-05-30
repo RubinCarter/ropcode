@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-05-25T09:26:42.382Z",
+  "type": "event_msg",
+  "payload": {
+    "type": "web_search_end",
+    "call_id": "ws_0c72f4316ab2a10c016a1415c8d72881958d236fbfde94d330",
+    "query": "OpenClaw project OpenClaw GitHub ...",
+    "action": {
+      "type": "search",
+      "queries": [
+        "OpenClaw project OpenClaw GitHub",
+        "OpenClaw license",
+        "OpenClaw reverse engineering Claw game open source engine",
+        "OpenClaw official website OpenClaw"
+      ]
+    }
+  }
+}

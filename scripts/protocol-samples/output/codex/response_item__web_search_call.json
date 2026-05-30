@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-05-25T09:26:42.383Z",
+  "type": "response_item",
+  "payload": {
+    "type": "web_search_call",
+    "status": "completed",
+    "action": {
+      "type": "search",
+      "queries": [
+        "OpenClaw project OpenClaw GitHub",
+        "OpenClaw license",
+        "OpenClaw reverse engineering Claw game open source engine",
+        "OpenClaw official website OpenClaw"
+      ]
+    }
+  }
+}

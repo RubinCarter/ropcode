@@ -43,6 +43,11 @@ function isMissingSessionError(error: unknown): boolean {
   return /session not found:/i.test(message);
 }
 
+function isExpectedAgentRunOutputMiss(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return isMissingSessionError(error) || /agent run not found:/i.test(message);
+}
+
 export function useOutputCache() {
   const context = useContext(OutputCacheContext);
   if (!context) {
@@ -130,12 +135,11 @@ export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
         status
       });
     } catch (error) {
-      if (isMissingSessionError(error)) {
+      if (isExpectedAgentRunOutputMiss(error)) {
         staleRunIdsRef.current.add(runId);
         updateSessionStatus(runId, 'failed');
         return;
       }
-      console.warn(`Failed to update cache for agent run ${runId}:`, error);
     }
   }, [parseOutput, setCachedOutput, updateSessionStatus]);
 
@@ -171,8 +175,8 @@ export function OutputCacheProvider({ children }: OutputCacheProviderProps) {
         }
         return updated;
       });
-    } catch (error) {
-      console.warn('Failed to poll running agent runs:', error);
+    } catch {
+      return;
     }
   }, [updateAgentRunCache]);
 

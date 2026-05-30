@@ -172,6 +172,15 @@ function isTerminalErrorMessage(message: ClaudeStreamMessage): boolean {
     subtype.includes('error');
 }
 
+function isBackgroundScopedMessage(message: ClaudeStreamMessage): boolean {
+  const raw = message as any;
+  return raw.isSidechain === true ||
+    Boolean(raw.parent_tool_use_id) ||
+    Boolean(raw.task_id) ||
+    raw.ropcode_scope === 'background_task' ||
+    raw.debug_meta?.ropcode_scope === 'background_task';
+}
+
 /**
  * Hook to manage session events
  */
@@ -319,7 +328,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
                 return;
               }
 
-              api.isClaudeSessionRunningForProject(currentProjectPath, runtimeSessionId).then((running: boolean) => {
+              api.isProviderSessionRunningForProject(currentProjectPath, runtimeSessionId).then((running: boolean) => {
                 hasActiveSessionRef.current = running;
                 // In interactive mode, isLoading is controlled by message flow,
                 // not by process running state. The process is always running.
@@ -332,19 +341,20 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
           }
         }
 
-        // Update extractedSessionInfo
-        // In interactive mode, prefer claude_session_id (the real Claude session ID) for
-        // persistence so it can be used with --resume on app restart. The session_id field
-        // in interactive mode is the Go UUID which is meaningless after restart.
-        const realClaudeSessionId = (message as any).claude_session_id || (message as any).sessionId || message.session_id;
-        const persistSessionId = realClaudeSessionId;
+        const realProviderSessionId =
+          (message as any).provider_session_id ||
+          (message as any).providerSessionId ||
+          (message as any).claude_session_id ||
+          (message as any).sessionId ||
+          message.session_id;
+        const persistSessionId = realProviderSessionId;
         const projectId = projectPathRef.current.replace(/[^a-zA-Z0-9]/g, '-');
         if (!extractedSessionInfoRef.current || extractedSessionInfoRef.current.sessionId !== persistSessionId) {
           setExtractedSessionInfo({
             sessionId: persistSessionId,
             projectId,
             runtimeSessionId,
-            claudeSessionId: realClaudeSessionId,
+            claudeSessionId: realProviderSessionId,
           });
           SessionPersistenceService.saveSession(
             persistSessionId,
@@ -416,7 +426,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
 
       // Handle terminal turn messages. Interactive Claude streams may finish a
       // turn with assistant/end_turn instead of a separate result message.
-      if (message.type === 'result' || isAssistantEndTurn) {
+      if (!isBackgroundScopedMessage(message) && (message.type === 'result' || isAssistantEndTurn)) {
         flushRuntimeTracker();
         flushPendingSessionSave();
         const runtimeSessionId = (message as any).runtime_session_id || message.session_id;
@@ -565,11 +575,8 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
     if (!projectPath) return;
 
     const handleErrorPayload = (payload: unknown) => {
-      console.error('[useSessionFrameEvents] Error event:', payload);
-
       const errorData = parseEventObject(payload);
       if (errorData?.level && errorData.level !== 'error') {
-        console.warn('[useSessionFrameEvents] Non-error provider stderr:', errorData);
         return;
       }
       if (errorData) {

@@ -1,0 +1,8 @@
+{
+  "type": "item.completed",
+  "item": {
+    "id": "item_2",
+    "type": "agent_message",
+    "text": "已运行两个命令：\n\n`echo hello_protocol_test` 输出：`hello_protocol_test`\n\n`pwd` 输出：`/Users/rubin/Documents/data/rubin/code/ropcode/.ropcode/rising-pelican`"
+  }
+}

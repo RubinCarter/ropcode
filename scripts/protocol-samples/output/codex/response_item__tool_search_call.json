@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-05-25T09:41:26.820Z",
+  "type": "response_item",
+  "payload": {
+    "type": "tool_search_call",
+    "call_id": "call_lTCf278cItmQSXCy0ubHDEhm",
+    "status": "completed",
+    "execution": "client",
+    "arguments": {
+      "query": "subagent spawn multi agent create agent run task",
+      "limit": 8
+    }
+  }
+}

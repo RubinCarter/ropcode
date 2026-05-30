@@ -5,7 +5,6 @@ import { useScreenTracking } from '@/hooks/useAnalytics';
 import { Tab } from '@/contexts/TabContext';
 import { Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { providers } from '@/lib/providers';
 import { shouldKeepTabMounted } from '@/lib/tabUtils';
 import * as rpcClient from '@/lib/rpc-client';
 import { Settings } from '@/components/Settings';
@@ -85,136 +84,77 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
         return;
       }
 
-      // Auto-create ProjectChat on first provider switch if there's an active session
       const actualProjectPath = tab.sessionData?.project_path || tab.initialProjectPath;
-      if (tab.sessionId && tab.providerId && actualProjectPath) {
-        try {
-          const chat = await rpcClient.CreateProjectChat(
-            actualProjectPath, tab.providerId, tab.sessionData?.model || '', '', tab.sessionId
-          );
-
-          // Build initial segment from current session
-          const initialSegment = {
-            id: chat.segment_id,
-            provider: tab.providerId,
-            model: tab.sessionData?.model || '',
-            runtimeSessionId: tab.sessionId,
-            streamId: chat.stream_id,
-            seq: 0,
-          };
-
-          // Now switch to the new provider
-          const result = await rpcClient.SwitchProjectChatProvider(
-            chat.chat_id, providerId, tab.sessionData?.model || ''
-          );
-
-          const newSegment = {
-            id: result.segment_id,
-            provider: result.provider,
-            model: result.model,
-            runtimeSessionId: result.runtime_session_id,
-            streamId: result.stream_id,
-            seq: 1,
-          };
-
-          updateTab(tab.id, {
-            providerId,
-            sessionId: result.runtime_session_id,
-            projectChatId: chat.chat_id,
-            projectChatSegments: [initialSegment, newSegment],
-          });
-          return;
-        } catch (err) {
-          console.warn('[TabPanel] Failed to create ProjectChat, falling back to legacy:', err);
-        }
-      }
-
-      // Legacy mode: per-provider session switching
-      // Save current provider's session before switching
-      const currentProviderSessions = tab.providerSessions || {};
-      if (tab.providerId && tab.sessionId && tab.sessionData) {
-        currentProviderSessions[tab.providerId] = {
-          sessionId: tab.sessionId,
-          sessionData: tab.sessionData
-        };
-      }
-
       if (tab.skipSessionRestore && !tab.sessionId && !tab.sessionData) {
-        // Keep explicit new sessions blank when switching providers.
         updateTab(tab.id, {
           providerId,
           sessionData: undefined,
           sessionId: undefined,
-          providerSessions: currentProviderSessions,
+          providerSessions: undefined,
         });
         return;
       }
 
-      // Get the actual project path - use sessionData if available, otherwise initialProjectPath
-      const legacyProjectPath = tab.sessionData?.project_path || tab.initialProjectPath;
-
-      // Check if we have a previous session for this provider
-      const previousSession = currentProviderSessions[providerId];
-
-      if (previousSession) {
-        // Restore previous session for this provider
+      if (!actualProjectPath) {
         updateTab(tab.id, {
           providerId,
-          sessionData: previousSession.sessionData,
-          sessionId: previousSession.sessionId,
-          providerSessions: currentProviderSessions,
+          sessionData: undefined,
+          sessionId: undefined,
+          providerSessions: undefined,
         });
-      } else {
-        // No previous session - load sessions and pick the latest one
-        try {
-          const sessionList = await providers.listSessions(legacyProjectPath, providerId);
-
-          if (sessionList.length === 0) {
-            // No sessions exist - clear current session and start fresh
-            updateTab(tab.id, {
-              providerId,
-              sessionData: undefined,
-              sessionId: undefined,
-              providerSessions: currentProviderSessions,
-            });
-          } else {
-            // Sort sessions by timestamp and select the latest one
-            const sortedSessions = [...sessionList].sort((a, b) => {
-              const timeA = a.message_timestamp ? new Date(a.message_timestamp).getTime() : a.created_at * 1000;
-              const timeB = b.message_timestamp ? new Date(b.message_timestamp).getTime() : b.created_at * 1000;
-              return timeB - timeA;
-            });
-            const latestSession = sortedSessions[0];
-
-            // Add provider info to session
-            const sessionWithProvider = {
-              ...latestSession,
-              provider: providerId
-            };
-
-            // Update tab with the latest session
-            updateTab(tab.id, {
-              providerId,
-              sessionData: sessionWithProvider,
-              sessionId: latestSession.id,
-              providerSessions: currentProviderSessions,
-            });
-          }
-        } catch (err) {
-          console.error(`[TabPanel] Failed to load sessions for provider ${providerId}:`, err);
-          // Fallback: start fresh
-          updateTab(tab.id, {
-            providerId,
-            sessionData: undefined,
-            sessionId: undefined,
-            providerSessions: currentProviderSessions,
-          });
-        }
+        return;
       }
+
+      const chat = await rpcClient.CreateProjectChat(
+        actualProjectPath,
+        tab.providerId || providerId,
+        tab.sessionData?.model || '',
+        '',
+        tab.sessionId || ''
+      );
+
+      const initialSegment = {
+        id: chat.segment_id,
+        provider: tab.providerId || providerId,
+        model: tab.sessionData?.model || '',
+        runtimeSessionId: chat.runtime_session_id,
+        streamId: chat.stream_id,
+        seq: 0,
+      };
+
+      if ((tab.providerId || providerId) === providerId) {
+        updateTab(tab.id, {
+          providerId,
+          sessionId: chat.runtime_session_id,
+          projectChatId: chat.chat_id,
+          projectChatSegments: [initialSegment],
+        });
+        return;
+      }
+
+      const result = await rpcClient.SwitchProjectChatProvider(
+        chat.chat_id, providerId, tab.sessionData?.model || ''
+      );
+
+      const newSegment = {
+        id: result.segment_id,
+        provider: result.provider,
+        model: result.model,
+        runtimeSessionId: result.runtime_session_id,
+        streamId: result.stream_id,
+        seq: 1,
+      };
+
+      updateTab(tab.id, {
+        providerId,
+        sessionId: result.runtime_session_id,
+        projectChatId: chat.chat_id,
+        projectChatSegments: [initialSegment, newSegment],
+      });
 
       // Save the provider selection to project index
       try {
-        await api.updateProjectLastProvider(legacyProjectPath, providerId);
+        await api.updateProjectLastProvider(actualProjectPath, providerId);
       } catch (err) {
         console.warn(`Failed to save last provider:`, err);
       }
@@ -253,6 +193,29 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
                 // Don't update tab title - keep it as "Chat"
               }}
               onProviderChange={handleProviderChange}
+              onProjectChatCreated={(chatId, streamId, segmentId) => {
+                updateTab(tab.id, {
+                  projectChatId: chatId,
+                  projectChatSegments: [{
+                    id: segmentId || chatId,
+                    provider: tab.providerId || 'claude',
+                    model: '',
+                    runtimeSessionId: '',
+                    streamId,
+                    seq: 0,
+                  }],
+                });
+              }}
+              onProjectChatSegmentRuntimeSession={(segmentId, runtimeSessionId) => {
+                updateTab(tab.id, {
+                  sessionId: runtimeSessionId,
+                  projectChatSegments: (tab.projectChatSegments || []).map((segment) =>
+                    segment.id === segmentId
+                      ? { ...segment, runtimeSessionId }
+                      : segment
+                  ),
+                });
+              }}
             />
           </div>
         );

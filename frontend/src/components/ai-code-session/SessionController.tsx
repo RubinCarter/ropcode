@@ -87,6 +87,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   projectChatId,
   projectChatSegments,
   onProjectChatCreated,
+  onProjectChatSegmentRuntimeSession,
 }) => {
   // ==================================================================
   // REFS (Must be declared before hooks that use them)
@@ -97,7 +98,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const loadedSessionIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
   const skipRecoveryUntilRef = useRef(0);
-  const pendingFreshClaudeSessionRef = useRef(skipSessionRestore && defaultProvider === 'claude');
+  const pendingFreshProviderSessionRef = useRef(skipSessionRestore);
   const generatedSessionTitleRef = useRef<string | null>(null);
   const firstPromptForTitleRef = useRef<string | null>(null);
   const sendPromptRef = useRef<(
@@ -112,8 +113,8 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   // ==================================================================
 
   useEffect(() => {
-    if (skipSessionRestore && defaultProvider === 'claude') {
-      pendingFreshClaudeSessionRef.current = true;
+    if (skipSessionRestore) {
+      pendingFreshProviderSessionRef.current = true;
     }
   }, [skipSessionRestore, defaultProvider]);
 
@@ -126,10 +127,20 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   // Messages state
   const messagesState = useSessionMessages();
 
+  const activeProjectChatSegment = React.useMemo(() => {
+    if (!projectChatSegments || projectChatSegments.length === 0) {
+      return undefined;
+    }
+    return projectChatSegments[projectChatSegments.length - 1];
+  }, [projectChatSegments]);
+
   // Process state
   const processState = useProcessState({
     projectPath: sessionState.projectPath,
     provider: defaultProvider,
+    activeRuntimeSessionId: projectChatId
+      ? activeProjectChatSegment?.runtimeSessionId || null
+      : undefined,
   });
 
   // Session metrics
@@ -209,6 +220,20 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const activeStreamId = projectChatId
     ? projectChatId
     : streamIdForRuntimeSession(defaultProvider, processState.interactiveSessionId || sessionState.extractedSessionInfo?.runtimeSessionId);
+
+  useEffect(() => {
+    if (!activeProjectChatSegment || !processState.interactiveSessionId) {
+      return;
+    }
+    if (activeProjectChatSegment.runtimeSessionId === processState.interactiveSessionId) {
+      return;
+    }
+    onProjectChatSegmentRuntimeSession?.(activeProjectChatSegment.id, processState.interactiveSessionId);
+  }, [
+    activeProjectChatSegment,
+    onProjectChatSegmentRuntimeSession,
+    processState.interactiveSessionId,
+  ]);
 
   const frameRuntimeState = useSessionRuntime(activeStreamId);
   const loadingStartedFrameSeqRef = useRef<{ streamId: string | null; seq: number } | null>(null);
@@ -320,9 +345,9 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
 
   useEffect(() => {
     if (processState.isLoading && terminalFrameRuntimeIsCurrentTurn) {
-      processState.setIsLoading(false);
+      void processState.syncProcessState();
     }
-  }, [processState.isLoading, processState.setIsLoading, terminalFrameRuntimeIsCurrentTurn]);
+  }, [processState.isLoading, processState.syncProcessState, terminalFrameRuntimeIsCurrentTurn]);
 
   // ==================================================================
   // UI STATE (not extracted to hooks - pure UI concerns)
@@ -357,7 +382,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     stopStatus,
     firstPromptForTitleRef,
     loadedSessionIdRef,
-    pendingFreshClaudeSessionRef,
+    pendingFreshProviderSessionRef,
     skipRecoveryUntilRef,
     setError,
     refreshCurrentSubagentTranscripts,

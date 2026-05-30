@@ -64,7 +64,7 @@ export function useClaudeMessages(options: UseClaudeMessagesOptions = {}) {
 
   const loadMessages = useCallback(async (sessionId: string) => {
     try {
-      const output = await api.getSessionOutput(sessionId);
+      const output = await api.getProviderSessionOutput(sessionId);
       // Note: API returns a string, not an array of outputs
       const outputs = [{ jsonl: output }];
       const loadedMessages: ClaudeStreamMessage[] = [];

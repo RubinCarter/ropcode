@@ -2,7 +2,6 @@ package stream
 
 import (
 	"errors"
-	"log"
 	"strings"
 	"sync"
 
@@ -41,14 +40,6 @@ func (b *ProviderBridge) EmitProviderOutput(ctx ProviderOutputContext, event pro
 		if errors.Is(err, ErrUserEchoFrameSuppressed) {
 			return nil
 		}
-		log.Printf("[stream] provider output frame conversion failed provider=%s runtime=%s provider_session=%s event_type=%s subtype=%s err=%v",
-			ctx.Provider,
-			ctx.RuntimeSessionID,
-			ctx.ProviderSessionID,
-			event.Type,
-			event.Subtype,
-			err,
-		)
 		return err
 	}
 	return b.hub.Append(frame)

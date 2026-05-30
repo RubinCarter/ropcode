@@ -94,11 +94,7 @@ func main() {
 	}
 
 	wsServer.SetDispatch(func(method string, params json.RawMessage) (any, error) {
-		fn := methods[method]
-		if fn == nil {
-			return nil, fmt.Errorf("method not found: %s", method)
-		}
-		return fn(params)
+		return rpc.Dispatch(methods, method, params)
 	})
 
 	// 启动服务器

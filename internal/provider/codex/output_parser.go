@@ -30,34 +30,38 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 
 	switch method {
 	case "turn/started":
-		return &provider.OutputEvent{
+		d.rememberTurnStarted(params)
+		return d.applySubagentScope(&provider.OutputEvent{
 			Type:    "system",
 			Subtype: "turn_started",
 			Message: params,
-		}
+		}, params)
 	case "turn/plan/updated":
-		return adaptPlanEvent(params)
+		return d.applySubagentScope(adaptPlanEvent(params), params)
 	case "turn/completed":
-		return eventResult()
+		d.rememberTurnCompleted(params)
+		return d.applySubagentScope(eventResult(), params)
 	case "item/started":
-		return d.parseItemEvent(params, "started")
+		return d.applySubagentScope(d.parseItemEvent(params, "started"), params)
 	case "item/completed":
-		return d.parseItemEvent(params, "completed")
+		return d.applySubagentScope(d.parseItemEvent(params, "completed"), params)
 	case "item/agentMessage/delta":
 		delta, _ := params["delta"].(string)
-		return eventAssistantDelta(delta)
+		messageID := codexItemMessageID(params)
+		d.rememberAgentMessageDelta(messageID, delta)
+		return d.applySubagentScope(eventAssistantDelta(messageID, delta), params)
 	case "thread/started":
-		return &provider.OutputEvent{
+		return d.applySubagentScope(&provider.OutputEvent{
 			Type:    "system",
 			Subtype: "thread_started",
 			Message: params,
-		}
+		}, params)
 	case "thread/status/changed":
-		return &provider.OutputEvent{
+		return d.applySubagentScope(&provider.OutputEvent{
 			Type:    "system",
 			Subtype: "status_changed",
 			Message: params,
-		}
+		}, params)
 	case "thread/tokenUsage/updated":
 		return &provider.OutputEvent{
 			Type:    "system",
@@ -92,17 +96,18 @@ func (d *Driver) parseResponse(raw map[string]interface{}) *provider.OutputEvent
 	id := raw["id"]
 
 	// Error response
-	if errObj, ok := raw["error"].(map[string]interface{}); ok {
+	if _, ok := raw["error"].(map[string]interface{}); ok {
 		return &provider.OutputEvent{
-			Type:    "error",
-			Message: errObj,
+			Type:    "system",
+			Subtype: "response",
+			Message: raw,
 		}
 	}
 
 	result, _ := raw["result"].(map[string]interface{})
 
 	// Initialize response
-	if id == "init_1" {
+	if id == initializeRequestID {
 		return &provider.OutputEvent{
 			Type:    "system",
 			Subtype: "control_response",
@@ -116,8 +121,10 @@ func (d *Driver) parseResponse(raw map[string]interface{}) *provider.OutputEvent
 			if threadID, ok := thread["id"].(string); ok {
 				return &provider.OutputEvent{
 					Type:    "system",
-					Subtype: "thread_created",
+					Subtype: "init",
 					Message: map[string]interface{}{
+						"type":       "system",
+						"subtype":    "init",
 						"thread_id":  threadID,
 						"session_id": threadID,
 					},
@@ -162,7 +169,11 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 		}
 	case "agentMessage":
 		text, _ := item["text"].(string)
-		return eventAssistantText(text)
+		messageID := codexItemMessageID(params)
+		if d.agentMessageCompletedDuplicatesDelta(messageID, text) {
+			return nil
+		}
+		return eventAssistantText(messageID, text)
 	case "reasoning":
 		text := codexReasoningText(item)
 		if text == "" {
@@ -202,13 +213,14 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 		}
 		return eventToolResult(callID, output, false)
 	case "collabAgentToolCall":
-		id, _ := item["id"].(string)
-		output := extractCollabAgentOutput(item)
-		return eventToolResult(id, output, false)
+		return d.parseCollabAgentCompleted(item, params)
 	case "webSearch":
 		id, _ := item["id"].(string)
-		query, _ := item["query"].(string)
-		return eventToolResult(id, query, false)
+		toolName, input, key := codexWebActionTool(item)
+		if toolName == "" || key == "" || !d.rememberWebActionToolUse(id, key) {
+			return nil
+		}
+		return eventToolUse(id, toolName, input)
 	default:
 		return &provider.OutputEvent{
 			Type:    "system",
@@ -238,33 +250,21 @@ func (d *Driver) parseItemStarted(item map[string]interface{}, itemType string, 
 	}
 	if itemType == "webSearch" {
 		id, _ := item["id"].(string)
-		query, _ := item["query"].(string)
-		return &provider.OutputEvent{
-			Type: "assistant",
-			Message: map[string]interface{}{
-				"type": "assistant",
-				"message": map[string]interface{}{
-					"role": "assistant",
-					"content": []map[string]interface{}{
-						{"type": "tool_use", "id": id, "name": "WebSearch", "input": map[string]interface{}{"query": query}},
-					},
-				},
-			},
+		toolName, input, key := codexWebActionTool(item)
+		if toolName == "" || key == "" || !d.rememberWebActionToolUse(id, key) {
+			return nil
 		}
+		return eventToolUse(id, toolName, input)
 	}
 	if itemType == "functionCall" || itemType == "collabAgentToolCall" {
 		id, _ := item["id"].(string)
 		name, _ := item["name"].(string)
 		if itemType == "collabAgentToolCall" {
 			tool, _ := item["tool"].(string)
-			prompt, _ := item["prompt"].(string)
 			switch tool {
 			case "spawnAgent":
-				return eventToolUse(id, "Agent", map[string]interface{}{
-					"prompt":        prompt,
-					"subagent_type": mapAgentType(""),
-					"description":   prompt,
-				})
+				d.rememberSubagentSpawn(item)
+				return eventToolUse(id, "Agent", codexSubagentToolInput(item))
 			default:
 				return nil
 			}
@@ -290,6 +290,214 @@ func (d *Driver) parseCommandExecution(item map[string]interface{}, params map[s
 	exitCode, _ := item["exitCode"].(float64)
 	isError := int(exitCode) != 0
 	return eventToolResult(id, output, isError)
+}
+
+func (d *Driver) parseCollabAgentCompleted(item map[string]interface{}, params map[string]interface{}) *provider.OutputEvent {
+	tool, _ := item["tool"].(string)
+	switch tool {
+	case "spawnAgent":
+		state := d.rememberSubagentSpawn(item)
+		return eventSubagentTaskStarted(state)
+	case "wait":
+		return d.eventSubagentWaitCompleted(item)
+	default:
+		return nil
+	}
+}
+
+func (d *Driver) rememberSubagentSpawn(item map[string]interface{}) codexSubagentState {
+	id, _ := item["id"].(string)
+	prompt, _ := item["prompt"].(string)
+	model, _ := item["model"].(string)
+	reasoningEffort, _ := item["reasoningEffort"].(string)
+	startedAtMs := int64FromAny(item["startedAtMs"])
+	input := codexSubagentToolInput(item)
+	description, _ := input["description"].(string)
+	subagentType, _ := input["subagent_type"].(string)
+	state := codexSubagentState{
+		CallID:          id,
+		Prompt:          prompt,
+		Description:     description,
+		SubagentType:    subagentType,
+		Model:           model,
+		ReasoningEffort: reasoningEffort,
+		StartedAtMs:     startedAtMs,
+	}
+	if receiverID := firstReceiverThreadID(item); receiverID != "" {
+		state.AgentID = receiverID
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.subagentsByCallID == nil {
+		d.subagentsByCallID = make(map[string]codexSubagentState)
+	}
+	if d.subagentCallByID == nil {
+		d.subagentCallByID = make(map[string]string)
+	}
+	if previous, ok := d.subagentsByCallID[id]; ok {
+		state = mergeSubagentState(previous, state)
+	}
+	d.subagentsByCallID[id] = state
+	if state.AgentID != "" {
+		d.subagentCallByID[state.AgentID] = id
+	}
+	return state
+}
+
+func (d *Driver) eventSubagentWaitCompleted(item map[string]interface{}) *provider.OutputEvent {
+	agentID := firstReceiverThreadID(item)
+	spawnCallID := ""
+	if agentID != "" {
+		d.mu.Lock()
+		spawnCallID = d.subagentCallByID[agentID]
+		state := d.subagentsByCallID[spawnCallID]
+		d.mu.Unlock()
+		if spawnCallID != "" {
+			output := extractCollabAgentOutput(item)
+			isError := collabAgentHasError(item)
+			return eventSubagentToolResult(spawnCallID, output, isError, mergeSubagentState(state, codexSubagentState{AgentID: agentID}))
+		}
+	}
+	return nil
+}
+
+func (d *Driver) applySubagentScope(ev *provider.OutputEvent, params map[string]interface{}) *provider.OutputEvent {
+	if ev == nil || ev.Message == nil {
+		return ev
+	}
+	threadID, _ := params["threadId"].(string)
+	if threadID == "" {
+		return ev
+	}
+	d.mu.Lock()
+	spawnCallID := d.subagentCallByID[threadID]
+	d.mu.Unlock()
+	if spawnCallID == "" {
+		return ev
+	}
+	ev.Message["parent_tool_use_id"] = spawnCallID
+	ev.Message["task_id"] = threadID
+	ev.Message["agentId"] = threadID
+	ev.Message["isSidechain"] = true
+	return ev
+}
+
+func (d *Driver) rememberTurnStarted(params map[string]interface{}) {
+	threadID, _ := params["threadId"].(string)
+	if threadID == "" {
+		return
+	}
+	turnID, _ := nestedCodexString(params, "turn", "id")
+	if turnID == "" {
+		turnID, _ = params["turnId"].(string)
+	}
+	if turnID == "" {
+		return
+	}
+	d.mu.Lock()
+	if d.activeTurnByThread == nil {
+		d.activeTurnByThread = make(map[string]string)
+	}
+	d.activeTurnByThread[threadID] = turnID
+	d.mu.Unlock()
+}
+
+func (d *Driver) rememberTurnCompleted(params map[string]interface{}) {
+	threadID, _ := params["threadId"].(string)
+	if threadID == "" {
+		return
+	}
+	d.mu.Lock()
+	delete(d.activeTurnByThread, threadID)
+	d.mu.Unlock()
+}
+
+func (d *Driver) currentActiveTurn(threadID string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.activeTurnByThread[threadID]
+}
+
+func (d *Driver) rememberWebActionToolUse(id, key string) bool {
+	if id == "" || key == "" {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.webSearchToolUses == nil {
+		d.webSearchToolUses = make(map[string]string)
+	}
+	if d.webSearchToolUses[id] == key {
+		return false
+	}
+	d.webSearchToolUses[id] = key
+	return true
+}
+
+func nestedCodexString(m map[string]interface{}, key, child string) (string, bool) {
+	nested, ok := m[key].(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+	value, ok := nested[child].(string)
+	return value, ok && value != ""
+}
+
+func codexSubagentToolInput(item map[string]interface{}) map[string]interface{} {
+	prompt, _ := item["prompt"].(string)
+	description := firstNonEmpty(firstSentence(prompt), prompt)
+	return map[string]interface{}{
+		"prompt":        prompt,
+		"subagent_type": mapAgentType(""),
+		"description":   description,
+	}
+}
+
+func codexItemMessageID(params map[string]interface{}) string {
+	threadID, _ := params["threadId"].(string)
+	turnID, _ := params["turnId"].(string)
+	prefix := ""
+	if threadID != "" || turnID != "" {
+		prefix = threadID + ":" + turnID + ":"
+	}
+	if itemID, _ := params["itemId"].(string); itemID != "" {
+		return prefix + itemID
+	}
+	item, _ := params["item"].(map[string]interface{})
+	if itemID, _ := item["id"].(string); itemID != "" {
+		return prefix + itemID
+	}
+	if turnID != "" {
+		return prefix + "agentMessage"
+	}
+	return ""
+}
+
+func (d *Driver) rememberAgentMessageDelta(messageID, delta string) {
+	if messageID == "" || delta == "" {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.agentMessageDeltas == nil {
+		d.agentMessageDeltas = make(map[string]string)
+	}
+	d.agentMessageDeltas[messageID] += delta
+}
+
+func (d *Driver) agentMessageCompletedDuplicatesDelta(messageID, text string) bool {
+	if messageID == "" || text == "" {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.agentMessageDeltas == nil {
+		return false
+	}
+	deltaText := d.agentMessageDeltas[messageID]
+	delete(d.agentMessageDeltas, messageID)
+	return deltaText == text
 }
 
 func extractShellCommand(item map[string]interface{}) string {
@@ -416,7 +624,7 @@ func (d *Driver) parseBatchEvent(raw map[string]interface{}) *provider.OutputEve
 		return eventError(msg)
 	case "message.delta":
 		delta, _ := raw["delta"].(string)
-		return eventAssistantDelta(delta)
+		return eventAssistantDelta("", delta)
 	default:
 		return &provider.OutputEvent{
 			Type:    eventType,
@@ -461,7 +669,7 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 		return eventToolResult(id, output, isError)
 	case "agent_message", "message":
 		text, _ := item["text"].(string)
-		return eventAssistantText(text)
+		return eventAssistantText("", text)
 	case "function_call", "local_shell_exec":
 		name, _ := item["name"].(string)
 		if name == "" {
@@ -497,7 +705,7 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 				Message: userText(text),
 			}
 		}
-		return eventAssistantText(text)
+		return eventAssistantText("", text)
 	case "function_call", "custom_tool_call":
 		name, _ := payload["name"].(string)
 		return eventToolUse("", name, payload)

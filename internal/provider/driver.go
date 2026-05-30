@@ -43,8 +43,62 @@ type ProviderDriver interface {
 	// Others: returns immediately (batch processes need no handshake).
 	WaitForInit(session SessionHandle, timeout time.Duration) error
 
+	// QuerySessionActivity returns the provider-owned runtime activity state.
+	// Every provider implements this; protocol-specific query/control details
+	// must stay inside the driver instead of leaking into callers.
+	QuerySessionActivity(session SessionHandle, timeout time.Duration) (*SessionActivity, error)
+
 	OnProcessStart(ctx context.Context, session SessionHandle, pid int) error
 	OnProcessExit(session SessionHandle, exitCode int, err error)
+}
+
+// DefaultSessionActivity returns the generic process-derived activity state for
+// providers without a native live activity query.
+func DefaultSessionActivity(session SessionHandle) *SessionActivity {
+	if session == nil {
+		return &SessionActivity{Status: SessionActivityIdle, UpdatedAt: time.Now()}
+	}
+	if reader, ok := session.(interface{ Activity() *SessionActivity }); ok {
+		if activity := reader.Activity(); activity != nil {
+			return activity
+		}
+	}
+	state := session.GetState()
+	config := session.GetConfig()
+	running := state == StateRunning || state == StateStarting
+	active := running && !config.Interactive
+	status := SessionActivityIdle
+	if active {
+		status = SessionActivityActive
+	}
+	return &SessionActivity{
+		SessionID:         session.GetSessionID(),
+		ProviderSessionID: session.GetProviderSessionID(),
+		ProjectPath:       config.ProjectPath,
+		Status:            status,
+		Running:           running,
+		Active:            active,
+		CanInterrupt:      active,
+		UpdatedAt:         time.Now(),
+	}
+}
+
+// SessionConfigPreparer is an optional provider extension for provider-owned
+// defaulting and normalization before a user-facing provider session starts.
+type SessionConfigPreparer interface {
+	PrepareSessionConfig(config *SessionConfig)
+}
+
+// ProviderSessionMode is an optional provider extension that decides whether
+// a user-facing provider session should stay alive for follow-up messages.
+type ProviderSessionMode interface {
+	UseLongLivedSession(config SessionConfig) bool
+}
+
+// ProviderSessionIdentifier is an optional provider extension for extracting
+// the provider-native session/thread ID from parsed output.
+type ProviderSessionIdentifier interface {
+	ProviderSessionID(event *OutputEvent) string
 }
 
 // OutputEventCompleter is an optional provider extension for CLIs whose stdout
@@ -77,6 +131,7 @@ type SessionHandle interface {
 	RestartWithConfig(config SessionConfig) error
 
 	GetState() SessionState
+	GetSessionID() string
 	GetProviderSessionID() string
 	GetConfig() SessionConfig
 	SetProviderSessionID(id string)
@@ -86,8 +141,9 @@ type SessionHandle interface {
 
 	// SendControlRequest sends a control request and waits for the matching response.
 	// Returns a response channel; timeout is controlled by the caller.
-	// Used only in Claude interactive mode.
+	// Used by provider interactive control/query APIs.
 	SendControlRequest(requestID string, payload []byte) (<-chan ControlResponse, error)
+	CancelControlRequest(requestID string)
 
 	// MarkInitialized marks the session as initialized.
 	MarkInitialized()

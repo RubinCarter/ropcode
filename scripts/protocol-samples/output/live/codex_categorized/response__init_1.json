@@ -1,0 +1,9 @@
+{
+  "id": "init_1",
+  "result": {
+    "userAgent": "ropcode-capture/0.133.0 (Mac OS 26.4.1; arm64) unknown (ropcode-capture; 0.1.0)",
+    "codexHome": "/Users/rubin/.codex",
+    "platformFamily": "unix",
+    "platformOs": "macos"
+  }
+}

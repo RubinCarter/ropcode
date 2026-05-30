@@ -1,0 +1,30 @@
+{
+  "timestamp": "2026-05-25T09:46:10.147Z",
+  "type": "turn_context",
+  "payload": {
+    "turn_id": "019e5e82-9b41-7161-9032-faac62459c4b",
+    "cwd": "/Users/rubin/Documents/data/rubin/code/u-claw/.ropcode/minimal-lynx",
+    "current_date": "2026-05-25",
+    "timezone": "Asia/Shanghai",
+    "approval_policy": "never",
+    "sandbox_policy": {
+      "type": "danger-full-access"
+    },
+    "permission_profile": {
+      "type": "disabled"
+    },
+    "model": "gpt-5.2",
+    "personality": "pragmatic",
+    "collaboration_mode": {
+      "mode": "default",
+      "settings": {
+        "model": "gpt-5.2",
+        "reasoning_effort": "medium",
+        "developer_instructions": null
+      }
+    },
+    "realtime_active": false,
+    "effort": "medium",
+    "summary": "auto"
+  }
+}

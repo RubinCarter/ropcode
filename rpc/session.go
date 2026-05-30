@@ -4,19 +4,13 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
 	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
-	"ropcode/internal/database"
-	"ropcode/internal/provider"
-	providerPi "ropcode/internal/provider/pi"
 	"ropcode/internal/stream"
 )
-
-const freshSessionSentinel = "__ROP_FRESH_SESSION__"
 
 func SessionHandlers(d *Deps) map[string]Handler {
 	return map[string]Handler{
@@ -96,38 +90,6 @@ func SessionHandlers(d *Deps) map[string]Handler {
 			return sessions, nil
 		},
 		// --- Session Lifecycle ---
-		"StartProviderSession": func(p json.RawMessage) (any, error) {
-			if d.Provider == nil {
-				return "", fmt.Errorf("provider manager not initialized")
-			}
-			config := buildUnifiedConfig(d, argString(p, 0), argString(p, 1), argString(p, 2), argString(p, 3), argString(p, 4), argString(p, 5), "", false)
-			return d.Provider.StartSession(argString(p, 0), config)
-		},
-		"ResumeProviderSession": func(p json.RawMessage) (any, error) {
-			if d.Provider == nil {
-				return "", fmt.Errorf("provider manager not initialized")
-			}
-			providerName := argString(p, 0)
-			config := buildUnifiedConfig(d, providerName, argString(p, 1), argString(p, 2), argString(p, 3), argString(p, 5), argString(p, 6), argString(p, 4), true)
-			return d.Provider.StartSession(providerName, config)
-		},
-		"SendProviderSessionMessage": func(p json.RawMessage) (any, error) {
-			if d.Provider == nil {
-				return "", fmt.Errorf("provider manager not initialized")
-			}
-			providerName := argString(p, 0)
-			projectPath := argString(p, 1)
-			sessionID := argString(p, 2)
-			if providerName == "pi" {
-				if resolved := d.Provider.ResolveRunningSessionID("pi", projectPath, sessionID); resolved != "" {
-					sessionID = resolved
-				}
-			}
-			if err := d.Provider.SendMessage(sessionID, argString(p, 3)); err != nil {
-				return "", err
-			}
-			return sessionID, nil
-		},
 		"ListRunningProviderSessions": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return []any{}, nil
@@ -160,95 +122,59 @@ func SessionHandlers(d *Deps) map[string]Handler {
 			}
 			return nil, d.Provider.TerminateSession(argString(p, 0))
 		},
-		"CancelClaudeExecutionByProject": func(p json.RawMessage) (any, error) {
+		"StopProviderSessionsByProject": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return nil, nil
 			}
-			projectPath := argString(p, 0)
-			for _, prov := range []string{"claude", "codex", "gemini", "deepseek"} {
-				if d.Provider.IsRunningForProject(prov, projectPath) {
-					if err := d.Provider.TerminateByProject(prov, projectPath); err != nil {
-						if !strings.Contains(err.Error(), "no running sessions found for project:") {
-							return nil, err
-						}
-					}
-					return nil, nil
-				}
-			}
-			if sessionID := d.Provider.GetRunningSessionForProject("pi", projectPath); sessionID != "" {
-				return nil, d.Provider.InterruptSession(sessionID)
-			}
-			return nil, nil
+			return nil, d.Provider.TerminateByProjectAll(argString(p, 0))
 		},
-		// --- Interactive Claude Session ---
-		"StartInteractiveClaudeSession": func(p json.RawMessage) (any, error) {
-			if d.Provider == nil {
-				return "", fmt.Errorf("provider manager not initialized")
-			}
-			return startInteractiveSession(d, argString(p, 0), argString(p, 1), argString(p, 2), argString(p, 3))
-		},
-		"SendClaudeMessage": func(p json.RawMessage) (any, error) {
-			if d.Provider == nil {
-				return nil, fmt.Errorf("provider manager not initialized")
-			}
-			projectPath := argString(p, 0)
-			sessionID := argString(p, 1)
-			if resolved := d.Provider.ResolveRunningSessionID("claude", projectPath, sessionID); resolved != "" {
-				sessionID = resolved
-			}
-			return nil, d.Provider.SendMessage(sessionID, argString(p, 2))
-		},
-		"SetClaudeSessionModel": func(p json.RawMessage) (any, error) {
+		"SetProviderSessionModel": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return nil, fmt.Errorf("provider manager not initialized")
 			}
 			return nil, d.Provider.SetModel(argString(p, 0), argString(p, 1))
 		},
-		"SetClaudeSessionPermissionMode": func(p json.RawMessage) (any, error) {
+		"SetProviderSessionPermissionMode": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return nil, fmt.Errorf("provider manager not initialized")
 			}
 			return nil, d.Provider.SetPermissionMode(argString(p, 0), argString(p, 1))
 		},
-		"InterruptClaudeSession": func(p json.RawMessage) (any, error) {
+		"InterruptProviderSession": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return nil, fmt.Errorf("provider manager not initialized")
 			}
 			return nil, d.Provider.InterruptSession(argString(p, 0))
 		},
-		"UpdateClaudeSessionEnvironment": func(p json.RawMessage) (any, error) {
+		"UpdateProviderSessionEnvironment": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return nil, fmt.Errorf("provider manager not initialized")
 			}
 			return nil, d.Provider.UpdateEnvironmentVariables(argString(p, 0), argObject[map[string]string](p, 1))
 		},
-		"SwitchClaudeSessionProviderApi": func(p json.RawMessage) (any, error) {
+		"SwitchProviderSessionApi": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return nil, fmt.Errorf("provider manager not initialized")
 			}
 			return nil, switchSessionProviderApi(d, argString(p, 0), argString(p, 1))
 		},
-		"IsClaudeSessionRunning": func(p json.RawMessage) (any, error) {
+		"IsProviderSessionRunning": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return false, nil
 			}
 			return d.Provider.IsRunning(argString(p, 0)), nil
 		},
-		"IsClaudeSessionRunningForProject": func(p json.RawMessage) (any, error) {
+		"IsProviderSessionRunningForProject": func(p json.RawMessage) (any, error) {
 			if d.Provider == nil {
 				return false, nil
 			}
-			projectPath := argString(p, 0)
-			providerOrSessionID := argString(p, 1)
-			switch providerOrSessionID {
-			case "gemini", "codex", "deepseek", "pi":
-				return d.Provider.IsRunningForProject(providerOrSessionID, projectPath), nil
-			default:
-				if d.Provider.IsRunning(providerOrSessionID) {
-					return true, nil
-				}
-				return d.Provider.IsRunningForProject("claude", projectPath), nil
+			return d.Provider.IsProviderSessionRunningForProject(argString(p, 0), argString(p, 1)), nil
+		},
+		"QueryProviderSessionActivityForProject": func(p json.RawMessage) (any, error) {
+			if d.Provider == nil {
+				return nil, fmt.Errorf("provider manager not initialized")
 			}
+			return d.Provider.QueryProviderSessionActivityForProject(argString(p, 0), argString(p, 1), 2*time.Second)
 		},
 		// --- Claude Activity ---
 		"GetClaudeSessionActivities": func(p json.RawMessage) (any, error) {
@@ -352,154 +278,10 @@ func SessionHandlers(d *Deps) map[string]Handler {
 	}
 }
 
-// --- Session helpers ---
-
-func buildUnifiedConfig(d *Deps, providerID, projectPath, prompt, model, providerApiID, reasoningEffort, sessionID string, resume bool) provider.SessionConfig {
-	config := provider.SessionConfig{
-		ProjectPath:     projectPath,
-		Prompt:          prompt,
-		Model:           model,
-		ProviderApiID:   providerApiID,
-		ResumeSessionID: sessionID,
-		Resume:          resume,
-	}
-	if reasoningEffort != "" {
-		if config.Extra == nil {
-			config.Extra = make(map[string]string)
-		}
-		config.Extra["reasoning_effort"] = reasoningEffort
-	}
-	if providerID == "pi" {
-		config.Interactive = true
-		if reasoningEffort != "" {
-			if config.Extra == nil {
-				config.Extra = make(map[string]string)
-			}
-			config.Extra["thinking_level"] = reasoningEffort
-		}
-	}
-	if providerApiID != "" && d.DB != nil {
-		apiConfig, err := d.DB.GetProviderApiConfig(providerApiID)
-		if err == nil && apiConfig != nil {
-			config.AuthToken = apiConfig.AuthToken
-			config.BaseURL = apiConfig.BaseURL
-		}
-	} else if (providerID == "deepseek" || providerID == "pi") && d.DB != nil {
-		if apiConfig, _ := resolveRuntimeAPIConfig(d, providerID, providerApiID); apiConfig != nil {
-			config.ProviderApiID = apiConfig.ID
-			config.AuthToken = apiConfig.AuthToken
-			config.BaseURL = apiConfig.BaseURL
-		}
-	}
-	if providerID == "pi" {
-		providerPi.ApplyLocalDefaults(&config)
-	}
-	return config
-}
-
-func resolveRuntimeAPIConfig(d *Deps, providerID, providerApiID string) (*database.ProviderApiConfig, error) {
-	if d.DB == nil {
-		return nil, nil
-	}
-	if strings.TrimSpace(providerApiID) != "" {
-		if cfg, err := d.DB.GetProviderApiConfig(providerApiID); err == nil && cfg != nil {
-			return cfg, nil
-		}
-		if providerID == "pi" {
-			return providerPi.LocalProviderAPIConfig(providerApiID)
-		}
-		return nil, nil
-	}
-	if cfg, err := d.DB.GetDefaultProviderApiConfig(providerID); err == nil && cfg != nil {
-		return cfg, nil
-	}
-	if providerID == "pi" {
-		if cfg, err := providerPi.LocalDefaultProviderAPIConfig(); err == nil && cfg != nil {
-			return cfg, nil
-		}
-	}
-	all, err := d.DB.GetAllProviderApiConfigs()
-	if err != nil {
-		return nil, err
-	}
-	for _, cfg := range all {
-		if cfg != nil && cfg.ProviderID == providerID {
-			return cfg, nil
-		}
-	}
-	return nil, nil
-}
-
-func startInteractiveSession(d *Deps, projectPath, model, providerApiID, resumeSessionID string) (string, error) {
-	existingSessionID := d.Provider.GetRunningSessionForProject("claude", projectPath)
-	resolvedResume, reuseExisting, terminateExisting, allowAutoResume := resolveInteractiveStart(resumeSessionID, existingSessionID != "")
-	resumeSessionID = resolvedResume
-
-	if reuseExisting && existingSessionID != "" {
-		return existingSessionID, nil
-	}
-	if terminateExisting && existingSessionID != "" {
-		d.Provider.TerminateSession(existingSessionID)
-	}
-
-	config := buildUnifiedConfig(d, "claude", projectPath, "", model, providerApiID, "", resumeSessionID, resumeSessionID != "")
-	config.Interactive = true
-	if !allowAutoResume {
-		if config.Extra == nil {
-			config.Extra = make(map[string]string)
-		}
-		config.Extra["disable_auto_resume"] = "true"
-	}
-
-	sessionID, err := d.Provider.StartSession("claude", config)
-	if err != nil {
-		return "", err
-	}
-
-	if d.Activity != nil {
-		d.Activity.EnsureSession(sessionID, projectPath, true, claudeControlSender{mgr: d.Provider, sessionID: sessionID})
-	}
-
-	if err := d.Provider.WaitForInit(sessionID, 30*time.Second); err != nil {
-		d.Provider.TerminateSession(sessionID)
-		if resumeSessionID != "" && (strings.HasPrefix(err.Error(), "session init timeout") || strings.HasPrefix(err.Error(), "session exited before initialization")) {
-			log.Printf("[StartInteractiveClaudeSession] Resume failed (%v), retrying without resume", err)
-			config.ResumeSessionID = ""
-			config.Resume = false
-			retryID, retryErr := d.Provider.StartSession("claude", config)
-			if retryErr != nil {
-				return "", fmt.Errorf("interactive session initialization failed: %w", retryErr)
-			}
-			if initErr := d.Provider.WaitForInit(retryID, 30*time.Second); initErr != nil {
-				d.Provider.TerminateSession(retryID)
-				return "", fmt.Errorf("interactive session initialization failed: %w", initErr)
-			}
-			return retryID, nil
-		}
-		return "", fmt.Errorf("interactive session initialization failed: %w", err)
-	}
-
-	return sessionID, nil
-}
-
-func resolveInteractiveStart(resumeSessionID string, hasExisting bool) (string, bool, bool, bool) {
-	forceFresh := resumeSessionID == freshSessionSentinel
-	if forceFresh {
-		resumeSessionID = ""
-	}
-	if !hasExisting {
-		return resumeSessionID, false, false, !forceFresh
-	}
-	if forceFresh {
-		return resumeSessionID, false, true, false
-	}
-	return resumeSessionID, true, false, true
-}
-
 func switchSessionProviderApi(d *Deps, sessionID, providerApiID string) error {
 	variables := map[string]string{
-		"ANTHROPIC_BASE_URL":   "",
-		"ANTHROPIC_AUTH_TOKEN": "",
+		"BASE_URL":   "",
+		"AUTH_TOKEN": "",
 	}
 	if providerApiID != "" {
 		if d.DB == nil {
@@ -512,8 +294,8 @@ func switchSessionProviderApi(d *Deps, sessionID, providerApiID string) error {
 		if apiConfig == nil {
 			return fmt.Errorf("provider api config not found: %s", providerApiID)
 		}
-		variables["ANTHROPIC_BASE_URL"] = apiConfig.BaseURL
-		variables["ANTHROPIC_AUTH_TOKEN"] = apiConfig.AuthToken
+		variables["BASE_URL"] = apiConfig.BaseURL
+		variables["AUTH_TOKEN"] = apiConfig.AuthToken
 	}
 	return d.Provider.UpdateEnvironmentVariables(sessionID, variables)
 }
@@ -526,28 +308,6 @@ func formatCapabilityLayers(layers claude.CapabilityLayers) map[string]any {
 		"all_visible":  layers.AllVisible,
 		"fetched_at":   time.Now().UTC(),
 	}
-}
-
-type claudeControlSender struct {
-	mgr       *provider.Manager
-	sessionID string
-}
-
-func (s claudeControlSender) SendStopTask(requestID, taskID string) error {
-	if s.mgr == nil {
-		return fmt.Errorf("provider manager not initialized")
-	}
-	envelope := map[string]interface{}{
-		"type":       "control_request",
-		"request_id": requestID,
-		"request": map[string]interface{}{
-			"subtype": "stop_task",
-			"task_id": taskID,
-		},
-	}
-	data, _ := json.Marshal(envelope)
-	data = append(data, '\n')
-	return s.mgr.WriteStdin(s.sessionID, data)
 }
 
 func replayActivityOutput(activity *claudeactivity.Service, sessionID, output string) {

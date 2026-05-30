@@ -301,10 +301,7 @@ func (s *Server) handleRPCRequest(client *Client, req *RPCRequest) {
 	if s.dispatch != nil {
 		result, err = s.dispatch(req.Method, req.Params)
 	} else {
-		// Legacy fallback: re-parse params for reflection router
-		var params []interface{}
-		json.Unmarshal(req.Params, &params)
-		result, err = s.router.Call(req.Method, params)
+		err = fmt.Errorf("method not found: %s", req.Method)
 	}
 
 	var errMsg string
@@ -320,11 +317,6 @@ func (s *Server) handleRPCRequest(client *Client, req *RPCRequest) {
 // SetDispatch sets the direct dispatch function, bypassing the reflection router.
 func (s *Server) SetDispatch(fn func(method string, params json.RawMessage) (any, error)) {
 	s.dispatch = fn
-}
-
-// LegacyCall exposes the reflection router for fallback dispatch.
-func (s *Server) LegacyCall(method string, params []interface{}) (interface{}, error) {
-	return s.router.Call(method, params)
 }
 
 // BroadcastEvent 向所有客户端广播事件

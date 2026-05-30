@@ -14,10 +14,47 @@ import (
 )
 
 var _ provider.ProviderDriver = (*Driver)(nil)
+var _ provider.ProviderSessionMode = (*Driver)(nil)
+var _ provider.SessionConfigPreparer = (*Driver)(nil)
+var _ provider.ProviderSessionIdentifier = (*Driver)(nil)
 
 var requestSeq atomic.Uint64
 
 type Driver struct{}
+
+func (d *Driver) UseLongLivedSession(config provider.SessionConfig) bool {
+	return true
+}
+
+func (d *Driver) ProviderSessionID(event *provider.OutputEvent) string {
+	if event == nil || event.Subtype != "response" || event.Message == nil {
+		return ""
+	}
+	if sid, ok := event.Message["session_id"].(string); ok {
+		return sid
+	}
+	return ""
+}
+
+func (d *Driver) PrepareSessionConfig(config *provider.SessionConfig) {
+	if config == nil {
+		return
+	}
+	if effort := config.Extra["reasoning_effort"]; effort != "" && config.Extra["thinking_level"] == "" {
+		config.Extra["thinking_level"] = effort
+	}
+	if config.ProviderApiID != "" && config.BaseURL == "" && config.AuthToken == "" {
+		if apiCfg, err := LocalProviderAPIConfig(config.ProviderApiID); err == nil && apiCfg != nil {
+			config.BaseURL = apiCfg.BaseURL
+		}
+	} else if config.ProviderApiID == "" && config.BaseURL == "" && config.AuthToken == "" {
+		if apiCfg, err := LocalDefaultProviderAPIConfig(); err == nil && apiCfg != nil {
+			config.ProviderApiID = apiCfg.ID
+			config.BaseURL = apiCfg.BaseURL
+		}
+	}
+	ApplyLocalDefaults(config)
+}
 
 func (d *Driver) ID() string         { return "pi" }
 func (d *Driver) BinaryName() string { return "pi" }
@@ -141,6 +178,12 @@ func (d *Driver) SetPermissionMode(session provider.SessionHandle, mode string) 
 
 func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars map[string]string) error {
 	session.UpdateConfig(func(c *provider.SessionConfig) {
+		if v, ok := vars["AUTH_TOKEN"]; ok {
+			c.AuthToken = v
+		}
+		if v, ok := vars["BASE_URL"]; ok {
+			c.BaseURL = v
+		}
 		if c.Extra == nil {
 			c.Extra = make(map[string]string)
 		}
@@ -153,6 +196,10 @@ func (d *Driver) UpdateEnvironmentVariables(session provider.SessionHandle, vars
 
 func (d *Driver) WaitForInit(session provider.SessionHandle, timeout time.Duration) error {
 	return nil
+}
+
+func (d *Driver) QuerySessionActivity(session provider.SessionHandle, timeout time.Duration) (*provider.SessionActivity, error) {
+	return provider.DefaultSessionActivity(session), nil
 }
 
 func (d *Driver) OnProcessStart(_ context.Context, session provider.SessionHandle, _ int) error {

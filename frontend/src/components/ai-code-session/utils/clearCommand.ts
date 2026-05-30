@@ -13,12 +13,12 @@ export function isExactClearCommand(prompt: string): boolean {
   return prompt.trim() === '/clear';
 }
 
-export function shouldCreateFreshClaudeSession(prompt: string, provider?: string): boolean {
-  return isExactClearCommand(prompt) && provider === 'claude';
+export function shouldCreateFreshProviderSession(prompt: string, provider?: string): boolean {
+	return isExactClearCommand(prompt) && Boolean(provider);
 }
 
-export function shouldStopClaudeSessionImmediately(_prompt: string, _provider?: string): boolean {
-  return false;
+export function shouldStopProviderSessionImmediately(_prompt: string, _provider?: string): boolean {
+	return false;
 }
 
 export function shouldForwardClearToProvider(_prompt: string, _provider?: string): boolean {
@@ -34,17 +34,13 @@ export function shouldShowStopFeedbackOnLocalClear({
   isLoading,
   interactiveSessionId,
 }: LocalClearStopFeedbackInput): boolean {
-  return provider === 'claude' && (isLoading || interactiveSessionId != null);
+  return Boolean(provider) && (isLoading || interactiveSessionId != null);
 }
 
 export function getLocalClearMessage({ provider, didStopSession }: LocalClearMessageInput): string {
-  if (provider !== 'claude') {
-    return 'Local conversation view cleared. Provider session was not reset.';
-  }
-
   if (didStopSession) {
-    return 'Conversation cleared. Claude session stopped; the next message will start fresh.';
+    return `Conversation cleared. ${provider ?? 'Provider'} session stopped; the next message will start fresh.`;
   }
 
-  return 'Conversation cleared. The next message will start a fresh Claude session.';
+  return `Conversation cleared. The next message will start a fresh ${provider ?? 'provider'} session.`;
 }

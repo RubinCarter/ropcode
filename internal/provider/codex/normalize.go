@@ -434,6 +434,98 @@ func extractAgentResult(item map[string]interface{}) string {
 	return "Agent spawned"
 }
 
+func firstReceiverThreadID(item map[string]interface{}) string {
+	ids, _ := item["receiverThreadIds"].([]interface{})
+	for _, raw := range ids {
+		if id, ok := raw.(string); ok && id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func mergeSubagentState(base, next codexSubagentState) codexSubagentState {
+	if next.CallID != "" {
+		base.CallID = next.CallID
+	}
+	if next.AgentID != "" {
+		base.AgentID = next.AgentID
+	}
+	if next.Prompt != "" {
+		base.Prompt = next.Prompt
+	}
+	if next.Description != "" {
+		base.Description = next.Description
+	}
+	if next.SubagentType != "" {
+		base.SubagentType = next.SubagentType
+	}
+	if next.Model != "" {
+		base.Model = next.Model
+	}
+	if next.ReasoningEffort != "" {
+		base.ReasoningEffort = next.ReasoningEffort
+	}
+	if next.StartedAtMs != 0 {
+		base.StartedAtMs = next.StartedAtMs
+	}
+	return base
+}
+
+func collabAgentHasError(item map[string]interface{}) bool {
+	states, _ := item["agentsStates"].(map[string]interface{})
+	for _, state := range states {
+		stateMap, _ := state.(map[string]interface{})
+		status, _ := stateMap["status"].(string)
+		switch strings.ToLower(status) {
+		case "error", "failed", "failure", "cancelled", "canceled":
+			return true
+		}
+	}
+	return false
+}
+
+func firstSentence(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+	for _, sep := range []string{". ", "\n", "。", "！", "？"} {
+		if idx := strings.Index(trimmed, sep); idx > 0 {
+			return strings.TrimSpace(trimmed[:idx])
+		}
+	}
+	if len(trimmed) > 120 {
+		return strings.TrimSpace(trimmed[:120])
+	}
+	return trimmed
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func int64FromAny(value interface{}) int64 {
+	switch v := value.(type) {
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	case float64:
+		return int64(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	default:
+		return 0
+	}
+}
+
 func adaptSpawnAgentInput(args map[string]interface{}) map[string]interface{} {
 	prompt, _ := args["message"].(string)
 	if prompt == "" {
@@ -773,20 +865,15 @@ func normalizePayloadHistory(payload map[string]any) map[string]any {
 		}
 		return toolResult(callID, parsed)
 	case "web_search_call":
-		action := mval(payload["action"])
-		queries := sval(nil)
-		if action != nil {
-			queries = sval(action["queries"])
-		}
-		query := ""
-		if len(queries) > 0 {
-			query, _ = queries[0].(string)
-		}
 		id := str(payload, "id")
 		if id == "" {
 			id = "ws_" + str(payload, "call_id")
 		}
-		return toolUse(id, "WebSearch", map[string]any{"query": query, "queries": queries})
+		toolName, input, _ := codexWebActionTool(payload)
+		if toolName == "" {
+			return nil
+		}
+		return toolUse(id, toolName, input)
 	case "tool_search_call", "tool_search_output":
 		return nil
 	default:
@@ -822,9 +909,102 @@ func normalizeItemHistory(item map[string]any) map[string]any {
 		return toolUse(id, claudeName, claudeInput)
 	case "function_call_output", "local_shell_output":
 		return toolResult(str(item, "id"), str(item, "output"))
+	case "web_search_call", "webSearch":
+		toolName, input, _ := codexWebActionTool(item)
+		if toolName == "" {
+			return nil
+		}
+		id := str(item, "id")
+		if id == "" {
+			id = "ws_" + str(item, "call_id")
+		}
+		return toolUse(id, toolName, input)
 	default:
 		return nil
 	}
+}
+
+func codexWebActionTool(item map[string]any) (string, map[string]any, string) {
+	action := mval(item["action"])
+	actionType := str(action, "type")
+	switch actionType {
+	case "", "other":
+		query := codexWebSearchQuery(item)
+		if query == "" {
+			return "", nil, ""
+		}
+		input := map[string]any{"query": query}
+		if queries := codexWebSearchQueries(item); len(queries) > 0 {
+			input["queries"] = queries
+		}
+		return "WebSearch", input, "search:" + query
+	case "search":
+		query := codexWebSearchQuery(item)
+		if query == "" {
+			return "", nil, ""
+		}
+		input := map[string]any{"query": query}
+		if queries := codexWebSearchQueries(item); len(queries) > 0 {
+			input["queries"] = queries
+		}
+		return "WebSearch", input, "search:" + query
+	case "open_page":
+		url := str(action, "url")
+		if url == "" {
+			return "", nil, ""
+		}
+		return "WebFetch", map[string]any{"url": url}, "fetch:" + url
+	case "find_in_page":
+		url := str(action, "url")
+		pattern := str(action, "pattern")
+		if url == "" && pattern == "" {
+			return "", nil, ""
+		}
+		input := map[string]any{"url": url}
+		if pattern != "" {
+			input["prompt"] = pattern
+		}
+		return "WebFetch", input, "find:" + url + ":" + pattern
+	default:
+		query := codexWebSearchQuery(item)
+		if query == "" {
+			return "", nil, ""
+		}
+		return "WebSearch", map[string]any{"query": query}, "search:" + query
+	}
+}
+
+func codexWebSearchQuery(item map[string]any) string {
+	if query := strings.TrimSpace(str(item, "query")); query != "" {
+		return query
+	}
+	action := mval(item["action"])
+	if query := strings.TrimSpace(str(action, "query")); query != "" {
+		return query
+	}
+	for _, query := range codexWebSearchQueries(item) {
+		if query != "" {
+			return query
+		}
+	}
+	return ""
+}
+
+func codexWebSearchQueries(item map[string]any) []string {
+	action := mval(item["action"])
+	raw := sval(action["queries"])
+	if len(raw) == 0 {
+		raw = sval(item["queries"])
+	}
+	queries := make([]string, 0, len(raw))
+	for _, value := range raw {
+		query, _ := value.(string)
+		query = strings.TrimSpace(query)
+		if query != "" {
+			queries = append(queries, query)
+		}
+	}
+	return queries
 }
 
 func payloadText(payload map[string]any) string {
@@ -840,12 +1020,20 @@ func payloadText(payload map[string]any) string {
 }
 
 func assistantText(text string) map[string]any {
+	return assistantTextWithID("", text)
+}
+
+func assistantTextWithID(messageID, text string) map[string]any {
+	message := map[string]any{
+		"role":    "assistant",
+		"content": []interface{}{map[string]any{"type": "text", "text": text}},
+	}
+	if messageID != "" {
+		message["id"] = messageID
+	}
 	return map[string]any{
-		"type": "assistant",
-		"message": map[string]any{
-			"role":    "assistant",
-			"content": []interface{}{map[string]any{"type": "text", "text": text}},
-		},
+		"type":    "assistant",
+		"message": message,
 	}
 }
 
@@ -883,25 +1071,29 @@ func toolResult(toolUseID, content string) map[string]any {
 
 // --- OutputEvent constructors (used by output_parser.go) ---
 
-func eventAssistantText(text string) *provider.OutputEvent {
+func eventAssistantText(messageID, text string) *provider.OutputEvent {
 	return &provider.OutputEvent{
 		Type:    "assistant",
-		Message: assistantText(text),
+		Message: assistantTextWithID(messageID, text),
 	}
 }
 
-func eventAssistantDelta(text string) *provider.OutputEvent {
+func eventAssistantDelta(messageID, text string) *provider.OutputEvent {
+	message := map[string]interface{}{
+		"role": "assistant",
+		"content": []map[string]interface{}{
+			{"type": "text", "text": text},
+		},
+	}
+	if messageID != "" {
+		message["id"] = messageID
+	}
 	return &provider.OutputEvent{
 		Type:    "assistant",
 		IsDelta: true,
 		Message: map[string]interface{}{
-			"type": "assistant",
-			"message": map[string]interface{}{
-				"role": "assistant",
-				"content": []map[string]interface{}{
-					{"type": "text", "text": text},
-				},
-			},
+			"type":    "assistant",
+			"message": message,
 		},
 	}
 }
@@ -946,6 +1138,73 @@ func eventToolResult(toolUseID, content string, isError bool) *provider.OutputEv
 				"content": []map[string]interface{}{
 					{"type": "tool_result", "tool_use_id": toolUseID, "content": content, "is_error": isError},
 				},
+			},
+		},
+	}
+}
+
+func eventSubagentTaskStarted(state codexSubagentState) *provider.OutputEvent {
+	if state.AgentID == "" || state.CallID == "" {
+		return nil
+	}
+	return &provider.OutputEvent{
+		Type:    "system",
+		Subtype: "task_started",
+		Message: map[string]interface{}{
+			"type":        "system",
+			"subtype":     "task_started",
+			"task_id":     state.AgentID,
+			"tool_use_id": state.CallID,
+			"description": firstNonEmpty(state.Description, state.Prompt, state.AgentID),
+			"task_type":   "local_agent",
+			"prompt":      state.Prompt,
+			"agentId":     state.AgentID,
+		},
+	}
+}
+
+func eventSubagentToolResult(toolUseID, content string, isError bool, state codexSubagentState) *provider.OutputEvent {
+	if toolUseID == "" {
+		return nil
+	}
+	if content == "" {
+		content = "Agent completed"
+	}
+	textBlocks := []map[string]interface{}{
+		{"type": "text", "text": content},
+	}
+	if state.AgentID != "" {
+		textBlocks = append(textBlocks, map[string]interface{}{
+			"type": "text",
+			"text": "agentId: " + state.AgentID,
+		})
+	}
+	resultStatus := "completed"
+	if isError {
+		resultStatus = "failed"
+	}
+	return &provider.OutputEvent{
+		Type: "user",
+		Message: map[string]interface{}{
+			"type": "user",
+			"message": map[string]interface{}{
+				"role": "user",
+				"content": []map[string]interface{}{
+					{
+						"type":        "tool_result",
+						"tool_use_id": toolUseID,
+						"content":     textBlocks,
+						"is_error":    isError,
+					},
+				},
+			},
+			"tool_use_result": map[string]interface{}{
+				"status":            resultStatus,
+				"prompt":            state.Prompt,
+				"agentId":           state.AgentID,
+				"agentType":         firstNonEmpty(state.SubagentType, "general-purpose"),
+				"content":           textBlocks[:1],
+				"totalToolUseCount": 0,
 			},
 		},
 	}
