@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bot, Loader2, Play, Clock, CheckCircle, XCircle, Trash2, Import, ChevronDown, ChevronRight, FileJson, Globe, Download, Plus, History, Edit } from 'lucide-react';
 import {
@@ -14,12 +14,32 @@ import { Card } from '@/components/ui/card';
 import { Toast } from '@/components/ui/toast';
 import { api, type Agent, type AgentRunWithMetrics } from '@/lib/api';
 import { open as openDialog, save } from '@/lib/dialog';
-import { GitHubAgentBrowser } from '@/components/GitHubAgentBrowser';
-import { CreateAgent } from '@/components/CreateAgent';
 import { useTabState } from '@/hooks/useTabState';
 import { useProcessChanged } from '@/hooks';
 import { useTranslation } from 'react-i18next';
 // Note: ExportAgentToFile uses api.exportAgentToFile
+
+const GitHubAgentBrowser = lazy(() =>
+  import('@/components/GitHubAgentBrowser').then((m) => ({ default: m.GitHubAgentBrowser })),
+);
+const CreateAgent = lazy(() =>
+  import('@/components/CreateAgent').then((m) => ({ default: m.CreateAgent })),
+);
+
+const deferUntilIdle = (callback: () => void, timeout = 800): (() => void) => {
+  const win = window as typeof window & {
+    requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+
+  if (win.requestIdleCallback) {
+    const id = win.requestIdleCallback(callback, { timeout });
+    return () => win.cancelIdleCallback?.(id);
+  }
+
+  const id = window.setTimeout(callback, timeout);
+  return () => window.clearTimeout(id);
+};
 
 export const Agents: React.FC = () => {
   const { t } = useTranslation();
@@ -28,17 +48,26 @@ export const Agents: React.FC = () => {
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [runningAgents, setRunningAgents] = useState<AgentRunWithMetrics[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
+  const [runningAgentsLoading, setRunningAgentsLoading] = useState(false);
+  const [runningAgentsLoaded, setRunningAgentsLoaded] = useState(false);
   const [agentToDelete, setAgentToDelete] = useState<Agent | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [showGitHubBrowser, setShowGitHubBrowser] = useState(false);
   const { createAgentTab } = useTabState();
 
-  // Load agents on mount
   useEffect(() => {
     loadAgents();
-    loadRunningAgents();
+  }, []);
+
+  useEffect(() => {
+    const cancel = deferUntilIdle(() => {
+      loadRunningAgents();
+    }, 1500);
+
+    return cancel;
   }, []);
 
   // Subscribe to process change events to update agent list
@@ -55,17 +84,29 @@ export const Agents: React.FC = () => {
       console.error('Failed to load agents:', error);
       setToast({ message: t('agents.failedToLoadAgents'), type: 'error' });
     } finally {
+      setAgentsLoaded(true);
       setLoading(false);
     }
   };
 
   const loadRunningAgents = async () => {
     try {
+      setRunningAgentsLoading(true);
       const runs = await api.listAgentRunsWithMetrics();
       setRunningAgents(runs ?? []);
     } catch (error) {
       console.error('Failed to load running agents:', error);
       setRunningAgents([]);
+    } finally {
+      setRunningAgentsLoaded(true);
+      setRunningAgentsLoading(false);
+    }
+  };
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    if (value === 'running' && !runningAgentsLoaded && !runningAgentsLoading) {
+      loadRunningAgents();
     }
   };
 
@@ -175,27 +216,31 @@ export const Agents: React.FC = () => {
   // Show CreateAgent component if creating
   if (showCreateAgent) {
     return (
-      <CreateAgent 
-        onBack={() => setShowCreateAgent(false)}
-        onAgentCreated={() => {
-          setShowCreateAgent(false);
-          loadAgents(); // Reload agents after creation
-        }}
-      />
+      <Suspense fallback={<div className="flex h-full items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>}>
+        <CreateAgent
+          onBack={() => setShowCreateAgent(false)}
+          onAgentCreated={() => {
+            setShowCreateAgent(false);
+            loadAgents(); // Reload agents after creation
+          }}
+        />
+      </Suspense>
     );
   }
 
   // Show CreateAgent component in edit mode
   if (editingAgent) {
     return (
-      <CreateAgent
-        agent={editingAgent}
-        onBack={() => setEditingAgent(null)}
-        onAgentCreated={() => {
-          setEditingAgent(null);
-          loadAgents(); // Reload agents after update
-        }}
-      />
+      <Suspense fallback={<div className="flex h-full items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>}>
+        <CreateAgent
+          agent={editingAgent}
+          onBack={() => setEditingAgent(null)}
+          onAgentCreated={() => {
+            setEditingAgent(null);
+            loadAgents(); // Reload agents after update
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -259,15 +304,17 @@ export const Agents: React.FC = () => {
         </AnimatePresence>
 
       {showGitHubBrowser && (
-        <GitHubAgentBrowser
-          isOpen={showGitHubBrowser}
-          onClose={() => setShowGitHubBrowser(false)}
-          onImportSuccess={() => {
-            loadAgents();
-            setShowGitHubBrowser(false);
-            setToast({ message: t('agents.importedAgent', { name: '' }).replace(': ', ''), type: 'success' });
-          }}
-        />
+        <Suspense fallback={null}>
+          <GitHubAgentBrowser
+            isOpen={showGitHubBrowser}
+            onClose={() => setShowGitHubBrowser(false)}
+            onImportSuccess={() => {
+              loadAgents();
+              setShowGitHubBrowser(false);
+              setToast({ message: t('agents.importedAgent', { name: '' }).replace(': ', ''), type: 'success' });
+            }}
+          />
+        </Suspense>
       )}
 
       <AnimatePresence>
@@ -311,23 +358,26 @@ export const Agents: React.FC = () => {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             <TabsList className="grid grid-cols-2 w-full max-w-md mb-6 h-auto p-1">
               <TabsTrigger value="agents" className="py-2.5 px-3">
                 <Bot className="w-4 h-4 mr-2" />
-                {t('agents.tabAgents')} ({agents.length})
+                {t('agents.tabAgents')} {agentsLoaded ? `(${agents.length})` : ""}
               </TabsTrigger>
               <TabsTrigger value="running" className="py-2.5 px-3">
                 <History className="w-4 h-4 mr-2" />
-                {t('agents.tabHistory')} ({runningAgents.length})
+                {t('agents.tabHistory')} {runningAgentsLoaded ? `(${runningAgents.length})` : ""}
               </TabsTrigger>
             </TabsList>
 
           <TabsContent value="agents" className="flex-1 overflow-hidden">
-              {loading ? (
-                <div className="flex items-center justify-center h-64">
-                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-                </div>
+              {!agentsLoaded ? (
+                <Card className="p-8">
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>{t('common.loading')}</span>
+                  </div>
+                </Card>
               ) : agents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-64 text-center">
                   <Bot className="w-12 h-12 text-muted-foreground mb-4" />
@@ -341,7 +391,14 @@ export const Agents: React.FC = () => {
                   </Button>
                 </div>
               ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                <div className="space-y-3">
+                  {loading && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{t('common.loading')}</span>
+                    </div>
+                  )}
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                   {agents.map((agent) => (
                     <Card
                       key={agent.id}
@@ -403,12 +460,17 @@ export const Agents: React.FC = () => {
                       </div>
                     </Card>
                   ))}
+                  </div>
                 </div>
               )}
             </TabsContent>
 
             <TabsContent value="running" className="space-y-6 mt-6">
-              {runningAgents.length === 0 ? (
+              {runningAgentsLoading && !runningAgentsLoaded ? (
+                <div className="flex items-center justify-center h-64">
+                  <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : runningAgents.length === 0 ? (
                 <Card className="p-12">
                   <div className="flex flex-col items-center justify-center text-center">
                     <History className="w-12 h-12 text-muted-foreground mb-4" />

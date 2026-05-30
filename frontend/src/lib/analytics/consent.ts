@@ -2,6 +2,11 @@ import type { AnalyticsSettings } from './types';
 
 const ANALYTICS_STORAGE_KEY = 'ropcode-analytics-settings';
 
+const DEFAULT_ANALYTICS_SETTINGS: AnalyticsSettings = {
+  enabled: false,
+  hasConsented: false,
+};
+
 export class ConsentManager {
   private static instance: ConsentManager;
   private settings: AnalyticsSettings | null = null;
@@ -19,37 +24,38 @@ export class ConsentManager {
     try {
       // Try to load from localStorage first
       const stored = localStorage.getItem(ANALYTICS_STORAGE_KEY);
+      let shouldSave = false;
       if (stored) {
         this.settings = JSON.parse(stored);
+        shouldSave = this.migrateImplicitConsent();
       } else {
-        // Initialize with default settings
-        this.settings = {
-          enabled: true,
-          hasConsented: true,
-        };
+        this.settings = { ...DEFAULT_ANALYTICS_SETTINGS };
+        shouldSave = true;
       }
       
       // Generate anonymous user ID if not exists
       if (this.settings && !this.settings.userId) {
         this.settings.userId = this.generateAnonymousId();
-        await this.saveSettings();
+        shouldSave = true;
       }
       
       // Generate session ID
       if (this.settings) {
         this.settings.sessionId = this.generateSessionId();
       }
+
+      if (shouldSave) {
+        await this.saveSettings();
+      }
       
       return this.settings || {
-        enabled: true,
-        hasConsented: true,
+        ...DEFAULT_ANALYTICS_SETTINGS,
       };
     } catch (error) {
       console.error('Failed to initialize consent manager:', error);
       // Return default settings on error
       return {
-        enabled: true,
-        hasConsented: true,
+        ...DEFAULT_ANALYTICS_SETTINGS,
       };
     }
   }
@@ -72,6 +78,7 @@ export class ConsentManager {
     }
     
     this.settings!.enabled = false;
+    this.settings!.hasConsented = true;
     
     await this.saveSettings();
   }
@@ -82,8 +89,7 @@ export class ConsentManager {
     
     // Reset settings with new anonymous ID
     this.settings = {
-      enabled: true,
-      hasConsented: true,
+      ...DEFAULT_ANALYTICS_SETTINGS,
       userId: this.generateAnonymousId(),
       sessionId: this.generateSessionId(),
     };
@@ -119,6 +125,20 @@ export class ConsentManager {
     } catch (error) {
       console.error('Failed to save analytics settings:', error);
     }
+  }
+
+  private migrateImplicitConsent(): boolean {
+    if (!this.settings) return false;
+
+    // Older builds wrote enabled/hasConsented=true without a consentDate by default.
+    // Treat that state as "not answered" so analytics remains explicit opt-in.
+    if (this.settings.hasConsented && this.settings.enabled && !this.settings.consentDate) {
+      this.settings.enabled = false;
+      this.settings.hasConsented = false;
+      return true;
+    }
+
+    return false;
   }
   
   private generateAnonymousId(): string {

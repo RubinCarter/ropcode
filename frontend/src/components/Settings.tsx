@@ -60,6 +60,21 @@ import { useTheme, useTrackEvent, useLanguage } from "@/hooks";
 import { analytics } from "@/lib/analytics";
 import { TabPersistenceService } from "@/services/tabPersistence";
 
+const deferUntilIdle = (callback: () => void, timeout = 300): (() => void) => {
+  const win = window as typeof window & {
+    requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+
+  if (win.requestIdleCallback) {
+    const id = win.requestIdleCallback(callback, { timeout });
+    return () => win.cancelIdleCallback?.(id);
+  }
+
+  const id = window.setTimeout(callback, timeout);
+  return () => window.clearTimeout(id);
+};
+
 interface SettingsProps {
   /**
    * Callback to go back to the main view
@@ -132,11 +147,16 @@ export const Settings: React.FC<SettingsProps> = ({
   const [sessionTitleProviderApiId, setSessionTitleProviderApiId] = useState("");
   const [titleProviderOptions, setTitleProviderOptions] = useState<TitleProviderOption[]>([]);
   const [titleAvailableModels, setTitleAvailableModels] = useState<string[]>([]);
+  const [titleSettingsLoading, setTitleSettingsLoading] = useState(false);
+  const [titleSettingsLoaded, setTitleSettingsLoaded] = useState(false);
+  const titleSettingsLoadStarted = React.useRef(false);
+  const [claudeInstallationReady, setClaudeInstallationReady] = useState(false);
+  const [claudeInstallationLoading, setClaudeInstallationLoading] = useState(false);
+  const claudeInstallationLoadStarted = React.useRef(false);
 
   // Load settings on mount
   useEffect(() => {
     loadSettings();
-    loadClaudeBinaryPath();
     loadAnalyticsSettings();
     // Load tab persistence setting
     setTabPersistenceEnabled(TabPersistenceService.isEnabled());
@@ -145,23 +165,23 @@ export const Settings: React.FC<SettingsProps> = ({
       const pref = await api.getSetting('startup_intro_enabled');
       setStartupIntroEnabled(pref === null ? true : pref === 'true');
     })();
-    (async () => {
-      const [model, providerApiId, providers] = await Promise.all([
-        api.getSetting('session_title_model'),
-        api.getSetting('session_title_provider_api_id'),
-        api.GetSessionTitleProviderOptions(),
-      ]);
-      setSessionTitleModel(model || "");
-      setSessionTitleProviderApiId(providerApiId || "");
-      setTitleProviderOptions(providers || []);
-      // Fetch available models from the configured API endpoint
-      if (providerApiId) {
-        api.GetSessionTitleAvailableModels()
-          .then((models: string[]) => setTitleAvailableModels(models || []))
-          .catch(() => setTitleAvailableModels([]));
-      }
-    })();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "general") return;
+
+    const cancelClaudeLoad = deferUntilIdle(() => {
+      void loadClaudeInstallationSection();
+    }, 700);
+    const cancelTitleLoad = deferUntilIdle(() => {
+      void loadSessionTitleSettings();
+    }, 1200);
+
+    return () => {
+      cancelClaudeLoad();
+      cancelTitleLoad();
+    };
+  }, [activeTab]);
 
   /**
    * Loads analytics settings
@@ -185,12 +205,55 @@ export const Settings: React.FC<SettingsProps> = ({
     }
   };
 
+  const loadClaudeInstallationSection = async () => {
+    if (claudeInstallationLoadStarted.current) return;
+
+    claudeInstallationLoadStarted.current = true;
+    setClaudeInstallationLoading(true);
+    try {
+      await loadClaudeBinaryPath();
+    } finally {
+      setClaudeInstallationReady(true);
+      setClaudeInstallationLoading(false);
+    }
+  };
+
+  const loadSessionTitleSettings = async () => {
+    if (titleSettingsLoadStarted.current) return;
+
+    titleSettingsLoadStarted.current = true;
+    setTitleSettingsLoading(true);
+    try {
+      const [model, providerApiId, providers] = await Promise.all([
+        api.getSetting('session_title_model'),
+        api.getSetting('session_title_provider_api_id'),
+        api.GetSessionTitleProviderOptions(),
+      ]);
+      setSessionTitleModel(model || "");
+      setSessionTitleProviderApiId(providerApiId || "");
+      setTitleProviderOptions(providers || []);
+      // Fetch available models from the configured API endpoint
+      if (providerApiId) {
+        api.GetSessionTitleAvailableModels()
+          .then((models: string[]) => setTitleAvailableModels(models || []))
+          .catch(() => setTitleAvailableModels([]));
+      }
+    } catch (err) {
+      console.error("Failed to load session title settings:", err);
+    } finally {
+      setTitleSettingsLoaded(true);
+      setTitleSettingsLoading(false);
+    }
+  };
+
   /**
    * Loads the current Claude settings
    */
   const loadSettings = async (retries = 3) => {
     try {
-      setLoading(true);
+      if (retries === 3) {
+        setLoading(true);
+      }
       setError(null);
       const loadedSettings = await api.getClaudeSettings();
       
@@ -250,6 +313,8 @@ export const Settings: React.FC<SettingsProps> = ({
    * Saves the current settings
    */
   const saveSettings = async () => {
+    if (!settings) return;
+
     try {
       setSaving(true);
       setError(null);
@@ -442,26 +507,27 @@ export const Settings: React.FC<SettingsProps> = ({
       </AnimatePresence>
       
       {/* Content */}
-      {loading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
         <div className={`flex-1 overflow-y-auto ${isMobile ? 'p-3' : 'p-6'}`}>
+          {loading && (
+            <div className="mb-4 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading Claude settings...
+            </div>
+          )}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className={isMobile ? "flex overflow-x-auto w-full mb-6 h-auto p-1" : "grid grid-cols-12 w-full mb-6 h-auto p-1"}>
-              <TabsTrigger value="general" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.general')}</TabsTrigger>
-              <TabsTrigger value="permissions" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.permissions')}</TabsTrigger>
-              <TabsTrigger value="environment" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.environment')}</TabsTrigger>
-              <TabsTrigger value="advanced" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.advanced')}</TabsTrigger>
-              <TabsTrigger value="hooks" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.hooks')}</TabsTrigger>
-              <TabsTrigger value="commands" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.commands')}</TabsTrigger>
-              <TabsTrigger value="agents" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.agents')}</TabsTrigger>
-              <TabsTrigger value="plugins" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.plugins')}</TabsTrigger>
-              <TabsTrigger value="providers" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.providers')}</TabsTrigger>
-              <TabsTrigger value="storage" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.storage')}</TabsTrigger>
-              <TabsTrigger value="proxy" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.proxy')}</TabsTrigger>
-              <TabsTrigger value="debug" className={isMobile ? "py-2.5 px-3 flex-shrink-0" : "py-2.5 px-3"}>{t('settings.debug')}</TabsTrigger>
+            <TabsList className="flex w-full max-w-full overflow-x-auto overflow-y-hidden mb-6 h-auto p-1 gap-1">
+              <TabsTrigger value="general" className="py-2.5 px-3 flex-none">{t('settings.general')}</TabsTrigger>
+              <TabsTrigger value="permissions" className="py-2.5 px-3 flex-none">{t('settings.permissions')}</TabsTrigger>
+              <TabsTrigger value="environment" className="py-2.5 px-3 flex-none">{t('settings.environment')}</TabsTrigger>
+              <TabsTrigger value="advanced" className="py-2.5 px-3 flex-none">{t('settings.advanced')}</TabsTrigger>
+              <TabsTrigger value="hooks" className="py-2.5 px-3 flex-none">{t('settings.hooks')}</TabsTrigger>
+              <TabsTrigger value="commands" className="py-2.5 px-3 flex-none">{t('settings.commands')}</TabsTrigger>
+              <TabsTrigger value="agents" className="py-2.5 px-3 flex-none">{t('settings.agents')}</TabsTrigger>
+              <TabsTrigger value="plugins" className="py-2.5 px-3 flex-none">{t('settings.plugins')}</TabsTrigger>
+              <TabsTrigger value="providers" className="py-2.5 px-3 flex-none">{t('settings.providers')}</TabsTrigger>
+              <TabsTrigger value="storage" className="py-2.5 px-3 flex-none">{t('settings.storage')}</TabsTrigger>
+              <TabsTrigger value="proxy" className="py-2.5 px-3 flex-none">{t('settings.proxy')}</TabsTrigger>
+              <TabsTrigger value="debug" className="py-2.5 px-3 flex-none">{t('settings.debug')}</TabsTrigger>
             </TabsList>
 
             <Suspense
@@ -769,11 +835,37 @@ export const Settings: React.FC<SettingsProps> = ({
                     
                     {/* Claude Binary Path Selector */}
                     <div className="space-y-3">
-                      <ClaudeVersionSelector
-                        selectedPath={currentBinaryPath}
-                        onSelect={handleClaudeInstallationSelect}
-                        simplified={true}
-                      />
+                      {claudeInstallationReady ? (
+                        <ClaudeVersionSelector
+                          selectedPath={currentBinaryPath}
+                          onSelect={handleClaudeInstallationSelect}
+                          simplified={true}
+                        />
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label className="text-sm font-medium">Claude Installation</Label>
+                              <p className="text-xs text-muted-foreground">
+                                Select which version of Claude to use
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={claudeInstallationLoading}
+                              onClick={() => void loadClaudeInstallationSection()}
+                            >
+                              {claudeInstallationLoading ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                "Load"
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       {binaryPathChanged && (
                         <p className="text-caption text-amber-600 dark:text-amber-400 flex items-center gap-1">
                           <AlertCircle className="h-3 w-3" />
@@ -840,55 +932,78 @@ export const Settings: React.FC<SettingsProps> = ({
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div className="space-y-2">
-                          <Label htmlFor="session-title-provider">Provider</Label>
-                          <select
-                            id="session-title-provider"
-                            value={sessionTitleProviderApiId}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setSessionTitleProviderApiId(v);
-                              api.saveSetting('session_title_provider_api_id', v);
-                              // Refresh model list when provider changes
-                              if (v) {
-                                setTitleAvailableModels([]);
-                                api.GetSessionTitleAvailableModels()
-                                  .then((models: string[]) => setTitleAvailableModels(models || []))
-                                  .catch(() => setTitleAvailableModels([]));
-                              } else {
-                                setTitleAvailableModels([]);
-                              }
-                            }}
-                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      {!titleSettingsLoaded && (
+                        <div className="flex items-center justify-between rounded-md border border-border bg-background/60 px-3 py-2 text-sm text-muted-foreground">
+                          <span>
+                            {titleSettingsLoading ? "Loading title providers..." : "Title provider settings load after the page is ready."}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={titleSettingsLoading}
+                            onClick={() => void loadSessionTitleSettings()}
                           >
-                            <option value="">Not configured</option>
-                            {titleProviderOptions.map((opt) => (
-                              <option key={opt.id} value={opt.id}>
-                                {opt.name} ({opt.provider_id})
-                              </option>
-                            ))}
-                          </select>
+                            {titleSettingsLoading ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              "Load"
+                            )}
+                          </Button>
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="session-title-model">Model</Label>
-                          <select
-                            id="session-title-model"
-                            value={sessionTitleModel}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              setSessionTitleModel(v);
-                              api.saveSetting('session_title_model', v);
-                            }}
-                            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
-                          >
-                            <option value="">Not selected</option>
-                            {titleAvailableModels.map((m) => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
+                      )}
+
+                      {titleSettingsLoaded && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <Label htmlFor="session-title-provider">Provider</Label>
+                            <select
+                              id="session-title-provider"
+                              value={sessionTitleProviderApiId}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setSessionTitleProviderApiId(v);
+                                api.saveSetting('session_title_provider_api_id', v);
+                                // Refresh model list when provider changes
+                                if (v) {
+                                  setTitleAvailableModels([]);
+                                  api.GetSessionTitleAvailableModels()
+                                    .then((models: string[]) => setTitleAvailableModels(models || []))
+                                    .catch(() => setTitleAvailableModels([]));
+                                } else {
+                                  setTitleAvailableModels([]);
+                                }
+                              }}
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            >
+                              <option value="">Not configured</option>
+                              {titleProviderOptions.map((opt) => (
+                                <option key={opt.id} value={opt.id}>
+                                  {opt.name} ({opt.provider_id})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="session-title-model">Model</Label>
+                            <select
+                              id="session-title-model"
+                              value={sessionTitleModel}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setSessionTitleModel(v);
+                                api.saveSetting('session_title_model', v);
+                              }}
+                              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                            >
+                              <option value="">Not selected</option>
+                              {titleAvailableModels.map((m) => (
+                                <option key={m} value={m}>{m}</option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
 
                     {/* Tab Persistence Toggle */}
@@ -1268,7 +1383,6 @@ export const Settings: React.FC<SettingsProps> = ({
 
           </Tabs>
         </div>
-      )}
       </div>
       
       {/* Toast Notification */}

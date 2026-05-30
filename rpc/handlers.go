@@ -360,6 +360,11 @@ func UsageHandlers(_ *Deps) map[string]Handler {
 			return usage.GetFormattedStatsByDateRange(argString(p, 0), argString(p, 1))
 		},
 		"GetSessionStats": func(p json.RawMessage) (any, error) {
+			start := argString(p, 0)
+			end := argString(p, 1)
+			if start != "" && end != "" {
+				return usage.GetSessionStatsByDateRange(start, end)
+			}
 			return usage.GetSessionStats()
 		},
 		"GetUsageDetails": func(p json.RawMessage) (any, error) {

@@ -110,16 +110,16 @@ type ProjectStats struct {
 
 // OverallStats represents the overall usage statistics
 type OverallStats struct {
-	TotalTokens            int64           `json:"total_tokens"`
-	TotalInputTokens       int64           `json:"total_input_tokens"`
-	TotalOutputTokens      int64           `json:"total_output_tokens"`
-	TotalCacheCreation     int64           `json:"total_cache_creation_tokens"`
-	TotalCacheRead         int64           `json:"total_cache_read_tokens"`
-	TotalCost              float64         `json:"total_cost"`
-	TotalSessions          int             `json:"total_sessions"`
-	ByModel                []*ModelStats   `json:"by_model"`
-	ByDay                  []*DayStats     `json:"by_day"`
-	ByProject              []*ProjectStats `json:"by_project"`
+	TotalTokens        int64           `json:"total_tokens"`
+	TotalInputTokens   int64           `json:"total_input_tokens"`
+	TotalOutputTokens  int64           `json:"total_output_tokens"`
+	TotalCacheCreation int64           `json:"total_cache_creation_tokens"`
+	TotalCacheRead     int64           `json:"total_cache_read_tokens"`
+	TotalCost          float64         `json:"total_cost"`
+	TotalSessions      int             `json:"total_sessions"`
+	ByModel            []*ModelStats   `json:"by_model"`
+	ByDay              []*DayStats     `json:"by_day"`
+	ByProject          []*ProjectStats `json:"by_project"`
 }
 
 // SessionDetail represents detailed information about a session
@@ -461,6 +461,25 @@ func (c *Collector) CollectSessionStats() ([]*SessionDetail, error) {
 	}
 
 	return c.aggregateSessionDetails(entries), nil
+}
+
+// CollectSessionStatsByDateRange collects session statistics for a date range.
+func (c *Collector) CollectSessionStatsByDateRange(startDate, endDate time.Time) ([]*SessionDetail, error) {
+	entries, err := c.scanAllJSONLFiles()
+	if err != nil {
+		return nil, err
+	}
+
+	filtered := make([]*UsageEntry, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.Timestamp.IsZero() &&
+			!entry.Timestamp.Before(startDate) &&
+			!entry.Timestamp.After(endDate) {
+			filtered = append(filtered, entry)
+		}
+	}
+
+	return c.aggregateSessionDetails(filtered), nil
 }
 
 // aggregateSessionDetails aggregates usage entries into session details

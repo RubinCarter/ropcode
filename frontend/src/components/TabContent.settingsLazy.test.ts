@@ -5,20 +5,18 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const systemContainerPath = path.resolve(currentDir, './SystemContainer.tsx');
+const tabContentPath = path.resolve(currentDir, './TabContent.tsx');
 
-test('SystemContainer lazy-loads Settings to keep the system shell light', async () => {
-  const source = await fs.readFile(systemContainerPath, 'utf8');
+test('TabContent lazy-loads Settings instead of bundling it into tab shell', async () => {
+  const source = await fs.readFile(tabContentPath, 'utf8');
 
   assert.doesNotMatch(source, /import \{ Settings \} from '@\/components\/Settings';/);
   assert.match(source, /const Settings = lazy\(\(\) => import\('@\/components\/Settings'\)/);
 });
 
-test('SystemContainer lazy-loads Agents and UsageDashboard to keep the system shell light', async () => {
-  const source = await fs.readFile(systemContainerPath, 'utf8');
+test('TabContent lazy-loads Agents instead of bundling it into tab shell', async () => {
+  const source = await fs.readFile(tabContentPath, 'utf8');
 
   assert.doesNotMatch(source, /import \{ Agents \} from '@\/components\/Agents';/);
-  assert.doesNotMatch(source, /import \{ UsageDashboard \} from '@\/components\/UsageDashboard';/);
   assert.match(source, /const Agents = lazy\(\(\) => import\('@\/components\/Agents'\)/);
-  assert.match(source, /const UsageDashboard = lazy\(\(\) => import\('@\/components\/UsageDashboard'\)/);
 });

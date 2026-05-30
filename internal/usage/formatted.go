@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -36,7 +37,50 @@ type FormattedStats struct {
 	ByProject                []*ProjectStats      `json:"by_project"`
 }
 
+const formattedStatsCacheTTL = 30 * time.Second
+
+var formattedStatsCache = struct {
+	sync.Mutex
+	items map[string]formattedStatsCacheEntry
+}{
+	items: make(map[string]formattedStatsCacheEntry),
+}
+
+type formattedStatsCacheEntry struct {
+	value     any
+	createdAt time.Time
+}
+
+func getFormattedStatsCache[T any](key string) (T, bool) {
+	formattedStatsCache.Lock()
+	defer formattedStatsCache.Unlock()
+
+	var zero T
+	entry, ok := formattedStatsCache.items[key]
+	if !ok || time.Since(entry.createdAt) > formattedStatsCacheTTL {
+		return zero, false
+	}
+	value, ok := entry.value.(T)
+	if !ok {
+		return zero, false
+	}
+	return value, true
+}
+
+func setFormattedStatsCache(key string, value any) {
+	formattedStatsCache.Lock()
+	defer formattedStatsCache.Unlock()
+	formattedStatsCache.items[key] = formattedStatsCacheEntry{
+		value:     value,
+		createdAt: time.Now(),
+	}
+}
+
 func GetFormattedStats() (*FormattedStats, error) {
+	if cached, ok := getFormattedStatsCache[*FormattedStats]("stats:all"); ok {
+		return cached, nil
+	}
+
 	claudeDir, err := claudeHomeDir()
 	if err != nil {
 		return nil, err
@@ -46,10 +90,17 @@ func GetFormattedStats() (*FormattedStats, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect usage stats: %w", err)
 	}
-	return formatStats(stats), nil
+	formatted := formatStats(stats)
+	setFormattedStatsCache("stats:all", formatted)
+	return formatted, nil
 }
 
 func GetFormattedStatsByDateRange(start, end string) (*FormattedStats, error) {
+	cacheKey := fmt.Sprintf("stats:%s:%s", start, end)
+	if cached, ok := getFormattedStatsCache[*FormattedStats](cacheKey); ok {
+		return cached, nil
+	}
+
 	startDate, err := time.Parse("2006-01-02", start)
 	if err != nil {
 		return nil, fmt.Errorf("invalid start date format: %w", err)
@@ -69,10 +120,16 @@ func GetFormattedStatsByDateRange(start, end string) (*FormattedStats, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect usage stats: %w", err)
 	}
-	return formatStats(stats), nil
+	formatted := formatStats(stats)
+	setFormattedStatsCache(cacheKey, formatted)
+	return formatted, nil
 }
 
 func GetSessionStats() ([]interface{}, error) {
+	if cached, ok := getFormattedStatsCache[[]interface{}]("sessions:all"); ok {
+		return cached, nil
+	}
+
 	claudeDir, err := claudeHomeDir()
 	if err != nil {
 		return nil, err
@@ -86,6 +143,40 @@ func GetSessionStats() ([]interface{}, error) {
 	for _, s := range sessions {
 		result = append(result, s)
 	}
+	setFormattedStatsCache("sessions:all", result)
+	return result, nil
+}
+
+func GetSessionStatsByDateRange(start, end string) ([]interface{}, error) {
+	cacheKey := fmt.Sprintf("sessions:%s:%s", start, end)
+	if cached, ok := getFormattedStatsCache[[]interface{}](cacheKey); ok {
+		return cached, nil
+	}
+
+	startDate, err := time.Parse("2006-01-02", start)
+	if err != nil {
+		return nil, fmt.Errorf("invalid start date format: %w", err)
+	}
+	endDate, err := time.Parse("2006-01-02", end)
+	if err != nil {
+		return nil, fmt.Errorf("invalid end date format: %w", err)
+	}
+	endDate = endDate.Add(24*time.Hour - time.Second)
+
+	claudeDir, err := claudeHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	collector := NewCollector(claudeDir)
+	sessions, err := collector.CollectSessionStatsByDateRange(startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect session stats: %w", err)
+	}
+	result := make([]interface{}, 0, len(sessions))
+	for _, s := range sessions {
+		result = append(result, s)
+	}
+	setFormattedStatsCache(cacheKey, result)
 	return result, nil
 }
 

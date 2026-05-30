@@ -27,12 +27,12 @@ class AnalyticsService {
     
     // Default configuration - pulled from Vite environment variables
     this.config = {
-      apiKey: 'phc_6seRe1SJkFckJU2qQWeeIy62kaSoaUbCsdVCm1TQZg8',
-      apiHost: 'https://us.i.posthog.com',
+      apiKey: import.meta.env.VITE_PUBLIC_POSTHOG_KEY || '',
+      apiHost: import.meta.env.VITE_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com',
       persistence: 'localStorage',
       autocapture: false, // We'll manually track events
       disable_session_recording: true, // Privacy first
-      opt_out_capturing_by_default: false, // Capture enabled by default
+      opt_out_capturing_by_default: true,
     };
   }
   
@@ -65,6 +65,10 @@ class AnalyticsService {
   }
   
   private initializePostHog(settings: AnalyticsSettings): void {
+    if (!this.config.apiKey) {
+      return;
+    }
+
     try {
       posthog.init(this.config.apiKey, {
         api_host: this.config.apiHost,
@@ -130,7 +134,7 @@ class AnalyticsService {
     this.currentScreen = screenName;
     
     // Track screen view in PostHog
-    if (typeof posthog !== 'undefined' && typeof posthog.capture === 'function') {
+    if (this.config.apiKey && typeof posthog !== 'undefined' && typeof posthog.capture === 'function') {
       posthog.capture('$screen', {
         $screen_name: screenName,
       });
@@ -165,8 +169,8 @@ class AnalyticsService {
     // Add to queue
     this.eventQueue.push(event);
     
-    // Send immediately if PostHog is initialized
-    if (typeof posthog !== 'undefined' && typeof posthog.capture === 'function') {
+    // Send immediately if PostHog is configured and initialized
+    if (this.config.apiKey && typeof posthog !== 'undefined' && typeof posthog.capture === 'function') {
       this.flushEvents();
     }
   }
@@ -179,7 +183,7 @@ class AnalyticsService {
     const userId = this.consentManager.getUserId();
     const sanitizedTraits = this.sanitizeProperties(traits || {});
     
-    if (typeof posthog !== 'undefined' && posthog.identify) {
+    if (this.config.apiKey && typeof posthog !== 'undefined' && posthog.identify) {
       posthog.identify(userId, {
         ...sanitizedTraits,
         anonymous: true,
@@ -228,6 +232,8 @@ class AnalyticsService {
     const events = [...this.eventQueue];
     this.eventQueue = [];
     
+    if (!this.config.apiKey) return;
+
     events.forEach(event => {
       if (typeof posthog !== 'undefined' && posthog.capture) {
         posthog.capture(event.event, {

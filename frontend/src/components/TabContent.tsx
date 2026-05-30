@@ -7,12 +7,12 @@ import { Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { shouldKeepTabMounted } from '@/lib/tabUtils';
 import * as rpcClient from '@/lib/rpc-client';
-import { Settings } from '@/components/Settings';
-import { Agents } from '@/components/Agents';
 import { MCPManager } from '@/components/MCPManager';
 
 // Lazy load heavy components
 const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
+const Agents = lazy(() => import('@/components/Agents').then(m => ({ default: m.Agents })));
+const Settings = lazy(() => import('@/components/Settings').then(m => ({ default: m.Settings })));
 const AgentRunOutputViewer = lazy(() => import('@/components/AgentRunOutputViewer'));
 const AgentExecution = lazy(() => import('@/components/AgentExecution').then(m => ({ default: m.AgentExecution })));
 const CreateAgent = lazy(() => import('@/components/CreateAgent').then(m => ({ default: m.CreateAgent })));
