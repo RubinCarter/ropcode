@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const pickerPath = path.resolve(currentDir, './ClaudeCapabilityPicker.tsx');
+const pickerPath = path.resolve(currentDir, './ProviderCapabilityPicker.tsx');
 
 async function readSource() {
   return readFile(pickerPath, 'utf8');
@@ -16,17 +16,18 @@ test('shows staged project loading instead of blocking the whole picker when cac
 
   assert.match(source, /const showFullScreenLoading = isInitialLoading && !hasAnyCapabilities;/);
   assert.match(source, /const showInlineProjectLoading = isProjectLoading && hasAnyCapabilities;/);
-  assert.match(source, /Loading project capabilities/);
+  assert.match(source, /showInlineProjectLoading && \(/);
+  assert.match(source, /projectCapabilityCount > 0/);
 });
 
-test('polls warmed cache before falling back to full discovery on cache miss', async () => {
+test('loads provider discovery on cache miss without polling stale prewarm data', async () => {
   const source = await readSource();
 
-  assert.match(source, /for \(let attempt = 0; attempt < 8; attempt \+= 1\)/);
-  assert.match(source, /await sleep\(150\);/);
-  assert.match(source, /const warmed = await api\.getCachedClaudeCapabilityLayers\(projectPath\);/);
-  assert.match(source, /const warmedVisibleLayers = getCachedVisibleLayers\(warmed\);/);
-  assert.match(source, /if \(warmedVisibleLayers\.all_visible\.length > 0\) \{/);
+  assert.doesNotMatch(source, /for \(let attempt = 0; attempt < 8; attempt \+= 1\)/);
+  assert.doesNotMatch(source, /await sleep\(150\);/);
+  assert.doesNotMatch(source, /prewarmClaudeCapabilityLayers/);
+  assert.match(source, /const layers: ProviderCapabilityLayers = await api\.getProviderCapabilityLayers\(provider, projectPath\);/);
+  assert.doesNotMatch(source, /api\.getClaudeCapabilityLayers/);
 });
 
 test('guards async loading updates with a request id so stale responses do not overwrite newer state', async () => {
@@ -50,8 +51,17 @@ test('skips automatic refresh when cached capabilities are still fresh and uses 
   assert.match(source, /const AUTO_REFRESH_TTL_MS = 5 \* 60 \* 1000;/);
   assert.match(source, /const shouldAutoRefresh = Boolean\(projectPath\) && !isCacheFresh\(cached\);/);
   assert.match(source, /if \(shouldAutoRefresh\) \{/);
-  assert.match(source, /if \(!isCacheFresh\(warmed\)\) \{/);
+  assert.doesNotMatch(source, /const cachedVisibleLayers = getCachedVisibleLayers\(cached\);/);
+  assert.match(source, /if \(shouldAutoRefresh\) \{/);
   // When cache is fresh, use normalizeLayers to include project capabilities
-  assert.match(source, /applyLayers\(normalizeLayers\(cached\)\);/);
-  assert.match(source, /applyLayers\(normalizeLayers\(warmed\)\);/);
+  assert.match(source, /const cachedLayers = normalizeLayers\(cached\);/);
+  assert.match(source, /applyLayers\(cachedLayers\);/);
+});
+
+test('does not hide discovery failures behind local built-in data', async () => {
+  const source = await readSource();
+
+  assert.doesNotMatch(source, /BUILT_IN_CAPABILITIES/);
+  assert.doesNotMatch(source, /BUILT_IN_LAYERS/);
+  assert.match(source, /applyLayers\(EMPTY_LAYERS\);/);
 });

@@ -28,8 +28,9 @@ const SIDEBAR_MAX_WIDTH = 640;
 const clampSidebarWidth = (width: number) => Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
 
 // WebSocket connection config
-// Page is served by Go backend, location.port is the Go port
-// Priority: Electron preload > Go injected globals > location.port > URL params
+// Page is usually served by Go. In Wails dev, the page may be served by the
+// Wails asset server while Go listens on a separate injected port.
+// Priority: Electron preload > Go/Wails injected globals > URL params > page port
 mergeInstancesFromUrl();
 
 const { port: wsPort, authKey } = getInitialWebSocketConfig(window);

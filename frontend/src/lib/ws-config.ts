@@ -16,8 +16,8 @@ export function getInitialWebSocketConfig(source: WebSocketConfigSource): { port
 
   const port = source.electronAPI?.wsPort
     || source.__ROPCODE_WS_PORT__
-    || parseInt(source.location.port || '', 10)
-    || urlParams.get('wsPort');
+    || urlParams.get('wsPort')
+    || parseInt(source.location.port || '', 10);
 
   const authKey = source.electronAPI?.authKey
     || source.__ROPCODE_AUTH_KEY__

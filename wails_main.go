@@ -37,13 +37,14 @@ import (
 var wailsFrontend embed.FS
 
 type wailsShell struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	serverCmd  *exec.Cmd
-	serverDone chan struct{}
-	serverPort int
-	authKey    string
-	mu         sync.RWMutex
+	ctx         context.Context
+	cancel      context.CancelFunc
+	serverCmd   *exec.Cmd
+	serverDone  chan struct{}
+	serverReady chan struct{}
+	serverPort  int
+	authKey     string
+	mu          sync.RWMutex
 }
 
 func main() {
@@ -77,10 +78,10 @@ func main() {
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
 				TitlebarAppearsTransparent: true,
-				HideTitle:                 true,
-				HideTitleBar:              false,
-				FullSizeContent:           true,
-				UseToolbar:                false,
+				HideTitle:                  true,
+				HideTitleBar:               false,
+				FullSizeContent:            true,
+				UseToolbar:                 false,
 			},
 			WindowIsTranslucent: false,
 		},
@@ -110,6 +111,7 @@ func (s *wailsShell) startup(ctx context.Context) {
 		wailsRuntime.Quit(ctx)
 		return
 	}
+	log.Printf("[wails] using ropcode-server binary: %s", serverPath)
 
 	authKey := strconv.FormatInt(time.Now().UnixNano(), 36)
 	cmd := exec.CommandContext(s.ctx, serverPath)
@@ -144,6 +146,7 @@ func (s *wailsShell) startup(ctx context.Context) {
 	}
 	s.serverCmd = cmd
 	s.serverDone = make(chan struct{})
+	s.serverReady = make(chan struct{})
 	s.authKey = authKey
 
 	go logPipe("[ropcode-server stderr] ", stderr)
@@ -161,6 +164,7 @@ func (s *wailsShell) startup(ctx context.Context) {
 			s.mu.Lock()
 			s.serverPort = port
 			s.mu.Unlock()
+			s.closeServerReady()
 			go logScanner("[ropcode-server stdout] ", scanner)
 			log.Printf("[wails] ropcode-server listening on port %d", port)
 			return
@@ -170,6 +174,7 @@ func (s *wailsShell) startup(ctx context.Context) {
 		log.Printf("Failed reading server stdout: %v", err)
 	}
 	log.Printf("ropcode-server exited before reporting WS_PORT")
+	s.closeServerReady()
 	wailsRuntime.Quit(ctx)
 }
 
@@ -215,15 +220,21 @@ func (s *wailsShell) proxyRuntimeRequests() http.Handler {
 			return
 		}
 
-		s.mu.RLock()
-		port := s.serverPort
-		s.mu.RUnlock()
-		if port == 0 {
+		port, ok := s.waitForServerPort(15 * time.Second)
+		if !ok {
 			http.Error(w, "server not ready", http.StatusServiceUnavailable)
 			return
 		}
 		target, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", port))
 		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.Director = func(req *http.Request) {
+			req.URL.Scheme = target.Scheme
+			req.URL.Host = target.Host
+			req.Host = target.Host
+			if s.authKey != "" && req.Header.Get("X-Auth-Key") == "" && req.URL.Query().Get("authKey") == "" {
+				req.Header.Set("X-Auth-Key", s.authKey)
+			}
+		}
 		proxy.ServeHTTP(w, r)
 	})
 }
@@ -232,6 +243,11 @@ func (s *wailsShell) injectRuntimeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || (r.URL.Path != "/" && r.URL.Path != "/index.html") {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		if _, ok := s.waitForServerPort(15 * time.Second); !ok {
+			http.Error(w, "server not ready", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -304,6 +320,41 @@ func (s *wailsShell) runtimeScript() string {
 })();`, port, authKey, port, authKey)
 }
 
+func (s *wailsShell) waitForServerPort(timeout time.Duration) (int, bool) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	for {
+		s.mu.RLock()
+		port := s.serverPort
+		ready := s.serverReady
+		s.mu.RUnlock()
+		if port != 0 {
+			return port, true
+		}
+		if ready == nil {
+			return 0, false
+		}
+		select {
+		case <-ready:
+			continue
+		case <-deadline.C:
+			return 0, false
+		}
+	}
+}
+
+func (s *wailsShell) closeServerReady() {
+	s.mu.Lock()
+	ready := s.serverReady
+	s.serverReady = nil
+	s.mu.Unlock()
+	if ready == nil {
+		return
+	}
+	close(ready)
+}
+
 func findFrontendDir() string {
 	exe, err := os.Executable()
 	if err == nil {
@@ -335,6 +386,10 @@ func findServerBinary() (string, error) {
 		name += ".exe"
 	}
 
+	if candidate, ok := findDevServerBinary(name); ok {
+		return candidate, nil
+	}
+
 	exe, err := os.Executable()
 	if err == nil {
 		// Prod: binary next to the wails executable
@@ -357,6 +412,24 @@ func findServerBinary() (string, error) {
 	}
 
 	return "", fmt.Errorf("%s not found (checked next to exe, .app Resources, and ./bin/)", name)
+}
+
+func findDevServerBinary(name string) (string, bool) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "go.mod")); err != nil {
+		return "", false
+	}
+	if _, err := os.Stat(filepath.Join(cwd, "wails.json")); err != nil {
+		return "", false
+	}
+	candidate := filepath.Join(cwd, "bin", name)
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, true
+	}
+	return "", false
 }
 
 func parseWSPort(output string) (int, bool) {

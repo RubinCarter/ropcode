@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ropcode/internal/claude"
+	"ropcode/internal/provider"
 )
 
 func SettingsHandlers(d *Deps) map[string]Handler {
@@ -76,16 +77,16 @@ func SettingsHandlers(d *Deps) map[string]Handler {
 			return claude.SaveProviderSystemPrompt(d.Config.ClaudeDir, argString(p, 0), argString(p, 1))
 		},
 		"ListSlashCommands": func(p json.RawMessage) (any, error) {
-			return claude.ListSlashCommands(argString(p, 0))
+			return listProviderSlashCommands(d, argString(p, 0))
 		},
 		"GetSlashCommand": func(p json.RawMessage) (any, error) {
-			return claude.GetSlashCommand(argString(p, 0), argString(p, 1))
+			return getProviderSlashCommand(d, argString(p, 0), argString(p, 1))
 		},
 		"SaveSlashCommand": func(p json.RawMessage) (any, error) {
-			return nil, claude.SaveSlashCommand(argString(p, 0), argString(p, 1), argString(p, 2), argString(p, 3))
+			return nil, saveProviderSlashCommand(d, argString(p, 0), argString(p, 1), argString(p, 2), argString(p, 3), argString(p, 4))
 		},
 		"DeleteSlashCommand": func(p json.RawMessage) (any, error) {
-			return nil, claude.DeleteSlashCommand(argString(p, 0), argString(p, 1), argString(p, 2))
+			return nil, deleteProviderSlashCommand(d, argString(p, 0), argString(p, 1), argString(p, 2), argString(p, 3))
 		},
 		"ListClaudeConfigAgents": func(p json.RawMessage) (any, error) {
 			return claude.ListClaudeConfigAgents(argString(p, 0))
@@ -101,6 +102,111 @@ func SettingsHandlers(d *Deps) map[string]Handler {
 			return nil, claude.DeleteClaudeAgent(argString(p, 0), argString(p, 1), argString(p, 2))
 		},
 	}
+}
+
+func listProviderSlashCommands(d *Deps, projectPath string) ([]claude.SlashCommand, error) {
+	if d.Provider == nil {
+		return []claude.SlashCommand{}, nil
+	}
+
+	providerIDs := []string{"claude", "codex", "gemini", "deepseek", "pi"}
+	commands := make([]claude.SlashCommand, 0)
+	for _, providerID := range providerIDs {
+		layers, err := d.Provider.GetProviderCapabilities(providerID, projectPath)
+		if err != nil {
+			continue
+		}
+		for _, capability := range layers.AllVisible {
+			if capability.Kind != string(provider.CapabilityKindCommand) {
+				continue
+			}
+			commands = append(commands, providerCapabilityToSlashCommand(providerID, capability))
+		}
+	}
+	return commands, nil
+}
+
+func getProviderSlashCommand(d *Deps, name, projectPath string) (*claude.SlashCommand, error) {
+	commands, err := listProviderSlashCommands(d, projectPath)
+	if err != nil {
+		return nil, err
+	}
+	for _, command := range commands {
+		if command.ID == name || command.Name == name || command.FullCommand == name || command.FullCommand == "/"+name {
+			return &command, nil
+		}
+	}
+	return nil, fmt.Errorf("command not found: %s", name)
+}
+
+func saveProviderSlashCommand(d *Deps, providerID, name, content, scope, projectPath string) error {
+	if d.Provider == nil {
+		return fmt.Errorf("provider manager is not available")
+	}
+	if providerID == "" {
+		providerID = string(claude.CommandTypeClaude)
+	}
+	return d.Provider.SaveProviderCapability(providerID, provider.Capability{
+		Name:    name,
+		Kind:    string(provider.CapabilityKindCommand),
+		Scope:   providerSlashCommandScope(scope),
+		Content: content,
+	}, projectPath)
+}
+
+func deleteProviderSlashCommand(d *Deps, providerID, name, scope, projectPath string) error {
+	if d.Provider == nil {
+		return fmt.Errorf("provider manager is not available")
+	}
+	if providerID == "" {
+		providerID = string(claude.CommandTypeClaude)
+	}
+	return d.Provider.DeleteProviderCapability(providerID, provider.Capability{
+		Name:  name,
+		Kind:  string(provider.CapabilityKindCommand),
+		Scope: providerSlashCommandScope(scope),
+	}, projectPath)
+}
+
+func providerSlashCommandScope(scope string) string {
+	switch scope {
+	case "global":
+		return string(provider.CapabilityScopeUser)
+	default:
+		return scope
+	}
+}
+
+func providerCapabilityToSlashCommand(providerID string, capability provider.Capability) claude.SlashCommand {
+	scope := capability.Scope
+	if scope == string(provider.CapabilityScopeSystem) {
+		scope = "default"
+	}
+	command := claude.SlashCommand{
+		ID:               capability.Key,
+		CommandType:      claude.CommandType(providerID),
+		Name:             capability.Name,
+		FullCommand:      capability.SlashName,
+		Scope:            scope,
+		Namespace:        capability.Namespace,
+		FilePath:         capability.SourcePath,
+		Content:          capability.Content,
+		AllowedTools:     append([]string(nil), capability.AllowedTools...),
+		HasBashCommands:  capability.HasBashCommands,
+		HasFileRefs:      capability.HasFileRefs,
+		AcceptsArguments: capability.AcceptsArguments,
+		PluginID:         capability.PluginID,
+		PluginName:       capability.PluginName,
+	}
+	if capability.Description != "" {
+		description := capability.Description
+		command.Description = &description
+	}
+	if capability.ArgumentHint != "" {
+		argumentHint := capability.ArgumentHint
+		command.ArgumentHint = &argumentHint
+	}
+	return command
 }
 
 func HookHandlers(d *Deps) map[string]Handler {

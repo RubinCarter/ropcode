@@ -29,8 +29,9 @@ type rpcLiveSession struct {
 	Output      string    `json:"-"`
 }
 
-type rpcClaudeCapability struct {
+type rpcProviderCapability struct {
 	Key         string `json:"key"`
+	Provider    string `json:"provider"`
 	Name        string `json:"name"`
 	SlashName   string `json:"slash_name"`
 	Kind        string `json:"kind"`
@@ -38,12 +39,12 @@ type rpcClaudeCapability struct {
 	Scope       string `json:"scope"`
 }
 
-type rpcClaudeCapabilityLayers struct {
-	System      []rpcClaudeCapability `json:"system"`
-	UserOnly    []rpcClaudeCapability `json:"user_only"`
-	ProjectOnly []rpcClaudeCapability `json:"project_only"`
-	AllVisible  []rpcClaudeCapability `json:"all_visible"`
-	FetchedAt   string                `json:"fetched_at"`
+type rpcProviderCapabilityLayers struct {
+	System      []rpcProviderCapability `json:"system"`
+	UserOnly    []rpcProviderCapability `json:"user_only"`
+	ProjectOnly []rpcProviderCapability `json:"project_only"`
+	AllVisible  []rpcProviderCapability `json:"all_visible"`
+	FetchedAt   string                  `json:"fetched_at"`
 }
 
 type sessionSendCall struct {
@@ -302,43 +303,49 @@ func (a *sessionRPCTestApp) GetProviderSessionOutput(sessionID string) (string, 
 	return session.Output, nil
 }
 
-func (a *sessionRPCTestApp) GetClaudeCapabilityLayers(projectPath string) (rpcClaudeCapabilityLayers, error) {
-	return rpcClaudeCapabilityLayers{
-		System: []rpcClaudeCapability{{
-			Key:       "command:review",
+func (a *sessionRPCTestApp) GetProviderCapabilityLayers(provider, projectPath string) (rpcProviderCapabilityLayers, error) {
+	return rpcProviderCapabilityLayers{
+		System: []rpcProviderCapability{{
+			Key:       provider + ":command:review",
+			Provider:  provider,
 			Name:      "review",
 			SlashName: "/review",
 			Kind:      "command",
 			Scope:     "system",
 		}},
-		UserOnly: []rpcClaudeCapability{{
-			Key:       "skill:loop",
+		UserOnly: []rpcProviderCapability{{
+			Key:       provider + ":skill:loop",
+			Provider:  provider,
 			Name:      "loop",
 			SlashName: "/loop",
 			Kind:      "skill",
 			Scope:     "user",
 		}},
-		ProjectOnly: []rpcClaudeCapability{{
-			Key:       "command:project",
+		ProjectOnly: []rpcProviderCapability{{
+			Key:       provider + ":command:project",
+			Provider:  provider,
 			Name:      "project",
 			SlashName: "/project",
 			Kind:      "command",
 			Scope:     "project",
 		}},
-		AllVisible: []rpcClaudeCapability{{
-			Key:       "command:review",
+		AllVisible: []rpcProviderCapability{{
+			Key:       provider + ":command:review",
+			Provider:  provider,
 			Name:      "review",
 			SlashName: "/review",
 			Kind:      "command",
 			Scope:     "system",
 		}, {
-			Key:       "skill:loop",
+			Key:       provider + ":skill:loop",
+			Provider:  provider,
 			Name:      "loop",
 			SlashName: "/loop",
 			Kind:      "skill",
 			Scope:     "user",
 		}, {
-			Key:       "command:project",
+			Key:       provider + ":command:project",
+			Provider:  provider,
 			Name:      "project",
 			SlashName: "/project",
 			Kind:      "command",
@@ -348,8 +355,12 @@ func (a *sessionRPCTestApp) GetClaudeCapabilityLayers(projectPath string) (rpcCl
 	}, nil
 }
 
-func (a *sessionRPCTestApp) RefreshClaudeCapabilityLayers(projectPath string) (rpcClaudeCapabilityLayers, error) {
-	return a.GetClaudeCapabilityLayers(projectPath)
+func (a *sessionRPCTestApp) GetCachedProviderCapabilityLayers(provider, projectPath string) (rpcProviderCapabilityLayers, error) {
+	return a.GetProviderCapabilityLayers(provider, projectPath)
+}
+
+func (a *sessionRPCTestApp) RefreshProviderCapabilityLayers(provider, projectPath string) (rpcProviderCapabilityLayers, error) {
+	return a.GetProviderCapabilityLayers(provider, projectPath)
 }
 
 func (a *sessionRPCTestApp) StopProviderSession(sessionID string) error {
@@ -559,13 +570,12 @@ func startRegisteredSessionInstance(t *testing.T) *registeredSessionInstance {
 	app := newSessionRPCTestApp(db)
 	server := websocket.NewServer(app)
 	app.broadcaster = server.BroadcastEvent
-	router := websocket.NewRouter(app)
 	server.SetDispatch(func(method string, params json.RawMessage) (any, error) {
 		var args []any
 		if len(params) > 0 {
 			_ = json.Unmarshal(params, &args)
 		}
-		return router.Call(method, args)
+		return app.callRPCForTest(method, args)
 	})
 
 	if _, err := server.Start(context.Background()); err != nil {
@@ -579,6 +589,64 @@ func startRegisteredSessionInstance(t *testing.T) *registeredSessionInstance {
 		app:         app,
 		server:      server,
 		projectPath: t.TempDir(),
+	}
+}
+
+func (a *sessionRPCTestApp) callRPCForTest(method string, args []any) (any, error) {
+	stringAt := func(index int) string {
+		if index >= len(args) || args[index] == nil {
+			return ""
+		}
+		value, _ := args[index].(string)
+		return value
+	}
+	intAt := func(index int) int {
+		if index >= len(args) || args[index] == nil {
+			return 0
+		}
+		switch value := args[index].(type) {
+		case float64:
+			return int(value)
+		case int:
+			return value
+		default:
+			return 0
+		}
+	}
+
+	switch method {
+	case "CreateProjectChat":
+		return a.CreateProjectChat(stringAt(0), stringAt(1), stringAt(2), stringAt(3), stringAt(4))
+	case "GetActiveChatForProject":
+		return a.GetActiveChatForProject(stringAt(0))
+	case "SwitchProjectChatProvider":
+		return a.SwitchProjectChatProvider(stringAt(0), stringAt(1), stringAt(2), stringAt(3))
+	case "SendProjectChatMessage":
+		return a.SendProjectChatMessage(stringAt(0), stringAt(1), stringAt(2), stringAt(3), stringAt(4))
+	case "ListRunningProviderSessions":
+		return a.ListRunningProviderSessions(), nil
+	case "GetProviderSessionOutput":
+		return a.GetProviderSessionOutput(stringAt(0))
+	case "GetProviderCapabilityLayers":
+		return a.GetProviderCapabilityLayers(stringAt(0), stringAt(1))
+	case "GetCachedProviderCapabilityLayers":
+		return a.GetCachedProviderCapabilityLayers(stringAt(0), stringAt(1))
+	case "RefreshProviderCapabilityLayers":
+		return a.RefreshProviderCapabilityLayers(stringAt(0), stringAt(1))
+	case "StopProviderSession":
+		return nil, a.StopProviderSession(stringAt(0))
+	case "StopProviderSessionsByProject":
+		return nil, a.StopProviderSessionsByProject(stringAt(0))
+	case "CreateWorkspace":
+		return nil, a.CreateWorkspace(stringAt(0), stringAt(1), stringAt(2))
+	case "AddProjectToIndex":
+		return nil, a.AddProjectToIndex(stringAt(0))
+	case "ListSpaceSessions":
+		return a.ListSpaceSessions(stringAt(0), intAt(1))
+	case "GetProjectProviderApiConfig":
+		return a.GetProjectProviderApiConfig(stringAt(0), stringAt(1))
+	default:
+		return nil, fmt.Errorf("method not found: %s", method)
 	}
 }
 
@@ -723,7 +791,7 @@ func TestSessionLogsRequiresSessionOrCWD(t *testing.T) {
 	}
 }
 
-func TestClaudeCapabilityLayersRPC(t *testing.T) {
+func TestProviderCapabilityLayersRPC(t *testing.T) {
 	inst := startRegisteredSessionInstance(t)
 	cfg, err := config.Load()
 	if err != nil {
@@ -739,20 +807,26 @@ func TestClaudeCapabilityLayersRPC(t *testing.T) {
 	}
 	defer client.Close()
 
-	var getResult rpcClaudeCapabilityLayers
-	if err := client.Call("GetClaudeCapabilityLayers", []any{inst.projectPath}, &getResult); err != nil {
-		t.Fatalf("GetClaudeCapabilityLayers failed: %v", err)
+	var getResult rpcProviderCapabilityLayers
+	if err := client.Call("GetProviderCapabilityLayers", []any{"claude", inst.projectPath}, &getResult); err != nil {
+		t.Fatalf("GetProviderCapabilityLayers failed: %v", err)
 	}
 	assertCapabilityLayerShape(t, getResult)
 
-	var refreshResult rpcClaudeCapabilityLayers
-	if err := client.Call("RefreshClaudeCapabilityLayers", []any{inst.projectPath}, &refreshResult); err != nil {
-		t.Fatalf("RefreshClaudeCapabilityLayers failed: %v", err)
+	var cachedResult rpcProviderCapabilityLayers
+	if err := client.Call("GetCachedProviderCapabilityLayers", []any{"claude", inst.projectPath}, &cachedResult); err != nil {
+		t.Fatalf("GetCachedProviderCapabilityLayers failed: %v", err)
+	}
+	assertCapabilityLayerShape(t, cachedResult)
+
+	var refreshResult rpcProviderCapabilityLayers
+	if err := client.Call("RefreshProviderCapabilityLayers", []any{"claude", inst.projectPath}, &refreshResult); err != nil {
+		t.Fatalf("RefreshProviderCapabilityLayers failed: %v", err)
 	}
 	assertCapabilityLayerShape(t, refreshResult)
 }
 
-func assertCapabilityLayerShape(t *testing.T, layers rpcClaudeCapabilityLayers) {
+func assertCapabilityLayerShape(t *testing.T, layers rpcProviderCapabilityLayers) {
 	t.Helper()
 	if len(layers.System) == 0 {
 		t.Fatal("expected system capabilities")

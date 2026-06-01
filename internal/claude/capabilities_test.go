@@ -16,6 +16,7 @@ func TestNormalizeCapabilityNames(t *testing.T) {
 	caps := normalizeCapabilities(
 		[]CommandSummary{{Name: "review", Description: "Request code review"}},
 		[]string{"loop"},
+		nil,
 		CapabilityScopeSystem,
 	)
 
@@ -117,27 +118,33 @@ func TestDedupeCapabilitiesFiltersDuplicatesAndEmptyNames(t *testing.T) {
 	}
 }
 
-func TestBuildCapabilityLayersIncludesBuiltInClaudeCommands(t *testing.T) {
-	systemSnap := CapabilitySnapshot{Stage: "system"}
-	userSnap := CapabilitySnapshot{Stage: "user"}
-	projectSnap := CapabilitySnapshot{Stage: "project"}
+func TestBuildCapabilityLayersFromSingleSnapshot(t *testing.T) {
+	layers := BuildCapabilityLayersFromSnapshot(CapabilitySnapshot{
+		Stage: string(DiscoveryStageProject),
+		Commands: []CommandSummary{
+			{Name: "review", Description: "Request code review"},
+			{Name: "user-cmd", Description: "User command (user)"},
+			{Name: "project-cmd", Description: "Project command (project: example)"},
+		},
+		Skills: []string{"loop"},
+		Agents: []string{"general-purpose"},
+	})
 
-	layers := BuildCapabilityLayers(systemSnap, userSnap, projectSnap)
-
-	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "clear")
-	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "compact")
 	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "review")
-	assertHasCapability(t, layers.AllVisible, string(CapabilityKindCommand), "clear")
+	assertHasCapability(t, layers.System, string(CapabilityKindSkill), "loop")
+	assertHasCapability(t, layers.UserOnly, string(CapabilityKindAgent), "general-purpose")
+	assertHasCapability(t, layers.UserOnly, string(CapabilityKindCommand), "user-cmd")
+	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindCommand), "project-cmd")
 }
 
 func TestParseDiscoveryMessages(t *testing.T) {
 	lines := [][]byte{
 		[]byte(`{"type":"log","message":"ignore me"}`),
-		[]byte(`{"type":"control_response","response":{"subtype":"success","response":{"commands":[{"name":"review","description":"Request code review","argumentHint":"[files]"},{"name":"review","description":"duplicate should be ignored","argumentHint":""}]}}}`),
+		[]byte(`{"type":"control_response","response":{"subtype":"success","response":{"commands":[{"name":"review","description":"Request code review","argumentHint":"[files]"},{"name":"review","description":"duplicate should be ignored","argumentHint":""}],"agents":[{"name":"general-purpose"},{"name":"general-purpose"}]}}}`),
 		[]byte(`{"type":"system","subtype":"init","skills":["loop","brainstorm","loop"]}`),
 	}
 
-	commands, skills, err := CollectDiscoveryData(lines)
+	commands, skills, agents, err := CollectDiscoveryData(lines)
 	if err != nil {
 		t.Fatalf("expected no error collecting discovery data, got %v", err)
 	}
@@ -155,26 +162,20 @@ func TestParseDiscoveryMessages(t *testing.T) {
 	if !reflect.DeepEqual(skills, wantSkills) {
 		t.Fatalf("expected skills %#v, got %#v", wantSkills, skills)
 	}
+	wantAgents := []string{"general-purpose"}
+	if !reflect.DeepEqual(agents, wantAgents) {
+		t.Fatalf("expected agents %#v, got %#v", wantAgents, agents)
+	}
 }
 
 func TestDiscoverCapabilityLayers(t *testing.T) {
 	projectPath := "/tmp/example-project"
 	transport := &stubDiscoveryTransport{
 		snapshots: map[DiscoveryStage]CapabilitySnapshot{
-			DiscoveryStageSystem: {
-				Stage:    "system",
-				Commands: []CommandSummary{{Name: "review"}},
-				Skills:   []string{"help"},
-			},
-			DiscoveryStageUser: {
-				Stage:    "user",
-				Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}},
-				Skills:   []string{"help", "loop"},
-			},
 			DiscoveryStageProject: {
 				Stage:    "project",
-				Commands: []CommandSummary{{Name: "review"}, {Name: "foo"}, {Name: "bar"}},
-				Skills:   []string{"help", "loop", "proj"},
+				Commands: []CommandSummary{{Name: "review"}, {Name: "foo", Description: "Foo (user)"}, {Name: "bar", Description: "Bar (project)"}},
+				Skills:   []string{"help"},
 			},
 		},
 	}
@@ -185,45 +186,26 @@ func TestDiscoverCapabilityLayers(t *testing.T) {
 		t.Fatalf("expected no discovery error, got %v", err)
 	}
 
-	if !reflect.DeepEqual(transport.calls, []discoveryCall{
-		{stage: DiscoveryStageSystem, projectPath: projectPath},
-		{stage: DiscoveryStageUser, projectPath: projectPath},
-		{stage: DiscoveryStageProject, projectPath: projectPath},
-	}) {
-		t.Fatalf("expected staged discovery order, got %#v", transport.calls)
-	}
+	assertStageCalls(t, transport.calls, projectPath, 0, 0, 1)
 
 	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "review")
-	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "clear")
+	assertHasCapability(t, layers.System, string(CapabilityKindSkill), "help")
 	assertHasCapability(t, layers.UserOnly, string(CapabilityKindCommand), "foo")
-	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindSkill), "proj")
+	assertHasCapability(t, layers.ProjectOnly, string(CapabilityKindCommand), "bar")
 
 	assertCapabilityOrder(t, layers.AllVisible, []string{
-		"system:command:add-dir",
-		"system:command:clear",
-		"system:command:compact",
-		"system:command:init",
 		"system:command:review",
 		"system:skill:help",
 		"user:command:foo",
-		"user:skill:loop",
 		"project:command:bar",
-		"project:skill:proj",
 	})
 }
 
 func TestDiscoverCapabilityLayersReturnsTransportError(t *testing.T) {
-	expectedErr := errors.New("user stage failed")
+	expectedErr := errors.New("project stage failed")
 	transport := &stubDiscoveryTransport{
-		snapshots: map[DiscoveryStage]CapabilitySnapshot{
-			DiscoveryStageSystem: {
-				Stage:    "system",
-				Commands: []CommandSummary{{Name: "review"}},
-				Skills:   []string{"help"},
-			},
-		},
 		errByStage: map[DiscoveryStage]error{
-			DiscoveryStageUser: expectedErr,
+			DiscoveryStageProject: expectedErr,
 		},
 	}
 
@@ -232,9 +214,49 @@ func TestDiscoverCapabilityLayersReturnsTransportError(t *testing.T) {
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected error %v, got %v", expectedErr, err)
 	}
-	if len(transport.calls) != 2 {
-		t.Fatalf("expected discovery to stop after failing user stage, got %d calls", len(transport.calls))
+	assertStageCalls(t, transport.calls, "/tmp/example-project", 0, 0, 1)
+}
+
+func TestDiscoverCapabilityLayersWithoutProjectUsesUserStage(t *testing.T) {
+	transport := &stubDiscoveryTransport{
+		snapshots: map[DiscoveryStage]CapabilitySnapshot{
+			DiscoveryStageUser: {
+				Stage:    "user",
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd", Description: "User command (user)"}},
+				Skills:   []string{"user-skill"},
+			},
+		},
 	}
+
+	service := NewCapabilityDiscoveryService(transport)
+	layers, err := service.Discover("")
+	if err != nil {
+		t.Fatalf("expected no discovery error, got %v", err)
+	}
+
+	assertStageCalls(t, transport.calls, "", 0, 1, 0)
+	assertHasCapability(t, layers.System, string(CapabilityKindCommand), "review")
+	assertHasCapability(t, layers.System, string(CapabilityKindSkill), "user-skill")
+	assertHasCapability(t, layers.UserOnly, string(CapabilityKindCommand), "user-cmd")
+	if len(layers.ProjectOnly) != 0 {
+		t.Fatalf("expected no project capabilities, got %#v", layers.ProjectOnly)
+	}
+}
+
+func TestDiscoverCapabilityLayersReturnsProjectStageError(t *testing.T) {
+	expectedErr := errors.New("project discovery failed")
+	transport := &stubDiscoveryTransport{
+		errByStage: map[DiscoveryStage]error{
+			DiscoveryStageProject: expectedErr,
+		},
+	}
+
+	service := NewCapabilityDiscoveryService(transport)
+	_, err := service.Discover("/tmp/example-project")
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected project discovery error %v, got %v", expectedErr, err)
+	}
+	assertStageCalls(t, transport.calls, "/tmp/example-project", 0, 0, 1)
 }
 
 func TestParseDiscoveryMessagesIgnoresNonJSONLines(t *testing.T) {
@@ -243,7 +265,7 @@ func TestParseDiscoveryMessagesIgnoresNonJSONLines(t *testing.T) {
 		[]byte(`{"type":"system","subtype":"init","skills":["loop"]}`),
 	}
 
-	commands, skills, err := CollectDiscoveryData(lines)
+	commands, skills, agents, err := CollectDiscoveryData(lines)
 	if err != nil {
 		t.Fatalf("expected non-JSON lines to be ignored, got %v", err)
 	}
@@ -253,34 +275,25 @@ func TestParseDiscoveryMessagesIgnoresNonJSONLines(t *testing.T) {
 	if !reflect.DeepEqual(skills, []string{"loop"}) {
 		t.Fatalf("expected skills %#v, got %#v", []string{"loop"}, skills)
 	}
+	if len(agents) != 0 {
+		t.Fatalf("expected no agents, got %#v", agents)
+	}
 }
 
 func TestCapabilityDiscoveryCache(t *testing.T) {
 	projectA := "/tmp/project-a"
 	projectB := "/tmp/project-b"
 	transport := &stubDiscoveryTransport{
-		snapshots: map[DiscoveryStage]CapabilitySnapshot{
-			DiscoveryStageSystem: {
-				Stage:    "system",
-				Commands: []CommandSummary{{Name: "review"}},
-				Skills:   []string{"help"},
-			},
-			DiscoveryStageUser: {
-				Stage:    "user",
-				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}},
-				Skills:   []string{"help", "user-skill"},
-			},
-		},
 		projectSnapshots: map[string]CapabilitySnapshot{
 			projectA: {
 				Stage:    "project",
-				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}, {Name: "project-a-cmd"}},
-				Skills:   []string{"help", "user-skill", "project-a-skill"},
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd", Description: "User command (user)"}, {Name: "project-a-cmd", Description: "Project A (project)"}},
+				Skills:   []string{"help"},
 			},
 			projectB: {
 				Stage:    "project",
-				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}, {Name: "project-b-cmd"}},
-				Skills:   []string{"help", "user-skill", "project-b-skill"},
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd", Description: "User command (user)"}, {Name: "project-b-cmd", Description: "Project B (project)"}},
+				Skills:   []string{"help"},
 			},
 		},
 	}
@@ -302,59 +315,51 @@ func TestCapabilityDiscoveryCache(t *testing.T) {
 	if !reflect.DeepEqual(firstLayers, secondLayers) {
 		t.Fatalf("expected cached project layers to match, got %#v and %#v", firstLayers, secondLayers)
 	}
-	assertStageCalls(t, transport.calls, projectA, 1, 1, 1)
+	assertStageCalls(t, transport.calls, projectA, 0, 0, 1)
 
 	layersForOtherProject, err := service.Discover(projectB)
 	if err != nil {
 		t.Fatalf("expected discover for second project to succeed, got %v", err)
 	}
 	assertHasCapability(t, layersForOtherProject.ProjectOnly, string(CapabilityKindCommand), "project-b-cmd")
-	assertStageCalls(t, transport.calls, projectA, 1, 1, 1)
+	assertStageCalls(t, transport.calls, projectA, 0, 0, 1)
 	assertStageCalls(t, transport.calls, projectB, 0, 0, 1)
 
 	generation = "gen-2"
+	service.cachedVersion = ""
+	service.cachedVersionErr = nil
 	thirdLayers, err := service.Discover(projectA)
 	if err != nil {
 		t.Fatalf("expected discover after generation change to succeed, got %v", err)
 	}
 	assertHasCapability(t, thirdLayers.ProjectOnly, string(CapabilityKindCommand), "project-a-cmd")
-	assertStageCalls(t, transport.calls, projectA, 1, 2, 2)
+	assertStageCalls(t, transport.calls, projectA, 0, 0, 2)
 
 	version = "2.0.0"
+	service.cachedVersion = ""
+	service.cachedVersionErr = nil
 	fourthLayers, err := service.Discover(projectA)
 	if err != nil {
 		t.Fatalf("expected discover after version change to succeed, got %v", err)
 	}
-	assertHasCapability(t, fourthLayers.ProjectOnly, string(CapabilityKindSkill), "project-a-skill")
-	assertStageCalls(t, transport.calls, projectA, 2, 3, 3)
+	assertHasCapability(t, fourthLayers.ProjectOnly, string(CapabilityKindCommand), "project-a-cmd")
+	assertStageCalls(t, transport.calls, projectA, 0, 0, 3)
 
 	_, err = service.Refresh(projectA)
 	if err != nil {
 		t.Fatalf("expected refresh to succeed, got %v", err)
 	}
-	assertStageCalls(t, transport.calls, projectA, 3, 4, 4)
+	assertStageCalls(t, transport.calls, projectA, 0, 0, 4)
 }
 
 func TestRefreshCapabilityLayers(t *testing.T) {
 	projectPath := "/tmp/project-refresh"
 	transport := &stubDiscoveryTransport{
-		snapshots: map[DiscoveryStage]CapabilitySnapshot{
-			DiscoveryStageSystem: {
-				Stage:    "system",
-				Commands: []CommandSummary{{Name: "review"}},
-				Skills:   []string{"help"},
-			},
-			DiscoveryStageUser: {
-				Stage:    "user",
-				Commands: []CommandSummary{{Name: "review"}, {Name: "user-old"}},
-				Skills:   []string{"help", "user-old-skill"},
-			},
-		},
 		projectSnapshots: map[string]CapabilitySnapshot{
 			projectPath: {
 				Stage:    "project",
-				Commands: []CommandSummary{{Name: "review"}, {Name: "user-old"}, {Name: "project-old"}},
-				Skills:   []string{"help", "user-old-skill", "project-old-skill"},
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-old", Description: "Old user command (user)"}, {Name: "project-old", Description: "Old project command (project)"}},
+				Skills:   []string{"help"},
 			},
 		},
 	}
@@ -369,17 +374,12 @@ func TestRefreshCapabilityLayers(t *testing.T) {
 	}
 	assertHasCapability(t, initialLayers.UserOnly, string(CapabilityKindCommand), "user-old")
 	assertHasCapability(t, initialLayers.ProjectOnly, string(CapabilityKindCommand), "project-old")
-	assertStageCalls(t, transport.calls, projectPath, 1, 1, 1)
+	assertStageCalls(t, transport.calls, projectPath, 0, 0, 1)
 
-	transport.snapshots[DiscoveryStageUser] = CapabilitySnapshot{
-		Stage:    "user",
-		Commands: []CommandSummary{{Name: "review"}, {Name: "user-new"}},
-		Skills:   []string{"help", "user-new-skill"},
-	}
 	transport.projectSnapshots[projectPath] = CapabilitySnapshot{
 		Stage:    "project",
-		Commands: []CommandSummary{{Name: "review"}, {Name: "user-new"}, {Name: "project-new"}},
-		Skills:   []string{"help", "user-new-skill", "project-new-skill"},
+		Commands: []CommandSummary{{Name: "review"}, {Name: "user-new", Description: "New user command (user)"}, {Name: "project-new", Description: "New project command (project)"}},
+		Skills:   []string{"help"},
 	}
 
 	cachedLayers, err := service.Discover(projectPath)
@@ -388,19 +388,17 @@ func TestRefreshCapabilityLayers(t *testing.T) {
 	}
 	assertHasCapability(t, cachedLayers.UserOnly, string(CapabilityKindCommand), "user-old")
 	assertHasCapability(t, cachedLayers.ProjectOnly, string(CapabilityKindCommand), "project-old")
-	assertStageCalls(t, transport.calls, projectPath, 1, 1, 1)
+	assertStageCalls(t, transport.calls, projectPath, 0, 0, 1)
 
 	refreshedLayers, err := service.Refresh(projectPath)
 	if err != nil {
 		t.Fatalf("expected refresh to succeed, got %v", err)
 	}
 	assertHasCapability(t, refreshedLayers.UserOnly, string(CapabilityKindCommand), "user-new")
-	assertHasCapability(t, refreshedLayers.UserOnly, string(CapabilityKindSkill), "user-new-skill")
 	assertHasCapability(t, refreshedLayers.ProjectOnly, string(CapabilityKindCommand), "project-new")
-	assertHasCapability(t, refreshedLayers.ProjectOnly, string(CapabilityKindSkill), "project-new-skill")
 	assertMissingCapability(t, refreshedLayers.UserOnly, string(CapabilityKindCommand), "user-old")
 	assertMissingCapability(t, refreshedLayers.ProjectOnly, string(CapabilityKindCommand), "project-old")
-	assertStageCalls(t, transport.calls, projectPath, 2, 2, 2)
+	assertStageCalls(t, transport.calls, projectPath, 0, 0, 2)
 
 	updatedCachedLayers, err := service.Discover(projectPath)
 	if err != nil {
@@ -410,13 +408,12 @@ func TestRefreshCapabilityLayers(t *testing.T) {
 	assertHasCapability(t, updatedCachedLayers.ProjectOnly, string(CapabilityKindCommand), "project-new")
 	assertMissingCapability(t, updatedCachedLayers.UserOnly, string(CapabilityKindCommand), "user-old")
 	assertMissingCapability(t, updatedCachedLayers.ProjectOnly, string(CapabilityKindCommand), "project-old")
-	assertStageCalls(t, transport.calls, projectPath, 2, 2, 2)
+	assertStageCalls(t, transport.calls, projectPath, 0, 0, 2)
 }
 
 func TestBuildDiscoveryCommand(t *testing.T) {
 	realHome := t.TempDir()
 	projectPath := t.TempDir()
-	systemCwd := t.TempDir()
 	userCwd := t.TempDir()
 
 	transport := &ClaudeCapabilityDiscoveryTransport{
@@ -429,35 +426,22 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		stage        DiscoveryStage
-		wantHome     string
-		wantDir      string
-		wantIsolated bool
-		wantBaseEnv  bool
+		name     string
+		stage    DiscoveryStage
+		wantHome string
+		wantDir  string
 	}{
 		{
-			name:         "system stage isolates home and cwd",
-			stage:        DiscoveryStageSystem,
-			wantDir:      systemCwd,
-			wantIsolated: true,
-			wantBaseEnv:  true,
+			name:     "user stage uses real home and isolated cwd",
+			stage:    DiscoveryStageUser,
+			wantHome: realHome,
+			wantDir:  userCwd,
 		},
 		{
-			name:         "user stage uses real home and isolated cwd",
-			stage:        DiscoveryStageUser,
-			wantHome:     realHome,
-			wantDir:      userCwd,
-			wantIsolated: false,
-			wantBaseEnv:  false,
-		},
-		{
-			name:         "project stage uses real home and project cwd",
-			stage:        DiscoveryStageProject,
-			wantHome:     realHome,
-			wantDir:      projectPath,
-			wantIsolated: false,
-			wantBaseEnv:  false,
+			name:     "project stage uses real home and project cwd",
+			stage:    DiscoveryStageProject,
+			wantHome: realHome,
+			wantDir:  projectPath,
 		},
 	}
 
@@ -467,11 +451,6 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 			transport.makeTempDir = func(dir, pattern string) (string, error) {
 				calls++
 				switch tt.stage {
-				case DiscoveryStageSystem:
-					if calls == 1 {
-						return t.TempDir(), nil
-					}
-					return systemCwd, nil
 				case DiscoveryStageUser:
 					return userCwd, nil
 				default:
@@ -502,9 +481,6 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 			if tt.wantHome != "" && env["HOME"] != tt.wantHome {
 				t.Fatalf("expected HOME %q, got %q", tt.wantHome, env["HOME"])
 			}
-			if tt.wantIsolated && env["HOME"] == realHome {
-				t.Fatalf("expected isolated HOME, got real HOME %q", env["HOME"])
-			}
 			if env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] != "true" {
 				t.Fatalf("expected nonessential traffic to be disabled, got %q", env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"])
 			}
@@ -513,17 +489,6 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 			if len(addDirs) != 0 {
 				t.Fatalf("expected no --add-dir args, got %#v", addDirs)
 			}
-
-			if tt.wantBaseEnv {
-				for _, key := range []string{"TMPDIR", "TMP"} {
-					if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" && env[key] != value {
-						t.Fatalf("expected %s to be preserved in base env, got %q want %q", key, env[key], value)
-					}
-				}
-				if strings.TrimSpace(env["PATH"]) == "" {
-					t.Fatal("expected PATH to be set in base env")
-				}
-			}
 		})
 	}
 }
@@ -531,12 +496,8 @@ func TestBuildDiscoveryCommand(t *testing.T) {
 func TestCachedCapabilityLayers(t *testing.T) {
 	projectPath := "/tmp/project-cache-read"
 	transport := &stubDiscoveryTransport{
-		snapshots: map[DiscoveryStage]CapabilitySnapshot{
-			DiscoveryStageSystem: {Stage: "system", Commands: []CommandSummary{{Name: "review"}}, Skills: []string{"help"}},
-			DiscoveryStageUser:   {Stage: "user", Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}}, Skills: []string{"help", "loop"}},
-		},
 		projectSnapshots: map[string]CapabilitySnapshot{
-			projectPath: {Stage: "project", Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd"}, {Name: "project-cmd"}}, Skills: []string{"help", "loop", "project-skill"}},
+			projectPath: {Stage: "project", Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd", Description: "User command (user)"}, {Name: "project-cmd", Description: "Project command (project)"}}, Skills: []string{"help"}},
 		},
 	}
 
@@ -560,17 +521,14 @@ func TestCachedCapabilityLayers(t *testing.T) {
 	}
 }
 
-func TestCachedCapabilityLayersIncludesSystemAndUserWithoutProject(t *testing.T) {
+func TestCachedCapabilityLayersRequiresSameProjectKey(t *testing.T) {
 	projectPath := "/tmp/project-cache-partial"
 	transport := &stubDiscoveryTransport{
 		snapshots: map[DiscoveryStage]CapabilitySnapshot{
-			DiscoveryStageSystem: {
-				Stage:    string(DiscoveryStageSystem),
-				Commands: []CommandSummary{{Name: "review", Description: "Request review"}},
-			},
 			DiscoveryStageUser: {
-				Stage:  string(DiscoveryStageUser),
-				Skills: []string{"loop"},
+				Stage:    string(DiscoveryStageUser),
+				Commands: []CommandSummary{{Name: "review"}, {Name: "user-cmd", Description: "User command (user)"}},
+				Skills:   []string{"loop"},
 			},
 		},
 		projectSnapshots: map[string]CapabilitySnapshot{},
@@ -580,23 +538,20 @@ func TestCachedCapabilityLayersIncludesSystemAndUserWithoutProject(t *testing.T)
 	service.claudeVersion = func() (string, error) { return "1.0.0", nil }
 	service.userCacheGeneration = func() (string, error) { return "gen-1", nil }
 
-	if ok := service.PrewarmSystem(); !ok {
-		t.Fatal("expected system prewarm to succeed")
-	}
 	if ok := service.PrewarmUser(); !ok {
 		t.Fatal("expected user prewarm to succeed")
 	}
 
-	cached, ok := service.Cached(projectPath)
+	if _, ok := service.Cached(projectPath); ok {
+		t.Fatal("expected user prewarm cache not to satisfy project-specific cache")
+	}
+	cached, ok := service.Cached("")
 	if !ok {
-		t.Fatal("expected cached layers from system+user caches")
+		t.Fatal("expected cached layers for empty project path")
 	}
 	assertHasCapability(t, cached.AllVisible, string(CapabilityKindCommand), "review")
 	assertHasCapability(t, cached.AllVisible, string(CapabilityKindSkill), "loop")
-	if len(cached.ProjectOnly) != 0 {
-		t.Fatalf("expected no project capabilities, got %#v", cached.ProjectOnly)
-	}
-	assertStageCalls(t, transport.calls, "", 1, 1, 0)
+	assertStageCalls(t, transport.calls, "", 0, 1, 0)
 }
 
 func TestDiscoveryTransportAllowsCommandsWithoutSkills(t *testing.T) {
@@ -611,7 +566,7 @@ func TestDiscoveryTransportAllowsCommandsWithoutSkills(t *testing.T) {
 		timeout:       2 * time.Second,
 		makeTempDir:   os.MkdirTemp,
 	}
-	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
+	snapshot, err := transport.Run(DiscoveryStageUser, "")
 	if err != nil {
 		t.Fatalf("expected commands-only discovery to succeed, got %v", err)
 	}
@@ -636,7 +591,7 @@ func TestDiscoveryTransportReturnsPartialCapabilitiesBeforeLateSkills(t *testing
 		timeout:       2 * time.Second,
 		makeTempDir:   os.MkdirTemp,
 	}
-	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
+	snapshot, err := transport.Run(DiscoveryStageUser, "")
 	if err != nil {
 		t.Fatalf("expected partial discovery to succeed, got %v", err)
 	}
@@ -659,7 +614,7 @@ func TestDiscoveryTransportReturnsAfterCommandsAndSkillsWithoutWaitingForProcess
 		timeout:       4 * time.Second,
 		makeTempDir:   os.MkdirTemp,
 	}
-	snapshot, err := transport.Run(DiscoveryStageSystem, t.TempDir())
+	snapshot, err := transport.Run(DiscoveryStageUser, "")
 	if err != nil {
 		t.Fatalf("expected discovery to finish without waiting for process exit, got %v", err)
 	}
@@ -802,8 +757,6 @@ func assertStageCalls(t *testing.T, calls []discoveryCall, projectPath string, w
 			continue
 		}
 		switch call.stage {
-		case DiscoveryStageSystem:
-			gotSystem++
 		case DiscoveryStageUser:
 			gotUser++
 		case DiscoveryStageProject:

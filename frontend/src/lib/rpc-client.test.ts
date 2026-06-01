@@ -57,6 +57,17 @@ test('prefers electron auth key over stale injected html auth key on initial con
   assert.equal(config.authKey, 'fresh-electron-key');
 });
 
+test('prefers explicit websocket port over page asset port', async () => {
+  const { getInitialWebSocketConfig } = await loadWsConfigModule();
+
+  const config = getInitialWebSocketConfig({
+    location: { search: '?wsPort=5196&authKey=runtime-key', port: '34115' },
+  } as any);
+
+  assert.equal(config.port, '5196');
+  assert.equal(config.authKey, 'runtime-key');
+});
+
 test('uses localhost for websocket host when page is served from wails.localhost', async () => {
   const { getWebSocketHost } = await loadWsConfigModule();
 

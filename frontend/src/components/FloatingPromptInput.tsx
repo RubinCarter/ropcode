@@ -22,13 +22,12 @@ import { Popover } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipProvider, TooltipSimple, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip-modern";
 import { FilePicker } from "./FilePicker";
-import { SlashCommandPicker } from "./SlashCommandPicker";
 import { SkillPicker } from "./SkillPicker";
-import { ClaudeCapabilityPicker } from "./ClaudeCapabilityPicker";
+import { ProviderCapabilityPicker } from "./ProviderCapabilityPicker";
 import { ImagePreview } from "./ImagePreview";
 import { ProviderApiQuickSelector } from "./ProviderApiQuickSelector";
-import { api, type main, type claude, type database } from "@/lib/api";
-import type { ClaudeCapability } from "@/lib/rpc-client";
+import { api, type main, type database } from "@/lib/api";
+import type { ProviderCapability } from "@/lib/rpc-client";
 import { useProviderApiStore } from "@/stores/providerApiStore";
 import { ClaudeIcon } from "./icons/ClaudeIcon";
 import { OpenAIIcon } from "./icons/OpenAIIcon";
@@ -52,10 +51,6 @@ import { useTranslation } from 'react-i18next';
 type FileEntry = main.FileEntry & {
   entry_type?: "file" | "directory" | "agent";
   is_directory?: boolean;
-};
-
-type SlashCommand = claude.SlashCommand & {
-  full_command?: string;
 };
 
 type Skill = main.Skill & {
@@ -671,7 +666,6 @@ const FloatingPromptInputInner = (
   const [textareaHeight, setTextareaHeight] = useState<number>(getDefaultHeight);
   const isIMEComposingRef = useRef(false);
   const effectiveProvider = projectPath?.trim() ? selectedProvider : defaultProvider;
-  const usesClaudeCapabilityPicker = defaultProvider === 'claude';
 
   useEffect(() => {
     setSelectedProvider(defaultProvider);
@@ -1333,64 +1327,7 @@ const FloatingPromptInputInner = (
     }, 0);
   };
 
-  const handleSlashCommandSelect = (command: SlashCommand) => {
-    const textarea = isExpanded ? expandedTextareaRef.current : textareaRef.current;
-    if (!textarea) return;
-
-    // Find the / position before cursor
-    let slashPosition = -1;
-    for (let i = cursorPosition - 1; i >= 0; i--) {
-      if (prompt[i] === '/') {
-        slashPosition = i;
-        break;
-      }
-      // Stop if we hit whitespace (new word)
-      if (prompt[i] === ' ' || prompt[i] === '\n') {
-        break;
-      }
-    }
-
-    if (slashPosition === -1) {
-      console.error('[FloatingPromptInput] / position not found');
-      return;
-    }
-
-    // Simply insert the command syntax
-    const beforeSlash = prompt.substring(0, slashPosition);
-    const afterCursor = prompt.substring(cursorPosition);
-    
-    const fullCommand = command.full_command ?? `/${command.name}`;
-
-    if (command.accepts_arguments) {
-      // Insert command with placeholder for arguments
-      const newPrompt = `${beforeSlash}${fullCommand} `;
-      setPrompt(newPrompt);
-      setShowSlashCommandPicker(false);
-      setSlashCommandQuery("");
-
-      // Focus and position cursor after the command
-      setTimeout(() => {
-        textarea.focus();
-        const newCursorPos = beforeSlash.length + fullCommand.length + 1;
-        textarea.setSelectionRange(newCursorPos, newCursorPos);
-      }, 0);
-    } else {
-      // Insert command and close picker
-      const newPrompt = `${beforeSlash}${fullCommand} ${afterCursor}`;
-      setPrompt(newPrompt);
-      setShowSlashCommandPicker(false);
-      setSlashCommandQuery("");
-
-      // Focus and position cursor after the command
-      setTimeout(() => {
-        textarea.focus();
-        const newCursorPos = beforeSlash.length + fullCommand.length + 1;
-        textarea.setSelectionRange(newCursorPos, newCursorPos);
-      }, 0);
-    }
-  };
-
-  const handleClaudeCapabilitySelect = (capability: ClaudeCapability) => {
+  const handleProviderCapabilitySelect = (capability: ProviderCapability) => {
     const textarea = isExpanded ? expandedTextareaRef.current : textareaRef.current;
     if (!textarea) return;
 
@@ -1406,7 +1343,7 @@ const FloatingPromptInputInner = (
     }
 
     if (triggerPosition === -1) {
-      console.error('[FloatingPromptInput] Claude capability trigger position not found');
+      console.error('[FloatingPromptInput] provider capability trigger position not found');
       return;
     }
 
@@ -2218,9 +2155,7 @@ const FloatingPromptInputInner = (
                   placeholder={
                     dragActive
                       ? t('prompt.dropImagesHere')
-                      : usesClaudeCapabilityPicker
-                        ? t('prompt.placeholderClaude')
-                        : t('prompt.placeholderGeneric')
+                      : t('prompt.placeholderGeneric')
                   }
                   disabled={disabled}
                   className={cn(
@@ -2313,24 +2248,14 @@ const FloatingPromptInputInner = (
                 {/* Slash Command Picker - use mode="wait" and initial={false} to prevent animation conflicts */}
                 <AnimatePresence mode="wait" initial={false}>
                   {showSlashCommandPicker && (
-                    usesClaudeCapabilityPicker ? (
-                      <ClaudeCapabilityPicker
-                        projectPath={projectPath}
-                        onSelect={handleClaudeCapabilitySelect}
-                        onClose={handleSlashCommandPickerClose}
-                        initialQuery={slashCommandQuery}
-                        anchorRef={inputContainerRef}
-                      />
-                    ) : (
-                      <SlashCommandPicker
-                        projectPath={projectPath}
-                        onSelect={handleSlashCommandSelect}
-                        onClose={handleSlashCommandPickerClose}
-                        initialQuery={slashCommandQuery}
-                        provider={effectiveProvider as 'codex' | 'gemini' | 'deepseek' | 'pi'}
-                        anchorRef={inputContainerRef}
-                      />
-                    )
+                    <ProviderCapabilityPicker
+                      provider={effectiveProvider}
+                      projectPath={projectPath}
+                      onSelect={handleProviderCapabilitySelect}
+                      onClose={handleSlashCommandPickerClose}
+                      initialQuery={slashCommandQuery}
+                      anchorRef={inputContainerRef}
+                    />
                   )}
                 </AnimatePresence>
 

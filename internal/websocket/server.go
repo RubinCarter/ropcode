@@ -41,8 +41,8 @@ type Server struct {
 	authKey      string
 	instanceID   string
 	startedAt    int64
-	router       *Router
 	dispatch     func(method string, params json.RawMessage) (any, error)
+	app          interface{}
 	clients      map[string]*Client
 	clientsMu    sync.RWMutex
 	httpServer   *http.Server
@@ -87,7 +87,7 @@ func NewServer(app interface{}) *Server {
 	server := &Server{
 		authKey:      authKey,
 		instanceID:   instanceID,
-		router:       NewRouter(app),
+		app:          app,
 		clients:      make(map[string]*Client),
 		stopCh:       make(chan struct{}),
 		capabilities: []string{"rpc", "events"},
@@ -314,7 +314,7 @@ func (s *Server) handleRPCRequest(client *Client, req *RPCRequest) {
 	}
 }
 
-// SetDispatch sets the direct dispatch function, bypassing the reflection router.
+// SetDispatch sets the explicit RPC dispatch function.
 func (s *Server) SetDispatch(fn func(method string, params json.RawMessage) (any, error)) {
 	s.dispatch = fn
 }

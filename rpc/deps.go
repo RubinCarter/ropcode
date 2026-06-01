@@ -1,7 +1,6 @@
 package rpc
 
 import (
-	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
@@ -19,18 +18,17 @@ import (
 
 // Deps holds all dependencies needed by RPC handlers.
 type Deps struct {
-	Provider       *provider.Manager
-	ProjectChat    *projectchat.Manager
-	DB             *database.Database
-	MCP            *mcp.Manager
-	SSH            *ssh.Manager
-	Plugin         *plugin.Manager
-	Pty            *pty.Manager
-	Process        *process.Manager
-	Models         *models.Registry
-	Config         *config.Config
-	EventHub       *eventhub.EventHub
-	Activity       *claudeactivity.Service
-	CapDiscovery   claude.CapabilityDiscovery
-	BulkHub        *stream.BulkHub
+	Provider    *provider.Manager
+	ProjectChat *projectchat.Manager
+	DB          *database.Database
+	MCP         *mcp.Manager
+	SSH         *ssh.Manager
+	Plugin      *plugin.Manager
+	Pty         *pty.Manager
+	Process     *process.Manager
+	Models      *models.Registry
+	Config      *config.Config
+	EventHub    *eventhub.EventHub
+	Activity    *claudeactivity.Service
+	BulkHub     *stream.BulkHub
 }

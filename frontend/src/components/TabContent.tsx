@@ -8,11 +8,33 @@ import { api } from '@/lib/api';
 import { shouldKeepTabMounted } from '@/lib/tabUtils';
 import * as rpcClient from '@/lib/rpc-client';
 import { MCPManager } from '@/components/MCPManager';
+import { SettingsLoadingShell } from '@/components/SettingsLoadingShell';
+
+const loadSettings = () => import('@/components/Settings').then(m => ({ default: m.Settings }));
+
+const scheduleSettingsPrefetch = () => {
+  const win = window as Window & {
+    requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+
+  if (typeof win.requestIdleCallback === 'function') {
+    const idleId = win.requestIdleCallback(() => {
+      void loadSettings().catch(() => undefined);
+    }, { timeout: 1500 });
+    return () => win.cancelIdleCallback?.(idleId);
+  }
+
+  const timeoutId = globalThis.setTimeout(() => {
+    void loadSettings().catch(() => undefined);
+  }, 600);
+  return () => globalThis.clearTimeout(timeoutId);
+};
 
 // Lazy load heavy components
 const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
 const Agents = lazy(() => import('@/components/Agents').then(m => ({ default: m.Agents })));
-const Settings = lazy(() => import('@/components/Settings').then(m => ({ default: m.Settings })));
+const Settings = lazy(loadSettings);
 const AgentRunOutputViewer = lazy(() => import('@/components/AgentRunOutputViewer'));
 const AgentExecution = lazy(() => import('@/components/AgentExecution').then(m => ({ default: m.AgentExecution })));
 const CreateAgent = lazy(() => import('@/components/CreateAgent').then(m => ({ default: m.CreateAgent })));
@@ -47,6 +69,11 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
       }
     };
   }, [keepMounted]);
+
+  useEffect(() => {
+    if (tab.type !== 'settings' || !isActive) return;
+    return scheduleSettingsPrefetch();
+  }, [isActive, tab.type]);
 
   // Handle provider change - reload sessions for the new provider
   const handleProviderChange = async (providerId: string) => {
@@ -411,9 +438,13 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
     >
       <Suspense
         fallback={
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-          </div>
+          tab.type === 'settings' ? (
+            <SettingsLoadingShell />
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          )
         }
       >
         {renderContent()}

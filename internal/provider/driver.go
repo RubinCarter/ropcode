@@ -107,18 +107,6 @@ type OutputEventCompleter interface {
 	CompleteOutputEvent(event *OutputEvent, config SessionConfig) (*OutputEvent, bool)
 }
 
-// CapabilityDiscoverer is an optional extension interface for pre-start capability discovery.
-type CapabilityDiscoverer interface {
-	DiscoverCapabilities(ctx context.Context) (*Capabilities, error)
-}
-
-// Capabilities represents a provider's capability configuration.
-type Capabilities struct {
-	Models          []string          `json:"models,omitempty"`
-	PermissionModes []string          `json:"permission_modes,omitempty"`
-	Extensions      map[string]string `json:"extensions,omitempty"`
-}
-
 // SessionHandle is the set of operation primitives exposed by the runtime to drivers.
 // The runtime provides mechanisms; the driver decides policy.
 type SessionHandle interface {

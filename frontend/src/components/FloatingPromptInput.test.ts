@@ -20,11 +20,14 @@ test('syncs selected provider state when defaultProvider prop changes', async ()
   );
 });
 
-test('uses defaultProvider directly for Claude capability picker branch', async () => {
+test('uses provider-neutral capability picker for slash commands', async () => {
   const source = await readSource();
 
-  assert.match(source, /const usesClaudeCapabilityPicker = defaultProvider === 'claude';/);
-  assert.doesNotMatch(source, /const usesClaudeCapabilityPicker = selectedProvider === 'claude';/);
+  assert.match(source, /<ProviderCapabilityPicker[\s\S]*provider=\{effectiveProvider\}/);
+  assert.doesNotMatch(source, /<SlashCommandPicker/);
+  assert.doesNotMatch(source, /import \{ SlashCommandPicker \}/);
+  assert.doesNotMatch(source, /const usesClaudeCapabilityPicker = effectiveProvider === 'claude';/);
+  assert.doesNotMatch(source, /const usesClaudeCapabilityPicker = defaultProvider === 'claude';/);
 });
 
 test('reports current provider model API and thinking config to parent components', async () => {

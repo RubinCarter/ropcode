@@ -130,15 +130,6 @@ func (a *splitStreamTestApp) BulkHub() *stream.BulkHub {
 	return a.bulkHub
 }
 
-func setReflectionTestDispatch(server *Server, app any) {
-	router := NewRouter(app)
-	server.SetDispatch(func(method string, params json.RawMessage) (any, error) {
-		var args []any
-		_ = json.Unmarshal(params, &args)
-		return router.Call(method, args)
-	})
-}
-
 func openRegistryTestDB(t *testing.T) *database.Database {
 	t.Helper()
 
@@ -323,7 +314,12 @@ func TestHandleMessage_ReturnsPromptlyForSlowRPC(t *testing.T) {
 		releaseSlow: make(chan struct{}),
 	}
 	server := NewServer(app)
-	setReflectionTestDispatch(server, app)
+	server.SetDispatch(func(method string, params json.RawMessage) (any, error) {
+		if method != "Slow" {
+			return nil, fmt.Errorf("method not found: %s", method)
+		}
+		return app.Slow(), nil
+	})
 	client := NewClient("test-client", nil)
 	// NewClient now provisions Responses + Events channels with their own
 	// capacities; tests no longer override the legacy single Send channel.
@@ -356,7 +352,6 @@ func TestSplitWebSocketPathsRequireAuth(t *testing.T) {
 	t.Setenv("ROPCODE_AUTH_KEY", "secret")
 	app := newSplitStreamTestApp()
 	server := NewServer(app)
-	setReflectionTestDispatch(server, app)
 
 	port, err := server.Start(context.Background())
 	if err != nil {
@@ -392,6 +387,18 @@ func TestSplitWebSocketPathsRequireAuth(t *testing.T) {
 func TestRPCPathRespondsWhileSessionStreamSubscribed(t *testing.T) {
 	app := newSplitStreamTestApp()
 	server := NewServer(app)
+	server.SetDispatch(func(method string, params json.RawMessage) (any, error) {
+		if method != "Echo" {
+			return nil, fmt.Errorf("method not found: %s", method)
+		}
+		var args []any
+		_ = json.Unmarshal(params, &args)
+		value := ""
+		if len(args) > 0 {
+			value, _ = args[0].(string)
+		}
+		return app.Echo(value), nil
+	})
 
 	port, err := server.Start(context.Background())
 	if err != nil {

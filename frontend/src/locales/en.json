@@ -632,12 +632,13 @@
     "usingTool": "Using tool:"
   },
   "capability": {
-    "title": "Claude Capabilities",
+    "title": "Provider Capabilities",
     "searchPlaceholder": "Search capabilities...",
     "noResults": "No matching capabilities",
     "system": "System",
     "user": "User",
     "project": "Project",
+    "plugin": "Plugin",
     "loading": "Loading capabilities...",
     "loadError": "Failed to load capabilities"
   },

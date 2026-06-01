@@ -15,50 +15,44 @@ import {
   User,
   X,
 } from "lucide-react";
-import type { ClaudeCapability, ClaudeCapabilityLayers } from "@/lib/rpc-client";
+import type { ProviderCapability, ProviderCapabilityLayers } from "@/lib/rpc-client";
 
-interface ClaudeCapabilityPickerProps {
+interface ProviderCapabilityPickerProps {
+  provider?: string;
   projectPath?: string;
   initialQuery?: string;
-  onSelect: (capability: ClaudeCapability) => void;
+  onSelect: (capability: ProviderCapability) => void;
   onClose: () => void;
   anchorRef?: React.RefObject<HTMLElement>;
 }
 
-type ScopeGroupKey = "project" | "user" | "system";
+type ScopeGroupKey = "project" | "user" | "plugin" | "system";
 
-type CapabilityLayersState = Pick<ClaudeCapabilityLayers, "system" | "user_only" | "project_only" | "all_visible">;
+type CapabilityLayersState = Pick<ProviderCapabilityLayers, "system" | "user_only" | "project_only" | "plugin" | "all_visible">;
 
 const EMPTY_LAYERS: CapabilityLayersState = {
   system: [],
   user_only: [],
   project_only: [],
+  plugin: [],
   all_visible: [],
 };
 
-const SCOPE_ORDER: ScopeGroupKey[] = ["project", "user", "system"];
+const SCOPE_ORDER: ScopeGroupKey[] = ["project", "user", "plugin", "system"];
 const AUTO_REFRESH_TTL_MS = 5 * 60 * 1000;
 
-const normalizeLayers = (layers?: Partial<CapabilityLayersState> | ClaudeCapabilityLayers | null): CapabilityLayersState => {
+const normalizeLayers = (layers?: Partial<CapabilityLayersState> | ProviderCapabilityLayers | null): CapabilityLayersState => {
   const system = layers?.system ?? [];
   const userOnly = layers?.user_only ?? [];
   const projectOnly = layers?.project_only ?? [];
+  const plugin = layers?.plugin ?? [];
 
   return {
     system,
     user_only: userOnly,
     project_only: projectOnly,
-    all_visible: layers?.all_visible ?? [...projectOnly, ...userOnly, ...system],
-  };
-};
-
-const getCachedVisibleLayers = (layers?: Partial<CapabilityLayersState> | ClaudeCapabilityLayers | null): CapabilityLayersState => {
-  const normalized = normalizeLayers(layers);
-  return {
-    system: normalized.system,
-    user_only: normalized.user_only,
-    project_only: [],
-    all_visible: [...normalized.user_only, ...normalized.system],
+    plugin,
+    all_visible: layers?.all_visible ?? [...projectOnly, ...userOnly, ...plugin, ...system],
   };
 };
 
@@ -66,9 +60,7 @@ const getErrorMessage = (err: unknown, fallback: string): string => {
   return err instanceof Error ? err.message : fallback;
 };
 
-const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-
-const isCacheFresh = (layers?: ClaudeCapabilityLayers | null): boolean => {
+const isCacheFresh = (layers?: ProviderCapabilityLayers | null): boolean => {
   const fetchedAt = layers?.fetched_at ? Date.parse(layers.fetched_at) : Number.NaN;
   if (Number.isNaN(fetchedAt)) return false;
   return Date.now() - fetchedAt < AUTO_REFRESH_TTL_MS;
@@ -80,6 +72,8 @@ const getScopeLabel = (scope: ScopeGroupKey, t: (key: string) => string): string
       return t("capability.project");
     case "user":
       return t("capability.user");
+    case "plugin":
+      return t("capability.plugin");
     case "system":
       return t("capability.system");
   }
@@ -91,21 +85,25 @@ const getScopeIcon = (scope: ScopeGroupKey) => {
       return Building2;
     case "user":
       return User;
+    case "plugin":
+      return Sparkles;
     case "system":
       return Layers3;
   }
 };
 
-const getKindLabel = (kind: ClaudeCapability["kind"]): string => {
-  return kind === "command" ? "Command" : "Skill";
+const getKindLabel = (kind: ProviderCapability["kind"]): string => {
+  if (kind === "command") return "Command";
+  if (kind === "agent") return "Agent";
+  return "Skill";
 };
 
-const getArgumentHint = (capability: ClaudeCapability): string | undefined => {
-  const capabilityWithAlias = capability as ClaudeCapability & { argumentHint?: string };
+const getArgumentHint = (capability: ProviderCapability): string | undefined => {
+  const capabilityWithAlias = capability as ProviderCapability & { argumentHint?: string };
   return capabilityWithAlias.argumentHint ?? capability.argument_hint ?? undefined;
 };
 
-const getSearchRank = (capability: ClaudeCapability, query: string): number => {
+const getSearchRank = (capability: ProviderCapability, query: string): number => {
   const normalizedQuery = query.toLowerCase();
   const name = capability.name.toLowerCase();
   const slashName = capability.slash_name.toLowerCase();
@@ -118,19 +116,21 @@ const getSearchRank = (capability: ClaudeCapability, query: string): number => {
   return 4;
 };
 
-const compareCapabilities = (a: ClaudeCapability, b: ClaudeCapability, query?: string): number => {
+const compareCapabilities = (a: ProviderCapability, b: ProviderCapability, query?: string): number => {
   if (query) {
     const rankDifference = getSearchRank(a, query) - getSearchRank(b, query);
     if (rankDifference !== 0) return rankDifference;
   }
 
-  const kindDifference = (a.kind === "command" ? 0 : 1) - (b.kind === "command" ? 0 : 1);
+  const kindWeight = (kind: ProviderCapability["kind"]) => kind === "command" ? 0 : kind === "agent" ? 1 : 2;
+  const kindDifference = kindWeight(a.kind) - kindWeight(b.kind);
   if (kindDifference !== 0) return kindDifference;
 
   return a.slash_name.localeCompare(b.slash_name);
 };
 
-export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
+export const ProviderCapabilityPicker: React.FC<ProviderCapabilityPickerProps> = ({
+  provider = "claude",
   projectPath,
   initialQuery = "",
   onSelect,
@@ -230,13 +230,13 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
       startedBackgroundRefresh = true;
       applyProjectLoading(true);
 
-      void api.refreshClaudeCapabilityLayers(projectPath)
-        .then((layers: ClaudeCapabilityLayers) => {
+      void api.refreshProviderCapabilityLayers(provider, projectPath)
+        .then((layers: ProviderCapabilityLayers) => {
           applyLayers(normalizeLayers(layers));
           applyError(null);
         })
         .catch((err: unknown) => {
-          console.error("Failed to refresh Claude capabilities:", err);
+          console.error("Failed to refresh provider capabilities:", err);
           applyError(getErrorMessage(err, "Failed to refresh project capabilities"));
         })
         .finally(() => {
@@ -246,51 +246,29 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
     };
 
     try {
-      const cached = projectPath ? await api.getCachedClaudeCapabilityLayers(projectPath) : null;
-      const cachedVisibleLayers = getCachedVisibleLayers(cached);
-      const hasCachedVisibleLayers = cachedVisibleLayers.all_visible.length > 0;
+      const cached = projectPath ? await api.getCachedProviderCapabilityLayers(provider, projectPath) : null;
+      const cachedLayers = normalizeLayers(cached);
+      const hasCachedLayers = cachedLayers.all_visible.length > 0;
       const shouldAutoRefresh = Boolean(projectPath) && !isCacheFresh(cached);
 
-      if (hasCachedVisibleLayers) {
+      if (hasCachedLayers) {
         applyInitialLoading(false);
+        applyLayers(cachedLayers);
         if (shouldAutoRefresh) {
-          applyLayers(cachedVisibleLayers);
           startBackgroundRefresh();
-        } else {
-          applyLayers(normalizeLayers(cached));
         }
         return;
       }
 
       if (projectPath) {
         applyProjectLoading(true);
-        void api.prewarmClaudeCapabilityLayers(projectPath).catch(() => undefined);
-
-        for (let attempt = 0; attempt < 8; attempt += 1) {
-          await sleep(150);
-          if (!isCurrentRequest()) return;
-
-          const warmed = await api.getCachedClaudeCapabilityLayers(projectPath);
-          const warmedVisibleLayers = getCachedVisibleLayers(warmed);
-          if (warmedVisibleLayers.all_visible.length > 0) {
-            applyInitialLoading(false);
-            if (!isCacheFresh(warmed)) {
-              applyLayers(warmedVisibleLayers);
-              startBackgroundRefresh();
-            } else {
-              applyLayers(normalizeLayers(warmed));
-              applyProjectLoading(false);
-            }
-            return;
-          }
-        }
       }
 
-      const layers: ClaudeCapabilityLayers = await api.getClaudeCapabilityLayers(projectPath);
+      const layers: ProviderCapabilityLayers = await api.getProviderCapabilityLayers(provider, projectPath);
       applyLayers(normalizeLayers(layers));
       applyError(null);
     } catch (err) {
-      console.error("Failed to load Claude capabilities:", err);
+      console.error("Failed to load provider capabilities:", err);
       applyError(getErrorMessage(err, "Failed to load capabilities"));
       applyLayers(EMPTY_LAYERS);
     } finally {
@@ -300,24 +278,24 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
         applyRefreshing(false);
       }
     }
-  }, [projectPath]);
+  }, [provider, projectPath]);
 
   const refreshCapabilities = useCallback(async () => {
     try {
       setIsRefreshing(true);
       setIsProjectLoading(Boolean(projectPath));
       setError(null);
-      const layers: ClaudeCapabilityLayers = await api.refreshClaudeCapabilityLayers(projectPath);
+      const layers: ProviderCapabilityLayers = await api.refreshProviderCapabilityLayers(provider, projectPath);
       setCapabilityLayers(normalizeLayers(layers));
     } catch (err) {
-      console.error("Failed to refresh Claude capabilities:", err);
+      console.error("Failed to refresh provider capabilities:", err);
       setError(getErrorMessage(err, "Failed to refresh capabilities"));
     } finally {
       setIsRefreshing(false);
       setIsProjectLoading(false);
       setIsInitialLoading(false);
     }
-  }, [projectPath]);
+  }, [provider, projectPath]);
 
   useEffect(() => {
     void loadCapabilities();
@@ -328,7 +306,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
     let filtered = capabilityLayers.all_visible;
 
     if (query) {
-      filtered = capabilityLayers.all_visible.filter((capability: ClaudeCapability) => {
+      filtered = capabilityLayers.all_visible.filter((capability: ProviderCapability) => {
         if (capability.name.toLowerCase().includes(query)) return true;
         if (capability.slash_name.toLowerCase().includes(query)) return true;
         if (capability.description?.toLowerCase().includes(query)) return true;
@@ -340,9 +318,10 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
   }, [capabilityLayers, searchQuery]);
 
   const { groupedCapabilities, orderedCapabilities, visibleGroups } = useMemo(() => {
-    const grouped: Record<ScopeGroupKey, ClaudeCapability[]> = {
+    const grouped: Record<ScopeGroupKey, ProviderCapability[]> = {
       project: [],
       user: [],
+      plugin: [],
       system: [],
     };
 
@@ -439,7 +418,7 @@ export const ClaudeCapabilityPicker: React.FC<ClaudeCapabilityPickerProps> = ({
 
   const usePortal = !!anchorRef && !!position;
 
-  const renderCapabilityRow = (capability: ClaudeCapability, index: number) => {
+  const renderCapabilityRow = (capability: ProviderCapability, index: number) => {
     const isSelected = index === selectedIndex;
     const argumentHint = getArgumentHint(capability);
 

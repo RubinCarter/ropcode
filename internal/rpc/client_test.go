@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"reflect"
 	"testing"
 	"time"
 
@@ -28,26 +27,19 @@ func (a *testApp) Greet(name string) string {
 	return "Hello " + name + ", Welcome to ropcode!"
 }
 
-func setTestDispatch(server *ws.Server, app any) {
-	router := ws.NewRouter(app)
+func setTestDispatch(server *ws.Server, app *testApp) {
 	server.SetDispatch(func(method string, params json.RawMessage) (any, error) {
 		var args []any
 		_ = json.Unmarshal(params, &args)
-		return router.Call(method, normalizeNilArgs(args, app, method))
+		if method != "Greet" {
+			return nil, fmt.Errorf("method not found: %s", method)
+		}
+		name := ""
+		if len(args) > 0 {
+			name, _ = args[0].(string)
+		}
+		return app.Greet(name), nil
 	})
-}
-
-func normalizeNilArgs(args []any, app any, method string) []any {
-	appType := reflect.TypeOf(app)
-	m, ok := appType.MethodByName(method)
-	if !ok {
-		return args
-	}
-	want := m.Type.NumIn() - 1
-	if len(args) == 0 && want > 0 {
-		return make([]any, want)
-	}
-	return args
 }
 
 func startTestServer(t *testing.T, server *ws.Server) int {

@@ -10,6 +10,7 @@ type CapabilityKind string
 const (
 	CapabilityKindCommand CapabilityKind = "command"
 	CapabilityKindSkill   CapabilityKind = "skill"
+	CapabilityKindAgent   CapabilityKind = "agent"
 )
 
 type CapabilityScope string
@@ -30,6 +31,7 @@ type CapabilitySnapshot struct {
 	Stage    string           `json:"stage"`
 	Commands []CommandSummary `json:"commands"`
 	Skills   []string         `json:"skills"`
+	Agents   []string         `json:"agents"`
 }
 
 type ClaudeCapability struct {
@@ -49,8 +51,8 @@ type CapabilityLayers struct {
 	AllVisible  []ClaudeCapability `json:"all_visible"`
 }
 
-func normalizeCapabilities(commands []CommandSummary, skills []string, scope CapabilityScope) []ClaudeCapability {
-	capabilities := make([]ClaudeCapability, 0, len(commands)+len(skills))
+func normalizeCapabilities(commands []CommandSummary, skills []string, agents []string, scope CapabilityScope) []ClaudeCapability {
+	capabilities := make([]ClaudeCapability, 0, len(commands)+len(skills)+len(agents))
 
 	for _, command := range commands {
 		name := strings.TrimPrefix(strings.TrimSpace(command.Name), "/")
@@ -82,47 +84,72 @@ func normalizeCapabilities(commands []CommandSummary, skills []string, scope Cap
 		})
 	}
 
+	for _, agent := range agents {
+		name := strings.TrimPrefix(strings.TrimSpace(agent), "/")
+		if name == "" {
+			continue
+		}
+		capabilities = append(capabilities, ClaudeCapability{
+			Key:       capabilityKey(string(CapabilityKindAgent), name),
+			Name:      name,
+			SlashName: "/" + name,
+			Kind:      string(CapabilityKindAgent),
+			Scope:     string(scope),
+		})
+	}
+
 	return dedupeCapabilities(capabilities)
 }
 
-func builtInClaudeCommandSummaries() []CommandSummary {
-	commands := createDefaultCommands()
-	result := make([]CommandSummary, 0, len(commands))
-	for _, command := range commands {
-		if command.CommandType != CommandTypeClaude || command.Scope != "default" {
+func BuildCapabilityLayersFromSnapshot(snapshot CapabilitySnapshot) CapabilityLayers {
+	systemCaps := normalizeCapabilities(nil, snapshot.Skills, nil, CapabilityScopeSystem)
+	userCaps := normalizeCapabilities(nil, nil, snapshot.Agents, CapabilityScopeUser)
+	projectCaps := make([]ClaudeCapability, 0, len(snapshot.Commands))
+
+	for _, command := range dedupeCommandSummaries(snapshot.Commands) {
+		name := strings.TrimPrefix(strings.TrimSpace(command.Name), "/")
+		scope := commandScopeFromCommand(name, command.Description)
+		capability := normalizeCapabilities([]CommandSummary{command}, nil, nil, scope)
+		if len(capability) == 0 {
 			continue
 		}
-		result = append(result, CommandSummary{
-			Name:         command.Name,
-			Description:  stringValue(command.Description),
-			ArgumentHint: stringValue(command.ArgumentHint),
-		})
+		switch scope {
+		case CapabilityScopeSystem:
+			systemCaps = append(systemCaps, capability[0])
+		case CapabilityScopeProject:
+			projectCaps = append(projectCaps, capability[0])
+		default:
+			userCaps = append(userCaps, capability[0])
+		}
 	}
-	return dedupeCommandSummaries(result)
-}
 
-func BuildCapabilityLayers(system, user, project CapabilitySnapshot) CapabilityLayers {
-	system.Commands = dedupeCommandSummaries(append(builtInClaudeCommandSummaries(), system.Commands...))
-
-	systemCaps := normalizeCapabilities(system.Commands, system.Skills, CapabilityScopeSystem)
-	userCaps := normalizeCapabilities(user.Commands, user.Skills, CapabilityScopeUser)
-	projectCaps := normalizeCapabilities(project.Commands, project.Skills, CapabilityScopeProject)
-
-	userOnly := capabilityDiff(userCaps, systemCaps)
-	projectOnly := capabilityDiff(projectCaps, userCaps)
-	allVisible := dedupeCapabilities(append(append([]ClaudeCapability{}, systemCaps...), append(userOnly, projectOnly...)...))
+	systemCaps = dedupeCapabilities(systemCaps)
+	userCaps = dedupeCapabilities(userCaps)
+	projectCaps = dedupeCapabilities(projectCaps)
+	allVisible := dedupeCapabilities(append(append([]ClaudeCapability{}, systemCaps...), append(userCaps, projectCaps...)...))
 
 	sortCapabilities(systemCaps)
-	sortCapabilities(userOnly)
-	sortCapabilities(projectOnly)
+	sortCapabilities(userCaps)
+	sortCapabilities(projectCaps)
 	sortCapabilities(allVisible)
 
 	return CapabilityLayers{
 		System:      systemCaps,
-		UserOnly:    userOnly,
-		ProjectOnly: projectOnly,
+		UserOnly:    userCaps,
+		ProjectOnly: projectCaps,
 		AllVisible:  allVisible,
 	}
+}
+
+func commandScopeFromCommand(name, description string) CapabilityScope {
+	trimmed := strings.TrimSpace(description)
+	if strings.HasSuffix(trimmed, "(project)") || strings.Contains(trimmed, "(project:") {
+		return CapabilityScopeProject
+	}
+	if strings.HasSuffix(trimmed, "(user)") || strings.Contains(trimmed, "(user)") {
+		return CapabilityScopeUser
+	}
+	return CapabilityScopeSystem
 }
 
 func capabilityKey(kind, name string) string {
@@ -160,23 +187,6 @@ func dedupeCapabilities(capabilities []ClaudeCapability) []ClaudeCapability {
 	return result
 }
 
-func capabilityDiff(current, base []ClaudeCapability) []ClaudeCapability {
-	baseKeys := make(map[string]struct{}, len(base))
-	for _, capability := range base {
-		baseKeys[capability.Key] = struct{}{}
-	}
-
-	result := make([]ClaudeCapability, 0, len(current))
-	for _, capability := range current {
-		if _, ok := baseKeys[capability.Key]; ok {
-			continue
-		}
-		result = append(result, capability)
-	}
-
-	return dedupeCapabilities(result)
-}
-
 func sortCapabilities(capabilities []ClaudeCapability) {
 	sort.Slice(capabilities, func(i, j int) bool {
 		left := capabilities[i]
@@ -209,16 +219,11 @@ func kindOrder(kind string) int {
 	switch kind {
 	case string(CapabilityKindCommand):
 		return 0
-	case string(CapabilityKindSkill):
+	case string(CapabilityKindAgent):
 		return 1
-	default:
+	case string(CapabilityKindSkill):
 		return 2
+	default:
+		return 3
 	}
-}
-
-func stringValue(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }

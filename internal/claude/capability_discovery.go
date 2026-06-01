@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,7 +18,6 @@ import (
 type DiscoveryStage string
 
 const (
-	DiscoveryStageSystem  DiscoveryStage = "system"
 	DiscoveryStageUser    DiscoveryStage = "user"
 	DiscoveryStageProject DiscoveryStage = "project"
 )
@@ -25,6 +25,7 @@ const (
 const (
 	discoveryTimeout      = 12 * time.Second
 	discoverySettleWindow = 100 * time.Millisecond
+	slowDiscoveryLogAfter = 2 * time.Second
 )
 
 type DiscoveryTransport interface {
@@ -35,9 +36,7 @@ type CapabilityDiscovery interface {
 	Discover(projectPath string) (CapabilityLayers, error)
 	Refresh(projectPath string) (CapabilityLayers, error)
 	Cached(projectPath string) (CapabilityLayers, bool)
-	PrewarmSystem() bool
 	PrewarmUser() bool
-	PrewarmProject(projectPath string) bool
 }
 
 type CapabilityDiscoveryService struct {
@@ -45,25 +44,9 @@ type CapabilityDiscoveryService struct {
 	claudeVersion       func() (string, error)
 	userCacheGeneration func() (string, error)
 	mu                  sync.Mutex
-	systemCache         systemCache
-	userCache           userCache
 	projectCache        map[string]projectCacheEntry
 	cachedVersion       string
 	cachedVersionErr    error
-	cachedUserGen       string
-	cachedUserGenErr    error
-}
-
-type systemCache struct {
-	key      string
-	snapshot CapabilitySnapshot
-	valid    bool
-}
-
-type userCache struct {
-	key      string
-	snapshot CapabilitySnapshot
-	valid    bool
 }
 
 type projectCacheEntry struct {
@@ -124,143 +107,65 @@ func (s *CapabilityDiscoveryService) Refresh(projectPath string) (CapabilityLaye
 }
 
 func (s *CapabilityDiscoveryService) Cached(projectPath string) (CapabilityLayers, bool) {
-	systemKey := s.currentSystemKey()
-	userKey := s.currentUserKey()
-	projectKey := s.currentProjectKey(projectPath)
-	if systemKey == "" || userKey == "" {
+	projectKey, err := s.currentProjectKey(projectPath)
+	if err != nil || projectKey == "" {
 		return CapabilityLayers{}, false
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.systemCache.valid || s.systemCache.key != systemKey {
+	cached, ok := s.projectCache[projectKey]
+	if !ok {
 		return CapabilityLayers{}, false
 	}
-	if !s.userCache.valid || s.userCache.key != userKey {
-		return CapabilityLayers{}, false
-	}
-
-	projectSnapshot := CapabilitySnapshot{Stage: string(DiscoveryStageProject)}
-	if strings.TrimSpace(projectPath) != "" {
-		cached, ok := s.projectCache[projectKey]
-		if !ok {
-			return BuildCapabilityLayers(s.systemCache.snapshot, s.userCache.snapshot, projectSnapshot), true
-		}
-		return cached.layers, true
-	}
-
-	return BuildCapabilityLayers(s.systemCache.snapshot, s.userCache.snapshot, projectSnapshot), true
-}
-
-func (s *CapabilityDiscoveryService) PrewarmSystem() bool {
-	_, err := s.loadSystemSnapshot("", s.currentSystemKey(), false)
-	return err == nil
+	return cached.layers, true
 }
 
 func (s *CapabilityDiscoveryService) PrewarmUser() bool {
-	_, err := s.loadUserSnapshot("", s.currentUserKey(), false)
+	_, err := s.discover("", false)
 	return err == nil
 }
 
-func (s *CapabilityDiscoveryService) PrewarmProject(projectPath string) bool {
-	if strings.TrimSpace(projectPath) == "" {
-		return false
-	}
-	_, err := s.discover(projectPath, false)
-	return err == nil
-}
-
-func (s *CapabilityDiscoveryService) currentSystemKey() string {
+func (s *CapabilityDiscoveryService) currentVersion() (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cachedVersion != "" || s.cachedVersionErr != nil {
 		if s.cachedVersionErr != nil {
-			return ""
+			return "", s.cachedVersionErr
 		}
-		return s.cachedVersion
+		return s.cachedVersion, nil
 	}
 
 	version, err := s.claudeVersion()
 	s.cachedVersion = version
 	s.cachedVersionErr = err
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return version
+	return version, nil
 }
 
-func (s *CapabilityDiscoveryService) currentUserKey() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	version := s.cachedVersion
-	versionErr := s.cachedVersionErr
-	if version == "" && versionErr == nil {
-		version, versionErr = s.claudeVersion()
-		s.cachedVersion = version
-		s.cachedVersionErr = versionErr
-	}
-	if versionErr != nil {
-		return ""
+func (s *CapabilityDiscoveryService) currentProjectKey(projectPath string) (string, error) {
+	version, err := s.currentVersion()
+	if err != nil {
+		return "", err
 	}
 
-	userGeneration := s.cachedUserGen
-	userGenerationErr := s.cachedUserGenErr
-	if userGeneration == "" && userGenerationErr == nil {
-		userGeneration, userGenerationErr = s.userCacheGeneration()
-		s.cachedUserGen = userGeneration
-		s.cachedUserGenErr = userGenerationErr
-	}
-	if userGenerationErr != nil {
-		return ""
+	userGeneration, err := s.userCacheGeneration()
+	if err != nil {
+		return "", err
 	}
 
-	return cacheKey(version, userGeneration)
-}
-
-func (s *CapabilityDiscoveryService) currentProjectKey(projectPath string) string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	version := s.cachedVersion
-	versionErr := s.cachedVersionErr
-	if version == "" && versionErr == nil {
-		version, versionErr = s.claudeVersion()
-		s.cachedVersion = version
-		s.cachedVersionErr = versionErr
-	}
-	if versionErr != nil {
-		return ""
-	}
-
-	userGeneration := s.cachedUserGen
-	userGenerationErr := s.cachedUserGenErr
-	if userGeneration == "" && userGenerationErr == nil {
-		userGeneration, userGenerationErr = s.userCacheGeneration()
-		s.cachedUserGen = userGeneration
-		s.cachedUserGenErr = userGenerationErr
-	}
-	if userGenerationErr != nil {
-		return ""
-	}
-
-	return cacheKey(version, projectPath, userGeneration)
+	return cacheKey(version, strings.TrimSpace(projectPath), userGeneration), nil
 }
 
 func (s *CapabilityDiscoveryService) discover(projectPath string, force bool) (CapabilityLayers, error) {
-	version, err := s.claudeVersion()
+	start := time.Now()
+	projectKey, err := s.currentProjectKey(projectPath)
 	if err != nil {
 		return CapabilityLayers{}, err
 	}
-	userGeneration, err := s.userCacheGeneration()
-	if err != nil {
-		return CapabilityLayers{}, err
-	}
-
-	systemKey := version
-	userKey := cacheKey(version, userGeneration)
-	projectKey := cacheKey(version, projectPath, userGeneration)
 
 	if !force {
 		s.mu.Lock()
@@ -272,22 +177,16 @@ func (s *CapabilityDiscoveryService) discover(projectPath string, force bool) (C
 		s.mu.Unlock()
 	}
 
-	systemSnapshot, err := s.loadSystemSnapshot(projectPath, systemKey, force)
+	snapshot, err := s.loadCurrentSnapshot(projectPath)
 	if err != nil {
+		log.Printf("[capability-discovery] project=%q force=%v failed after %s: %v", projectPath, force, time.Since(start), err)
 		return CapabilityLayers{}, err
 	}
 
-	userSnapshot, err := s.loadUserSnapshot(projectPath, userKey, force)
-	if err != nil {
-		return CapabilityLayers{}, err
+	layers := BuildCapabilityLayersFromSnapshot(snapshot)
+	if time.Since(start) >= slowDiscoveryLogAfter {
+		log.Printf("[capability-discovery] project=%q force=%v completed in %s commands=%d skills=%d agents=%d", projectPath, force, time.Since(start), len(snapshot.Commands), len(snapshot.Skills), len(snapshot.Agents))
 	}
-
-	projectSnapshot, err := s.transport.Run(DiscoveryStageProject, projectPath)
-	if err != nil {
-		return CapabilityLayers{}, err
-	}
-
-	layers := BuildCapabilityLayers(systemSnapshot, userSnapshot, projectSnapshot)
 
 	s.mu.Lock()
 	s.projectCache[projectKey] = projectCacheEntry{key: projectKey, layers: layers}
@@ -296,50 +195,11 @@ func (s *CapabilityDiscoveryService) discover(projectPath string, force bool) (C
 	return layers, nil
 }
 
-func (s *CapabilityDiscoveryService) loadSystemSnapshot(projectPath, key string, force bool) (CapabilitySnapshot, error) {
-	if !force {
-		s.mu.Lock()
-		if s.systemCache.valid && s.systemCache.key == key {
-			snapshot := s.systemCache.snapshot
-			s.mu.Unlock()
-			return snapshot, nil
-		}
-		s.mu.Unlock()
+func (s *CapabilityDiscoveryService) loadCurrentSnapshot(projectPath string) (CapabilitySnapshot, error) {
+	if strings.TrimSpace(projectPath) == "" {
+		return s.transport.Run(DiscoveryStageUser, "")
 	}
-
-	snapshot, err := s.transport.Run(DiscoveryStageSystem, projectPath)
-	if err != nil {
-		return CapabilitySnapshot{}, err
-	}
-
-	s.mu.Lock()
-	s.systemCache = systemCache{key: key, snapshot: snapshot, valid: true}
-	s.mu.Unlock()
-
-	return snapshot, nil
-}
-
-func (s *CapabilityDiscoveryService) loadUserSnapshot(projectPath, key string, force bool) (CapabilitySnapshot, error) {
-	if !force {
-		s.mu.Lock()
-		if s.userCache.valid && s.userCache.key == key {
-			snapshot := s.userCache.snapshot
-			s.mu.Unlock()
-			return snapshot, nil
-		}
-		s.mu.Unlock()
-	}
-
-	snapshot, err := s.transport.Run(DiscoveryStageUser, projectPath)
-	if err != nil {
-		return CapabilitySnapshot{}, err
-	}
-
-	s.mu.Lock()
-	s.userCache = userCache{key: key, snapshot: snapshot, valid: true}
-	s.mu.Unlock()
-
-	return snapshot, nil
+	return s.transport.Run(DiscoveryStageProject, projectPath)
 }
 
 func (s *CapabilityDiscoveryService) defaultClaudeVersion() (string, error) {
@@ -461,17 +321,17 @@ func (t *ClaudeCapabilityDiscoveryTransport) Run(stage DiscoveryStage, projectPa
 	}
 	settleActive := false
 	finalize := func() (CapabilitySnapshot, error) {
-		commands, skills, err := CollectDiscoveryData(lines)
+		commands, skills, agents, err := CollectDiscoveryData(lines)
 		if err != nil {
 			return CapabilitySnapshot{}, err
 		}
-		if len(commands) == 0 && len(skills) == 0 && len(stderrLines) > 0 {
+		if len(commands) == 0 && len(skills) == 0 && len(agents) == 0 && len(stderrLines) > 0 {
 			return CapabilitySnapshot{}, fmt.Errorf("discovery %s stage produced no capabilities: %s", stage, strings.Join(stderrLines, " | "))
 		}
-		if len(commands) == 0 && len(skills) == 0 {
+		if len(commands) == 0 && len(skills) == 0 && len(agents) == 0 {
 			return CapabilitySnapshot{}, fmt.Errorf("discovery %s stage initialized but produced no capabilities", stage)
 		}
-		return CapabilitySnapshot{Stage: string(stage), Commands: commands, Skills: skills}, nil
+		return CapabilitySnapshot{Stage: string(stage), Commands: commands, Skills: skills, Agents: agents}, nil
 	}
 	stopProcess := func() {
 		_ = stdin.Close()
@@ -539,6 +399,12 @@ func (t *ClaudeCapabilityDiscoveryTransport) Run(stage DiscoveryStage, projectPa
 			} else if ok && len(skills) > 0 {
 				messageHadCapability = true
 			}
+			if agents, ok, err := ParseAgentsFromLine(line); err != nil {
+				stopProcess()
+				return CapabilitySnapshot{}, fmt.Errorf("parse discovery agents: %w", err)
+			} else if ok && len(agents) > 0 {
+				messageHadCapability = true
+			}
 			if messageHadCapability {
 				if !settleActive {
 					settleActive = true
@@ -566,25 +432,9 @@ func (t *ClaudeCapabilityDiscoveryTransport) buildCommand(ctx context.Context, s
 	workingDir := projectPath
 	homeDir := t.realHomeDir
 	cleanup := func() {}
-	env := discoveryBaseEnv()
+	env := ensureFullShellPath(os.Environ())
 
 	switch stage {
-	case DiscoveryStageSystem:
-		isolatedHome, err := t.makeTempDir("", "claude-discovery-home-*")
-		if err != nil {
-			return nil, nil, fmt.Errorf("create isolated system home: %w", err)
-		}
-		emptyCwd, err := t.makeTempDir("", "claude-discovery-cwd-*")
-		if err != nil {
-			_ = os.RemoveAll(isolatedHome)
-			return nil, nil, fmt.Errorf("create isolated system cwd: %w", err)
-		}
-		homeDir = isolatedHome
-		workingDir = emptyCwd
-		cleanup = func() {
-			_ = os.RemoveAll(isolatedHome)
-			_ = os.RemoveAll(emptyCwd)
-		}
 	case DiscoveryStageUser:
 		emptyCwd, err := t.makeTempDir("", "claude-discovery-cwd-*")
 		if err != nil {
@@ -594,12 +444,10 @@ func (t *ClaudeCapabilityDiscoveryTransport) buildCommand(ctx context.Context, s
 		cleanup = func() {
 			_ = os.RemoveAll(emptyCwd)
 		}
-		env = ensureFullShellPath(os.Environ())
 	case DiscoveryStageProject:
 		if strings.TrimSpace(projectPath) == "" {
 			return nil, nil, errors.New("project discovery stage requires a project path")
 		}
-		env = ensureFullShellPath(os.Environ())
 	default:
 		return nil, nil, fmt.Errorf("unsupported discovery stage %q", stage)
 	}
@@ -636,14 +484,4 @@ func setEnv(env []string, key, value string) []string {
 		}
 	}
 	return append(env, prefix+value)
-}
-
-func discoveryBaseEnv() []string {
-	env := make([]string, 0, 3)
-	for _, key := range []string{"PATH", "TMPDIR", "TMP"} {
-		if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" {
-			env = append(env, key+"="+value)
-		}
-	}
-	return ensureFullShellPath(env)
 }

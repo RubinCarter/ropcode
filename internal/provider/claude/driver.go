@@ -17,7 +17,8 @@ var _ provider.ProviderSessionMode = (*Driver)(nil)
 var _ provider.ProviderSessionIdentifier = (*Driver)(nil)
 
 type Driver struct {
-	Activity *claudeactivity.Service
+	Activity         *claudeactivity.Service
+	CapabilitySource CapabilitySource
 }
 
 func (d *Driver) UseLongLivedSession(config provider.SessionConfig) bool {

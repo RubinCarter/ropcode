@@ -16,6 +16,7 @@ type controlResponseEnvelope struct {
 		Subtype  string `json:"subtype"`
 		Response struct {
 			Commands []discoveryCommandSummary `json:"commands"`
+			Agents   []discoveryAgentSummary   `json:"agents"`
 		} `json:"response"`
 	} `json:"response"`
 }
@@ -24,6 +25,10 @@ type discoveryCommandSummary struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	ArgumentHint string `json:"argumentHint"`
+}
+
+type discoveryAgentSummary struct {
+	Name string `json:"name"`
 }
 
 type systemInitEnvelope struct {
@@ -73,29 +78,57 @@ func ParseSkillsFromLine(line []byte) ([]string, bool, error) {
 	if err := json.Unmarshal(line, &envelope); err != nil {
 		return nil, false, nil
 	}
-	if envelope.Type != "system" {
+	switch envelope.Type {
+	case "system":
+		var payload systemInitEnvelope
+		if err := json.Unmarshal(line, &payload); err != nil {
+			return nil, false, err
+		}
+		if payload.Subtype != "init" {
+			return nil, false, nil
+		}
+
+		return dedupeSkills(payload.Skills), true, nil
+	default:
+		return nil, false, nil
+	}
+}
+
+func ParseAgentsFromLine(line []byte) ([]string, bool, error) {
+	line = bytes.TrimSpace(line)
+	if len(line) == 0 {
 		return nil, false, nil
 	}
 
-	var payload systemInitEnvelope
+	var envelope discoveryTypeEnvelope
+	if err := json.Unmarshal(line, &envelope); err != nil {
+		return nil, false, nil
+	}
+	if envelope.Type != "control_response" {
+		return nil, false, nil
+	}
+
+	var payload controlResponseEnvelope
 	if err := json.Unmarshal(line, &payload); err != nil {
 		return nil, false, err
 	}
-	if payload.Subtype != "init" {
-		return nil, false, nil
-	}
 
-	return dedupeSkills(payload.Skills), true, nil
+	agents := make([]string, 0, len(payload.Response.Response.Agents))
+	for _, agent := range payload.Response.Response.Agents {
+		agents = append(agents, agent.Name)
+	}
+	return dedupeSkills(agents), len(agents) > 0, nil
 }
 
-func CollectDiscoveryData(lines [][]byte) (commands []CommandSummary, skills []string, err error) {
+func CollectDiscoveryData(lines [][]byte) (commands []CommandSummary, skills []string, agents []string, err error) {
 	commandSeen := make(map[string]struct{})
 	skillSeen := make(map[string]struct{})
+	agentSeen := make(map[string]struct{})
 
 	for _, line := range lines {
 		parsedCommands, ok, parseErr := ParseCommandSummariesFromLine(line)
 		if parseErr != nil {
-			return nil, nil, parseErr
+			return nil, nil, nil, parseErr
 		}
 		if ok {
 			for _, command := range parsedCommands {
@@ -114,7 +147,7 @@ func CollectDiscoveryData(lines [][]byte) (commands []CommandSummary, skills []s
 
 		parsedSkills, ok, parseErr := ParseSkillsFromLine(line)
 		if parseErr != nil {
-			return nil, nil, parseErr
+			return nil, nil, nil, parseErr
 		}
 		if ok {
 			for _, skill := range parsedSkills {
@@ -129,9 +162,27 @@ func CollectDiscoveryData(lines [][]byte) (commands []CommandSummary, skills []s
 				skills = append(skills, name)
 			}
 		}
+
+		parsedAgents, ok, parseErr := ParseAgentsFromLine(line)
+		if parseErr != nil {
+			return nil, nil, nil, parseErr
+		}
+		if ok {
+			for _, agent := range parsedAgents {
+				name := strings.TrimPrefix(strings.TrimSpace(agent), "/")
+				if name == "" {
+					continue
+				}
+				if _, exists := agentSeen[name]; exists {
+					continue
+				}
+				agentSeen[name] = struct{}{}
+				agents = append(agents, name)
+			}
+		}
 	}
 
-	return commands, skills, nil
+	return commands, skills, agents, nil
 }
 
 func dedupeCommandSummaries(commands []CommandSummary) []CommandSummary {

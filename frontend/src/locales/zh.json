@@ -632,12 +632,13 @@
     "usingTool": "使用工具："
   },
   "capability": {
-    "title": "Claude 能力",
+    "title": "Provider 能力",
     "searchPlaceholder": "搜索能力...",
     "noResults": "没有匹配的能力",
     "system": "系统",
     "user": "用户",
     "project": "项目",
+    "plugin": "插件",
     "loading": "加载能力中...",
     "loadError": "加载能力失败"
   },

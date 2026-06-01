@@ -14,23 +14,25 @@ const FreshSessionSentinel = "__ROP_FRESH_SESSION__"
 
 // Manager is the unified session manager for all providers.
 type Manager struct {
-	ctx      context.Context
-	drivers  map[string]ProviderDriver
-	sessions map[string]*Session
-	binaries map[string]string
-	monitor  *Monitor
-	emitter  EventEmitter
-	mu       sync.RWMutex
+	ctx             context.Context
+	drivers         map[string]ProviderDriver
+	sessions        map[string]*Session
+	binaries        map[string]string
+	capabilityCache map[string]CapabilityLayers
+	monitor         *Monitor
+	emitter         EventEmitter
+	mu              sync.RWMutex
 }
 
 // NewManager creates a unified provider manager.
 func NewManager(ctx context.Context, emitter EventEmitter, monitorCfg *MonitorConfig) *Manager {
 	m := &Manager{
-		ctx:      ctx,
-		drivers:  make(map[string]ProviderDriver),
-		sessions: make(map[string]*Session),
-		binaries: make(map[string]string),
-		emitter:  emitter,
+		ctx:             ctx,
+		drivers:         make(map[string]ProviderDriver),
+		sessions:        make(map[string]*Session),
+		binaries:        make(map[string]string),
+		capabilityCache: make(map[string]CapabilityLayers),
+		emitter:         emitter,
 	}
 	if monitorCfg != nil {
 		m.monitor = NewMonitor(ctx, *monitorCfg, m.onHealthChanged)
@@ -38,6 +40,102 @@ func NewManager(ctx context.Context, emitter EventEmitter, monitorCfg *MonitorCo
 		m.monitor = NewMonitor(ctx, DefaultMonitorConfig(), m.onHealthChanged)
 	}
 	return m
+}
+
+func (m *Manager) GetProviderCapabilities(providerID, projectPath string) (CapabilityLayers, error) {
+	key := capabilityCacheKey(providerID, projectPath)
+	m.mu.RLock()
+	if cached, ok := m.capabilityCache[key]; ok {
+		m.mu.RUnlock()
+		return cloneCapabilityLayers(cached), nil
+	}
+	m.mu.RUnlock()
+	return m.discoverProviderCapabilities(providerID, projectPath, false)
+}
+
+func (m *Manager) RefreshProviderCapabilities(providerID, projectPath string) (CapabilityLayers, error) {
+	return m.discoverProviderCapabilities(providerID, projectPath, true)
+}
+
+func (m *Manager) CachedProviderCapabilities(providerID, projectPath string) (CapabilityLayers, bool) {
+	key := capabilityCacheKey(providerID, projectPath)
+	m.mu.RLock()
+	cached, ok := m.capabilityCache[key]
+	m.mu.RUnlock()
+	if !ok {
+		return CapabilityLayers{}, false
+	}
+	return cloneCapabilityLayers(cached), true
+}
+
+func (m *Manager) SaveProviderCapability(providerID string, capability Capability, projectPath string) error {
+	driver, err := m.driver(providerID)
+	if err != nil {
+		return err
+	}
+	editor, ok := driver.(ProviderCapabilityEditor)
+	if !ok {
+		return fmt.Errorf("provider %s does not support editable capabilities", providerID)
+	}
+	capability.Provider = providerID
+	if err := editor.SaveProviderCapability(m.ctx, capability, projectPath); err != nil {
+		return err
+	}
+	m.invalidateCapabilityCache(providerID, projectPath)
+	return nil
+}
+
+func (m *Manager) DeleteProviderCapability(providerID string, capability Capability, projectPath string) error {
+	driver, err := m.driver(providerID)
+	if err != nil {
+		return err
+	}
+	editor, ok := driver.(ProviderCapabilityEditor)
+	if !ok {
+		return fmt.Errorf("provider %s does not support editable capabilities", providerID)
+	}
+	capability.Provider = providerID
+	if err := editor.DeleteProviderCapability(m.ctx, capability, projectPath); err != nil {
+		return err
+	}
+	m.invalidateCapabilityCache(providerID, projectPath)
+	return nil
+}
+
+func (m *Manager) invalidateCapabilityCache(providerID, projectPath string) {
+	m.mu.Lock()
+	delete(m.capabilityCache, capabilityCacheKey(providerID, projectPath))
+	delete(m.capabilityCache, capabilityCacheKey(providerID, ""))
+	m.mu.Unlock()
+}
+
+func (m *Manager) discoverProviderCapabilities(providerID, projectPath string, force bool) (CapabilityLayers, error) {
+	driver, err := m.driver(providerID)
+	if err != nil {
+		return CapabilityLayers{}, err
+	}
+
+	layers := EmptyCapabilityLayers(providerID)
+	if discoverer, ok := driver.(ProviderCapabilityDiscoverer); ok {
+		discovered, err := discoverer.DiscoverProviderCapabilities(m.ctx, projectPath, force)
+		if err != nil {
+			return CapabilityLayers{}, err
+		}
+		layers = discovered
+		if layers.FetchedAt.IsZero() {
+			layers.FetchedAt = time.Now().UTC()
+		}
+	}
+
+	key := capabilityCacheKey(providerID, projectPath)
+	m.mu.Lock()
+	m.capabilityCache[key] = cloneCapabilityLayers(layers)
+	m.mu.Unlock()
+	return cloneCapabilityLayers(layers), nil
+}
+
+func capabilityCacheKey(providerID, projectPath string) string {
+	return strings.TrimSpace(providerID) + "::" + strings.TrimSpace(projectPath)
 }
 
 // RegisterDriver registers a provider driver.

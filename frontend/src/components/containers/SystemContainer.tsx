@@ -1,12 +1,34 @@
-import React, { Suspense, lazy } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { useSystemTabContext } from '@/contexts/SystemTabContext';
 import { Loader2 } from 'lucide-react';
+import { SettingsLoadingShell } from '@/components/SettingsLoadingShell';
+
+const loadSettings = () => import('@/components/Settings').then(m => ({ default: m.Settings }));
+
+const prefetchSettings = () => {
+  void loadSettings().catch(() => undefined);
+};
+
+const scheduleSettingsPrefetch = () => {
+  const win = window as Window & {
+    requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  };
+
+  if (typeof win.requestIdleCallback === 'function') {
+    const idleId = win.requestIdleCallback(prefetchSettings, { timeout: 1500 });
+    return () => win.cancelIdleCallback?.(idleId);
+  }
+
+  const timeoutId = globalThis.setTimeout(prefetchSettings, 600);
+  return () => globalThis.clearTimeout(timeoutId);
+};
 
 // Lazy load components with named exports
 const Agents = lazy(() => import('@/components/Agents').then(m => ({ default: m.Agents })));
 const UsageDashboard = lazy(() => import('@/components/UsageDashboard').then(m => ({ default: m.UsageDashboard })));
 const MCPManager = lazy(() => import('@/components/MCPManager').then(m => ({ default: m.MCPManager })));
-const Settings = lazy(() => import('@/components/Settings').then(m => ({ default: m.Settings })));
+const Settings = lazy(loadSettings);
 const MarkdownEditor = lazy(() => import('@/components/MarkdownEditor').then(m => ({ default: m.MarkdownEditor })));
 const CreateAgent = lazy(() => import('@/components/CreateAgent').then(m => ({ default: m.CreateAgent })));
 
@@ -17,6 +39,18 @@ interface SystemContainerProps {
 export const SystemContainer: React.FC<SystemContainerProps> = ({ visible }) => {
   const { getActiveTab } = useSystemTabContext();
   const activeTab = getActiveTab();
+
+  useEffect(() => {
+    return scheduleSettingsPrefetch();
+  }, []);
+
+  const fallback = activeTab?.type === 'settings' ? (
+    <SettingsLoadingShell />
+  ) : (
+    <div className="flex items-center justify-center h-full">
+      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+    </div>
+  );
 
   const renderContent = () => {
     if (!activeTab) {
@@ -61,13 +95,7 @@ export const SystemContainer: React.FC<SystemContainerProps> = ({ visible }) => 
   return (
     <div className={`h-full w-full flex flex-col ${visible ? '' : 'hidden'}`}>
       <div className="flex-1 overflow-hidden">
-        <Suspense
-          fallback={
-            <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          }
-        >
+        <Suspense fallback={fallback}>
           {renderContent()}
         </Suspense>
       </div>

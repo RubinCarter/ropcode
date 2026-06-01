@@ -9,6 +9,7 @@ import (
 
 	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
+	"ropcode/internal/provider"
 	"ropcode/internal/stream"
 )
 
@@ -215,47 +216,35 @@ func SessionHandlers(d *Deps) map[string]Handler {
 			return d.Activity.ReadSubagentLog(argString(p, 0), argString(p, 1), argInt(p, 2))
 		},
 		// --- Capability Discovery ---
-		"GetCachedClaudeCapabilityLayers": func(p json.RawMessage) (any, error) {
-			if d.CapDiscovery == nil {
+		"GetCachedProviderCapabilityLayers": func(p json.RawMessage) (any, error) {
+			if d.Provider == nil {
 				return nil, nil
 			}
-			layers, ok := d.CapDiscovery.Cached(argString(p, 0))
+			layers, ok := d.Provider.CachedProviderCapabilities(argString(p, 0), argString(p, 1))
 			if !ok {
 				return nil, nil
 			}
-			return formatCapabilityLayers(layers), nil
+			return formatProviderCapabilityLayers(layers), nil
 		},
-		"PrewarmClaudeCapabilityLayers": func(p json.RawMessage) (any, error) {
-			if d.CapDiscovery == nil {
-				return nil, nil
+		"GetProviderCapabilityLayers": func(p json.RawMessage) (any, error) {
+			if d.Provider == nil {
+				return nil, fmt.Errorf("provider manager not initialized")
 			}
-			projectPath := argString(p, 0)
-			go d.CapDiscovery.PrewarmSystem()
-			go d.CapDiscovery.PrewarmUser()
-			if strings.TrimSpace(projectPath) != "" {
-				go d.CapDiscovery.PrewarmProject(projectPath)
-			}
-			return nil, nil
-		},
-		"GetClaudeCapabilityLayers": func(p json.RawMessage) (any, error) {
-			if d.CapDiscovery == nil {
-				return nil, nil
-			}
-			layers, err := d.CapDiscovery.Discover(argString(p, 0))
+			layers, err := d.Provider.GetProviderCapabilities(argString(p, 0), argString(p, 1))
 			if err != nil {
 				return nil, err
 			}
-			return formatCapabilityLayers(layers), nil
+			return formatProviderCapabilityLayers(layers), nil
 		},
-		"RefreshClaudeCapabilityLayers": func(p json.RawMessage) (any, error) {
-			if d.CapDiscovery == nil {
-				return nil, nil
+		"RefreshProviderCapabilityLayers": func(p json.RawMessage) (any, error) {
+			if d.Provider == nil {
+				return nil, fmt.Errorf("provider manager not initialized")
 			}
-			layers, err := d.CapDiscovery.Refresh(argString(p, 0))
+			layers, err := d.Provider.RefreshProviderCapabilities(argString(p, 0), argString(p, 1))
 			if err != nil {
 				return nil, err
 			}
-			return formatCapabilityLayers(layers), nil
+			return formatProviderCapabilityLayers(layers), nil
 		},
 		// --- Binary Path ---
 		"GetClaudeBinaryPath": func(p json.RawMessage) (any, error) {
@@ -300,13 +289,14 @@ func switchSessionProviderApi(d *Deps, sessionID, providerApiID string) error {
 	return d.Provider.UpdateEnvironmentVariables(sessionID, variables)
 }
 
-func formatCapabilityLayers(layers claude.CapabilityLayers) map[string]any {
+func formatProviderCapabilityLayers(layers provider.CapabilityLayers) map[string]any {
 	return map[string]any{
 		"system":       layers.System,
 		"user_only":    layers.UserOnly,
 		"project_only": layers.ProjectOnly,
+		"plugin":       layers.Plugin,
 		"all_visible":  layers.AllVisible,
-		"fetched_at":   time.Now().UTC(),
+		"fetched_at":   layers.FetchedAt,
 	}
 }
 

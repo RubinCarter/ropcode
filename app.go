@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"ropcode/internal/claude"
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
@@ -41,23 +40,22 @@ type App struct {
 	config *config.Config
 
 	// Core managers
-	ptyManager          *pty.Manager
-	processManager      *process.Manager
-	dbManager           *database.Database
-	providerManager     *provider.Manager
-	claudeActivity      *claudeactivity.Service
-	mcpManager          *mcp.Manager
-	sshManager          *ssh.Manager
-	pluginManager       *plugin.Manager
-	eventHub            *eventhub.EventHub
-	sessionStreamHub    *stream.Hub
-	syncHub             *stream.SyncHub
-	bulkHub             *stream.BulkHub
-	gitWatcher          *git.GitWatcher
-	modelRegistry       *models.Registry
-	capabilityDiscovery claude.CapabilityDiscovery
-	sessionTitles       *sessionTitleStore
-	projectChatManager  *projectchat.Manager
+	ptyManager         *pty.Manager
+	processManager     *process.Manager
+	dbManager          *database.Database
+	providerManager    *provider.Manager
+	claudeActivity     *claudeactivity.Service
+	mcpManager         *mcp.Manager
+	sshManager         *ssh.Manager
+	pluginManager      *plugin.Manager
+	eventHub           *eventhub.EventHub
+	sessionStreamHub   *stream.Hub
+	syncHub            *stream.SyncHub
+	bulkHub            *stream.BulkHub
+	gitWatcher         *git.GitWatcher
+	modelRegistry      *models.Registry
+	sessionTitles      *sessionTitleStore
+	projectChatManager *projectchat.Manager
 }
 
 // NewApp creates a new App application struct
@@ -122,7 +120,10 @@ func (a *App) startup(ctx context.Context) {
 
 	// Initialize unified provider manager
 	a.providerManager = provider.NewManager(ctx, providerEmitter, nil)
-	a.providerManager.RegisterDriver(&providerClaude.Driver{Activity: a.claudeActivity})
+	a.providerManager.RegisterDriver(&providerClaude.Driver{
+		Activity:         a.claudeActivity,
+		CapabilitySource: &claudeProviderCapabilitySource{},
+	})
 	a.providerManager.RegisterDriver(&providerCodex.Driver{})
 	a.providerManager.RegisterDriver(&providerGemini.Driver{})
 	a.providerManager.RegisterDriver(&providerDeepseek.Driver{})
@@ -146,43 +147,7 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize GitWatcher (EventHub already initialized above)
 	a.gitWatcher = git.NewGitWatcher(a.eventHub)
 
-	go func() {
-		service, err := a.getClaudeCapabilityDiscovery()
-		if err != nil {
-			return
-		}
-		_ = service.PrewarmSystem()
-	}()
-
-	go func() {
-		service, err := a.getClaudeCapabilityDiscovery()
-		if err != nil {
-			return
-		}
-		_ = service.PrewarmUser()
-	}()
-
 	log.Println("ropcode started successfully")
-}
-
-func (a *App) getClaudeCapabilityDiscovery() (claude.CapabilityDiscovery, error) {
-	a.mu.RLock()
-	if a.capabilityDiscovery != nil {
-		service := a.capabilityDiscovery
-		a.mu.RUnlock()
-		return service, nil
-	}
-	a.mu.RUnlock()
-
-	transport, err := claude.NewClaudeCapabilityDiscoveryTransport()
-	if err != nil {
-		return nil, err
-	}
-	service := claude.NewCapabilityDiscoveryService(transport)
-	a.mu.Lock()
-	a.capabilityDiscovery = service
-	a.mu.Unlock()
-	return service, nil
 }
 
 // shutdown is called when the app is shutting down
@@ -383,25 +348,24 @@ func (a *App) Database() *database.Database {
 
 // RPCDeps returns the dependency bag for the new RPC handler layer.
 func (a *App) RPCDeps() *rpc.Deps {
-	var capDisc claude.CapabilityDiscovery
-	if a.capabilityDiscovery != nil {
-		capDisc = a.capabilityDiscovery
-	}
+	return a.rpcDeps()
+}
+
+func (a *App) rpcDeps() *rpc.Deps {
 	return &rpc.Deps{
-		Provider:     a.providerManager,
-		ProjectChat:  a.projectChatManager,
-		DB:           a.dbManager,
-		MCP:          a.mcpManager,
-		SSH:          a.sshManager,
-		Plugin:       a.pluginManager,
-		Pty:          a.ptyManager,
-		Process:      a.processManager,
-		Models:       a.modelRegistry,
-		Config:       a.config,
-		EventHub:     a.eventHub,
-		Activity:     a.claudeActivity,
-		CapDiscovery: capDisc,
-		BulkHub:      a.bulkHub,
+		Provider:    a.providerManager,
+		ProjectChat: a.projectChatManager,
+		DB:          a.dbManager,
+		MCP:         a.mcpManager,
+		SSH:         a.sshManager,
+		Plugin:      a.pluginManager,
+		Pty:         a.ptyManager,
+		Process:     a.processManager,
+		Models:      a.modelRegistry,
+		Config:      a.config,
+		EventHub:    a.eventHub,
+		Activity:    a.claudeActivity,
+		BulkHub:     a.bulkHub,
 	}
 }
 

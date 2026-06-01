@@ -216,6 +216,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
       setError(null);
 
       await api.slashCommandSave(
+        commandForm.commandType,
         commandForm.name,
         commandForm.content,
         commandForm.scope,
@@ -249,7 +250,12 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
     try {
       setDeleting(true);
       setError(null);
-      await api.slashCommandDelete(commandToDelete.id, projectPath);
+      await api.slashCommandDelete(
+        commandToDelete.command_type,
+        commandToDelete.name,
+        commandToDelete.scope,
+        commandToDelete.scope === 'project' ? projectPath : undefined
+      );
       setDeleteDialogOpen(false);
       setCommandToDelete(null);
       await loadCommands();
@@ -297,6 +303,7 @@ export const SlashCommandsManager: React.FC<SlashCommandsManagerProps> = ({
 
       // Save as new command type
       await api.slashCommandSave(
+        targetType,
         commandToConvert.name,
         commandToConvert.content,
         commandToConvert.scope as 'project' | 'user',

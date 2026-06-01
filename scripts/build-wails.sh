@@ -4,6 +4,9 @@ set -euo pipefail
 SKIP_INSTALL=0
 SKIP_FRONTEND=0
 RUN_AFTER_BUILD=0
+APPICON_SRC="assets/icon.png"
+APPICON_ICNS="assets/icon.icns"
+APPICON_PATH="build/appicon.png"
 
 for arg in "$@"; do
   case "$arg" in
@@ -48,6 +51,22 @@ echo "Output folder: build-wails"
 echo "Renderer: system WKWebView"
 echo "Bun/Electron runtime: not bundled"
 
+step "Preparing Wails app icon"
+if [[ ! -f "$APPICON_SRC" ]]; then
+  echo "${APPICON_SRC} not found" >&2
+  exit 1
+fi
+if [[ ! -f "$APPICON_ICNS" ]]; then
+  echo "${APPICON_ICNS} not found" >&2
+  exit 1
+fi
+mkdir -p "$(dirname "$APPICON_PATH")"
+if command -v magick &>/dev/null; then
+  magick "$APPICON_SRC" -background none -gravity center -resize 1024x1024 -extent 1024x1024 "$APPICON_PATH"
+else
+  cp "$APPICON_SRC" "$APPICON_PATH"
+fi
+
 if (( ! SKIP_INSTALL )); then
   step "Ensuring Wails CLI"
   WAILS="$(resolve_wails)"
@@ -85,6 +104,12 @@ if [[ -n "$APP_BUNDLE" ]]; then
   cp bin/ropcode-server "${APP_BUNDLE}/Contents/MacOS/ropcode-server"
   chmod +x "${APP_BUNDLE}/Contents/MacOS/ropcode-server"
   cp -r frontend/dist "${APP_BUNDLE}/Contents/MacOS/frontend"
+  mkdir -p "${APP_BUNDLE}/Contents/Resources"
+  cp "$APPICON_ICNS" "${APP_BUNDLE}/Contents/Resources/iconfile.icns"
+  if [[ ! -s "${APP_BUNDLE}/Contents/Resources/iconfile.icns" ]]; then
+    echo "${APP_BUNDLE} is missing Contents/Resources/iconfile.icns" >&2
+    exit 1
+  fi
 fi
 
 step "Size summary"

@@ -11,21 +11,32 @@ import type { SessionFrame } from './session-frame/types';
 // Common type definitions
 export type CommandType = 'claude' | 'codex';
 
-export interface ClaudeCapability {
+export interface ProviderCapability {
   key: string;
+  provider: string;
   name: string;
   slash_name: string;
-  kind: 'command' | 'skill';
+  kind: 'command' | 'skill' | 'agent';
   description?: string;
   argument_hint?: string;
-  scope: 'system' | 'user' | 'project';
+  scope: 'system' | 'user' | 'project' | 'plugin';
+  namespace?: string;
+  source_path?: string;
+  content?: string;
+  allowed_tools?: string[];
+  has_bash_commands?: boolean;
+  has_file_references?: boolean;
+  accepts_arguments?: boolean;
+  plugin_id?: string;
+  plugin_name?: string;
 }
 
-export interface ClaudeCapabilityLayers {
-  system: ClaudeCapability[];
-  user_only: ClaudeCapability[];
-  project_only: ClaudeCapability[];
-  all_visible: ClaudeCapability[];
+export interface ProviderCapabilityLayers {
+  system: ProviderCapability[];
+  user_only: ProviderCapability[];
+  project_only: ProviderCapability[];
+  plugin?: ProviderCapability[];
+  all_visible: ProviderCapability[];
   fetched_at: string;
 }
 
@@ -1386,36 +1397,32 @@ export function ValidateHookCommand(command: string): Promise<main.HookValidatio
 
 // ==================== Slash Commands ====================
 
-export function GetCachedClaudeCapabilityLayers(projectPath: string): Promise<ClaudeCapabilityLayers | null> {
-  return wsClient.call('GetCachedClaudeCapabilityLayers', projectPath);
+export function GetCachedProviderCapabilityLayers(providerId: string, projectPath: string): Promise<ProviderCapabilityLayers | null> {
+  return wsClient.call('GetCachedProviderCapabilityLayers', providerId, projectPath);
 }
 
-export function PrewarmClaudeCapabilityLayers(projectPath: string): Promise<void> {
-  return wsClient.call('PrewarmClaudeCapabilityLayers', projectPath);
+export function GetProviderCapabilityLayers(providerId: string, projectPath: string): Promise<ProviderCapabilityLayers> {
+  return wsClient.call('GetProviderCapabilityLayers', providerId, projectPath);
 }
 
-export function GetClaudeCapabilityLayers(projectPath: string): Promise<ClaudeCapabilityLayers> {
-  return wsClient.call('GetClaudeCapabilityLayers', projectPath);
-}
-
-export function RefreshClaudeCapabilityLayers(projectPath: string): Promise<ClaudeCapabilityLayers> {
-  return wsClient.call('RefreshClaudeCapabilityLayers', projectPath);
+export function RefreshProviderCapabilityLayers(providerId: string, projectPath: string): Promise<ProviderCapabilityLayers> {
+  return wsClient.call('RefreshProviderCapabilityLayers', providerId, projectPath);
 }
 
 export function ListSlashCommands(projectPath: string): Promise<claude.SlashCommand[]> {
   return wsClient.call('ListSlashCommands', projectPath);
 }
 
-export function GetSlashCommand(projectPath: string, name: string): Promise<claude.SlashCommand> {
-  return wsClient.call('GetSlashCommand', projectPath, name);
+export function GetSlashCommand(name: string, projectPath: string): Promise<claude.SlashCommand> {
+  return wsClient.call('GetSlashCommand', name, projectPath);
 }
 
-export function SaveSlashCommand(projectPath: string, name: string, command: string, description: string): Promise<void> {
-  return wsClient.call('SaveSlashCommand', projectPath, name, command, description);
+export function SaveSlashCommand(providerId: string, name: string, command: string, scope: string, projectPath: string): Promise<void> {
+  return wsClient.call('SaveSlashCommand', providerId, name, command, scope, projectPath);
 }
 
-export function DeleteSlashCommand(projectPath: string, name: string, command: string): Promise<void> {
-  return wsClient.call('DeleteSlashCommand', projectPath, name, command);
+export function DeleteSlashCommand(providerId: string, name: string, scope: string, projectPath: string): Promise<void> {
+  return wsClient.call('DeleteSlashCommand', providerId, name, scope, projectPath);
 }
 
 // ==================== SSH Management ====================

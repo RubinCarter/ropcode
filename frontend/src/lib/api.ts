@@ -8,7 +8,7 @@
 export * from './rpc-client';
 
 // Type aliases for backward compatibility
-import type { ClaudeCapability, ClaudeCapabilityLayers, database, claude, main, mcp } from './rpc-client';
+import type { ProviderCapability, ProviderCapabilityLayers, database, claude, main, mcp } from './rpc-client';
 export type Agent = database.Agent;
 export type AgentRunMetrics = database.AgentRunMetrics;
 export type AgentRun = database.AgentRun;
@@ -25,8 +25,8 @@ export type SpaceSessionsResult = main.SpaceSessionsResult;
 export type ProviderApiConfig = database.ProviderApiConfig;
 export type Action = main.Action;
 export type ActionsResult = main.ActionsResult;
-export type ClaudeCapabilityItem = ClaudeCapability;
-export type ClaudeCapabilityLayersResult = ClaudeCapabilityLayers;
+export type ProviderCapabilityItem = ProviderCapability;
+export type ProviderCapabilityLayersResult = ProviderCapabilityLayers;
 export interface FileEntry extends main.FileEntry {
   entry_type?: string;
   color?: string;
