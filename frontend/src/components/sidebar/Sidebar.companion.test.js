@@ -23,6 +23,9 @@ test('sidebar rail keeps top-level navigation icon-only', async () => {
 
   assert.match(railSource, /aria-label/);
   assert.match(railSource, /TooltipSimple/);
+  assert.doesNotMatch(railSource, /expandSidebar/);
+  assert.doesNotMatch(railSource, /collapseSidebar/);
+  assert.doesNotMatch(railSource, /onToggleCollapse/);
   assert.doesNotMatch(railSource, />\s*Projects\s*</);
   assert.doesNotMatch(railSource, />\s*Sessions\s*</);
   assert.doesNotMatch(railSource, /switchToSystem\('spaces'\)/);

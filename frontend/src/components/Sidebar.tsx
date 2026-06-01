@@ -96,6 +96,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const activeTab = tabs.find(tab => tab.id === activeTabId);
   const isCollapsed = externalCollapsed !== undefined ? externalCollapsed : internalCollapsed;
 
+  const setCollapsedState = useCallback((collapsed: boolean) => {
+    if (onCollapse) {
+      onCollapse(collapsed);
+    } else {
+      setInternalCollapsed(collapsed);
+    }
+
+    window.dispatchEvent(new CustomEvent('sidebar-collapsed', {
+      detail: { collapsed }
+    }));
+
+    try {
+      localStorage.setItem('sidebar_collapsed', String(collapsed));
+    } catch (err) {
+      console.warn('Failed to save sidebar state:', err);
+    }
+  }, [onCollapse]);
+
   const setPanelMode = useCallback((nextMode: SidebarPanelMode) => {
     setPanelModeState(nextMode);
     try {
@@ -104,6 +122,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
       console.warn('Failed to save sidebar panel mode:', err);
     }
   }, []);
+
+  const handlePanelModeSelect = useCallback((nextMode: SidebarPanelMode) => {
+    if (isCollapsed) {
+      setPanelMode(nextMode);
+      setCollapsedState(false);
+      return;
+    }
+
+    if (panelMode === nextMode) {
+      setCollapsedState(true);
+      return;
+    }
+
+    setPanelMode(nextMode);
+  }, [isCollapsed, panelMode, setCollapsedState, setPanelMode]);
 
   const startSidebarResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     if (isCollapsed) return;
@@ -239,23 +272,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [handleProjectClick, loadProjects]);
 
   const toggleCollapse = useCallback(() => {
-    const newCollapsed = !isCollapsed;
-    if (onCollapse) {
-      onCollapse(newCollapsed);
-    } else {
-      setInternalCollapsed(newCollapsed);
-    }
-
-    window.dispatchEvent(new CustomEvent('sidebar-collapsed', {
-      detail: { collapsed: newCollapsed }
-    }));
-
-    try {
-      localStorage.setItem('sidebar_collapsed', String(newCollapsed));
-    } catch (err) {
-      console.warn('Failed to save sidebar state:', err);
-    }
-  }, [isCollapsed, onCollapse]);
+    setCollapsedState(!isCollapsed);
+  }, [isCollapsed, setCollapsedState]);
 
   useEffect(() => {
     if (externalCollapsed === undefined) {
@@ -300,8 +318,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         mode={panelMode}
         collapsed={isCollapsed}
         activeSystemTabType={activeTab?.type}
-        onModeChange={setPanelMode}
-        onToggleCollapse={toggleCollapse}
+        onModeChange={handlePanelModeSelect}
         onOpenProject={() => setShowOpenDialog(true)}
         onCloneProject={() => setShowCloneDialog(true)}
         onSyncFromSSH={() => setShowSSHDialog(true)}

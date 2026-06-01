@@ -2,8 +2,6 @@ import React from 'react';
 import {
   BarChart3,
   Bot,
-  ChevronLeft,
-  ChevronRight,
   FileText,
   FolderOpen,
   GitBranch,
@@ -33,7 +31,6 @@ interface SidebarRailProps {
   collapsed: boolean;
   activeSystemTabType?: string;
   onModeChange: (mode: SidebarPanelMode) => void;
-  onToggleCollapse: () => void;
   onOpenProject: () => void;
   onCloneProject: () => void;
   onSyncFromSSH: () => void;
@@ -75,7 +72,6 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
   collapsed,
   activeSystemTabType,
   onModeChange,
-  onToggleCollapse,
   onOpenProject,
   onCloneProject,
   onSyncFromSSH,
@@ -92,24 +88,15 @@ export const SidebarRail: React.FC<SidebarRailProps> = ({
       <div className="flex h-full w-16 flex-shrink-0 flex-col items-center border-r border-border/50 bg-background py-2">
         <div className="flex flex-col items-center gap-1">
           <RailButton
-            label={collapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
-            onClick={onToggleCollapse}
-          >
-            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </RailButton>
-        </div>
-
-        <div className="mt-3 flex flex-col items-center gap-1">
-          <RailButton
             label={t('sidebar.projects')}
-            active={mode === 'projects'}
+            active={!collapsed && mode === 'projects'}
             onClick={() => onModeChange('projects')}
           >
             <FolderOpen className="h-4 w-4" />
           </RailButton>
           <RailButton
             label={t('sidebar.sessions')}
-            active={mode === 'sessions'}
+            active={!collapsed && mode === 'sessions'}
             onClick={() => onModeChange('sessions')}
           >
             <MessageSquare className="h-4 w-4" />
