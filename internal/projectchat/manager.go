@@ -421,7 +421,9 @@ func (m *Manager) InterruptActiveSegment(chatID string) error {
 	}
 
 	if seg.RuntimeSessionID != "" {
-		_ = m.provider.TerminateSession(seg.RuntimeSessionID)
+		if err := m.provider.InterruptSession(seg.RuntimeSessionID); err != nil && !strings.Contains(err.Error(), "session not found") {
+			return fmt.Errorf("interrupt provider session: %w", err)
+		}
 	}
 
 	now := time.Now().Unix()
@@ -518,6 +520,10 @@ func (m *Manager) LoadAllSegmentFrames(chatID string) ([]stream.SessionFrame, er
 		if sessionID == "" {
 			sessionID = seg.RuntimeSessionID
 		}
+		frameRuntimeSessionID := seg.RuntimeSessionID
+		if frameRuntimeSessionID == "" {
+			frameRuntimeSessionID = sessionID
+		}
 
 		events, err := m.provider.LoadHistoryEvents(seg.Provider, projectID, sessionID)
 		if err != nil {
@@ -525,7 +531,7 @@ func (m *Manager) LoadAllSegmentFrames(chatID string) ([]stream.SessionFrame, er
 		}
 
 		frames, err := stream.FramesFromEvents(seg.Provider, stream.ProviderOutputContext{
-			RuntimeSessionID:  seg.RuntimeSessionID,
+			RuntimeSessionID:  frameRuntimeSessionID,
 			ProviderSessionID: seg.ProviderSessionID,
 			ProjectPath:       chat.ProjectPath,
 		}, events)
@@ -573,6 +579,10 @@ func (m *Manager) buildContextFromSegments(segments []*database.ChatSegment, pro
 		if sessionID == "" {
 			continue
 		}
+		frameRuntimeSessionID := seg.RuntimeSessionID
+		if frameRuntimeSessionID == "" {
+			frameRuntimeSessionID = sessionID
+		}
 
 		events, err := m.provider.LoadHistoryEvents(seg.Provider, projectID, sessionID)
 		if err != nil {
@@ -580,7 +590,7 @@ func (m *Manager) buildContextFromSegments(segments []*database.ChatSegment, pro
 		}
 
 		frames, err := stream.FramesFromEvents(seg.Provider, stream.ProviderOutputContext{
-			RuntimeSessionID:  seg.RuntimeSessionID,
+			RuntimeSessionID:  frameRuntimeSessionID,
 			ProviderSessionID: seg.ProviderSessionID,
 			ProjectPath:       projectPath,
 		}, events)

@@ -163,7 +163,7 @@ func (b *ProviderBridge) reconcileStreamingCompletedFrame(frame SessionFrame) (S
 	if previousText == "" || incomingText == "" {
 		return frame, nil
 	}
-	if incomingText == previousText || strings.HasPrefix(previousText, incomingText) || !strings.Contains(incomingText, previousText) {
+	if incomingText == previousText || strings.HasPrefix(previousText, incomingText) {
 		return SessionFrame{}, ErrProviderStreamFrameSuppressed
 	}
 

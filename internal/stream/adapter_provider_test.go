@@ -235,6 +235,60 @@ func TestProviderBridgeSuppressesShortCompletedEchoAfterAggregatedDeltas(t *test
 	}
 }
 
+func TestProviderBridgeUpsertsCompletedFullTextAfterAggregatedDeltas(t *testing.T) {
+	hub := NewHub()
+	bridge := NewProviderBridge(hub)
+	sub := hub.Subscribe(StreamIDForSession("codex", "runtime-1"))
+	defer sub.Close()
+
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, assistantDeltaEvent("runtime-1", "msg-1", "The right fix is")); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, assistantMessageEvent("runtime-1", "msg-1", "The right fix is to reconcile provider differences in the backend")); err != nil {
+		t.Fatal(err)
+	}
+
+	aggregate := receiveFrame(t, sub)
+	completed := receiveFrame(t, sub)
+
+	if got := frameContentText(aggregate.Content); got != "The right fix is" {
+		t.Fatalf("expected aggregate text, got %q", got)
+	}
+	if completed.Operation != FrameOperationUpsert {
+		t.Fatalf("expected completed full text to upsert streamed frame, got %q", completed.Operation)
+	}
+	if completed.MessageID != "msg-1" {
+		t.Fatalf("expected stable message id, got %q", completed.MessageID)
+	}
+	if got := frameContentText(completed.Content); got != "The right fix is to reconcile provider differences in the backend" {
+		t.Fatalf("expected completed full text, got %q", got)
+	}
+}
+
+func TestProviderBridgeTreatsCompletedTextAsAuthoritativeAfterDeltas(t *testing.T) {
+	hub := NewHub()
+	bridge := NewProviderBridge(hub)
+	sub := hub.Subscribe(StreamIDForSession("codex", "runtime-1"))
+	defer sub.Close()
+
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, assistantDeltaEvent("runtime-1", "msg-1", "The right implementation")); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, assistantMessageEvent("runtime-1", "msg-1", "A robust implementation uses backend stream upserts")); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = receiveFrame(t, sub)
+	completed := receiveFrame(t, sub)
+
+	if completed.Operation != FrameOperationUpsert {
+		t.Fatalf("expected authoritative completed text to upsert streamed frame, got %q", completed.Operation)
+	}
+	if got := frameContentText(completed.Content); got != "A robust implementation uses backend stream upserts" {
+		t.Fatalf("expected authoritative completed text, got %q", got)
+	}
+}
+
 func TestProviderBridgeSuppressesUserEchoWithInjectedSystemPrompt(t *testing.T) {
 	hub := NewHub()
 	bridge := NewProviderBridge(hub)

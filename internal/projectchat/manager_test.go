@@ -18,12 +18,13 @@ type testEmitter struct{}
 func (e *testEmitter) Emit(name string, data interface{}) {}
 
 type resumeProbeDriver struct {
-	id      string
-	mu      sync.Mutex
-	starts  []provider.SessionConfig
-	resumes []string
-	sends   []string
-	history []provider.OutputEvent
+	id         string
+	mu         sync.Mutex
+	starts     []provider.SessionConfig
+	resumes    []string
+	sends      []string
+	interrupts int
+	history    []provider.OutputEvent
 }
 
 func (d *resumeProbeDriver) ID() string         { return d.id }
@@ -55,7 +56,10 @@ func (d *resumeProbeDriver) SendMessage(session provider.SessionHandle, msg stri
 	return nil
 }
 func (d *resumeProbeDriver) Interrupt(session provider.SessionHandle) error {
-	return session.Kill()
+	d.mu.Lock()
+	d.interrupts++
+	d.mu.Unlock()
+	return nil
 }
 func (d *resumeProbeDriver) SetModel(session provider.SessionHandle, model string) error {
 	session.UpdateConfig(func(c *provider.SessionConfig) { c.Model = model })
@@ -238,6 +242,53 @@ func TestSendMessageUsesProviderSessionResolver(t *testing.T) {
 	}
 }
 
+func TestInterruptActiveSegmentUsesProviderInterrupt(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+
+	driver := &resumeProbeDriver{id: "codex"}
+	if err := prov.RegisterDriver(driver); err != nil {
+		t.Fatalf("register codex: %v", err)
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+	created, err := manager.CreateChat(projectPath, "codex", "gpt-5", "")
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+	if _, err := manager.SendMessage(created.ChatID, "start work", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+	seg, err := db.GetChatSegment(created.SegmentID)
+	if err != nil {
+		t.Fatalf("get segment: %v", err)
+	}
+	if seg.RuntimeSessionID == "" {
+		t.Fatal("expected runtime session after send")
+	}
+
+	if err := manager.InterruptActiveSegment(created.ChatID); err != nil {
+		t.Fatalf("interrupt active segment: %v", err)
+	}
+
+	driver.mu.Lock()
+	interrupts := driver.interrupts
+	driver.mu.Unlock()
+	if interrupts != 1 {
+		t.Fatalf("expected one provider interrupt, got %d", interrupts)
+	}
+	if !prov.IsProviderSessionRunningForProject(projectPath, seg.RuntimeSessionID) {
+		t.Fatalf("expected provider runtime to remain alive after interrupt")
+	}
+}
+
 func TestSendMessageResumesWrappedProviderSessionID(t *testing.T) {
 	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -339,5 +390,78 @@ func TestLoadAllSegmentFramesUsesProjectChatStreamID(t *testing.T) {
 	}
 	if frames[0].ProviderSessionID != "provider-native-session" {
 		t.Fatalf("expected provider session id to be preserved, got %q", frames[0].ProviderSessionID)
+	}
+}
+
+func TestLoadAllSegmentFramesUsesProviderSessionIDForHistoryOnlySegment(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+
+	driver := &resumeProbeDriver{
+		id: "codex",
+		history: []provider.OutputEvent{
+			{
+				Type:              "assistant",
+				Provider:          "codex",
+				ProviderSessionID: "provider-history-session",
+				Message: map[string]interface{}{
+					"message": map[string]interface{}{
+						"role": "assistant",
+						"content": []interface{}{
+							map[string]interface{}{
+								"type": "text",
+								"text": "historical codex reply",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := prov.RegisterDriver(driver); err != nil {
+		t.Fatalf("register codex: %v", err)
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	created, err := manager.CreateChat(t.TempDir(), "codex", "gpt-5", "", "provider-history-session")
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+
+	seg, err := db.GetChatSegment(created.SegmentID)
+	if err != nil {
+		t.Fatalf("get segment: %v", err)
+	}
+	if seg.RuntimeSessionID != "" {
+		t.Fatalf("expected no runtime id for wrapped historical segment, got %q", seg.RuntimeSessionID)
+	}
+	if seg.ProviderSessionID != "provider-history-session" {
+		t.Fatalf("expected provider session id to be stored, got %q", seg.ProviderSessionID)
+	}
+
+	frames, err := manager.LoadAllSegmentFrames(created.ChatID)
+	if err != nil {
+		t.Fatalf("load frames: %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("expected one history frame, got %d", len(frames))
+	}
+	if frames[0].StreamID != created.ChatID {
+		t.Fatalf("expected history frame stream %q, got %q", created.ChatID, frames[0].StreamID)
+	}
+	if frames[0].RuntimeSessionID != "provider-history-session" {
+		t.Fatalf("expected provider session id as history runtime identity, got %q", frames[0].RuntimeSessionID)
+	}
+	if frames[0].ProviderSessionID != "provider-history-session" {
+		t.Fatalf("expected provider session id to be preserved, got %q", frames[0].ProviderSessionID)
+	}
+	if got := frames[0].Content[0].Text; got != "historical codex reply" {
+		t.Fatalf("expected historical assistant text, got %q", got)
 	}
 }

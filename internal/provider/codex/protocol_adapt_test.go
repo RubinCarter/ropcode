@@ -292,7 +292,7 @@ func TestInteractive_AgentMessageCompleted(t *testing.T) {
 	assertContentField(t, ev, 0, "text", "Here are the results.", "agentMessage text")
 }
 
-func TestInteractive_AgentMessageCompletedAfterDeltasIsSuppressed(t *testing.T) {
+func TestInteractive_AgentMessageCompletedAfterDeltasEmitsFullText(t *testing.T) {
 	d := &Driver{}
 	if ev := d.ParseOutput([]byte(`{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn1","itemId":"msg1","delta":"Here are "}}`)); ev == nil {
 		t.Fatal("expected first delta")
@@ -301,12 +301,11 @@ func TestInteractive_AgentMessageCompletedAfterDeltasIsSuppressed(t *testing.T) 
 		t.Fatal("expected second delta")
 	}
 	ev := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg1","text":"Here are the results.","phase":"commentary"},"threadId":"t1","turnId":"turn1"}}`))
-	if ev != nil {
-		t.Fatalf("completed agentMessage duplicated delta text and should be suppressed, got Type=%q Subtype=%q", ev.Type, ev.Subtype)
-	}
+	assertType(t, ev, "assistant", "completed agentMessage after deltas")
+	assertContentField(t, ev, 0, "text", "Here are the results.", "completed agentMessage text")
 }
 
-func TestInteractive_AgentMessageCompletedAfterDeltasSuppressesPartialEcho(t *testing.T) {
+func TestInteractive_AgentMessageCompletedAfterDeltasEmitsPartialEchoForBridgeReconciliation(t *testing.T) {
 	d := &Driver{}
 	if ev := d.ParseOutput([]byte(`{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn1","itemId":"msg1","delta":"A complete streamed response "}}`)); ev == nil {
 		t.Fatal("expected first delta")
@@ -315,9 +314,8 @@ func TestInteractive_AgentMessageCompletedAfterDeltasSuppressesPartialEcho(t *te
 		t.Fatal("expected second delta")
 	}
 	ev := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg1","text":"A complete streamed response","phase":"commentary"},"threadId":"t1","turnId":"turn1"}}`))
-	if ev != nil {
-		t.Fatalf("completed agentMessage followed streamed deltas and should be suppressed, got Type=%q Subtype=%q", ev.Type, ev.Subtype)
-	}
+	assertType(t, ev, "assistant", "partial completed agentMessage after deltas")
+	assertContentField(t, ev, 0, "text", "A complete streamed response", "partial completed agentMessage text")
 }
 
 // --- 1C. Reasoning ---

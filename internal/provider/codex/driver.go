@@ -25,7 +25,6 @@ const initializeRequestID = "codex_initialize_1"
 
 type Driver struct {
 	mu                 sync.Mutex
-	agentMessageDeltas map[string]string
 	subagentsByCallID  map[string]codexSubagentState
 	subagentCallByID   map[string]string
 	activeTurnByThread map[string]string

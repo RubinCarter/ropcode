@@ -309,6 +309,12 @@ func (s *Session) updateActivityFromEvent(event *OutputEvent) {
 		}
 	}
 
+	if !sidechain && event.Type == "assistant" && hasToolUse(event.Message) {
+		status = SessionActivityActive
+		active = true
+		canInterrupt = true
+	}
+
 	if !sidechain && event.Type == "assistant" && hasEndTurn(event.Message) {
 		status = SessionActivityIdle
 		active = false
@@ -367,6 +373,50 @@ func hasEndTurn(message map[string]interface{}) bool {
 		return true
 	}
 	return false
+}
+
+func hasToolUse(message map[string]interface{}) bool {
+	return messageHasContentType(message, "tool_use", "server_tool_use")
+}
+
+func messageHasContentType(message map[string]interface{}, types ...string) bool {
+	if message == nil {
+		return false
+	}
+	nested, _ := message["message"].(map[string]interface{})
+	if contentHasType(nested["content"], types...) {
+		return true
+	}
+	return contentHasType(message["content"], types...)
+}
+
+func contentHasType(content interface{}, types ...string) bool {
+	for _, block := range contentBlocks(content) {
+		blockType, _ := block["type"].(string)
+		for _, expected := range types {
+			if blockType == expected {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func contentBlocks(content interface{}) []map[string]interface{} {
+	switch v := content.(type) {
+	case []interface{}:
+		blocks := make([]map[string]interface{}, 0, len(v))
+		for _, item := range v {
+			if block, ok := item.(map[string]interface{}); ok {
+				blocks = append(blocks, block)
+			}
+		}
+		return blocks
+	case []map[string]interface{}:
+		return v
+	default:
+		return nil
+	}
 }
 
 func (s *Session) extractProviderSessionID(event *OutputEvent) {

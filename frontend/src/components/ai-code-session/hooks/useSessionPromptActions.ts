@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { api } from "@/lib/api";
-import { SendProjectChatMessage } from "@/lib/rpc-client";
+import { InterruptProjectChat, SendProjectChatMessage } from "@/lib/rpc-client";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
 import { resetRuntimeTracker } from "../state/runtimeTrackerStore";
 import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "../utils/clearCommand";
@@ -264,14 +264,21 @@ export function useSessionPromptActions({
   const handleCancelExecution = useCallback(async () => {
     stopStatus.stopRequestedRef.current = true;
     stopStatus.showStopStatusBubble();
-    // Allow cancellation if either loading or interactive session is active
-    if (!sessionState.projectPath || (!processState.isLoading && !processState.interactiveSessionId)) return;
+    const runtimeSessionId = processState.interactiveSessionIdRef.current || processState.interactiveSessionId;
+    const canCancel = Boolean(sessionState.projectPath && (processState.isLoading || runtimeSessionId));
+    if (!canCancel) return;
 
     try {
       const sessionStartTimeValue = messagesState.messages.length > 0 ? messagesState.messages[0].timestamp || Date.now() : Date.now();
       const duration = Date.now() - sessionStartTimeValue;
 
-      await api.stopProviderSessionsByProject(sessionState.projectPath);
+      if (projectChatId) {
+        await InterruptProjectChat(projectChatId);
+      } else if (runtimeSessionId) {
+        await api.interruptProviderSession(runtimeSessionId);
+      } else {
+        await api.stopProviderSessionsByProject(sessionState.projectPath);
+      }
       await processState.syncProcessState();
 
       // Track enhanced session stopped
@@ -314,9 +321,10 @@ export function useSessionPromptActions({
         has_checkpoints: false,
       });
 
+      const keepRuntimeSession = Boolean(projectChatId && runtimeSessionId);
       processState.setIsLoading(false);
-      processState.hasActiveSessionRef.current = false;
-      processState.setInteractiveSessionId(null);  // Clear interactive session
+      processState.hasActiveSessionRef.current = keepRuntimeSession;
+      processState.setInteractiveSessionId(keepRuntimeSession ? runtimeSessionId : null);
       setError(null);
       queueState.clearQueue();
 
@@ -340,8 +348,10 @@ export function useSessionPromptActions({
       messagesState.addMessage(errorMessage);
 
       processState.setIsLoading(false);
-      processState.hasActiveSessionRef.current = false;
-      processState.setInteractiveSessionId(null);  // Clear interactive session
+      const runtimeSessionId = processState.interactiveSessionIdRef.current || processState.interactiveSessionId;
+      const keepRuntimeSession = Boolean(projectChatId && runtimeSessionId);
+      processState.hasActiveSessionRef.current = keepRuntimeSession;
+      processState.setInteractiveSessionId(keepRuntimeSession ? runtimeSessionId : null);
       setError(null);
       stopStatus.stopRequestedRef.current = false;
       stopStatus.completeStopStatusBubble();
@@ -350,6 +360,7 @@ export function useSessionPromptActions({
     messagesState,
     metricsState,
     processState,
+    projectChatId,
     queueState,
     refreshCurrentSubagentTranscripts,
     sessionState.projectPath,

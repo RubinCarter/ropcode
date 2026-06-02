@@ -48,7 +48,6 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 	case "item/agentMessage/delta":
 		delta, _ := params["delta"].(string)
 		messageID := codexItemMessageID(params)
-		d.rememberAgentMessageDelta(messageID, delta)
 		return d.applySubagentScope(eventAssistantDelta(messageID, delta), params)
 	case "thread/started":
 		return d.applySubagentScope(&provider.OutputEvent{
@@ -170,9 +169,6 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 	case "agentMessage":
 		text, _ := item["text"].(string)
 		messageID := codexItemMessageID(params)
-		if d.agentMessageCompletedFollowsDelta(messageID) {
-			return nil
-		}
 		return eventAssistantText(messageID, text)
 	case "reasoning":
 		text := codexReasoningText(item)
@@ -472,32 +468,6 @@ func codexItemMessageID(params map[string]interface{}) string {
 		return prefix + "agentMessage"
 	}
 	return ""
-}
-
-func (d *Driver) rememberAgentMessageDelta(messageID, delta string) {
-	if messageID == "" || delta == "" {
-		return
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.agentMessageDeltas == nil {
-		d.agentMessageDeltas = make(map[string]string)
-	}
-	d.agentMessageDeltas[messageID] += delta
-}
-
-func (d *Driver) agentMessageCompletedFollowsDelta(messageID string) bool {
-	if messageID == "" {
-		return false
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.agentMessageDeltas == nil {
-		return false
-	}
-	_, ok := d.agentMessageDeltas[messageID]
-	delete(d.agentMessageDeltas, messageID)
-	return ok
 }
 
 func extractShellCommand(item map[string]interface{}) string {

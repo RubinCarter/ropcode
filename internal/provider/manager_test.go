@@ -218,6 +218,38 @@ func TestManager_QueryProviderSessionActivity_UsesDefaultDriverActivity(t *testi
 	}
 }
 
+func TestManager_QueryProviderSessionActivity_PreservesActiveBaseOverIdleQuery(t *testing.T) {
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&idleQueryDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.SetProviderSessionID("native-1")
+	session.state = StateRunning
+	session.MarkActivityActive()
+
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	m.mu.Lock()
+	m.sessions[session.ID] = session
+	m.mu.Unlock()
+
+	activity, err := m.QueryProviderSessionActivityForProject(session.config.ProjectPath, "native-1", time.Second)
+	if err != nil {
+		t.Fatalf("query activity: %v", err)
+	}
+	if activity.Status != SessionActivityActive || !activity.Running || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected active base activity to survive idle query, got %#v", activity)
+	}
+	if activity.ProviderSessionID != "native-1" {
+		t.Fatalf("expected provider session id to be preserved, got %#v", activity)
+	}
+}
+
 func TestSessionActivityUsesSessionStateChangedEvents(t *testing.T) {
 	session := newSession(
 		context.Background(),
@@ -282,6 +314,65 @@ func TestSessionActivityIgnoresSidechainTerminalEvents(t *testing.T) {
 	activity := session.Activity()
 	if activity.Status != SessionActivityActive || !activity.Active || !activity.CanInterrupt {
 		t.Fatalf("expected sidechain result to preserve active main session, got %#v", activity)
+	}
+}
+
+func TestSessionActivityUsesAssistantToolUseAsActive(t *testing.T) {
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&echoDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.state = StateRunning
+
+	session.updateActivityFromEvent(&OutputEvent{
+		Type: "assistant",
+		Message: map[string]interface{}{
+			"type": "assistant",
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []interface{}{
+					map[string]interface{}{
+						"type": "tool_use",
+						"id":   "call-1",
+						"name": "Bash",
+						"input": map[string]interface{}{
+							"command": "go test ./...",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	activity := session.Activity()
+	if activity.Status != SessionActivityActive || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected assistant tool_use to mark session active, got %#v", activity)
+	}
+
+	session.updateActivityFromEvent(&OutputEvent{
+		Type: "user",
+		Message: map[string]interface{}{
+			"type": "user",
+			"message": map[string]interface{}{
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{
+						"type":        "tool_result",
+						"tool_use_id": "call-1",
+						"content":     "ok",
+					},
+				},
+			},
+		},
+	})
+	activity = session.Activity()
+	if activity.Status != SessionActivityActive || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected tool_result to preserve active session until turn completion, got %#v", activity)
 	}
 }
 
@@ -536,6 +627,23 @@ func (d *activityDriver) QuerySessionActivity(session SessionHandle, timeout tim
 		Active:       true,
 		CanInterrupt: true,
 		TurnID:       "turn-1",
+	}, nil
+}
+
+type idleQueryDriver struct {
+	echoDriver
+}
+
+func (d *idleQueryDriver) ID() string { return "idle-query" }
+
+func (d *idleQueryDriver) QuerySessionActivity(session SessionHandle, timeout time.Duration) (*SessionActivity, error) {
+	return &SessionActivity{
+		Status:            SessionActivityIdle,
+		Running:           true,
+		Active:            false,
+		CanInterrupt:      false,
+		ProviderSessionID: session.GetProviderSessionID(),
+		ThreadStatus:      "idle",
 	}, nil
 }
 

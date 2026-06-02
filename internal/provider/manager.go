@@ -371,6 +371,20 @@ func mergeSessionActivity(base *SessionActivity, queried *SessionActivity) *Sess
 	if queried == nil {
 		return base
 	}
+	if base.Active && !queried.Active && queried.Status == SessionActivityIdle {
+		merged := *base
+		merged.Running = queried.Running
+		if queried.ProviderSessionID != "" {
+			merged.ProviderSessionID = queried.ProviderSessionID
+		}
+		if queried.ThreadStatus != "" {
+			merged.ThreadStatus = queried.ThreadStatus
+		}
+		if !queried.UpdatedAt.IsZero() {
+			merged.UpdatedAt = queried.UpdatedAt
+		}
+		return &merged
+	}
 	merged := *base
 	if queried.Status != "" {
 		merged.Status = queried.Status
