@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws-rpc-client";
 import { useProcessChanged } from "@/hooks";
+import { resolveSessionProvider } from "@/lib/session-frame/provider";
 
 export interface UseProcessStateOptions {
   projectPath: string;
@@ -42,7 +43,8 @@ export interface UseProcessStateReturn {
  * Hook to manage process state
  */
 export function useProcessState(options: UseProcessStateOptions): UseProcessStateReturn {
-  const { projectPath, provider = 'claude', activeRuntimeSessionId } = options;
+  const { projectPath, activeRuntimeSessionId } = options;
+  const provider = resolveSessionProvider(options.provider);
 
   const [isLoading, setIsLoadingState] = useState(false);
   const [isPendingSend, setIsPendingSend] = useState(false);

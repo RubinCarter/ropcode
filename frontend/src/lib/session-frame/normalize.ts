@@ -1,4 +1,10 @@
-import type { ContentBlock, SessionFrame, SessionFrameKind, SessionFrameRole } from './types';
+import type {
+  ContentBlock,
+  SessionFrame,
+  SessionFrameKind,
+  SessionFrameOperation,
+  SessionFrameRole,
+} from './types';
 
 const VALID_KINDS = new Set<SessionFrameKind>([
   'init',
@@ -11,6 +17,7 @@ const VALID_KINDS = new Set<SessionFrameKind>([
 ]);
 
 const VALID_ROLES = new Set<SessionFrameRole>(['assistant', 'user', 'system', 'tool']);
+const VALID_OPERATIONS = new Set<SessionFrameOperation>(['append', 'upsert']);
 
 export function normalizeSessionFrame(input: unknown): SessionFrame {
   if (!isRecord(input)) {
@@ -28,6 +35,8 @@ export function normalizeSessionFrame(input: unknown): SessionFrame {
   return {
     streamId,
     frameId,
+    messageId: optionalString(input.messageId),
+    operation: optionalOperation(input.operation),
     provider,
     runtimeSessionId,
     providerSessionId: optionalString(input.providerSessionId),
@@ -122,6 +131,16 @@ function optionalRole(value: unknown): SessionFrameRole | undefined {
     throw new Error('SessionFrame role is invalid');
   }
   return value as SessionFrameRole;
+}
+
+function optionalOperation(value: unknown): SessionFrameOperation | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !VALID_OPERATIONS.has(value as SessionFrameOperation)) {
+    throw new Error('SessionFrame operation is invalid');
+  }
+  return value as SessionFrameOperation;
 }
 
 function optionalString(value: unknown): string | undefined {

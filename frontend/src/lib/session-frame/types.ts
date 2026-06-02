@@ -9,6 +9,8 @@ export type SessionFrameKind =
 
 export type SessionFrameRole = 'assistant' | 'user' | 'system' | 'tool';
 
+export type SessionFrameOperation = 'append' | 'upsert';
+
 export type ContentBlock =
   | TextContentBlock
   | ThinkingContentBlock
@@ -94,6 +96,8 @@ export interface SessionFrameMeta {
 export interface SessionFrame {
   streamId: string;
   frameId: string;
+  messageId?: string;
+  operation?: SessionFrameOperation;
   provider: string;
   runtimeSessionId: string;
   providerSessionId?: string;

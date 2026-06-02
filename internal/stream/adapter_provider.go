@@ -10,6 +10,7 @@ import (
 
 var ErrMissingProviderRuntimeSession = errors.New("provider output missing runtime session id")
 var ErrUserEchoFrameSuppressed = errors.New("provider user echo frame suppressed")
+var ErrProviderStreamFrameSuppressed = errors.New("provider stream frame suppressed")
 
 type ProviderOutputContext struct {
 	RuntimeSessionID  string
@@ -24,6 +25,7 @@ type ProviderBridge struct {
 	mu                      sync.Mutex
 	seq                     map[string]int64
 	taskNotificationReplies map[string]string
+	streamingMessages       map[string]SessionFrame
 }
 
 func NewProviderBridge(hub *Hub) *ProviderBridge {
@@ -31,13 +33,14 @@ func NewProviderBridge(hub *Hub) *ProviderBridge {
 		hub:                     hub,
 		seq:                     make(map[string]int64),
 		taskNotificationReplies: make(map[string]string),
+		streamingMessages:       make(map[string]SessionFrame),
 	}
 }
 
 func (b *ProviderBridge) EmitProviderOutput(ctx ProviderOutputContext, event provider.OutputEvent) error {
 	frame, err := b.FrameFromProviderOutput(ctx, event)
 	if err != nil {
-		if errors.Is(err, ErrUserEchoFrameSuppressed) {
+		if errors.Is(err, ErrUserEchoFrameSuppressed) || errors.Is(err, ErrProviderStreamFrameSuppressed) {
 			return nil
 		}
 		return err
@@ -62,6 +65,10 @@ func (b *ProviderBridge) FrameFromProviderOutput(ctx ProviderOutputContext, even
 		return SessionFrame{}, ErrUserEchoFrameSuppressed
 	}
 	b.applyTaskNotificationReplyScope(streamID, event, &frame)
+	frame, err = b.applyStreamingAggregation(frame)
+	if err != nil {
+		return SessionFrame{}, err
+	}
 	return frame, nil
 }
 
@@ -93,6 +100,180 @@ func (b *ProviderBridge) applyTaskNotificationReplyScope(streamID string, event 
 	frame.Sidechain = true
 	frame.TaskID = firstNonEmpty(frame.TaskID, activeTaskID)
 	frame.AgentID = firstNonEmpty(frame.AgentID, activeTaskID)
+}
+
+func (b *ProviderBridge) applyStreamingAggregation(frame SessionFrame) (SessionFrame, error) {
+	if frame.Kind == FrameKindResult || frame.Kind == FrameKindError {
+		b.clearStreamingMessagesForFrameScope(frame)
+		return frame, nil
+	}
+	if frame.MessageID == "" || frame.Role != RoleAssistant || !textOnlyFrameContent(frame.Content) {
+		return frame, nil
+	}
+
+	switch frame.Kind {
+	case FrameKindDelta:
+		return b.upsertStreamingDeltaFrame(frame), nil
+	case FrameKindMessage:
+		return b.reconcileStreamingCompletedFrame(frame)
+	default:
+		return frame, nil
+	}
+}
+
+func (b *ProviderBridge) upsertStreamingDeltaFrame(frame SessionFrame) SessionFrame {
+	frame.Kind = FrameKindMessage
+	frame.Operation = FrameOperationUpsert
+	key := streamingMessageKey(frame)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if existing, ok := b.streamingMessages[key]; ok {
+		frame.Content = mergeFrameContent(existing.Content, frame.Content)
+		frame.ProviderSessionID = firstNonEmpty(frame.ProviderSessionID, existing.ProviderSessionID)
+		if frame.Runtime == nil {
+			frame.Runtime = existing.Runtime
+		}
+		if frame.Usage == nil {
+			frame.Usage = existing.Usage
+		}
+	}
+	syncRawMessageContent(&frame)
+	b.streamingMessages[key] = frame
+	return frame
+}
+
+func (b *ProviderBridge) reconcileStreamingCompletedFrame(frame SessionFrame) (SessionFrame, error) {
+	key := streamingMessageKey(frame)
+
+	b.mu.Lock()
+	existing, ok := b.streamingMessages[key]
+	if ok {
+		delete(b.streamingMessages, key)
+	}
+	b.mu.Unlock()
+
+	if !ok {
+		return frame, nil
+	}
+
+	previousText := frameContentText(existing.Content)
+	incomingText := frameContentText(frame.Content)
+	if previousText == "" || incomingText == "" {
+		return frame, nil
+	}
+	if incomingText == previousText || strings.HasPrefix(previousText, incomingText) || !strings.Contains(incomingText, previousText) {
+		return SessionFrame{}, ErrProviderStreamFrameSuppressed
+	}
+
+	frame.Kind = FrameKindMessage
+	frame.Operation = FrameOperationUpsert
+	syncRawMessageContent(&frame)
+	return frame, nil
+}
+
+func (b *ProviderBridge) clearStreamingMessagesForFrameScope(frame SessionFrame) {
+	prefix := streamingMessageScopePrefix(frame)
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for key := range b.streamingMessages {
+		if strings.HasPrefix(key, prefix) {
+			delete(b.streamingMessages, key)
+		}
+	}
+}
+
+func streamingMessageKey(frame SessionFrame) string {
+	return streamingMessageScopePrefix(frame) + frame.MessageID
+}
+
+func streamingMessageScopePrefix(frame SessionFrame) string {
+	sidechain := "root"
+	if frame.Sidechain {
+		sidechain = "sidechain"
+	}
+	return strings.Join([]string{
+		frame.StreamID,
+		sidechain,
+		frame.ParentToolUseID,
+		frame.TaskID,
+		frame.AgentID,
+	}, "\x00") + "\x00"
+}
+
+func textOnlyFrameContent(content []ContentBlock) bool {
+	if len(content) == 0 {
+		return false
+	}
+	for _, block := range content {
+		if block.Type != ContentText {
+			return false
+		}
+	}
+	return true
+}
+
+func frameContentText(content []ContentBlock) string {
+	var builder strings.Builder
+	for _, block := range content {
+		if block.Type == ContentText {
+			builder.WriteString(block.Text)
+		}
+	}
+	return builder.String()
+}
+
+func mergeFrameContent(left []ContentBlock, right []ContentBlock) []ContentBlock {
+	if len(left) == 0 {
+		return append([]ContentBlock(nil), right...)
+	}
+	if len(right) == 0 {
+		return append([]ContentBlock(nil), left...)
+	}
+
+	merged := append([]ContentBlock(nil), left...)
+	first := right[0]
+	last := merged[len(merged)-1]
+	if last.Type == ContentText && first.Type == ContentText {
+		last.Text += first.Text
+		merged[len(merged)-1] = last
+		merged = append(merged, right[1:]...)
+		return merged
+	}
+	merged = append(merged, right...)
+	return merged
+}
+
+func syncRawMessageContent(frame *SessionFrame) {
+	if frame == nil || len(frame.Content) == 0 || frame.Meta.Raw == nil {
+		return
+	}
+
+	message := mapFromAny(frame.Meta.Raw["message"])
+	if message == nil {
+		message = map[string]any{}
+		frame.Meta.Raw["message"] = message
+	}
+	if frame.MessageID != "" && stringFromMap(message, "id") == "" {
+		message["id"] = frame.MessageID
+	}
+	message["content"] = rawContentFromBlocks(frame.Content)
+}
+
+func rawContentFromBlocks(content []ContentBlock) []map[string]any {
+	blocks := make([]map[string]any, 0, len(content))
+	for _, block := range content {
+		switch block.Type {
+		case ContentText:
+			blocks = append(blocks, map[string]any{"type": "text", "text": block.Text})
+		case ContentThinking:
+			blocks = append(blocks, map[string]any{"type": "thinking", "thinking": block.Text})
+		}
+	}
+	return blocks
 }
 
 func isSuppressibleUserEchoFrame(frame SessionFrame) bool {

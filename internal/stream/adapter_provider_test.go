@@ -168,6 +168,73 @@ func TestProviderBridgeSuppressesPlainUserEchoFrames(t *testing.T) {
 	}
 }
 
+func TestProviderBridgeAggregatesAssistantTextDeltasByMessageID(t *testing.T) {
+	hub := NewHub()
+	bridge := NewProviderBridge(hub)
+	sub := hub.Subscribe(StreamIDForSession("codex", "runtime-1"))
+	defer sub.Close()
+
+	events := []provider.OutputEvent{
+		assistantDeltaEvent("runtime-1", "msg-1", "hel"),
+		assistantDeltaEvent("runtime-1", "msg-1", "lo"),
+	}
+	for _, event := range events {
+		if err := bridge.EmitProviderOutput(ProviderOutputContext{}, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	first := receiveFrame(t, sub)
+	second := receiveFrame(t, sub)
+
+	if first.Kind != FrameKindMessage || second.Kind != FrameKindMessage {
+		t.Fatalf("expected deltas to be emitted as message upserts, got %q and %q", first.Kind, second.Kind)
+	}
+	if first.Operation != FrameOperationUpsert || second.Operation != FrameOperationUpsert {
+		t.Fatalf("expected upsert operations, got %q and %q", first.Operation, second.Operation)
+	}
+	if first.MessageID != "msg-1" || second.MessageID != "msg-1" {
+		t.Fatalf("expected stable message id, got %q and %q", first.MessageID, second.MessageID)
+	}
+	if got := frameContentText(first.Content); got != "hel" {
+		t.Fatalf("expected first aggregate text, got %q", got)
+	}
+	if got := frameContentText(second.Content); got != "hello" {
+		t.Fatalf("expected second aggregate text, got %q", got)
+	}
+	rawContent := sliceFromAny(mapFromAny(second.Meta.Raw["message"])["content"])
+	if len(rawContent) != 1 || stringFromMap(mapFromAny(rawContent[0]), "text") != "hello" {
+		t.Fatalf("expected raw payload to contain aggregate text, got %#v", second.Meta.Raw)
+	}
+}
+
+func TestProviderBridgeSuppressesShortCompletedEchoAfterAggregatedDeltas(t *testing.T) {
+	hub := NewHub()
+	bridge := NewProviderBridge(hub)
+	sub := hub.Subscribe(StreamIDForSession("codex", "runtime-1"))
+	defer sub.Close()
+
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, assistantDeltaEvent("runtime-1", "msg-1", "hello world")); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, assistantMessageEvent("runtime-1", "msg-1", "hello")); err != nil {
+		t.Fatal(err)
+	}
+
+	aggregate := receiveFrame(t, sub)
+	if got := frameContentText(aggregate.Content); got != "hello world" {
+		t.Fatalf("expected aggregate text, got %q", got)
+	}
+	if got := hub.Diagnostics(StreamIDForSession("codex", "runtime-1")).QueueLength; got != 1 {
+		t.Fatalf("expected completed echo to be suppressed from queue, got %d frames", got)
+	}
+	select {
+	case frame := <-sub.C:
+		t.Fatalf("completed echo should not be broadcast, got %#v", frame)
+	default:
+	}
+}
+
 func TestProviderBridgeSuppressesUserEchoWithInjectedSystemPrompt(t *testing.T) {
 	hub := NewHub()
 	bridge := NewProviderBridge(hub)
@@ -199,6 +266,43 @@ func TestProviderBridgeSuppressesUserEchoWithInjectedSystemPrompt(t *testing.T) 
 	case frame := <-sub.C:
 		t.Fatalf("wrapped user echo should not be broadcast, got %#v", frame)
 	default:
+	}
+}
+
+func assistantDeltaEvent(runtimeSessionID, messageID, text string) provider.OutputEvent {
+	return provider.OutputEvent{
+		Type:      "assistant",
+		SessionID: runtimeSessionID,
+		Provider:  "codex",
+		IsDelta:   true,
+		Message: map[string]any{
+			"type": "assistant",
+			"message": map[string]any{
+				"id":   messageID,
+				"role": "assistant",
+				"content": []any{
+					map[string]any{"type": "text", "text": text},
+				},
+			},
+		},
+	}
+}
+
+func assistantMessageEvent(runtimeSessionID, messageID, text string) provider.OutputEvent {
+	return provider.OutputEvent{
+		Type:      "assistant",
+		SessionID: runtimeSessionID,
+		Provider:  "codex",
+		Message: map[string]any{
+			"type": "assistant",
+			"message": map[string]any{
+				"id":   messageID,
+				"role": "assistant",
+				"content": []any{
+					map[string]any{"type": "text", "text": text},
+				},
+			},
+		},
 	}
 }
 

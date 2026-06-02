@@ -7,36 +7,36 @@ export function useSessionFrameMessages(
   onMessage: (payload: string) => void,
   options: { skipInitial?: boolean } = {},
 ): void {
-  const consumedFrameIdsRef = useRef<Set<string>>(new Set());
+  const consumedFrameKeysRef = useRef<Set<string>>(new Set());
   const subscribedStreamIdRef = useRef<string | null>(null);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
   useEffect(() => {
     if (!streamId) {
-      consumedFrameIdsRef.current.clear();
+      consumedFrameKeysRef.current.clear();
       subscribedStreamIdRef.current = null;
       return;
     }
 
     if (subscribedStreamIdRef.current !== streamId) {
-      consumedFrameIdsRef.current.clear();
+      consumedFrameKeysRef.current.clear();
       subscribedStreamIdRef.current = streamId;
     }
 
     const frames = getSessionFrames(streamId);
     if (options.skipInitial) {
       for (const frame of frames) {
-        consumedFrameIdsRef.current.add(frame.frameId);
+        consumedFrameKeysRef.current.add(sessionFrameConsumptionKey(frame));
       }
     }
 
     const consumeFrames = () => {
       const nextFrames = getSessionFrames(streamId);
-      const pending = getUnconsumedSessionFrames(nextFrames, consumedFrameIdsRef.current);
+      const pending = getUnconsumedSessionFrames(nextFrames, consumedFrameKeysRef.current);
       if (pending.length === 0) return;
       for (const frame of pending) {
-        consumedFrameIdsRef.current.add(frame.frameId);
+        consumedFrameKeysRef.current.add(sessionFrameConsumptionKey(frame));
         const payload = legacyPayloadFromFrame(frame);
         if (payload) {
           onMessageRef.current(payload);
@@ -51,9 +51,21 @@ export function useSessionFrameMessages(
 
 export function getUnconsumedSessionFrames(
   frames: SessionFrame[],
-  consumedFrameIds: ReadonlySet<string>,
+  consumedFrameKeys: ReadonlySet<string>,
 ): SessionFrame[] {
-  return frames.filter((frame) => !consumedFrameIds.has(frame.frameId));
+  return frames.filter((frame) => !consumedFrameKeys.has(sessionFrameConsumptionKey(frame)));
+}
+
+export function sessionFrameConsumptionKey(frame: SessionFrame): string {
+  if (frame.operation !== 'upsert') {
+    return frame.frameId;
+  }
+  return [
+    frame.frameId,
+    frame.messageId ?? '',
+    frame.operation,
+    frameContentFingerprint(frame),
+  ].join(':');
 }
 
 export function legacyPayloadFromFrame(frame: SessionFrame): string | null {
@@ -68,10 +80,10 @@ export function legacyPayloadFromFrame(frame: SessionFrame): string | null {
     return raw.raw;
   }
   if (raw && Object.keys(raw).length > 0) {
-    const payload = withFrameSemantics(frame, withFrameRuntimeIdentity(frame, raw));
+    const payload = withFrameSemantics(frame, withFrameMessageIdentity(frame, withFrameRuntimeIdentity(frame, raw)));
     return JSON.stringify(payload);
   }
-  const payload = withFrameSemantics(frame, sessionFrameToLegacyMessage(frame));
+  const payload = withFrameSemantics(frame, withFrameMessageIdentity(frame, sessionFrameToLegacyMessage(frame)));
   return JSON.stringify(payload);
 }
 
@@ -109,6 +121,23 @@ function withFrameSemantics(frame: SessionFrame, payload: Record<string, unknown
   };
 }
 
+function withFrameMessageIdentity(frame: SessionFrame, payload: Record<string, unknown>): Record<string, unknown> {
+  const nextPayload: Record<string, unknown> = { ...payload };
+  if (frame.messageId) {
+    nextPayload.message_id = nextPayload.message_id ?? frame.messageId;
+    if (isRecord(nextPayload.message)) {
+      nextPayload.message = {
+        ...nextPayload.message,
+        id: nextPayload.message.id ?? frame.messageId,
+      };
+    }
+  }
+  if (frame.operation) {
+    nextPayload.frame_operation = nextPayload.frame_operation ?? frame.operation;
+  }
+  return nextPayload;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -135,7 +164,7 @@ function sessionFrameToLegacyMessage(frame: SessionFrame): Record<string, unknow
     result: frame.result,
     error: frame.error,
     is_error: frame.isError,
-    message: frame.content.length > 0 ? { content: frame.content.map(legacyContentBlock) } : undefined,
+    message: frame.content.length > 0 ? { id: frame.messageId, content: frame.content.map(legacyContentBlock) } : undefined,
     usage: frame.usage,
     debug_meta: frame.runtime ? { runtime_state: frame.runtime } : undefined,
   };
@@ -159,4 +188,22 @@ function legacyContentBlock(block: SessionFrame['content'][number]): Record<stri
     };
   }
   return { ...block };
+}
+
+function frameContentFingerprint(frame: SessionFrame): string {
+  return frame.content.map((block) => {
+    if (block.type === 'text') {
+      return `text:${block.text.length}:${block.text}`;
+    }
+    if (block.type === 'thinking') {
+      return `thinking:${block.text.length}:${block.text}`;
+    }
+    if (block.type === 'tool_use') {
+      return `tool:${block.toolUseId}:${block.name}`;
+    }
+    if (block.type === 'tool_result') {
+      return `result:${block.toolUseId}:${block.text ?? JSON.stringify(block.output ?? null)}`;
+    }
+    return JSON.stringify(block);
+  }).join('|');
 }

@@ -525,11 +525,15 @@ func (m *Manager) LoadAllSegmentFrames(chatID string) ([]stream.SessionFrame, er
 		}
 
 		frames, err := stream.FramesFromEvents(seg.Provider, stream.ProviderOutputContext{
-			RuntimeSessionID: seg.RuntimeSessionID,
-			ProjectPath:      chat.ProjectPath,
+			RuntimeSessionID:  seg.RuntimeSessionID,
+			ProviderSessionID: seg.ProviderSessionID,
+			ProjectPath:       chat.ProjectPath,
 		}, events)
 		if err != nil {
 			continue
+		}
+		for i := range frames {
+			frames[i].StreamID = chatID
 		}
 
 		allFrames = append(allFrames, frames...)
@@ -576,8 +580,9 @@ func (m *Manager) buildContextFromSegments(segments []*database.ChatSegment, pro
 		}
 
 		frames, err := stream.FramesFromEvents(seg.Provider, stream.ProviderOutputContext{
-			RuntimeSessionID: seg.RuntimeSessionID,
-			ProjectPath:      projectPath,
+			RuntimeSessionID:  seg.RuntimeSessionID,
+			ProviderSessionID: seg.ProviderSessionID,
+			ProjectPath:       projectPath,
 		}, events)
 		if err != nil {
 			continue

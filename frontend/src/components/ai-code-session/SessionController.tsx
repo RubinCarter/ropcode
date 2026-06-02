@@ -32,6 +32,7 @@ import { SessionLayoutChrome } from "./layout/SessionLayoutChrome";
 import { CopyConversationMenu } from "./composer/CopyConversationMenu";
 import { LoadProjectChatHistory } from "@/lib/rpc-client";
 import { replaceSessionFrames } from "@/stores/sessionFrameStore";
+import { resolveSessionProvider } from "@/lib/session-frame/provider";
 
 // Import refactored hooks and types
 import type { AiCodeSessionProps } from "./types";
@@ -63,7 +64,7 @@ function streamIdForRuntimeSession(provider: string, runtimeSessionId?: string |
   if (!runtimeSessionId) {
     return null;
   }
-  return provider ? `${provider}:${runtimeSessionId}` : runtimeSessionId;
+  return `${resolveSessionProvider(provider)}:${runtimeSessionId}`;
 }
 
 /**
@@ -86,7 +87,6 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   onSessionActivityComplete,
   projectChatId,
   projectChatSegments,
-  onProjectChatCreated,
   onProjectChatSegmentRuntimeSession,
 }) => {
   // ==================================================================
@@ -373,7 +373,6 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const { handleSendPrompt, handleCancelExecution } = useSessionPromptActions({
     defaultProvider,
     projectChatId,
-    onProjectChatCreated,
     sessionState,
     messagesState,
     processState,

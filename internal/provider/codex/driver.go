@@ -115,7 +115,7 @@ func (d *Driver) BuildArgs(config provider.SessionConfig) []string {
 
 func (d *Driver) buildInteractiveArgs(config provider.SessionConfig) []string {
 	args := []string{"app-server", "--listen", "stdio://"}
-	args = append(args, "-c", `approval_policy="never"`)
+	args = appendCodexUnrestrictedConfig(args, true)
 	if config.Model != "" {
 		args = append(args, "-c", fmt.Sprintf(`model=%q`, config.Model))
 	}
@@ -130,8 +130,7 @@ func (d *Driver) buildBatchArgs(config provider.SessionConfig) []string {
 		"exec",
 		"--sandbox", "danger-full-access",
 	}
-	args = append(args, "-c", `approval_policy="never"`)
-	args = append(args, "-c", "sandbox_danger_full_access.network_access=true")
+	args = appendCodexUnrestrictedConfig(args, false)
 	if config.Model != "" {
 		args = append(args, "-m", config.Model)
 	}
@@ -145,6 +144,15 @@ func (d *Driver) buildBatchArgs(config provider.SessionConfig) []string {
 	args = append(args, "--color", "never")
 	args = append(args, "--")
 	args = append(args, config.Prompt)
+	return args
+}
+
+func appendCodexUnrestrictedConfig(args []string, includeSandboxMode bool) []string {
+	if includeSandboxMode {
+		args = append(args, "-c", `sandbox_mode="danger-full-access"`)
+	}
+	args = append(args, "-c", `approval_policy="never"`)
+	args = append(args, "-c", "sandbox_danger_full_access.network_access=true")
 	return args
 }
 

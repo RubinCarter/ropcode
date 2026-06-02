@@ -23,6 +23,7 @@ type resumeProbeDriver struct {
 	starts  []provider.SessionConfig
 	resumes []string
 	sends   []string
+	history []provider.OutputEvent
 }
 
 func (d *resumeProbeDriver) ID() string         { return d.id }
@@ -83,6 +84,29 @@ func (d *resumeProbeDriver) OnProcessStart(_ context.Context, _ provider.Session
 	return nil
 }
 func (d *resumeProbeDriver) OnProcessExit(session provider.SessionHandle, exitCode int, err error) {}
+func (d *resumeProbeDriver) LoadSessionHistory(projectID, sessionID string) ([]provider.Message, error) {
+	return nil, nil
+}
+func (d *resumeProbeDriver) LoadHistoryEvents(projectID, sessionID string) ([]provider.OutputEvent, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]provider.OutputEvent(nil), d.history...), nil
+}
+func (d *resumeProbeDriver) ListProjectSessions(projectPath string) ([]provider.HistorySessionInfo, error) {
+	return nil, nil
+}
+func (d *resumeProbeDriver) ListProjectSessionsLimit(projectPath string, limit int) (provider.HistorySessionsResult, error) {
+	return provider.HistorySessionsResult{}, nil
+}
+func (d *resumeProbeDriver) GetMessageIndex(projectID, sessionID string) ([]int, error) {
+	return nil, nil
+}
+func (d *resumeProbeDriver) GetMessagesRange(projectID, sessionID string, start, end int) ([]provider.Message, error) {
+	return nil, nil
+}
+func (d *resumeProbeDriver) LoadSubagentTranscripts(projectID, sessionID string) (map[string][]provider.Message, error) {
+	return nil, nil
+}
 
 func TestProjectChatProviderResumeProbeHelper(t *testing.T) {
 	if os.Getenv("ROPCODE_PROJECTCHAT_RESUME_PROBE") != "1" {
@@ -258,5 +282,62 @@ func TestSendMessageResumesWrappedProviderSessionID(t *testing.T) {
 	}
 	if len(claudeDriver.sends) != 1 || claudeDriver.sends[0] != "hello from wrapped session" {
 		t.Fatalf("expected one resumed send with original prompt, got %#v", claudeDriver.sends)
+	}
+}
+
+func TestLoadAllSegmentFramesUsesProjectChatStreamID(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+
+	claudeDriver := &resumeProbeDriver{
+		id: "claude",
+		history: []provider.OutputEvent{
+			{
+				Type:              "assistant",
+				SessionID:         "provider-native-session",
+				Provider:          "claude",
+				ProviderSessionID: "provider-native-session",
+				Message: map[string]interface{}{
+					"message": map[string]interface{}{
+						"role": "assistant",
+						"content": []interface{}{
+							map[string]interface{}{
+								"type": "text",
+								"text": "historical reply",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := prov.RegisterDriver(claudeDriver); err != nil {
+		t.Fatalf("register claude: %v", err)
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	created, err := manager.CreateChat(t.TempDir(), "claude", "sonnet", "", "provider-native-session")
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+
+	frames, err := manager.LoadAllSegmentFrames(created.ChatID)
+	if err != nil {
+		t.Fatalf("load frames: %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("expected one history frame, got %d", len(frames))
+	}
+	if frames[0].StreamID != created.ChatID {
+		t.Fatalf("expected history frame stream %q, got %q", created.ChatID, frames[0].StreamID)
+	}
+	if frames[0].ProviderSessionID != "provider-native-session" {
+		t.Fatalf("expected provider session id to be preserved, got %q", frames[0].ProviderSessionID)
 	}
 }

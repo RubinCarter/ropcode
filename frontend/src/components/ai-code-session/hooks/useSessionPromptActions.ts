@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { api } from "@/lib/api";
-import { SendProjectChatMessage, CreateProjectChat } from "@/lib/rpc-client";
+import { SendProjectChatMessage } from "@/lib/rpc-client";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
 import { resetRuntimeTracker } from "../state/runtimeTrackerStore";
 import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "../utils/clearCommand";
@@ -22,7 +22,6 @@ interface SessionPromptActionsTracking {
 export interface UseSessionPromptActionsOptions {
   defaultProvider: string;
   projectChatId?: string;
-  onProjectChatCreated?: (chatId: string, streamId: string, segmentId?: string) => void;
   sessionState: UseSessionStateReturn;
   messagesState: UseSessionMessagesReturn;
   processState: UseProcessStateReturn;
@@ -53,7 +52,6 @@ export interface UseSessionPromptActionsReturn {
 export function useSessionPromptActions({
   defaultProvider,
   projectChatId,
-  onProjectChatCreated,
   sessionState,
   messagesState,
   processState,
@@ -226,25 +224,11 @@ export function useSessionPromptActions({
         session_age_ms: Date.now() - metricsState.sessionStartTime.current
       });
 
-      const currentInteractiveSessionId = processState.interactiveSessionIdRef.current;
-      let activeChatId = forceFreshProviderSession ? undefined : projectChatId;
-      if (!activeChatId && sessionState.projectPath) {
-        const chat = await CreateProjectChat(
-          sessionState.projectPath,
-          activeProvider,
-          model,
-          providerApiId || '',
-          forceFreshProviderSession ? '' : currentInteractiveSessionId || ''
-        );
-        activeChatId = chat.chat_id;
-        onProjectChatCreated?.(chat.chat_id, chat.stream_id, chat.segment_id);
-      }
-
-      if (!activeChatId) {
+      if (!projectChatId) {
         throw new Error("ProjectChat is not available for this session");
       }
       trackEvent.modelSelected(model);
-      await SendProjectChatMessage(activeChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
+      await SendProjectChatMessage(projectChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
 
       // Clear pending flag after init message arrives
       setTimeout(() => {
@@ -268,7 +252,6 @@ export function useSessionPromptActions({
     loadedSessionIdRef,
     messagesState,
     metricsState,
-    onProjectChatCreated,
     pendingFreshProviderSessionRef,
     processState,
     projectChatId,

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { SessionFrame } from '@/lib/session-frame/types';
-import { getUnconsumedSessionFrames, legacyPayloadFromFrame } from './useSessionFrameMessages';
+import { getUnconsumedSessionFrames, legacyPayloadFromFrame, sessionFrameConsumptionKey } from './useSessionFrameMessages';
 
 function frame(overrides: Partial<SessionFrame>): SessionFrame {
   return {
@@ -37,6 +37,29 @@ test('legacyPayloadFromFrame preserves delta semantics when raw provider data ex
   assert.equal(message.type, 'assistant');
   assert.equal(message.is_delta, true);
   assert.equal(message.message.content[0].text, '今');
+});
+
+test('legacyPayloadFromFrame exposes message identity for backend upserts', () => {
+  const payload = legacyPayloadFromFrame(frame({
+    messageId: 'message-1',
+    operation: 'upsert',
+    content: [{ type: 'text', text: 'hello' }],
+    meta: {
+      raw: {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hello' }],
+        },
+      },
+    },
+  }));
+
+  assert.ok(payload);
+  const message = JSON.parse(payload);
+  assert.equal(message.message_id, 'message-1');
+  assert.equal(message.frame_operation, 'upsert');
+  assert.equal(message.message.id, 'message-1');
 });
 
 test('legacyPayloadFromFrame overlays runtime identity onto raw provider data', () => {
@@ -129,6 +152,27 @@ test('getUnconsumedSessionFrames uses frame ids instead of positional counts', (
   assert.deepEqual(
     getUnconsumedSessionFrames(frames, consumed).map((item) => item.frameId),
     ['new-provider-init'],
+  );
+});
+
+test('getUnconsumedSessionFrames reprocesses changed upsert content', () => {
+  const first = frame({
+    frameId: 'message-frame',
+    messageId: 'message-1',
+    operation: 'upsert',
+    content: [{ type: 'text', text: 'hel' }],
+  });
+  const next = frame({
+    frameId: 'message-frame',
+    messageId: 'message-1',
+    operation: 'upsert',
+    content: [{ type: 'text', text: 'hello' }],
+  });
+  const consumed = new Set([sessionFrameConsumptionKey(first)]);
+
+  assert.deepEqual(
+    getUnconsumedSessionFrames([next], consumed).map((item) => item.frameId),
+    ['message-frame'],
   );
 });
 

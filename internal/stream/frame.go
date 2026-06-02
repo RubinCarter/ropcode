@@ -12,6 +12,13 @@ const (
 	FrameKindMetadata FrameKind = "metadata"
 )
 
+type FrameOperation string
+
+const (
+	FrameOperationAppend FrameOperation = "append"
+	FrameOperationUpsert FrameOperation = "upsert"
+)
+
 type Role string
 
 const (
@@ -24,6 +31,8 @@ const (
 type SessionFrame struct {
 	StreamID          string           `json:"streamId"`
 	FrameID           string           `json:"frameId"`
+	MessageID         string           `json:"messageId,omitempty"`
+	Operation         FrameOperation   `json:"operation,omitempty"`
 	Provider          string           `json:"provider"`
 	RuntimeSessionID  string           `json:"runtimeSessionId"`
 	ProviderSessionID string           `json:"providerSessionId,omitempty"`

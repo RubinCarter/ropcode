@@ -7,6 +7,8 @@ test('normalizeSessionFrame preserves stable camelCase protocol fields', () => {
   const frame = normalizeSessionFrame({
     streamId: 'stream-1',
     frameId: 'frame-1',
+    messageId: 'message-1',
+    operation: 'upsert',
     provider: 'claude',
     runtimeSessionId: 'runtime-1',
     providerSessionId: 'provider-1',
@@ -42,6 +44,8 @@ test('normalizeSessionFrame preserves stable camelCase protocol fields', () => {
   });
 
   assert.equal(frame.streamId, 'stream-1');
+  assert.equal(frame.messageId, 'message-1');
+  assert.equal(frame.operation, 'upsert');
   assert.equal(frame.runtimeSessionId, 'runtime-1');
   assert.equal(frame.providerSessionId, 'provider-1');
   assert.equal(frame.content[2].type, 'tool_use');

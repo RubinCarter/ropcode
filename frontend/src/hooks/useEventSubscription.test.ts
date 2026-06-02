@@ -17,4 +17,9 @@ test('process changed events expose provider and session identity', () => {
   assert.match(source, /session_id\?: string;/);
 });
 
+test('session changed provider stays provider-agnostic', () => {
+  assert.match(source, /provider: string;/);
+  assert.doesNotMatch(source, /provider: 'claude' \| 'gemini' \| 'codex';/);
+});
+
 void fileURLToPath;

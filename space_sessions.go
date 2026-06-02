@@ -17,15 +17,18 @@ type SpaceSessionsResult struct {
 }
 
 type ProviderSessionSummary struct {
-	ID           string `json:"id"`
-	Provider     string `json:"provider"`
-	ProjectPath  string `json:"project_path"`
-	ProjectID    string `json:"project_id,omitempty"`
-	CreatedAt    int64  `json:"created_at"`
-	LastActivity int64  `json:"last_activity"`
-	Title        string `json:"title,omitempty"`
-	FirstMessage string `json:"first_message,omitempty"`
-	IsRunning    bool   `json:"is_running"`
+	ID                string `json:"id"`
+	SessionID         string `json:"session_id,omitempty"`
+	ProviderSessionID string `json:"provider_session_id,omitempty"`
+	Provider          string `json:"provider"`
+	ProjectPath       string `json:"project_path"`
+	ProjectID         string `json:"project_id,omitempty"`
+	CreatedAt         int64  `json:"created_at"`
+	LastActivity      int64  `json:"last_activity"`
+	MessageTimestamp  string `json:"message_timestamp,omitempty"`
+	Title             string `json:"title,omitempty"`
+	FirstMessage      string `json:"first_message,omitempty"`
+	IsRunning         bool   `json:"is_running"`
 }
 
 type spaceSessionScanner struct {
@@ -87,60 +90,72 @@ func newClaudeSpaceSessionSummary(s claude.SessionInfo, isRunning bool) Provider
 	lastActivity := parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt)
 	title := strings.TrimSpace(s.FirstMessage)
 	return ProviderSessionSummary{
-		ID:           s.ID,
-		Provider:     "claude",
-		ProjectPath:  s.ProjectPath,
-		ProjectID:    s.ProjectID,
-		CreatedAt:    s.CreatedAt,
-		LastActivity: lastActivity,
-		Title:        title,
-		FirstMessage: title,
-		IsRunning:    isRunning,
+		ID:                s.ID,
+		SessionID:         s.ID,
+		ProviderSessionID: s.ID,
+		Provider:          "claude",
+		ProjectPath:       s.ProjectPath,
+		ProjectID:         s.ProjectID,
+		CreatedAt:         s.CreatedAt,
+		LastActivity:      lastActivity,
+		MessageTimestamp:  s.MessageTimestamp,
+		Title:             title,
+		FirstMessage:      title,
+		IsRunning:         isRunning,
 	}
 }
 
 func newCodexSpaceSessionSummary(s provider.HistorySessionInfo, isRunning bool) ProviderSessionSummary {
 	title := strings.TrimSpace(s.FirstMessage)
 	return ProviderSessionSummary{
-		ID:           s.ID,
-		Provider:     "codex",
-		ProjectPath:  s.ProjectPath,
-		ProjectID:    s.ProjectID,
-		CreatedAt:    s.CreatedAt,
-		LastActivity: parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
-		Title:        title,
-		FirstMessage: title,
-		IsRunning:    isRunning,
+		ID:                s.ID,
+		SessionID:         s.ID,
+		ProviderSessionID: s.ID,
+		Provider:          "codex",
+		ProjectPath:       s.ProjectPath,
+		ProjectID:         s.ProjectID,
+		CreatedAt:         s.CreatedAt,
+		LastActivity:      parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
+		MessageTimestamp:  s.MessageTimestamp,
+		Title:             title,
+		FirstMessage:      title,
+		IsRunning:         isRunning,
 	}
 }
 
 func newDeepSeekSpaceSessionSummary(s provider.HistorySessionInfo, isRunning bool) ProviderSessionSummary {
 	title := strings.TrimSpace(s.FirstMessage)
 	return ProviderSessionSummary{
-		ID:           s.ID,
-		Provider:     "deepseek",
-		ProjectPath:  s.ProjectPath,
-		ProjectID:    s.ProjectID,
-		CreatedAt:    s.CreatedAt,
-		LastActivity: parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
-		Title:        title,
-		FirstMessage: title,
-		IsRunning:    isRunning,
+		ID:                s.ID,
+		SessionID:         s.ID,
+		ProviderSessionID: s.ID,
+		Provider:          "deepseek",
+		ProjectPath:       s.ProjectPath,
+		ProjectID:         s.ProjectID,
+		CreatedAt:         s.CreatedAt,
+		LastActivity:      parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
+		MessageTimestamp:  s.MessageTimestamp,
+		Title:             title,
+		FirstMessage:      title,
+		IsRunning:         isRunning,
 	}
 }
 
 func newPiSpaceSessionSummary(s provider.HistorySessionInfo, isRunning bool) ProviderSessionSummary {
 	title := strings.TrimSpace(s.FirstMessage)
 	return ProviderSessionSummary{
-		ID:           s.ID,
-		Provider:     "pi",
-		ProjectPath:  s.ProjectPath,
-		ProjectID:    s.ProjectID,
-		CreatedAt:    s.CreatedAt,
-		LastActivity: parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
-		Title:        title,
-		FirstMessage: title,
-		IsRunning:    isRunning,
+		ID:                s.ID,
+		SessionID:         s.ID,
+		ProviderSessionID: s.ID,
+		Provider:          "pi",
+		ProjectPath:       s.ProjectPath,
+		ProjectID:         s.ProjectID,
+		CreatedAt:         s.CreatedAt,
+		LastActivity:      parseSessionActivityTime(s.MessageTimestamp, s.CreatedAt),
+		MessageTimestamp:  s.MessageTimestamp,
+		Title:             title,
+		FirstMessage:      title,
+		IsRunning:         isRunning,
 	}
 }
 

@@ -22,6 +22,7 @@ func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, s
 	frame := SessionFrame{
 		StreamID:          streamID,
 		FrameID:           nextFrameID(streamID, seq),
+		MessageID:         messageIDFromProviderMessage(event.Message),
 		Provider:          providerID,
 		RuntimeSessionID:  runtimeSessionID,
 		ProviderSessionID: firstNonEmpty(ctx.ProviderSessionID, event.ProviderSessionID, stringFromMap(event.Message, "session_id"), stringFromMap(event.Message, "sessionId")),
@@ -68,6 +69,20 @@ func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, s
 		frame.Usage = extractUsage(firstMap(mapFromAny(event.Message["usage"]), mapFromAny(mapFromAny(event.Message["message"])["usage"])))
 	}
 	return frame, nil
+}
+
+func messageIDFromProviderMessage(raw map[string]any) string {
+	message := mapFromAny(raw["message"])
+	return firstNonEmpty(
+		stringFromMap(message, "id"),
+		stringFromMap(message, "uuid"),
+		stringFromMap(message, "message_id"),
+		stringFromMap(message, "messageId"),
+		stringFromMap(raw, "message_id"),
+		stringFromMap(raw, "messageId"),
+		stringFromMap(raw, "uuid"),
+		stringFromMap(raw, "id"),
+	)
 }
 
 func (f *SessionFrame) applyErrorContent(event provider.OutputEvent) {

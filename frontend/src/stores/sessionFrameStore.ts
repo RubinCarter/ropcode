@@ -34,13 +34,12 @@ const PROJECTCHAT_CONTEXT_SYNC_SUBTYPE = 'projectchat_context_sync';
 
 export function appendSessionFrame(frame: SessionFrame): void {
   const ids = frameIdsFor(frame.streamId);
-  if (ids.has(frame.frameId)) {
+  if (ids.has(frame.frameId) && frame.operation !== 'upsert') {
     return;
   }
   ids.add(frame.frameId);
 
-  const frames = [...(framesByStream.get(frame.streamId) ?? []), frame]
-    .sort(compareSessionFrames);
+  const frames = insertSessionFrame(framesByStream.get(frame.streamId) ?? [], frame);
   framesByStream.set(frame.streamId, frames);
   messagesByStream.delete(frame.streamId);
 
@@ -90,7 +89,7 @@ export function getSessionMessages(streamId: string): SessionDisplayMessage[] {
     }
 
     messages.push({
-      id: frame.frameId,
+      id: frame.messageId ?? frame.frameId,
       streamId: frame.streamId,
       role: frame.role,
       kind: frame.kind,
@@ -138,6 +137,33 @@ function canMergeDelta(previous: SessionDisplayMessage | undefined, frame: Sessi
     previous.sidechain === frame.sidechain &&
     textOnly(previous.content) &&
     textOnly(frame.content),
+  );
+}
+
+function insertSessionFrame(frames: SessionFrame[], frame: SessionFrame): SessionFrame[] {
+  if (frame.operation !== 'upsert' || !frame.messageId) {
+    return [...frames, frame].sort(compareSessionFrames);
+  }
+
+  const existingIndex = frames.findIndex((item) => canUpsertFrame(item, frame));
+  if (existingIndex < 0) {
+    return [...frames, frame].sort(compareSessionFrames);
+  }
+
+  const nextFrames = [...frames];
+  nextFrames[existingIndex] = frame;
+  return nextFrames.sort(compareSessionFrames);
+}
+
+function canUpsertFrame(existing: SessionFrame, frame: SessionFrame): boolean {
+  return Boolean(
+    existing.messageId &&
+    existing.messageId === frame.messageId &&
+    existing.role === frame.role &&
+    existing.sidechain === frame.sidechain &&
+    existing.parentToolUseId === frame.parentToolUseId &&
+    existing.taskId === frame.taskId &&
+    existing.agentId === frame.agentId,
   );
 }
 

@@ -20,6 +20,7 @@ import { clearInteractiveSessionIdAfterProcessExit } from "../utils/interactiveS
 import { useSessionFrameMessages } from "@/hooks/useSessionFrameMessages";
 import { EventsOn } from "@/lib/rpc-events";
 import { useProcessChanged } from "@/hooks/useEventSubscription";
+import { resolveSessionProvider } from "@/lib/session-frame/provider";
 
 export interface UseSessionFrameEventsOptions {
   projectPath: string;
@@ -295,7 +296,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
       }
 
       const message = JSON.parse(payload) as ClaudeStreamMessage;
-      const provider = (message as any).provider || options.provider || 'claude';
+      const provider = resolveSessionProvider((message as any).provider, options.provider);
 
       enqueueRuntimeTrackerUpdate(message);
 
@@ -534,7 +535,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
       subtype: completePayload.status,
       session_id: completePayload.session_id,
       cwd: completePayload.cwd || projectPathRef.current,
-      provider: completePayload.provider || options.provider || 'claude',
+      provider: resolveSessionProvider(completePayload.provider, options.provider),
       timestamp: completePayload.timestamp || new Date().toISOString(),
       debug_meta: completePayload.debug_meta || (completePayload.runtime ? { runtime_state: completePayload.runtime } : undefined),
       is_error: completePayload.status === 'failed',
@@ -555,7 +556,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
 
   useProcessChanged(projectPath, (event) => {
     if (event.state !== "stopped") return;
-    const provider = event.provider_id || options.provider || "claude";
+    const provider = resolveSessionProvider(event.provider_id, options.provider);
     if (options.provider && provider !== options.provider) return;
     void processComplete({
       success: event.exitCode === undefined ? true : event.exitCode === 0,

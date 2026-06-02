@@ -133,11 +133,15 @@ export namespace main {
   }
   export interface ProviderSessionSummary {
     id: string;
+    session_id?: string;
+    provider_session_id?: string;
     provider: string;
     project_path: string;
     project_id?: string;
     created_at: number;
     last_activity: number;
+    message_timestamp?: string;
+    model?: string;
     title?: string;
     first_message?: string;
     is_running: boolean;

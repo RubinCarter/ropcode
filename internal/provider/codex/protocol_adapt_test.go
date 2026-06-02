@@ -306,6 +306,20 @@ func TestInteractive_AgentMessageCompletedAfterDeltasIsSuppressed(t *testing.T) 
 	}
 }
 
+func TestInteractive_AgentMessageCompletedAfterDeltasSuppressesPartialEcho(t *testing.T) {
+	d := &Driver{}
+	if ev := d.ParseOutput([]byte(`{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn1","itemId":"msg1","delta":"A complete streamed response "}}`)); ev == nil {
+		t.Fatal("expected first delta")
+	}
+	if ev := d.ParseOutput([]byte(`{"method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn1","itemId":"msg1","delta":"with the final tail."}}`)); ev == nil {
+		t.Fatal("expected second delta")
+	}
+	ev := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"agentMessage","id":"msg1","text":"A complete streamed response","phase":"commentary"},"threadId":"t1","turnId":"turn1"}}`))
+	if ev != nil {
+		t.Fatalf("completed agentMessage followed streamed deltas and should be suppressed, got Type=%q Subtype=%q", ev.Type, ev.Subtype)
+	}
+}
+
 // --- 1C. Reasoning ---
 
 func TestInteractive_ReasoningStarted(t *testing.T) {

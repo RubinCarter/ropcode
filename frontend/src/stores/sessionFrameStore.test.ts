@@ -93,6 +93,57 @@ test('sessionFrameStore coalesces text deltas into stable display messages', () 
   assert.equal(messages[1].frameIds[0], 'tool-1');
 });
 
+test('sessionFrameStore upserts streaming frames by message id', () => {
+  clearSessionFrames('stream-1');
+
+  appendSessionFrame(frame({
+    frameId: 'update-1',
+    messageId: 'message-1',
+    operation: 'upsert',
+    seq: 1,
+    content: [{ type: 'text', text: 'hel' }],
+  }));
+  appendSessionFrame(frame({
+    frameId: 'update-2',
+    messageId: 'message-1',
+    operation: 'upsert',
+    seq: 2,
+    content: [{ type: 'text', text: 'hello' }],
+  }));
+
+  assert.deepEqual(
+    getSessionFrames('stream-1').map((item) => item.frameId),
+    ['update-2'],
+  );
+  assert.equal(getSessionMessages('stream-1')[0].id, 'message-1');
+  assert.deepEqual(getSessionMessages('stream-1')[0].content, [{ type: 'text', text: 'hello' }]);
+});
+
+test('sessionFrameStore accepts upsert updates that reuse the same frame id', () => {
+  clearSessionFrames('stream-1');
+
+  appendSessionFrame(frame({
+    frameId: 'message-frame',
+    messageId: 'message-1',
+    operation: 'upsert',
+    seq: 1,
+    content: [{ type: 'text', text: 'hel' }],
+  }));
+  appendSessionFrame(frame({
+    frameId: 'message-frame',
+    messageId: 'message-1',
+    operation: 'upsert',
+    seq: 2,
+    content: [{ type: 'text', text: 'hello' }],
+  }));
+
+  assert.deepEqual(
+    getSessionFrames('stream-1').map((item) => item.frameId),
+    ['message-frame'],
+  );
+  assert.deepEqual(getSessionMessages('stream-1')[0].content, [{ type: 'text', text: 'hello' }]);
+});
+
 test('sessionFrameStore keeps sidechain frames out of root display messages', () => {
   clearSessionFrames('stream-1');
 

@@ -294,7 +294,7 @@ test('SessionController delegates lifecycle, runtime status, and element selecti
   assert.match(lifecycleHookSource, /SessionPersistenceService\.getSessionIndex\(\)/);
   assert.match(runtimeHookSource, /setInterval\(\(\) => \{/);
   assert.match(elementSelectionHookSource, /window\.addEventListener\('webview-element-selected'/);
-  assert.match(promptActionsHookSource, /CreateProjectChat/);
+  assert.doesNotMatch(promptActionsHookSource, /CreateProjectChat/);
   assert.match(promptActionsHookSource, /SendProjectChatMessage/);
   assert.doesNotMatch(promptActionsHookSource, /api\.startProviderSession/);
   assert.match(promptActionsHookSource, /api\.stopProviderSessionsByProject/);

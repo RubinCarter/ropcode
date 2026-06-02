@@ -41,6 +41,8 @@ interface PendingTextDelta {
   text: string;
 }
 
+type DeltaAppendResult = 'none' | 'tail' | 'non-tail';
+
 export interface UseSessionMessagesReturn {
   // State
   messages: ClaudeStreamMessage[];
@@ -443,8 +445,11 @@ export function useSessionMessages(): UseSessionMessagesReturn {
       };
       const targetIndex = findDeltaTargetIndex(msgs, delta.id);
       if (targetIndex >= 0) {
-        appendTextToAssistantMessage(msgs[targetIndex], bufferedText, delta.id);
+        const appendResult = appendTextToAssistantMessage(msgs, targetIndex, bufferedText, delta.id);
         changed = true;
+        if (appendResult === 'non-tail') {
+          structural = true;
+        }
       } else {
         // Need a new assistant message
         const messageBody: NonNullable<ClaudeStreamMessage['message']> = {
@@ -606,7 +611,14 @@ function mergeCompletedTextEcho(
     if (previous.type !== 'assistant' || messageId(previous) !== id) {
       continue;
     }
-    if (messageText(previous) === text) {
+    const previousText = messageText(previous);
+    if (previousText === text) {
+      return 'drop';
+    }
+    if (previousText && text && previousText.startsWith(text)) {
+      return 'drop';
+    }
+    if (previousText && text && !text.includes(previousText)) {
       return 'drop';
     }
     messages[i] = message;
@@ -638,23 +650,54 @@ function findDeltaTargetIndex(messages: ClaudeStreamMessage[], id: string): numb
 }
 
 function appendTextToAssistantMessage(
-  message: ClaudeStreamMessage,
+  messages: ClaudeStreamMessage[],
+  targetIndex: number,
   text: string,
   id: string,
-): void {
+): DeltaAppendResult {
+  const message = messages[targetIndex];
+  if (!message) {
+    return 'none';
+  }
+  const shouldClone = targetIndex !== messages.length - 1;
+  const targetMessage = shouldClone ? cloneStreamMessage(message) : message;
+
   if (!message.message) {
-    message.message = { content: [{ type: 'text', text }] };
-  } else if (!message.message.content || message.message.content.length === 0) {
-    message.message.content = [{ type: 'text', text }];
+    targetMessage.message = { content: [{ type: 'text', text }] };
+  } else if (!targetMessage.message?.content || targetMessage.message.content.length === 0) {
+    targetMessage.message = { ...targetMessage.message, content: [{ type: 'text', text }] };
   } else {
-    const lastBlock = message.message.content[message.message.content.length - 1];
+    if (shouldClone) {
+      targetMessage.message = {
+        ...targetMessage.message,
+        content: [...targetMessage.message.content],
+      };
+    }
+    const content = targetMessage.message.content;
+    const lastBlock = content[content.length - 1];
     if (lastBlock.type === 'text') {
-      lastBlock.text += text;
+      if (shouldClone) {
+        content[content.length - 1] = { ...lastBlock, text: `${lastBlock.text ?? ''}${text}` };
+      } else {
+        lastBlock.text += text;
+      }
     } else {
-      message.message.content.push({ type: 'text', text });
+      content.push({ type: 'text', text });
     }
   }
-  if (id && !(message.message as any).id) {
-    (message.message as any).id = id;
+  if (id && targetMessage.message && !(targetMessage.message as any).id) {
+    (targetMessage.message as any).id = id;
   }
+  if (shouldClone) {
+    messages[targetIndex] = targetMessage;
+    return 'non-tail';
+  }
+  return 'tail';
+}
+
+function cloneStreamMessage(message: ClaudeStreamMessage): ClaudeStreamMessage {
+  return {
+    ...message,
+    message: message.message ? { ...message.message } : message.message,
+  };
 }

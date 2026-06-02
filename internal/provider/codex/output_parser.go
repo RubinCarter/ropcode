@@ -170,7 +170,7 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 	case "agentMessage":
 		text, _ := item["text"].(string)
 		messageID := codexItemMessageID(params)
-		if d.agentMessageCompletedDuplicatesDelta(messageID, text) {
+		if d.agentMessageCompletedFollowsDelta(messageID) {
 			return nil
 		}
 		return eventAssistantText(messageID, text)
@@ -486,8 +486,8 @@ func (d *Driver) rememberAgentMessageDelta(messageID, delta string) {
 	d.agentMessageDeltas[messageID] += delta
 }
 
-func (d *Driver) agentMessageCompletedDuplicatesDelta(messageID, text string) bool {
-	if messageID == "" || text == "" {
+func (d *Driver) agentMessageCompletedFollowsDelta(messageID string) bool {
+	if messageID == "" {
 		return false
 	}
 	d.mu.Lock()
@@ -495,9 +495,9 @@ func (d *Driver) agentMessageCompletedDuplicatesDelta(messageID, text string) bo
 	if d.agentMessageDeltas == nil {
 		return false
 	}
-	deltaText := d.agentMessageDeltas[messageID]
+	_, ok := d.agentMessageDeltas[messageID]
 	delete(d.agentMessageDeltas, messageID)
-	return deltaText == text
+	return ok
 }
 
 func extractShellCommand(item map[string]interface{}) string {

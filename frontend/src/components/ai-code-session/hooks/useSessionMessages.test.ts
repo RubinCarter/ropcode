@@ -57,6 +57,8 @@ test('keeps provider completed text from duplicating a matching streamed delta',
   assert.match(source, /function mergeCompletedTextEcho/);
   assert.match(source, /messageId\(message\)/);
   assert.match(source, /return 'drop'/);
+  assert.match(source, /previousText\.startsWith\(text\)/);
+  assert.match(source, /!text\.includes\(previousText\)/);
   assert.match(source, /messages\[i\] = message/);
   assert.match(source, /const completedTextMerge = mergeCompletedTextEcho\(msg, msgs\)/);
 });
@@ -65,7 +67,10 @@ test('uses message id when merging streaming deltas across metadata frames', asy
   const source = await readSource();
 
   assert.match(source, /interface PendingTextDelta/);
+  assert.match(source, /type DeltaAppendResult = 'none' \| 'tail' \| 'non-tail'/);
   assert.match(source, /const id = messageId\(message\);/);
   assert.match(source, /findDeltaTargetIndex\(msgs, delta\.id\)/);
-  assert.match(source, /appendTextToAssistantMessage\(msgs\[targetIndex\], bufferedText, delta\.id\)/);
+  assert.match(source, /appendTextToAssistantMessage\(msgs, targetIndex, bufferedText, delta\.id\)/);
+  assert.match(source, /appendResult === 'non-tail'/);
+  assert.match(source, /function cloneStreamMessage/);
 });

@@ -57,11 +57,12 @@ test('session prompt actions route prompt submission through the classifier', as
   assert.match(source, /if \(classification\.action === 'enqueue'\) \{[\s\S]*queueState\.addToQueue\(prompt, model, providerApiId, thinkingMode, activeProvider\);[\s\S]*return true;[\s\S]*\}/);
 });
 
-test('session prompt actions use selected prompt provider when creating project chats', async () => {
+test('session prompt actions require pre-created project chats', async () => {
   const source = await readSessionPromptActionsSource();
 
   assert.match(source, /provider\?: string,/);
-  assert.match(source, /CreateProjectChat\(\s*sessionState\.projectPath,[\s\S]*activeProvider,/);
+  assert.doesNotMatch(source, /CreateProjectChat/);
+  assert.match(source, /if \(!projectChatId\) \{[\s\S]*ProjectChat is not available for this session/);
   assert.doesNotMatch(source, /api\.startProviderSession/);
   assert.doesNotMatch(source, /api\.resumeProviderSession/);
 });
@@ -69,8 +70,7 @@ test('session prompt actions use selected prompt provider when creating project 
 test('session prompt actions send follow-ups through project chat', async () => {
   const source = await readSessionPromptActionsSource();
 
-  assert.match(source, /let activeChatId = forceFreshProviderSession \? undefined : projectChatId;/);
-  assert.match(source, /SendProjectChatMessage\(activeChatId, wrappedPrompt, model, providerApiId \|\| undefined, thinkingMode\)/);
+  assert.match(source, /SendProjectChatMessage\(projectChatId, wrappedPrompt, model, providerApiId \|\| undefined, thinkingMode\)/);
   assert.doesNotMatch(source, /api\.sendProviderSessionMessage/);
 });
 

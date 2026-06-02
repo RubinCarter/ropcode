@@ -9,6 +9,8 @@ func TestSessionFrameJSONUsesStableFrontendNames(t *testing.T) {
 	frame := SessionFrame{
 		StreamID:          "stream-runtime-1",
 		FrameID:           "frame-1",
+		MessageID:         "message-1",
+		Operation:         FrameOperationUpsert,
 		Provider:          "claude",
 		RuntimeSessionID:  "runtime-1",
 		ProviderSessionID: "provider-1",
@@ -60,7 +62,7 @@ func TestSessionFrameJSONUsesStableFrontendNames(t *testing.T) {
 
 	for _, key := range []string{
 		"streamId", "frameId", "runtimeSessionId", "providerSessionId", "projectPath",
-		"parentToolUseId", "taskId", "toolUseId", "agentId", "durationMs",
+		"messageId", "operation", "parentToolUseId", "taskId", "toolUseId", "agentId", "durationMs",
 	} {
 		if _, ok := got[key]; !ok {
 			t.Fatalf("expected JSON key %q in %s", key, data)

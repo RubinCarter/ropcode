@@ -30,7 +30,7 @@ export interface SessionChangedEvent {
   id: string;
   cwd: string;
   state: 'active' | 'idle' | 'completed';
-  provider: 'claude' | 'gemini' | 'codex';
+  provider: string;
 }
 
 export interface WorktreeInfo {
