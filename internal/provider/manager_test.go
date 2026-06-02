@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -152,6 +153,139 @@ func TestManager_SendMessage_Enqueue(t *testing.T) {
 	// echo driver enqueues messages
 	if err := m.SendMessage(sessionID, "second message"); err != nil {
 		t.Fatalf("send message: %v", err)
+	}
+}
+
+func TestManager_SendMessage_ProviderCommandUsesDriverHandler(t *testing.T) {
+	driver := &commandDriver{}
+	session := newSession(
+		context.Background(),
+		"session-1",
+		driver,
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.state = StateRunning
+
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	m.mu.Lock()
+	m.sessions[session.ID] = session
+	m.mu.Unlock()
+
+	if err := m.SendMessage(session.ID, "/native"); err != nil {
+		t.Fatalf("send provider command: %v", err)
+	}
+
+	driver.mu.Lock()
+	defer driver.mu.Unlock()
+	if len(driver.handled) != 1 || driver.handled[0] != "/native" {
+		t.Fatalf("expected provider command handler to run once, got %#v", driver.handled)
+	}
+	if len(driver.sent) != 0 {
+		t.Fatalf("expected regular SendMessage not to run, got %#v", driver.sent)
+	}
+}
+
+func TestManager_SendMessage_ExpandsProviderCapability(t *testing.T) {
+	driver := &capabilityDriver{}
+	projectPath := t.TempDir()
+	session := newSession(
+		context.Background(),
+		"session-1",
+		driver,
+		SessionConfig{ProjectPath: projectPath, Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.state = StateRunning
+
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	if err := m.RegisterDriver(driver); err != nil {
+		t.Fatalf("register driver: %v", err)
+	}
+	m.mu.Lock()
+	m.sessions[session.ID] = session
+	m.mu.Unlock()
+
+	if err := m.SendMessage(session.ID, "/commit-as-prompt ship it"); err != nil {
+		t.Fatalf("send capability invocation: %v", err)
+	}
+
+	driver.mu.Lock()
+	defer driver.mu.Unlock()
+	if len(driver.sent) != 1 {
+		t.Fatalf("expected one expanded send, got %#v", driver.sent)
+	}
+	if driver.sent[0] != "Commit this change:\n\nship it" {
+		t.Fatalf("expected expanded capability prompt, got %q", driver.sent[0])
+	}
+}
+
+func TestManager_ExpandProviderCapability_PreservesInjectedWrappers(t *testing.T) {
+	driver := &capabilityDriver{}
+	projectPath := t.TempDir()
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	if err := m.RegisterDriver(driver); err != nil {
+		t.Fatalf("register driver: %v", err)
+	}
+
+	message := "<previous_conversation>\n[User]: hello\n</previous_conversation>\n\n/system-check status"
+	expanded, err := m.ExpandProviderCapability(driver.ID(), projectPath, message)
+	if err != nil {
+		t.Fatalf("expand provider capability: %v", err)
+	}
+	if !strings.Contains(expanded, "<previous_conversation>") {
+		t.Fatalf("expected wrapper to be preserved, got %q", expanded)
+	}
+	if !strings.Contains(expanded, "Check the system:\n\nstatus") {
+		t.Fatalf("expected capability body to replace invocation, got %q", expanded)
+	}
+	if strings.Contains(expanded, "/system-check") {
+		t.Fatalf("expected raw slash invocation to be removed, got %q", expanded)
+	}
+}
+
+func TestManager_ExpandProviderCapability_ReplacesInvocationBetweenSystemWrappers(t *testing.T) {
+	driver := &capabilityDriver{}
+	projectPath := t.TempDir()
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	if err := m.RegisterDriver(driver); err != nil {
+		t.Fatalf("register driver: %v", err)
+	}
+
+	message := "<system_instruction>\nUse the workspace.\n</system_instruction>\n\n/commit-as-prompt ship it\n\n<system-instruction>\nRename the branch.\n</system-instruction>"
+	expanded, err := m.ExpandProviderCapability(driver.ID(), projectPath, message)
+	if err != nil {
+		t.Fatalf("expand provider capability: %v", err)
+	}
+	expected := "<system_instruction>\nUse the workspace.\n</system_instruction>\n\nCommit this change:\n\nship it\n\n<system-instruction>\nRename the branch.\n</system-instruction>"
+	if expanded != expected {
+		t.Fatalf("unexpected expanded wrapper order:\nwant: %q\n got: %q", expected, expanded)
+	}
+}
+
+func TestManager_ExpandProviderCapability_RejectsUnhandledCommand(t *testing.T) {
+	driver := &capabilityDriver{}
+	projectPath := t.TempDir()
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	if err := m.RegisterDriver(driver); err != nil {
+		t.Fatalf("register driver: %v", err)
+	}
+
+	_, err := m.ExpandProviderCapability(driver.ID(), projectPath, "/native-only")
+	if err == nil {
+		t.Fatal("expected missing handler error for command without prompt content")
+	}
+	if !strings.Contains(err.Error(), "has no app-server handler") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -526,6 +660,80 @@ func (d *echoDriver) OnProcessExit(session SessionHandle, exitCode int, err erro
 		config.Prompt = msg
 		session.RestartWithConfig(config)
 	}
+}
+
+type commandDriver struct {
+	echoDriver
+	mu      sync.Mutex
+	sent    []string
+	handled []string
+}
+
+func (d *commandDriver) ID() string { return "command" }
+
+func (d *commandDriver) SendMessage(session SessionHandle, msg string) error {
+	d.mu.Lock()
+	d.sent = append(d.sent, msg)
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *commandDriver) IsProviderCommand(message string) bool {
+	return strings.TrimSpace(message) == "/native"
+}
+
+func (d *commandDriver) HandleProviderCommand(session SessionHandle, message string) error {
+	d.mu.Lock()
+	d.handled = append(d.handled, message)
+	d.mu.Unlock()
+	return nil
+}
+
+type capabilityDriver struct {
+	echoDriver
+	mu   sync.Mutex
+	sent []string
+}
+
+func (d *capabilityDriver) ID() string { return "capability" }
+
+func (d *capabilityDriver) SendMessage(session SessionHandle, msg string) error {
+	d.mu.Lock()
+	d.sent = append(d.sent, msg)
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *capabilityDriver) DiscoverProviderCapabilities(ctx context.Context, projectPath string, force bool) (CapabilityLayers, error) {
+	return NormalizeCapabilityLayers(d.ID(), []Capability{
+		{
+			Provider:    d.ID(),
+			Name:        "commit-as-prompt",
+			SlashName:   "/commit-as-prompt",
+			Kind:        string(CapabilityKindCommand),
+			Scope:       string(CapabilityScopeUser),
+			Content:     "Commit this change:\n\n$ARGUMENTS",
+			SourcePath:  projectPath + "/commit-as-prompt.md",
+			Description: "Commit changes",
+		},
+		{
+			Provider:    d.ID(),
+			Name:        "system-check",
+			SlashName:   "/system-check",
+			Kind:        string(CapabilityKindCommand),
+			Scope:       string(CapabilityScopeProject),
+			Content:     "Check the system:",
+			Description: "Check system",
+		},
+		{
+			Provider:    d.ID(),
+			Name:        "native-only",
+			SlashName:   "/native-only",
+			Kind:        string(CapabilityKindCommand),
+			Scope:       string(CapabilityScopeSystem),
+			Description: "Native command without provider handler",
+		},
+	}), nil
 }
 
 // sleepDriver uses "sleep" command — runs for a long time until terminated.

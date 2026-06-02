@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,7 @@ import (
 var _ provider.ProviderDriver = (*Driver)(nil)
 var _ provider.ProviderSessionMode = (*Driver)(nil)
 var _ provider.ProviderSessionIdentifier = (*Driver)(nil)
+var _ provider.ProviderCommandHandler = (*Driver)(nil)
 
 var requestSeq atomic.Uint64
 
@@ -197,6 +199,99 @@ func (d *Driver) SendMessage(session provider.SessionHandle, msg string) error {
 	data, _ := json.Marshal(req)
 	data = append(data, '\n')
 	return session.WriteStdin(data)
+}
+
+func (d *Driver) IsProviderCommand(message string) bool {
+	_, ok := codexProviderCommand(message)
+	return ok
+}
+
+func (d *Driver) HandleProviderCommand(session provider.SessionHandle, message string) error {
+	command, ok := codexProviderCommand(message)
+	if !ok {
+		return nil
+	}
+	config := session.GetConfig()
+	if !config.Interactive {
+		return fmt.Errorf("codex command %q requires an interactive session", "/"+command)
+	}
+	if command != "compact" {
+		return fmt.Errorf("codex command %q is handled by the Codex TUI and is not available through app-server", "/"+command)
+	}
+
+	threadID := session.GetProviderSessionID()
+	if threadID == "" {
+		return fmt.Errorf("codex session not initialized (no thread ID)")
+	}
+
+	id := nextRequestID()
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  "thread/compact/start",
+		"params": map[string]interface{}{
+			"threadId": threadID,
+		},
+	}
+	data, _ := json.Marshal(req)
+	data = append(data, '\n')
+	return session.WriteStdin(data)
+}
+
+func codexProviderCommand(message string) (string, bool) {
+	text := strings.TrimSpace(stripCodexProviderCommandWrappers(message))
+	if !strings.HasPrefix(text, "/") {
+		return "", false
+	}
+	body := strings.TrimPrefix(text, "/")
+	parts := strings.Fields(body)
+	if len(parts) == 0 {
+		return "", false
+	}
+	name := parts[0]
+	if name == "" {
+		return "", false
+	}
+
+	for _, command := range codexBuiltinSlashCommandSpecs() {
+		if !command.Visible || command.Name != name {
+			continue
+		}
+		return name, true
+	}
+	return "", false
+}
+
+func stripCodexProviderCommandWrappers(message string) string {
+	text := strings.TrimSpace(message)
+	for {
+		next := stripCodexDelimitedBlocks(text, "<previous_conversation>", "</previous_conversation>")
+		next = stripCodexDelimitedBlocks(next, "<system_instruction>", "</system_instruction>")
+		next = stripCodexDelimitedBlocks(next, "<system-instruction>", "</system-instruction>")
+		next = stripCodexDelimitedBlocks(next, "<environment_context>", "</environment_context>")
+		next = strings.TrimSpace(next)
+		if next == text {
+			return next
+		}
+		text = next
+	}
+}
+
+func stripCodexDelimitedBlocks(text, openTag, closeTag string) string {
+	out := text
+	for {
+		start := strings.Index(out, openTag)
+		if start < 0 {
+			return out
+		}
+		afterOpen := start + len(openTag)
+		relativeEnd := strings.Index(out[afterOpen:], closeTag)
+		if relativeEnd < 0 {
+			return out
+		}
+		end := afterOpen + relativeEnd + len(closeTag)
+		out = out[:start] + out[end:]
+	}
 }
 
 func (d *Driver) Interrupt(session provider.SessionHandle) error {

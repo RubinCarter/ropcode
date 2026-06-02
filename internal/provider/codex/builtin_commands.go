@@ -13,8 +13,8 @@ type codexBuiltinSlashCommand struct {
 	Visible          bool
 }
 
-func codexBuiltinSlashCommands(providerID string) []provider.Capability {
-	commands := []codexBuiltinSlashCommand{
+func codexBuiltinSlashCommandSpecs() []codexBuiltinSlashCommand {
+	return []codexBuiltinSlashCommand{
 		// Codex app-server does not expose a slash-command list API. These
 		// commands mirror codex-rs/tui/src/slash_command.rs.
 		{Name: "model", Description: "choose what model and reasoning effort to use", Visible: true},
@@ -69,7 +69,10 @@ func codexBuiltinSlashCommands(providerID string) []provider.Capability {
 		{Name: "debug-m-drop", Description: "DO NOT USE", Visible: true},
 		{Name: "debug-m-update", Description: "DO NOT USE", Visible: true},
 	}
+}
 
+func codexBuiltinSlashCommands(providerID string) []provider.Capability {
+	commands := codexBuiltinSlashCommandSpecs()
 	capabilities := make([]provider.Capability, 0, len(commands))
 	for _, command := range commands {
 		if !command.Visible {

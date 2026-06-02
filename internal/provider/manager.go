@@ -159,8 +159,19 @@ func (m *Manager) EnsureUserSession(providerID string, config SessionConfig) (st
 	}
 	m.prepareSessionConfig(driver, &config)
 
-	initialPrompt := config.Prompt
 	longLived := useLongLivedSession(driver, config)
+	initialPrompt := config.Prompt
+	if !longLived && initialPrompt != "" {
+		if handler, ok := driver.(ProviderCommandHandler); ok && handler.IsProviderCommand(initialPrompt) {
+			return "", fmt.Errorf("provider command requires an active %s session", providerID)
+		}
+		expandedPrompt, err := m.expandProviderCapabilityForDriver(driver, config.ProjectPath, initialPrompt)
+		if err != nil {
+			return "", err
+		}
+		initialPrompt = expandedPrompt
+		config.Prompt = expandedPrompt
+	}
 	config.Interactive = longLived
 	if longLived {
 		config.Prompt = ""
@@ -248,6 +259,17 @@ func (m *Manager) SendUserMessage(providerID, projectPath, sessionID, message st
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
 	return m.EnsureUserSession(providerID, config)
+}
+
+// IsProviderCommand reports whether the active provider treats the message as a
+// native command instead of model input.
+func (m *Manager) IsProviderCommand(providerID, message string) bool {
+	driver, err := m.driver(providerID)
+	if err != nil {
+		return false
+	}
+	handler, ok := driver.(ProviderCommandHandler)
+	return ok && handler.IsProviderCommand(message)
 }
 
 func (m *Manager) resumeConfigForSessionMessage(providerID, projectPath, sessionID, message string) (SessionConfig, bool) {
@@ -565,6 +587,28 @@ func (m *Manager) SendMessage(sessionID, message string) error {
 	}
 
 	state := session.GetState()
+	if handler, ok := session.driver.(ProviderCommandHandler); ok && handler.IsProviderCommand(message) {
+		switch state {
+		case StateCompleted, StateFailed, StateCancelled:
+			return fmt.Errorf("provider command requires an active %s session", session.driver.ID())
+		case StateCancelling:
+			session.EnqueueMessage(message)
+			return nil
+		default:
+			if err := handler.HandleProviderCommand(session, message); err != nil {
+				return err
+			}
+			session.MarkActivityActive()
+			return nil
+		}
+	}
+
+	expandedMessage, err := m.expandProviderCapabilityForDriver(session.driver, session.GetConfig().ProjectPath, message)
+	if err != nil {
+		return err
+	}
+	message = expandedMessage
+
 	switch state {
 	case StateCompleted, StateFailed, StateCancelled:
 		config := session.GetConfig()
@@ -573,7 +617,7 @@ func (m *Manager) SendMessage(sessionID, message string) error {
 		config.Resume = true
 		return session.RestartWithConfig(config)
 	case StateCancelling:
-		// Wait for process to finish, then restart
+		// Wait for process to finish, then restart.
 		session.EnqueueMessage(message)
 		return nil
 	default:

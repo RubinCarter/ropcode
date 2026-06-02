@@ -309,6 +309,10 @@ func codexSkillsToCapabilities(providerID string, response codexSkillsListRespon
 			if skill.Interface != nil && skill.Interface.ShortDescription != nil && strings.TrimSpace(*skill.Interface.ShortDescription) != "" {
 				description = strings.TrimSpace(*skill.Interface.ShortDescription)
 			}
+			content := ""
+			if skill.Interface != nil && skill.Interface.DefaultPrompt != nil {
+				content = strings.TrimSpace(*skill.Interface.DefaultPrompt)
+			}
 
 			allowedTools := make([]string, 0)
 			if skill.Dependencies != nil {
@@ -327,8 +331,9 @@ func codexSkillsToCapabilities(providerID string, response codexSkillsListRespon
 				Description:      description,
 				Scope:            string(mapCodexSkillScope(skill.Scope)),
 				SourcePath:       skill.Path,
+				Content:          content,
 				AllowedTools:     allowedTools,
-				AcceptsArguments: skill.Interface != nil && skill.Interface.DefaultPrompt != nil && strings.Contains(*skill.Interface.DefaultPrompt, "$ARGUMENTS"),
+				AcceptsArguments: strings.Contains(content, "$ARGUMENTS"),
 			}
 			capability.Key = provider.CapabilityKey(capability.Provider, capability.Kind, capability.SlashName)
 			capabilities = append(capabilities, capability)

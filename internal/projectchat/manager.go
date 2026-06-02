@@ -146,7 +146,15 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 	// prepend the context to the user's message
 	actualMessage := message
 	contextSyncMessage := ""
-	if seg.ContextInjected && seg.Seq > 0 {
+	isProviderCommand := m.provider != nil && m.provider.IsProviderCommand(seg.Provider, message)
+	if !isProviderCommand && m.provider != nil {
+		expandedMessage, err := m.provider.ExpandProviderCapability(seg.Provider, chat.ProjectPath, actualMessage)
+		if err != nil {
+			return "", fmt.Errorf("prepare provider message: %w", err)
+		}
+		actualMessage = expandedMessage
+	}
+	if seg.ContextInjected && seg.Seq > 0 && !isProviderCommand {
 		segments, err := m.db.ListChatSegments(chatID)
 		if err == nil && len(segments) > 0 {
 			// Find segments to include: incremental (after last segment of same provider) or full
@@ -181,7 +189,7 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 							contextText = summarized
 						}
 					}
-					actualMessage = InjectContext(message, contextText)
+					actualMessage = InjectContext(actualMessage, contextText)
 					contextSyncMessage = contextText
 				}
 			}

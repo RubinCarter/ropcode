@@ -15,6 +15,7 @@ import (
 var _ provider.ProviderDriver = (*Driver)(nil)
 var _ provider.ProviderSessionMode = (*Driver)(nil)
 var _ provider.ProviderSessionIdentifier = (*Driver)(nil)
+var _ provider.ProviderCapabilityPassthrough = (*Driver)(nil)
 
 type Driver struct {
 	Activity         *claudeactivity.Service
@@ -33,6 +34,10 @@ func (d *Driver) ProviderSessionID(event *provider.OutputEvent) string {
 		return sid
 	}
 	return ""
+}
+
+func (d *Driver) AllowRawCapabilityInvocation(capability provider.Capability) bool {
+	return true
 }
 
 func ClaudeDir() (string, error) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -18,13 +19,16 @@ type testEmitter struct{}
 func (e *testEmitter) Emit(name string, data interface{}) {}
 
 type resumeProbeDriver struct {
-	id         string
-	mu         sync.Mutex
-	starts     []provider.SessionConfig
-	resumes    []string
-	sends      []string
-	interrupts int
-	history    []provider.OutputEvent
+	id               string
+	mu               sync.Mutex
+	starts           []provider.SessionConfig
+	resumes          []string
+	sends            []string
+	handledCommands  []string
+	providerCommands map[string]struct{}
+	interrupts       int
+	history          []provider.OutputEvent
+	capabilities     []provider.Capability
 }
 
 func (d *resumeProbeDriver) ID() string         { return d.id }
@@ -52,6 +56,21 @@ func (d *resumeProbeDriver) ParseStderr(line []byte) *provider.StderrEvent { ret
 func (d *resumeProbeDriver) SendMessage(session provider.SessionHandle, msg string) error {
 	d.mu.Lock()
 	d.sends = append(d.sends, msg)
+	d.mu.Unlock()
+	return nil
+}
+func (d *resumeProbeDriver) IsProviderCommand(message string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.providerCommands) == 0 {
+		return false
+	}
+	_, ok := d.providerCommands[message]
+	return ok
+}
+func (d *resumeProbeDriver) HandleProviderCommand(session provider.SessionHandle, message string) error {
+	d.mu.Lock()
+	d.handledCommands = append(d.handledCommands, message)
 	d.mu.Unlock()
 	return nil
 }
@@ -83,6 +102,12 @@ func (d *resumeProbeDriver) WaitForInit(session provider.SessionHandle, timeout 
 }
 func (d *resumeProbeDriver) QuerySessionActivity(session provider.SessionHandle, timeout time.Duration) (*provider.SessionActivity, error) {
 	return provider.DefaultSessionActivity(session), nil
+}
+func (d *resumeProbeDriver) DiscoverProviderCapabilities(ctx context.Context, projectPath string, force bool) (provider.CapabilityLayers, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	capabilities := append([]provider.Capability(nil), d.capabilities...)
+	return provider.NormalizeCapabilityLayers(d.id, capabilities), nil
 }
 func (d *resumeProbeDriver) OnProcessStart(_ context.Context, _ provider.SessionHandle, _ int) error {
 	return nil
@@ -242,6 +267,177 @@ func TestSendMessageUsesProviderSessionResolver(t *testing.T) {
 	}
 }
 
+func TestSendMessageProviderCommandDoesNotConsumePendingContext(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+
+	claudeDriver := &resumeProbeDriver{id: "claude"}
+	codexDriver := &resumeProbeDriver{
+		id:               "codex",
+		providerCommands: map[string]struct{}{"/compact": {}},
+	}
+	if err := prov.RegisterDriver(claudeDriver); err != nil {
+		t.Fatalf("register claude: %v", err)
+	}
+	if err := prov.RegisterDriver(codexDriver); err != nil {
+		t.Fatalf("register codex: %v", err)
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+	created, err := manager.CreateChat(projectPath, "claude", "sonnet", "")
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+	if _, err := manager.SendMessage(created.ChatID, "hello", "sonnet", "", ""); err != nil {
+		t.Fatalf("send initial message: %v", err)
+	}
+
+	initial, err := db.GetChatSegment(created.SegmentID)
+	if err != nil {
+		t.Fatalf("get initial segment: %v", err)
+	}
+	claudeDriver.mu.Lock()
+	claudeDriver.history = []provider.OutputEvent{
+		userHistoryEvent("claude", initial.ProviderSessionID, "hello"),
+		assistantHistoryEvent("claude", initial.ProviderSessionID, "initial reply"),
+	}
+	claudeDriver.mu.Unlock()
+
+	switched, err := manager.SwitchProvider(created.ChatID, "codex", "gpt-5", "")
+	if err != nil {
+		t.Fatalf("switch provider: %v", err)
+	}
+	codexSeg, err := db.GetChatSegment(switched.SegmentID)
+	if err != nil {
+		t.Fatalf("get codex segment: %v", err)
+	}
+	if !codexSeg.ContextInjected {
+		t.Fatal("expected switched segment to have pending context")
+	}
+
+	if _, err := manager.SendMessage(created.ChatID, "/compact", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send provider command: %v", err)
+	}
+	codexDriver.mu.Lock()
+	if len(codexDriver.handledCommands) != 1 || codexDriver.handledCommands[0] != "/compact" {
+		t.Fatalf("expected provider command handler to receive /compact, got %#v", codexDriver.handledCommands)
+	}
+	if len(codexDriver.sends) != 0 {
+		t.Fatalf("expected provider command not to be sent as prompt, got %#v", codexDriver.sends)
+	}
+	codexDriver.mu.Unlock()
+
+	codexSeg, err = db.GetChatSegment(switched.SegmentID)
+	if err != nil {
+		t.Fatalf("reload codex segment: %v", err)
+	}
+	if !codexSeg.ContextInjected {
+		t.Fatal("expected provider command not to consume pending context")
+	}
+
+	if _, err := manager.SendMessage(created.ChatID, "continue", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send regular message: %v", err)
+	}
+	codexDriver.mu.Lock()
+	defer codexDriver.mu.Unlock()
+	if len(codexDriver.sends) != 1 {
+		t.Fatalf("expected one regular send, got %#v", codexDriver.sends)
+	}
+	if !strings.Contains(codexDriver.sends[0], "<previous_conversation>") {
+		t.Fatalf("expected regular send to include pending context, got %q", codexDriver.sends[0])
+	}
+	if !strings.Contains(codexDriver.sends[0], "[Assistant]: initial reply") {
+		t.Fatalf("expected pending context to include previous assistant reply, got %q", codexDriver.sends[0])
+	}
+}
+
+func TestSendMessageExpandsProviderCapabilityBeforeContextInjection(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+
+	claudeDriver := &resumeProbeDriver{id: "claude"}
+	codexDriver := &resumeProbeDriver{
+		id: "codex",
+		capabilities: []provider.Capability{
+			{
+				Provider:    "codex",
+				Name:        "commit-as-prompt",
+				SlashName:   "/commit-as-prompt",
+				Kind:        string(provider.CapabilityKindCommand),
+				Scope:       string(provider.CapabilityScopeUser),
+				Content:     "Commit the following change:\n\n$ARGUMENTS",
+				Description: "Commit staged changes",
+			},
+		},
+	}
+	if err := prov.RegisterDriver(claudeDriver); err != nil {
+		t.Fatalf("register claude: %v", err)
+	}
+	if err := prov.RegisterDriver(codexDriver); err != nil {
+		t.Fatalf("register codex: %v", err)
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+	created, err := manager.CreateChat(projectPath, "claude", "sonnet", "")
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+	if _, err := manager.SendMessage(created.ChatID, "hello", "sonnet", "", ""); err != nil {
+		t.Fatalf("send initial message: %v", err)
+	}
+
+	initial, err := db.GetChatSegment(created.SegmentID)
+	if err != nil {
+		t.Fatalf("get initial segment: %v", err)
+	}
+	claudeDriver.mu.Lock()
+	claudeDriver.history = []provider.OutputEvent{
+		userHistoryEvent("claude", initial.ProviderSessionID, "hello"),
+		assistantHistoryEvent("claude", initial.ProviderSessionID, "initial reply"),
+	}
+	claudeDriver.mu.Unlock()
+
+	if _, err := manager.SwitchProvider(created.ChatID, "codex", "gpt-5", ""); err != nil {
+		t.Fatalf("switch provider: %v", err)
+	}
+	if _, err := manager.SendMessage(created.ChatID, "/commit-as-prompt ship staged files", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send capability invocation: %v", err)
+	}
+
+	codexDriver.mu.Lock()
+	defer codexDriver.mu.Unlock()
+	if len(codexDriver.sends) != 1 {
+		t.Fatalf("expected one codex send, got %#v", codexDriver.sends)
+	}
+	got := codexDriver.sends[0]
+	if !strings.Contains(got, "<previous_conversation>") {
+		t.Fatalf("expected provider context to be injected, got %q", got)
+	}
+	if !strings.Contains(got, "[Assistant]: initial reply") {
+		t.Fatalf("expected previous assistant reply in context, got %q", got)
+	}
+	if !strings.Contains(got, "Commit the following change:\n\nship staged files") {
+		t.Fatalf("expected capability prompt expansion, got %q", got)
+	}
+	if strings.Contains(got, "/commit-as-prompt") {
+		t.Fatalf("expected raw slash invocation to be removed, got %q", got)
+	}
+}
+
 func TestInterruptActiveSegmentUsesProviderInterrupt(t *testing.T) {
 	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -286,6 +482,42 @@ func TestInterruptActiveSegmentUsesProviderInterrupt(t *testing.T) {
 	}
 	if !prov.IsProviderSessionRunningForProject(projectPath, seg.RuntimeSessionID) {
 		t.Fatalf("expected provider runtime to remain alive after interrupt")
+	}
+}
+
+func userHistoryEvent(providerID, sessionID, text string) provider.OutputEvent {
+	return provider.OutputEvent{
+		Type:              "user",
+		Provider:          providerID,
+		ProviderSessionID: sessionID,
+		SessionID:         sessionID,
+		Message: map[string]interface{}{
+			"session_id": sessionID,
+			"message": map[string]interface{}{
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{"type": "text", "text": text},
+				},
+			},
+		},
+	}
+}
+
+func assistantHistoryEvent(providerID, sessionID, text string) provider.OutputEvent {
+	return provider.OutputEvent{
+		Type:              "assistant",
+		Provider:          providerID,
+		ProviderSessionID: sessionID,
+		SessionID:         sessionID,
+		Message: map[string]interface{}{
+			"session_id": sessionID,
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []interface{}{
+					map[string]interface{}{"type": "text", "text": text},
+				},
+			},
+		},
 	}
 }
 

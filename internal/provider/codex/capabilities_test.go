@@ -181,6 +181,9 @@ func TestCodexSkillsToCapabilitiesMapsScopesAndDescriptions(t *testing.T) {
 	if got.SlashName != "/docs" || got.Scope != "project" || got.Description != "Short docs" || !got.AcceptsArguments {
 		t.Fatalf("unexpected capability: %#v", got)
 	}
+	if got.Content != "Use $ARGUMENTS" {
+		t.Fatalf("expected default prompt content, got %q", got.Content)
+	}
 	if len(got.AllowedTools) != 1 || got.AllowedTools[0] != "shell" {
 		t.Fatalf("unexpected tools: %#v", got.AllowedTools)
 	}

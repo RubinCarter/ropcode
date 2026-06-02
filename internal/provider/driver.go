@@ -101,6 +101,20 @@ type ProviderSessionIdentifier interface {
 	ProviderSessionID(event *OutputEvent) string
 }
 
+// ProviderCommandHandler is an optional provider extension for user-entered
+// commands that must be translated into provider-native control requests.
+type ProviderCommandHandler interface {
+	IsProviderCommand(message string) bool
+	HandleProviderCommand(session SessionHandle, message string) error
+}
+
+// ProviderCapabilityPassthrough is an optional provider extension for CLIs
+// whose own prompt protocol can execute slash capabilities that Ropcode cannot
+// expand because the provider does not expose their prompt body.
+type ProviderCapabilityPassthrough interface {
+	AllowRawCapabilityInvocation(capability Capability) bool
+}
+
 // OutputEventCompleter is an optional provider extension for CLIs whose stdout
 // stream omits fields that are later written to the provider transcript.
 type OutputEventCompleter interface {
