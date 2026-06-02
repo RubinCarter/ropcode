@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -127,6 +128,7 @@ func (d *Driver) buildInteractiveArgs(config provider.SessionConfig) []string {
 }
 
 func (d *Driver) buildBatchArgs(config provider.SessionConfig) []string {
+	prompt := expandAtFileMentions(config.Prompt, config.ProjectPath)
 	args := []string{
 		"exec",
 		"--sandbox", "danger-full-access",
@@ -144,7 +146,7 @@ func (d *Driver) buildBatchArgs(config provider.SessionConfig) []string {
 	args = append(args, "--json")
 	args = append(args, "--color", "never")
 	args = append(args, "--")
-	args = append(args, config.Prompt)
+	args = append(args, prompt)
 	return args
 }
 
@@ -176,6 +178,7 @@ func (d *Driver) EnvVars(config provider.SessionConfig) map[string]string {
 
 func (d *Driver) SendMessage(session provider.SessionHandle, msg string) error {
 	config := session.GetConfig()
+	msg = expandAtFileMentions(msg, config.ProjectPath)
 	if !config.Interactive {
 		session.EnqueueMessage(msg)
 		return nil
@@ -199,6 +202,111 @@ func (d *Driver) SendMessage(session provider.SessionHandle, msg string) error {
 	data, _ := json.Marshal(req)
 	data = append(data, '\n')
 	return session.WriteStdin(data)
+}
+
+const maxMentionTextBytes = 200 * 1024
+
+func expandAtFileMentions(msg, projectPath string) string {
+	mentions := parseAtFileMentions(msg)
+	if len(mentions) == 0 {
+		return msg
+	}
+
+	var blocks []string
+	seen := make(map[string]bool)
+	for _, mention := range mentions {
+		path := resolveMentionPath(mention, projectPath)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		block, ok := codexMentionContextBlock(path)
+		if ok {
+			blocks = append(blocks, block)
+		}
+	}
+	if len(blocks) == 0 {
+		return msg
+	}
+	return msg + "\n\n<file_context>\n" + strings.Join(blocks, "\n\n") + "\n</file_context>"
+}
+
+func parseAtFileMentions(msg string) []string {
+	var mentions []string
+	for i := 0; i < len(msg); i++ {
+		if msg[i] != '@' {
+			continue
+		}
+		if i+1 >= len(msg) {
+			continue
+		}
+		if msg[i+1] == '"' {
+			end := strings.IndexByte(msg[i+2:], '"')
+			if end < 0 {
+				continue
+			}
+			if mention := strings.TrimSpace(msg[i+2 : i+2+end]); mention != "" {
+				mentions = append(mentions, mention)
+			}
+			i += 2 + end
+			continue
+		}
+		start := i + 1
+		end := start
+		for end < len(msg) && msg[end] != '@' && msg[end] != '\n' && msg[end] != '\r' && msg[end] != '\t' && msg[end] != ' ' {
+			end++
+		}
+		if end > start {
+			mentions = append(mentions, strings.TrimSpace(msg[start:end]))
+		}
+		i = end
+	}
+	return mentions
+}
+
+func resolveMentionPath(mention, projectPath string) string {
+	mention = strings.TrimSpace(mention)
+	if mention == "" {
+		return ""
+	}
+	if filepath.IsAbs(mention) {
+		return filepath.Clean(mention)
+	}
+	if projectPath == "" {
+		return filepath.Clean(mention)
+	}
+	return filepath.Clean(filepath.Join(projectPath, mention))
+}
+
+func codexMentionContextBlock(path string) (string, bool) {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	if info.Size() > maxMentionTextBytes {
+		return fmt.Sprintf("File: %s\nNote: file exists but is too large to inline (%d bytes).", path, info.Size()), true
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	if !looksTextFile(path, data) {
+		return fmt.Sprintf("File: %s\nNote: binary or image attachment. Use filesystem tools to inspect this path if needed.", path), true
+	}
+	return fmt.Sprintf("File: %s\n```\n%s\n```", path, string(data)), true
+}
+
+func looksTextFile(path string, data []byte) bool {
+	if mimeType := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); strings.HasPrefix(mimeType, "text/") {
+		return true
+	}
+	for _, b := range data {
+		if b == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *Driver) IsProviderCommand(message string) bool {
