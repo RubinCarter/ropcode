@@ -2,6 +2,8 @@ package codex
 
 import (
 	"encoding/json"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"ropcode/internal/provider"
@@ -40,7 +42,7 @@ func (d *Driver) ParseOutput(line []byte) *provider.OutputEvent {
 		return d.applySubagentScope(adaptPlanEvent(params), params)
 	case "turn/completed":
 		d.rememberTurnCompleted(params)
-		return d.applySubagentScope(eventResult(), params)
+		return d.applySubagentScope(eventResultWithMeta(params), params)
 	case "item/started":
 		return d.applySubagentScope(d.parseItemEvent(params, "started"), params)
 	case "item/completed":
@@ -189,6 +191,9 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 		}
 		id, _ := item["id"].(string)
 		args := extractFunctionCallArgs(item)
+		if d.rememberFunctionCallTool(id, name, args) {
+			return nil
+		}
 		claudeName, claudeInput := adaptToolCall(name, args)
 		if claudeName == "" {
 			return nil
@@ -200,7 +205,7 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 		if callID == "" {
 			callID, _ = item["id"].(string)
 		}
-		return eventToolResult(callID, output, false)
+		return d.eventFunctionCallOutput(callID, output, itemType == "localShellOutput")
 	case "collab_tool_call":
 		output, _ := item["output"].(string)
 		callID, _ := item["call_id"].(string)
@@ -213,10 +218,16 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 	case "webSearch":
 		id, _ := item["id"].(string)
 		toolName, input, key := codexWebActionTool(item)
-		if toolName == "" || key == "" || !d.rememberWebActionToolUse(id, key) {
+		if toolName == "" || key == "" {
 			return nil
 		}
-		return eventToolUse(id, toolName, input)
+		alreadyStarted := d.hasWebActionToolUse(id, key)
+		d.rememberWebActionToolUse(id, key)
+		result := codexWebActionResultText(toolName, input)
+		if alreadyStarted {
+			return eventToolResult(id, result, false)
+		}
+		return eventToolUseWithResult(id, toolName, input, result, false)
 	default:
 		return &provider.OutputEvent{
 			Type:    "system",
@@ -266,6 +277,9 @@ func (d *Driver) parseItemStarted(item map[string]interface{}, itemType string, 
 			}
 		} else {
 			args := extractFunctionCallArgs(item)
+			if d.rememberFunctionCallTool(id, name, args) {
+				return nil
+			}
 			claudeName, claudeInput := adaptToolCall(name, args)
 			if claudeName == "" {
 				return nil
@@ -285,7 +299,194 @@ func (d *Driver) parseCommandExecution(item map[string]interface{}, params map[s
 	output, _ := item["aggregatedOutput"].(string)
 	exitCode, _ := item["exitCode"].(float64)
 	isError := int(exitCode) != 0
-	return eventToolResult(id, output, isError)
+	command := extractShellCommand(item)
+	return eventToolResult(id, normalizeCodexCommandResult(item, command, output), isError)
+}
+
+var (
+	codexOSCSequence    = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+	codexCSISequence    = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
+	codexEscapeSequence = regexp.MustCompile(`\x1b[@-Z\\-_]`)
+	codexControlChars   = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]`)
+	codexRopcodeSILine  = regexp.MustCompile(`(?m)^.*(?:__ropcode_si_|__ROPCODE_SHELL_INTEGRATION__|16162;[A-Z]).*(?:\r?\n|$)`)
+	codexBlankLineRuns  = regexp.MustCompile(`\n{3,}`)
+	codexGrepFileLine   = regexp.MustCompile(`.+:\d+:`)
+	codexGrepLineOnly   = regexp.MustCompile(`^(\d+):(.*)$`)
+	codexSessionIDLine  = regexp.MustCompile(`Process running with session ID\s+([0-9]+)`)
+)
+
+func sanitizeCodexShellOutput(output string) string {
+	if output == "" {
+		return ""
+	}
+	output = strings.ReplaceAll(output, "\r\n", "\n")
+	output = strings.ReplaceAll(output, "\r", "\n")
+	output = codexOSCSequence.ReplaceAllString(output, "")
+	output = codexCSISequence.ReplaceAllString(output, "")
+	output = codexEscapeSequence.ReplaceAllString(output, "")
+	output = codexRopcodeSILine.ReplaceAllString(output, "")
+	output = codexControlChars.ReplaceAllString(output, "")
+	output = codexBlankLineRuns.ReplaceAllString(output, "\n\n")
+	return output
+}
+
+func normalizeCodexCommandResult(item map[string]interface{}, command, output string) string {
+	output = sanitizeCodexShellOutput(output)
+	toolName, toolInput := adaptCommandAction(item, command)
+	if toolName != "Grep" {
+		return output
+	}
+	path, _ := toolInput["path"].(string)
+	if path == "" {
+		return output
+	}
+	lines := strings.Split(output, "\n")
+	changed := false
+	for idx, line := range lines {
+		line = strings.TrimRight(line, "\r")
+		if line == "" || codexGrepFileLine.MatchString(line) {
+			lines[idx] = line
+			continue
+		}
+		if codexGrepLineOnly.MatchString(line) {
+			lines[idx] = path + ":" + line
+			changed = true
+			continue
+		}
+		lines[idx] = line
+	}
+	if !changed {
+		return output
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (d *Driver) rememberFunctionCallTool(callID, name string, args interface{}) bool {
+	if callID == "" || name == "" {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.toolCallNames == nil {
+		d.toolCallNames = make(map[string]string)
+	}
+	d.toolCallNames[callID] = name
+	switch name {
+	case "write_stdin":
+		if targetID := d.terminalTargetForWriteStdinLocked(args); targetID != "" {
+			if d.writeStdinTargets == nil {
+				d.writeStdinTargets = make(map[string]string)
+			}
+			d.writeStdinTargets[callID] = targetID
+		}
+		return true
+	}
+	return false
+}
+
+func (d *Driver) terminalTargetForWriteStdinLocked(args interface{}) string {
+	sessionID := codexToolSessionID(args)
+	if sessionID == "" {
+		return ""
+	}
+	if d.terminalSessionIDs != nil {
+		if targetID := d.terminalSessionIDs[sessionID]; targetID != "" {
+			return targetID
+		}
+	}
+	return ""
+}
+
+func (d *Driver) rememberFunctionCallOutput(callID, output string) bool {
+	if callID == "" || output == "" {
+		return false
+	}
+	sessionID := codexRunningSessionID(output)
+	if sessionID == "" {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.toolCallNames == nil || d.toolCallNames[callID] != "exec_command" {
+		return false
+	}
+	if d.terminalSessionIDs == nil {
+		d.terminalSessionIDs = make(map[string]string)
+	}
+	d.terminalSessionIDs[sessionID] = callID
+	return true
+}
+
+func (d *Driver) eventFunctionCallOutput(callID, output string, localShell bool) *provider.OutputEvent {
+	d.rememberFunctionCallOutput(callID, output)
+	parsed := parseWaitAgentOutput(output)
+
+	d.mu.Lock()
+	targetID := ""
+	sourceName := ""
+	if d.toolCallNames != nil {
+		sourceName = d.toolCallNames[callID]
+	}
+	if d.writeStdinTargets != nil {
+		targetID = d.writeStdinTargets[callID]
+	}
+	d.mu.Unlock()
+	if sourceName == "write_stdin" && targetID == "" {
+		return nil
+	}
+
+	if localShell || sourceName == "exec_command" || targetID != "" {
+		parsed = sanitizeCodexShellOutput(parsed)
+	}
+	if strings.TrimSpace(parsed) == "" {
+		return nil
+	}
+	if targetID != "" {
+		callID = targetID
+	}
+	return eventToolResult(callID, parsed, false)
+}
+
+func codexRunningSessionID(output string) string {
+	match := codexSessionIDLine.FindStringSubmatch(output)
+	if len(match) < 2 {
+		return ""
+	}
+	return match[1]
+}
+
+func codexToolSessionID(args interface{}) string {
+	switch v := args.(type) {
+	case string:
+		var parsed map[string]interface{}
+		if json.Unmarshal([]byte(v), &parsed) == nil {
+			return codexToolSessionID(parsed)
+		}
+	case map[string]interface{}:
+		return codexAnyID(v["session_id"])
+	}
+	return ""
+}
+
+func codexAnyID(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return strconv.FormatInt(int64(v), 10)
+	case float32:
+		return strconv.FormatInt(int64(v), 10)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case json.Number:
+		return v.String()
+	default:
+		return ""
+	}
 }
 
 func (d *Driver) parseCollabAgentCompleted(item map[string]interface{}, params map[string]interface{}) *provider.OutputEvent {
@@ -429,6 +630,15 @@ func (d *Driver) rememberWebActionToolUse(id, key string) bool {
 	}
 	d.webSearchToolUses[id] = key
 	return true
+}
+
+func (d *Driver) hasWebActionToolUse(id, key string) bool {
+	if id == "" || key == "" {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.webSearchToolUses != nil && d.webSearchToolUses[id] == key
 }
 
 func nestedCodexString(m map[string]interface{}, key, child string) (string, bool) {
@@ -586,15 +796,15 @@ func (d *Driver) parseBatchEvent(raw map[string]interface{}) *provider.OutputEve
 	case "item.completed":
 		return d.parseBatchItemCompleted(raw)
 	case "turn.completed":
-		return eventResult()
+		return eventResultWithMeta(raw)
 	case "thread.completed", "thread.cancelled":
-		return eventResult()
+		return eventResultWithMeta(raw)
 	case "thread.error", "error", "turn.failed":
 		msg, _ := raw["message"].(string)
 		return eventError(msg)
 	case "message.delta":
 		delta, _ := raw["delta"].(string)
-		return eventAssistantDelta("", delta)
+		return eventAssistantDelta(codexBatchMessageID(raw), delta)
 	default:
 		return &provider.OutputEvent{
 			Type:    eventType,
@@ -636,10 +846,12 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 		output, _ := item["aggregated_output"].(string)
 		exitCode, _ := item["exit_code"].(float64)
 		isError := int(exitCode) != 0
-		return eventToolResult(id, output, isError)
+		command := extractBatchCommand(item)
+		return eventToolResult(id, normalizeCodexCommandResult(item, command, output), isError)
 	case "agent_message", "message":
 		text, _ := item["text"].(string)
-		return eventAssistantText("", text)
+		id, _ := item["id"].(string)
+		return eventAssistantText(id, text)
 	case "function_call", "local_shell_exec":
 		name, _ := item["name"].(string)
 		if name == "" {
@@ -647,6 +859,9 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 		}
 		id, _ := item["id"].(string)
 		args := extractFunctionCallArgs(item)
+		if d.rememberFunctionCallTool(id, name, args) {
+			return nil
+		}
 		claudeName, claudeInput := adaptToolCall(name, args)
 		if claudeName == "" {
 			return nil
@@ -654,7 +869,11 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 		return eventToolUse(id, claudeName, claudeInput)
 	case "function_call_output", "local_shell_output":
 		output, _ := item["output"].(string)
-		return eventToolResult("", output, false)
+		callID, _ := item["call_id"].(string)
+		if callID == "" {
+			callID, _ = item["id"].(string)
+		}
+		return d.eventFunctionCallOutput(callID, output, itemType == "local_shell_output")
 	default:
 		return &provider.OutputEvent{Type: "assistant", Message: raw}
 	}
@@ -675,13 +894,29 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 				Message: userText(text),
 			}
 		}
-		return eventAssistantText("", text)
+		return eventAssistantText(codexBatchMessageID(raw), text)
 	case "function_call", "custom_tool_call":
 		name, _ := payload["name"].(string)
-		return eventToolUse("", name, payload)
+		callID, _ := payload["call_id"].(string)
+		if callID == "" {
+			callID, _ = payload["id"].(string)
+		}
+		args := extractFunctionCallArgs(payload)
+		if d.rememberFunctionCallTool(callID, name, args) {
+			return nil
+		}
+		claudeName, claudeInput := adaptToolCall(name, args)
+		if claudeName == "" {
+			return nil
+		}
+		return eventToolUse(callID, claudeName, claudeInput)
 	case "function_call_output":
 		output, _ := payload["output"].(string)
-		return eventToolResult("", output, false)
+		callID, _ := payload["call_id"].(string)
+		if callID == "" {
+			callID, _ = payload["id"].(string)
+		}
+		return d.eventFunctionCallOutput(callID, output, false)
 	default:
 		return &provider.OutputEvent{Type: "assistant", Subtype: payloadType, Message: raw}
 	}

@@ -86,6 +86,7 @@ func LoadHistoryEvents(codexDir, sessionID string) ([]provider.OutputEvent, erro
 	threadToSpawn := map[string]string{}
 	lsCallIDs := map[string]bool{}
 	lastSpawnCallID := ""
+	statefulDriver := &Driver{}
 	scanner := bufio.NewScanner(file)
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
@@ -107,6 +108,9 @@ func LoadHistoryEvents(codexDir, sessionID string) ([]provider.OutputEvent, erro
 			if str(payload, "type") == "function_call" {
 				name := str(payload, "name")
 				callID := str(payload, "call_id")
+				if statefulDriver.rememberFunctionCallTool(callID, name, extractFunctionCallArgs(payload)) {
+					continue
+				}
 				if name == "spawn_agent" {
 					lastSpawnCallID = callID
 				} else if name == "exec_command" {
@@ -126,47 +130,32 @@ func LoadHistoryEvents(codexDir, sessionID string) ([]provider.OutputEvent, erro
 						}
 					}
 				}
-			} else if str(payload, "type") == "function_call_output" && lastSpawnCallID != "" {
+			} else if str(payload, "type") == "function_call_output" {
+				callID := str(payload, "call_id")
 				output := str(payload, "output")
-				var outputObj map[string]interface{}
-				if json.Unmarshal([]byte(output), &outputObj) == nil {
-					if agentID, ok := outputObj["agent_id"].(string); ok && agentID != "" {
-						threadToSpawn[agentID] = lastSpawnCallID
-					}
+				if normalized := statefulDriver.eventFunctionCallOutput(callID, output, false); normalized != nil {
+					ev := *normalized
+					annotateCodexHistoryMessage(ev.Message, raw, payload)
+					fixCodexHistoryEvent(&ev, threadToSpawn, lsCallIDs)
+					events = append(events, ev)
 				}
-				lastSpawnCallID = ""
+				if lastSpawnCallID != "" {
+					var outputObj map[string]interface{}
+					if json.Unmarshal([]byte(output), &outputObj) == nil {
+						if agentID, ok := outputObj["agent_id"].(string); ok && agentID != "" {
+							threadToSpawn[agentID] = lastSpawnCallID
+						}
+					}
+					lastSpawnCallID = ""
+				}
+				continue
 			} else if str(payload, "type") != "function_call" {
 				lastSpawnCallID = ""
 			}
 		}
 
 		ev := NormalizeHistoryEntry(raw)
-
-		// Fix parent_tool_use_id for subagent_notification using state map
-		if ev.Message != nil {
-			if parentID, _ := ev.Message["parent_tool_use_id"].(string); parentID != "" {
-				if spawnID, ok := threadToSpawn[parentID]; ok {
-					ev.Message["parent_tool_use_id"] = spawnID
-				}
-			}
-		}
-
-		// Format LS tool_result content as directory tree
-		if ev.Type == "user" && ev.Message != nil {
-			if inner, ok := ev.Message["message"].(map[string]interface{}); ok {
-				if content, ok := inner["content"].([]interface{}); ok && len(content) > 0 {
-					if block, ok := content[0].(map[string]interface{}); ok {
-						if block["type"] == "tool_result" {
-							if toolUseID, _ := block["tool_use_id"].(string); lsCallIDs[toolUseID] {
-								if text, _ := block["content"].(string); text != "" {
-									block["content"] = formatDirectoryListing(text)
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+		fixCodexHistoryEvent(&ev, threadToSpawn, lsCallIDs)
 
 		events = append(events, ev)
 	}
@@ -175,6 +164,56 @@ func LoadHistoryEvents(codexDir, sessionID string) ([]provider.OutputEvent, erro
 		return nil, fmt.Errorf("error reading session file: %w", err)
 	}
 	return events, nil
+}
+
+func fixCodexHistoryEvent(ev *provider.OutputEvent, threadToSpawn map[string]string, lsCallIDs map[string]bool) {
+	if ev == nil || ev.Message == nil {
+		return
+	}
+	if parentID, _ := ev.Message["parent_tool_use_id"].(string); parentID != "" {
+		if spawnID, ok := threadToSpawn[parentID]; ok {
+			ev.Message["parent_tool_use_id"] = spawnID
+		}
+	}
+	if ev.Type != "user" {
+		return
+	}
+	inner, ok := ev.Message["message"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	block := firstCodexHistoryToolResultBlock(inner["content"])
+	if block == nil {
+		return
+	}
+	toolUseID, _ := block["tool_use_id"].(string)
+	if !lsCallIDs[toolUseID] {
+		return
+	}
+	if text, _ := block["content"].(string); text != "" {
+		block["content"] = formatDirectoryListing(text)
+	}
+}
+
+func firstCodexHistoryToolResultBlock(content interface{}) map[string]interface{} {
+	switch blocks := content.(type) {
+	case []interface{}:
+		if len(blocks) == 0 {
+			return nil
+		}
+		block, _ := blocks[0].(map[string]interface{})
+		if block == nil || block["type"] != "tool_result" {
+			return nil
+		}
+		return block
+	case []map[string]interface{}:
+		if len(blocks) == 0 || blocks[0]["type"] != "tool_result" {
+			return nil
+		}
+		return blocks[0]
+	default:
+		return nil
+	}
 }
 
 // LoadSessionHistory loads history as []Message by converting OutputEvents.

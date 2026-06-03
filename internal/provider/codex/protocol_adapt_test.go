@@ -2,6 +2,9 @@ package codex
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"ropcode/internal/provider"
@@ -374,6 +377,41 @@ func TestInteractive_CommandExecutionStarted_NoCommandActions(t *testing.T) {
 	}
 }
 
+func TestInteractive_CommandExecutionStarted_SearchWithoutQueryParsesCommand(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call_search","command":"/bin/zsh -lc 'rg needle src'","status":"inProgress","commandActions":[{"type":"search","command":"rg needle src","query":"","path":"src"}],"aggregatedOutput":null,"exitCode":null},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "assistant", "empty search query")
+	assertContentBlockType(t, ev, 0, "tool_use", "tool_use type")
+	assertContentField(t, ev, 0, "name", "Grep", "empty search query should parse command")
+
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["pattern"] != "needle" {
+		t.Fatalf("expected pattern from command, got %v", input["pattern"])
+	}
+	if input["path"] != "src" {
+		t.Fatalf("expected path from command or metadata, got %v", input["path"])
+	}
+	if input["command"] != "rg needle src" {
+		t.Fatalf("expected command from commandActions, got %v", input["command"])
+	}
+}
+
+func TestInteractive_CommandExecutionStarted_ListFilesProvidesGlobPattern(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"commandExecution","id":"call_files","command":"/bin/zsh -lc 'rg --files internal/provider/codex -g \"*.go\"'","status":"inProgress","commandActions":[{"type":"listFiles","command":"rg --files internal/provider/codex -g \"*.go\"","path":"internal/provider/codex"}],"aggregatedOutput":null,"exitCode":null},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "assistant", "list files")
+	assertContentBlockType(t, ev, 0, "tool_use", "tool_use type")
+	assertContentField(t, ev, 0, "name", "Glob", "listFiles should create Glob")
+
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["pattern"] != "*.go" {
+		t.Fatalf("expected pattern '*.go', got %v", input["pattern"])
+	}
+	if input["path"] != "internal/provider/codex" {
+		t.Fatalf("expected path internal/provider/codex, got %v", input["path"])
+	}
+}
+
 func TestInteractive_CommandExecutionCompleted_Success(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"call_abc123","command":"/bin/zsh -lc 'echo hello'","status":"completed","commandActions":[{"type":"unknown","command":"echo hello"}],"aggregatedOutput":"hello\n","exitCode":0},"threadId":"t1","turnId":"turn1"}}`)
 	assertType(t, ev, "user", "commandExecution completed")
@@ -383,11 +421,25 @@ func TestInteractive_CommandExecutionCompleted_Success(t *testing.T) {
 	assertContentFieldBool(t, ev, 0, "is_error", false, "tool_result is_error")
 }
 
+func TestInteractive_CommandExecutionCompleted_NormalizesSingleFileGrepOutput(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"call_grep","command":"/bin/zsh -lc 'rg needle file.go'","status":"completed","commandActions":[{"type":"search","command":"rg needle file.go","query":"needle","path":"file.go"}],"aggregatedOutput":"12:func needle() {}\nplain match\n","exitCode":0},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "user", "single-file grep completed")
+	assertContentBlockType(t, ev, 0, "tool_result", "tool_result type")
+	assertContentField(t, ev, 0, "content", "file.go:12:func needle() {}\nplain match\n", "single-file grep result")
+}
+
 func TestInteractive_CommandExecutionCompleted_Error(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"call_err","command":"/bin/zsh -lc 'exit 1'","status":"completed","aggregatedOutput":"error occurred\n","exitCode":1},"threadId":"t1","turnId":"turn1"}}`)
 	assertType(t, ev, "user", "commandExecution error")
 	assertContentBlockType(t, ev, 0, "tool_result", "tool_result type")
 	assertContentFieldBool(t, ev, 0, "is_error", true, "tool_result is_error on exit 1")
+}
+
+func TestInteractive_CommandExecutionCompleted_SanitizesTerminalSequences(t *testing.T) {
+	ev := parseOutput(t, "{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"commandExecution\",\"id\":\"call_ansi\",\"command\":\"/bin/zsh -lc 'echo hello'\",\"status\":\"completed\",\"aggregatedOutput\":\"\\u001b]7;file://localhost/tmp\\u0007\\u001b]16162;A\\u0007\\u001b[?25lhello\\u001b[0m\\r\\n__ropcode_si_precmd: command not found\\nworld\\n\",\"exitCode\":0},\"threadId\":\"t1\",\"turnId\":\"turn1\"}}")
+	assertType(t, ev, "user", "commandExecution sanitized")
+	assertContentBlockType(t, ev, 0, "tool_result", "tool_result type")
+	assertContentField(t, ev, 0, "content", "hello\nworld\n", "sanitized tool_result content")
 }
 
 // --- 1E. Tool Use (functionCall) ---
@@ -421,6 +473,41 @@ func TestInteractive_FunctionCallStarted(t *testing.T) {
 	}
 	if first["activeForm"] == nil || first["activeForm"] == "" {
 		t.Fatal("activeForm should be populated")
+	}
+}
+
+func TestInteractive_FunctionCallStarted_ApplyPatchStringArgumentsMapsToEdit(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"functionCall","id":"call_patch","name":"apply_patch","arguments":"*** Begin Patch\n*** Update File: app.go\n@@\n-old value\n+new value\n*** End Patch"},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "assistant", "apply_patch string arguments")
+	assertContentBlockType(t, ev, 0, "tool_use", "apply_patch tool_use")
+	assertContentField(t, ev, 0, "name", "Edit", "apply_patch should map to Edit")
+
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["file_path"] != "app.go" {
+		t.Fatalf("expected file_path app.go, got %v", input["file_path"])
+	}
+	if input["old_string"] != "old value" {
+		t.Fatalf("expected old_string from removed line, got %v", input["old_string"])
+	}
+	if input["new_string"] != "new value" {
+		t.Fatalf("expected new_string from added line, got %v", input["new_string"])
+	}
+}
+
+func TestInteractive_FunctionCallStarted_ApplyPatchInlinePatchMapsToWrite(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"functionCall","id":"call_patch_add","name":"apply_patch","patch":"*** Begin Patch\n*** Add File: notes.txt\n+first line\n+second line\n*** End Patch"},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "assistant", "apply_patch inline patch")
+	assertContentBlockType(t, ev, 0, "tool_use", "apply_patch tool_use")
+	assertContentField(t, ev, 0, "name", "Write", "add file patch should map to Write")
+
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["file_path"] != "notes.txt" {
+		t.Fatalf("expected file_path notes.txt, got %v", input["file_path"])
+	}
+	if input["content"] != "first line\nsecond line" {
+		t.Fatalf("expected added file content, got %v", input["content"])
 	}
 }
 
@@ -592,6 +679,9 @@ func TestInteractive_WebSearchCompleted(t *testing.T) {
 	assertContentBlockType(t, ev, 0, "tool_use", "webSearch tool_use")
 	assertContentField(t, ev, 0, "id", "ws_abc123", "webSearch id")
 	assertContentField(t, ev, 0, "name", "WebSearch", "webSearch name")
+	assertContentBlockType(t, ev, 1, "tool_result", "webSearch completed result")
+	assertContentField(t, ev, 1, "tool_use_id", "ws_abc123", "webSearch result id")
+	assertContentFieldBool(t, ev, 1, "is_error", false, "webSearch result is_error")
 }
 
 func TestInteractive_WebSearchCompleted_HasQuery(t *testing.T) {
@@ -601,6 +691,9 @@ func TestInteractive_WebSearchCompleted_HasQuery(t *testing.T) {
 	input, _ := blocks[0]["input"].(map[string]any)
 	if input["query"] != "test query" {
 		t.Fatalf("expected webSearch input query, got %v", input["query"])
+	}
+	if blocks[1]["type"] != "tool_result" {
+		t.Fatalf("expected completed webSearch tool_result, got %v", blocks[1]["type"])
 	}
 }
 
@@ -612,6 +705,9 @@ func TestInteractive_WebSearchCompletedUsesActionQueryFallback(t *testing.T) {
 	if input["query"] != "fallback query" {
 		t.Fatalf("expected fallback query, got %v", input["query"])
 	}
+	if blocks[1]["type"] != "tool_result" {
+		t.Fatalf("expected completed webSearch tool_result, got %v", blocks[1]["type"])
+	}
 }
 
 func TestInteractive_WebSearchDeduplicatesStartedAndCompleted(t *testing.T) {
@@ -619,7 +715,39 @@ func TestInteractive_WebSearchDeduplicatesStartedAndCompleted(t *testing.T) {
 	started := d.ParseOutput([]byte(`{"method":"item/started","params":{"item":{"type":"webSearch","id":"ws_dupe","query":"same query","action":{"type":"search","queries":["same query"]}},"threadId":"t1","turnId":"turn1"}}`))
 	assertType(t, started, "assistant", "webSearch started")
 	completed := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"webSearch","id":"ws_dupe","query":"same query","action":{"type":"search","queries":["same query"]}},"threadId":"t1","turnId":"turn1"}}`))
-	assertNil(t, completed, "webSearch completed duplicate")
+	assertType(t, completed, "user", "webSearch completed duplicate should resolve started tool")
+	assertContentBlockType(t, completed, 0, "tool_result", "webSearch completed duplicate result")
+	assertContentField(t, completed, 0, "tool_use_id", "ws_dupe", "webSearch duplicate result id")
+	assertContentFieldBool(t, completed, 0, "is_error", false, "webSearch duplicate result is_error")
+}
+
+func TestInteractive_WriteStdinResultTargetsRunningExecCommand(t *testing.T) {
+	d := &Driver{}
+	started := d.ParseOutput([]byte(`{"method":"item/started","params":{"item":{"type":"functionCall","id":"call_exec","name":"exec_command","arguments":"{\"cmd\":\"npm --prefix frontend run build:typecheck\"}"},"threadId":"t1","turnId":"turn1"}}`))
+	assertType(t, started, "assistant", "exec_command started")
+	assertContentField(t, started, 0, "id", "call_exec", "exec_command tool id")
+	assertContentField(t, started, 0, "name", "Bash", "exec_command tool name")
+
+	running := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"functionCallOutput","id":"out_running","call_id":"call_exec","output":"Chunk ID: abc\nWall time: 1.0 seconds\nProcess running with session ID 77674\nOriginal token count: 0\nOutput:\n"},"threadId":"t1","turnId":"turn1"}}`))
+	assertNil(t, running, "running-only exec_command output")
+
+	poll := d.ParseOutput([]byte(`{"method":"item/started","params":{"item":{"type":"functionCall","id":"call_poll","name":"write_stdin","arguments":"{\"session_id\":77674,\"chars\":\"\",\"yield_time_ms\":1000,\"max_output_tokens\":12000}"},"threadId":"t1","turnId":"turn1"}}`))
+	assertNil(t, poll, "write_stdin started")
+
+	result := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"functionCallOutput","id":"out_poll","call_id":"call_poll","output":"Chunk ID: def\nWall time: 0.5 seconds\nProcess exited with code 0\nOriginal token count: 3\nOutput:\nfrontend build ok\n"},"threadId":"t1","turnId":"turn1"}}`))
+	assertType(t, result, "user", "write_stdin output")
+	assertContentBlockType(t, result, 0, "tool_result", "write_stdin output block")
+	assertContentField(t, result, 0, "tool_use_id", "call_exec", "write_stdin output target")
+	assertContentField(t, result, 0, "content", "frontend build ok\n", "write_stdin output content")
+}
+
+func TestInteractive_WriteStdinWithoutKnownSessionIsSuppressed(t *testing.T) {
+	d := &Driver{}
+	poll := d.ParseOutput([]byte(`{"method":"item/started","params":{"item":{"type":"functionCall","id":"call_poll","name":"write_stdin","arguments":"{\"session_id\":77674,\"chars\":\"\"}"},"threadId":"t1","turnId":"turn1"}}`))
+	assertNil(t, poll, "write_stdin started without session mapping")
+
+	result := d.ParseOutput([]byte(`{"method":"item/completed","params":{"item":{"type":"functionCallOutput","id":"out_poll","call_id":"call_poll","output":"Chunk ID: def\nWall time: 0.5 seconds\nProcess exited with code 0\nOriginal token count: 3\nOutput:\nlate output\n"},"threadId":"t1","turnId":"turn1"}}`))
+	assertNil(t, result, "write_stdin output without session mapping")
 }
 
 func TestInteractive_WebSearchOpenPageMapsToWebFetch(t *testing.T) {
@@ -631,6 +759,9 @@ func TestInteractive_WebSearchOpenPageMapsToWebFetch(t *testing.T) {
 	input, _ := blocks[0]["input"].(map[string]any)
 	if input["url"] != "https://openai.com/" {
 		t.Fatalf("expected webFetch url, got %v", input["url"])
+	}
+	if blocks[1]["type"] != "tool_result" {
+		t.Fatalf("expected completed webFetch tool_result, got %v", blocks[1]["type"])
 	}
 }
 
@@ -750,6 +881,22 @@ func TestBatch_ItemCompleted_FunctionCall_UpdatePlan(t *testing.T) {
 	}
 }
 
+func TestBatch_ResponseItem_FunctionCall_ApplyPatchMapsToEdit(t *testing.T) {
+	ev := parseOutput(t, `{"type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":"*** Begin Patch\n*** Update File: server.go\n@@\n-before\n+after\n*** End Patch","call_id":"call_patch_batch"}}`)
+	assertType(t, ev, "assistant", "batch response_item apply_patch")
+	assertContentBlockType(t, ev, 0, "tool_use", "batch apply_patch tool_use")
+	assertContentField(t, ev, 0, "name", "Edit", "batch apply_patch should map to Edit")
+
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["file_path"] != "server.go" {
+		t.Fatalf("expected file_path server.go, got %v", input["file_path"])
+	}
+	if input["old_string"] != "before" || input["new_string"] != "after" {
+		t.Fatalf("expected parsed edit strings, got old=%v new=%v", input["old_string"], input["new_string"])
+	}
+}
+
 func TestHistory_ItemCompleted_FunctionCall_UpdatePlan(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"item.completed","item":{"id":"call_hp1","type":"function_call","name":"update_plan","arguments":"{\"explanation\":\"开始\",\"plan\":[{\"step\":\"第一步\",\"status\":\"in_progress\"},{\"step\":\"第二步\",\"status\":\"pending\"}]}"}}`)
 	assertHistoryType(t, ev, "assistant", "history item.completed function_call")
@@ -829,6 +976,9 @@ func getHistoryContentBlocks(t *testing.T, ev provider.OutputEvent) []map[string
 	inner, _ := msg["message"].(map[string]any)
 	if inner == nil {
 		t.Fatal("message.message is nil")
+	}
+	if blocks, ok := inner["content"].([]map[string]interface{}); ok {
+		return blocks
 	}
 	if blocks, ok := inner["content"].([]interface{}); ok {
 		result := make([]map[string]interface{}, 0, len(blocks))
@@ -1005,6 +1155,22 @@ func TestHistory_ResponseItem_FunctionCall_UpdatePlan(t *testing.T) {
 	}
 }
 
+func TestHistory_ResponseItem_FunctionCall_ApplyPatchMapsToEdit(t *testing.T) {
+	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":"*** Begin Patch\n*** Update File: main.go\n@@\n-left\n+right\n*** End Patch","call_id":"call_patch_history"}}`)
+	assertHistoryType(t, ev, "assistant", "function_call apply_patch")
+	blocks := getHistoryContentBlocks(t, ev)
+	if blocks[0]["name"] != "Edit" {
+		t.Fatalf("expected name=Edit, got %v", blocks[0]["name"])
+	}
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["file_path"] != "main.go" {
+		t.Fatalf("expected file_path main.go, got %v", input["file_path"])
+	}
+	if input["old_string"] != "left" || input["new_string"] != "right" {
+		t.Fatalf("expected parsed edit strings, got old=%v new=%v", input["old_string"], input["new_string"])
+	}
+}
+
 func TestHistory_ResponseItem_FunctionCall_SpawnAgent(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"function_call","name":"spawn_agent","namespace":"multi_agent_v1","arguments":"{\"agent_type\":\"explorer\",\"message\":\"search code\"}","call_id":"call_spawn"}}`)
 	assertHistoryType(t, ev, "assistant", "function_call spawn_agent")
@@ -1085,6 +1251,44 @@ func TestHistory_ToolUseIDPairing(t *testing.T) {
 	}
 	if callID != "call_paired_001" {
 		t.Fatalf("expected call_paired_001, got %q", callID)
+	}
+}
+
+func TestHistory_LoadEventsRetargetsWriteStdinOutput(t *testing.T) {
+	codexDir := t.TempDir()
+	sessionID := "session-write-stdin"
+	sessionDir := filepath.Join(codexDir, "sessions", "2026", "06", "03")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+	sessionFile := filepath.Join(sessionDir, "rollout-2026-06-03T00-00-00-"+sessionID+".jsonl")
+	lines := []string{
+		`{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"npm --prefix frontend run build:typecheck\"}","call_id":"call_exec"}}`,
+		`{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_exec","output":"Chunk ID: abc\nWall time: 1.0 seconds\nProcess running with session ID 77674\nOriginal token count: 0\nOutput:\n"}}`,
+		`{"type":"response_item","payload":{"type":"function_call","name":"write_stdin","arguments":"{\"session_id\":77674,\"chars\":\"\",\"yield_time_ms\":1000,\"max_output_tokens\":12000}","call_id":"call_poll"}}`,
+		`{"type":"response_item","payload":{"type":"function_call_output","call_id":"call_poll","output":"Chunk ID: def\nWall time: 0.5 seconds\nProcess exited with code 0\nOriginal token count: 3\nOutput:\nfrontend build ok\n"}}`,
+	}
+	if err := os.WriteFile(sessionFile, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write session file: %v", err)
+	}
+
+	events, err := LoadHistoryEvents(codexDir, sessionID)
+	if err != nil {
+		t.Fatalf("load history events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 normalized events, got %d: %#v", len(events), events)
+	}
+	toolUseBlocks := getHistoryContentBlocks(t, events[0])
+	if toolUseBlocks[0]["id"] != "call_exec" {
+		t.Fatalf("expected exec tool id call_exec, got %v", toolUseBlocks[0]["id"])
+	}
+	resultBlocks := getHistoryContentBlocks(t, events[1])
+	if resultBlocks[0]["tool_use_id"] != "call_exec" {
+		t.Fatalf("expected retargeted tool_result id call_exec, got %v", resultBlocks[0]["tool_use_id"])
+	}
+	if resultBlocks[0]["content"] != "frontend build ok\n" {
+		t.Fatalf("expected stripped command output, got %q", resultBlocks[0]["content"])
 	}
 }
 

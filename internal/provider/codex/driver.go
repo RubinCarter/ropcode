@@ -31,6 +31,9 @@ type Driver struct {
 	subagentCallByID   map[string]string
 	activeTurnByThread map[string]string
 	webSearchToolUses  map[string]string
+	toolCallNames      map[string]string
+	terminalSessionIDs map[string]string
+	writeStdinTargets  map[string]string
 }
 
 type codexSubagentState struct {

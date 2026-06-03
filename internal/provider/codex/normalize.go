@@ -21,21 +21,26 @@ func NormalizeHistoryEntry(raw map[string]any) provider.OutputEvent {
 	case "response_item":
 		payload := mval(raw["payload"])
 		msg = normalizePayloadHistory(payload)
+		annotateCodexHistoryMessage(msg, raw, payload)
 		evType = historyEventType(raw)
 		evSubtype = historySubtype(raw)
 	case "item.completed":
-		msg = normalizeItemHistory(mval(raw["item"]))
+		item := mval(raw["item"])
+		msg = normalizeItemHistory(item)
+		annotateCodexHistoryMessage(msg, raw, item)
 		evType = historyEventType(raw)
 		evSubtype = historySubtype(raw)
 	case "message.delta":
-		msg = assistantText(str(raw, "delta"))
+		msg = assistantTextWithID(codexHistoryEventID(raw, nil, true), str(raw, "delta"))
 		evType = "assistant"
 	case "turn.completed", "thread.completed", "thread.cancelled":
 		msg = map[string]any{"type": "result", "subtype": "success"}
+		annotateCodexHistoryMessage(msg, raw, nil)
 		evType = "assistant"
 		evSubtype = "result"
 	case "thread.error", "error", "turn.failed":
 		msg = map[string]any{"type": "error", "message": str(raw, "message")}
+		annotateCodexHistoryMessage(msg, raw, nil)
 		evType = "error"
 	case "event_msg":
 		return normalizeEventMsg(raw)
@@ -57,6 +62,68 @@ func NormalizeHistoryEntry(raw map[string]any) provider.OutputEvent {
 		Type:    evType,
 		Subtype: evSubtype,
 		Message: msg,
+	}
+}
+
+func annotateCodexHistoryMessage(msg map[string]any, raw, payload map[string]any) {
+	if msg == nil {
+		return
+	}
+	eventID := codexHistoryEventID(raw, payload, false)
+	if eventID != "" {
+		msg["event_id"] = eventID
+	}
+	if providerSessionID := firstNonEmpty(str(raw, "session_id"), str(raw, "sessionId"), str(raw, "thread_id"), str(raw, "threadId")); providerSessionID != "" {
+		msg["session_id"] = providerSessionID
+	}
+
+	message := mval(msg["message"])
+	if message == nil {
+		return
+	}
+	if str(message, "id") == "" && eventID != "" && isCodexMessagePayload(payload) {
+		message["id"] = eventID
+	}
+}
+
+func codexHistoryEventID(raw, payload map[string]any, allowSynthetic bool) string {
+	if raw == nil {
+		raw = map[string]any{}
+	}
+	if id := firstNonEmpty(
+		str(raw, "itemId"),
+		str(raw, "item_id"),
+		str(raw, "event_id"),
+		str(raw, "eventId"),
+		str(raw, "id"),
+		str(payload, "id"),
+		str(payload, "call_id"),
+		str(payload, "callId"),
+	); id != "" {
+		return id
+	}
+	if allowSynthetic {
+		return codexHistoryTurnID(raw, payload)
+	}
+	return ""
+}
+
+func codexHistoryTurnID(raw, payload map[string]any) string {
+	threadID := firstNonEmpty(str(raw, "threadId"), str(raw, "thread_id"), str(raw, "threadID"), str(raw, "session_id"))
+	turnID := firstNonEmpty(str(raw, "turnId"), str(raw, "turn_id"), str(raw, "turnID"))
+	if threadID == "" && turnID == "" {
+		return ""
+	}
+	payloadID := firstNonEmpty(str(payload, "id"), str(payload, "call_id"), str(payload, "callId"), str(raw, "type"))
+	return strings.Join([]string{threadID, turnID, payloadID}, ":")
+}
+
+func isCodexMessagePayload(payload map[string]any) bool {
+	switch str(payload, "type") {
+	case "message", "agent_message":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -142,7 +209,9 @@ func adaptToolCall(name string, input any) (string, interface{}) {
 		args = v
 	case string:
 		if v != "" {
-			_ = json.Unmarshal([]byte(v), &args)
+			if err := json.Unmarshal([]byte(v), &args); err != nil && name == "apply_patch" {
+				args = map[string]interface{}{"patch": v}
+			}
 		}
 	}
 	if args == nil {
@@ -164,7 +233,7 @@ func adaptToolName(toolName string, args map[string]interface{}) (string, interf
 		return "TodoWrite", adaptPlanToTodos(args)
 
 	case "apply_patch":
-		return "Edit", args
+		return adaptApplyPatchTool(args)
 
 	case "spawn_agent":
 		return "Agent", adaptSpawnAgentInput(args)
@@ -172,9 +241,191 @@ func adaptToolName(toolName string, args map[string]interface{}) (string, interf
 	case "wait_agent", "close_agent", "send_input", "resume_agent":
 		return "", nil
 
+	case "write_stdin":
+		return "", nil
+
 	default:
 		return toolName, args
 	}
+}
+
+type codexPatchOperation struct {
+	kind     string
+	path     string
+	oldLines []string
+	newLines []string
+}
+
+func adaptApplyPatchTool(args map[string]interface{}) (string, interface{}) {
+	patchText := extractApplyPatchText(args)
+	if patchText == "" {
+		return "Edit", args
+	}
+	if toolName, input, ok := claudeToolFromApplyPatch(patchText); ok {
+		return toolName, input
+	}
+	return "Bash", map[string]interface{}{
+		"command":     "apply_patch",
+		"description": "Apply patch",
+		"patch":       patchText,
+	}
+}
+
+func extractApplyPatchText(args map[string]interface{}) string {
+	for _, key := range []string{"patch", "input", "content", "diff", "changes"} {
+		if text := extractApplyPatchTextValue(args[key]); text != "" {
+			return text
+		}
+	}
+	for _, key := range []string{"command", "cmd", "arguments"} {
+		if text := extractPatchDocument(extractApplyPatchTextValue(args[key])); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func extractApplyPatchTextValue(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case map[string]interface{}:
+		return extractApplyPatchText(v)
+	default:
+		return ""
+	}
+}
+
+func extractPatchDocument(text string) string {
+	if text == "" {
+		return ""
+	}
+	start := strings.Index(text, "*** Begin Patch")
+	if start < 0 {
+		return ""
+	}
+	patch := text[start:]
+	if end := strings.Index(patch, "*** End Patch"); end >= 0 {
+		patch = patch[:end+len("*** End Patch")]
+	}
+	return strings.TrimSpace(patch)
+}
+
+func claudeToolFromApplyPatch(patchText string) (string, map[string]interface{}, bool) {
+	operations := parseApplyPatchOperations(patchText)
+	if len(operations) == 0 {
+		return "", nil, false
+	}
+
+	if len(operations) == 1 {
+		return claudeToolFromPatchOperation(operations[0], patchText)
+	}
+
+	firstPath := operations[0].path
+	samePath := firstPath != ""
+	edits := make([]map[string]interface{}, 0, len(operations))
+	for _, operation := range operations {
+		if operation.path != firstPath || operation.kind != "update" {
+			samePath = false
+			break
+		}
+		edits = append(edits, map[string]interface{}{
+			"old_string": strings.Join(operation.oldLines, "\n"),
+			"new_string": strings.Join(operation.newLines, "\n"),
+		})
+	}
+	if samePath && len(edits) > 0 {
+		return "MultiEdit", map[string]interface{}{"file_path": firstPath, "edits": edits}, true
+	}
+
+	return "Edit", map[string]interface{}{
+		"file_path":  firstPath,
+		"old_string": patchText,
+		"new_string": "",
+	}, true
+}
+
+func claudeToolFromPatchOperation(operation codexPatchOperation, patchText string) (string, map[string]interface{}, bool) {
+	switch operation.kind {
+	case "add":
+		return "Write", map[string]interface{}{
+			"file_path": operation.path,
+			"content":   strings.Join(operation.newLines, "\n"),
+		}, true
+	case "update":
+		return "Edit", map[string]interface{}{
+			"file_path":  operation.path,
+			"old_string": strings.Join(operation.oldLines, "\n"),
+			"new_string": strings.Join(operation.newLines, "\n"),
+		}, true
+	case "delete":
+		return "Edit", map[string]interface{}{
+			"file_path":  operation.path,
+			"old_string": patchText,
+			"new_string": "",
+		}, true
+	default:
+		return "", nil, false
+	}
+}
+
+func parseApplyPatchOperations(patchText string) []codexPatchOperation {
+	var operations []codexPatchOperation
+	var current *codexPatchOperation
+
+	flush := func() {
+		if current != nil && current.path != "" {
+			operations = append(operations, *current)
+		}
+		current = nil
+	}
+
+	for _, rawLine := range strings.Split(patchText, "\n") {
+		line := strings.TrimRight(rawLine, "\r")
+		switch {
+		case strings.HasPrefix(line, "*** Update File: "):
+			flush()
+			current = &codexPatchOperation{kind: "update", path: strings.TrimSpace(strings.TrimPrefix(line, "*** Update File: "))}
+			continue
+		case strings.HasPrefix(line, "*** Add File: "):
+			flush()
+			current = &codexPatchOperation{kind: "add", path: strings.TrimSpace(strings.TrimPrefix(line, "*** Add File: "))}
+			continue
+		case strings.HasPrefix(line, "*** Delete File: "):
+			flush()
+			current = &codexPatchOperation{kind: "delete", path: strings.TrimSpace(strings.TrimPrefix(line, "*** Delete File: "))}
+			continue
+		case strings.HasPrefix(line, "*** Move to: "):
+			if current != nil {
+				current.path = strings.TrimSpace(strings.TrimPrefix(line, "*** Move to: "))
+			}
+			continue
+		}
+
+		if current == nil || strings.HasPrefix(line, "*** ") || strings.HasPrefix(line, "@@") {
+			continue
+		}
+
+		switch current.kind {
+		case "add":
+			if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+				current.newLines = append(current.newLines, strings.TrimPrefix(line, "+"))
+			}
+		case "update":
+			switch {
+			case strings.HasPrefix(line, " "):
+				contextLine := strings.TrimPrefix(line, " ")
+				current.oldLines = append(current.oldLines, contextLine)
+				current.newLines = append(current.newLines, contextLine)
+			case strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---"):
+				current.oldLines = append(current.oldLines, strings.TrimPrefix(line, "-"))
+			case strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++"):
+				current.newLines = append(current.newLines, strings.TrimPrefix(line, "+"))
+			}
+		}
+	}
+	flush()
+	return operations
 }
 
 // adaptPlanEvent converts a turn/plan/updated notification to a TodoWrite tool_use event.
@@ -243,15 +494,62 @@ func adaptCommandActionFromMeta(action map[string]interface{}, command string) (
 		}
 		return "Read", map[string]interface{}{"command": command, "description": desc}
 	case "search":
-		query, _ := action["query"].(string)
-		path, _ := action["path"].(string)
-		return "Grep", map[string]interface{}{"pattern": query, "path": path, "command": command, "description": "Search: " + query}
+		query := strings.TrimSpace(stringFromAction(action, "query"))
+		path := strings.TrimSpace(stringFromAction(action, "path"))
+		actionCommand := firstNonEmpty(stringFromAction(action, "command"), command)
+		if query == "" {
+			toolName, toolInput := adaptCommandFromString(actionCommand)
+			if toolName == "Grep" {
+				if path != "" {
+					if parsedPath, _ := toolInput["path"].(string); parsedPath == "" {
+						toolInput["path"] = path
+					}
+				}
+				if pattern, _ := toolInput["pattern"].(string); pattern != "" {
+					toolInput["description"] = "Search: " + pattern
+					toolInput["output_mode"] = "content"
+				}
+			}
+			return toolName, toolInput
+		}
+		return "Grep", map[string]interface{}{
+			"pattern":     query,
+			"path":        path,
+			"command":     actionCommand,
+			"description": "Search: " + query,
+			"output_mode": "content",
+		}
 	case "listFiles":
-		path, _ := action["path"].(string)
-		return "Glob", map[string]interface{}{"path": path, "command": command, "description": "List files in " + path}
+		path := strings.TrimSpace(stringFromAction(action, "path"))
+		actionCommand := firstNonEmpty(stringFromAction(action, "command"), command)
+		pattern := codexListFilesPattern(actionCommand, path)
+		return "Glob", map[string]interface{}{
+			"pattern":     pattern,
+			"path":        path,
+			"command":     actionCommand,
+			"description": "List files in " + path,
+		}
 	default:
 		return "Bash", map[string]interface{}{"command": command, "description": command}
 	}
+}
+
+func stringFromAction(action map[string]interface{}, key string) string {
+	value, _ := action[key].(string)
+	return value
+}
+
+func codexListFilesPattern(command, path string) string {
+	fields := strings.Fields(command)
+	for i, field := range fields {
+		if (field == "-g" || field == "--glob") && i+1 < len(fields) {
+			return strings.Trim(fields[i+1], "'\"")
+		}
+	}
+	if path != "" {
+		return path
+	}
+	return "*"
 }
 
 func adaptCommandFromString(command string) (string, map[string]interface{}) {
@@ -263,7 +561,8 @@ func adaptCommandFromString(command string) (string, map[string]interface{}) {
 
 	switch {
 	case strings.HasPrefix(cmd, "rg --files") || strings.HasPrefix(cmd, "rg -l"):
-		return "Glob", map[string]interface{}{"command": command, "description": cmd}
+		pattern, path := parseRgFilesCommand(cmd)
+		return "Glob", map[string]interface{}{"pattern": pattern, "path": path, "command": command, "description": cmd}
 	case strings.HasPrefix(cmd, "rg ") || strings.HasPrefix(cmd, "grep "):
 		pattern, path := parseGrepCommand(cmd)
 		if pattern == "" {
@@ -295,6 +594,28 @@ func adaptCommandFromString(command string) (string, map[string]interface{}) {
 	default:
 		return "Bash", map[string]interface{}{"command": command, "description": cmd}
 	}
+}
+
+func parseRgFilesCommand(cmd string) (string, string) {
+	parts := strings.Fields(cmd)
+	pattern := "*"
+	path := ""
+	for i := 1; i < len(parts); i++ {
+		part := parts[i]
+		switch part {
+		case "-g", "--glob":
+			if i+1 < len(parts) {
+				pattern = strings.Trim(parts[i+1], "'\"")
+				i++
+			}
+		default:
+			if strings.HasPrefix(part, "-") {
+				continue
+			}
+			path = strings.Trim(part, "'\"")
+		}
+	}
+	return pattern, path
 }
 
 func parseGrepCommand(cmd string) (string, string) {
@@ -850,8 +1171,7 @@ func normalizePayloadHistory(payload map[string]any) map[string]any {
 	case "function_call", "custom_tool_call":
 		name := str(payload, "name")
 		callID := str(payload, "call_id")
-		argsStr := str(payload, "arguments")
-		claudeName, claudeInput := adaptToolCall(name, argsStr)
+		claudeName, claudeInput := adaptToolCall(name, extractFunctionCallArgs(payload))
 		if claudeName == "" {
 			return nil
 		}
@@ -918,7 +1238,7 @@ func normalizeItemHistory(item map[string]any) map[string]any {
 		if id == "" {
 			id = "ws_" + str(item, "call_id")
 		}
-		return toolUse(id, toolName, input)
+		return toolUseWithResult(id, toolName, input, codexWebActionResultText(toolName, input), false)
 	default:
 		return nil
 	}
@@ -1059,6 +1379,19 @@ func toolUse(id, name string, input any) map[string]any {
 	}
 }
 
+func toolUseWithResult(id, name string, input any, result string, isError bool) map[string]any {
+	return map[string]any{
+		"type": "assistant",
+		"message": map[string]any{
+			"role": "assistant",
+			"content": []interface{}{
+				map[string]any{"type": "tool_use", "id": id, "name": name, "input": input},
+				map[string]any{"type": "tool_result", "tool_use_id": id, "content": result, "is_error": isError},
+			},
+		},
+	}
+}
+
 func toolResult(toolUseID, content string) map[string]any {
 	return map[string]any{
 		"type": "user",
@@ -1128,6 +1461,22 @@ func eventToolUse(id, name string, input interface{}) *provider.OutputEvent {
 	}
 }
 
+func eventToolUseWithResult(id, name string, input interface{}, result string, isError bool) *provider.OutputEvent {
+	return &provider.OutputEvent{
+		Type: "assistant",
+		Message: map[string]interface{}{
+			"type": "assistant",
+			"message": map[string]interface{}{
+				"role": "assistant",
+				"content": []map[string]interface{}{
+					{"type": "tool_use", "id": id, "name": name, "input": input},
+					{"type": "tool_result", "tool_use_id": id, "content": result, "is_error": isError},
+				},
+			},
+		},
+	}
+}
+
 func eventToolResult(toolUseID, content string, isError bool) *provider.OutputEvent {
 	return &provider.OutputEvent{
 		Type: "user",
@@ -1140,6 +1489,23 @@ func eventToolResult(toolUseID, content string, isError bool) *provider.OutputEv
 				},
 			},
 		},
+	}
+}
+
+func codexWebActionResultText(toolName string, input map[string]any) string {
+	switch toolName {
+	case "WebFetch":
+		if url, _ := input["url"].(string); url != "" {
+			return "Page opened: " + url
+		}
+		return "Page opened"
+	case "WebSearch":
+		if query, _ := input["query"].(string); query != "" {
+			return "Search completed: " + query
+		}
+		return "Search completed"
+	default:
+		return "Completed"
 	}
 }
 
@@ -1211,14 +1577,61 @@ func eventSubagentToolResult(toolUseID, content string, isError bool, state code
 }
 
 func eventResult() *provider.OutputEvent {
+	return eventResultWithMeta(nil)
+}
+
+func eventResultWithMeta(meta map[string]interface{}) *provider.OutputEvent {
+	message := map[string]interface{}{
+		"type":    "result",
+		"subtype": "success",
+	}
+	if eventID := codexLiveEventID(meta); eventID != "" {
+		message["event_id"] = eventID
+	}
 	return &provider.OutputEvent{
 		Type:    "assistant",
 		Subtype: "result",
-		Message: map[string]interface{}{
-			"type":    "result",
-			"subtype": "success",
-		},
+		Message: message,
 	}
+}
+
+func codexLiveEventID(meta map[string]interface{}) string {
+	if meta == nil {
+		return ""
+	}
+	item := mval(meta["item"])
+	turn := mval(meta["turn"])
+	threadID := firstNonEmpty(str(meta, "threadId"), str(meta, "thread_id"), str(meta, "threadID"))
+	turnID := firstNonEmpty(str(meta, "turnId"), str(meta, "turn_id"), str(meta, "turnID"), str(turn, "id"))
+	return firstNonEmpty(
+		str(meta, "itemId"),
+		str(meta, "item_id"),
+		str(meta, "event_id"),
+		str(meta, "eventId"),
+		str(meta, "id"),
+		str(item, "id"),
+		str(item, "call_id"),
+		str(item, "callId"),
+		codexLiveScopedID(threadID, turnID, firstNonEmpty(str(item, "type"), str(meta, "type"), str(meta, "method"))),
+	)
+}
+
+func codexBatchMessageID(raw map[string]interface{}) string {
+	payload := mval(raw["payload"])
+	return codexLiveEventID(map[string]interface{}{
+		"item":     payload,
+		"itemId":   firstNonEmpty(str(raw, "itemId"), str(raw, "item_id")),
+		"threadId": firstNonEmpty(str(raw, "threadId"), str(raw, "thread_id")),
+		"turnId":   firstNonEmpty(str(raw, "turnId"), str(raw, "turn_id")),
+		"type":     str(raw, "type"),
+	})
+}
+
+func codexLiveScopedID(threadID, turnID, suffix string) string {
+	if threadID == "" && turnID == "" {
+		return ""
+	}
+	return strings.Join([]string{threadID, turnID, suffix}, ":")
 }
 
 func eventError(message string) *provider.OutputEvent {
