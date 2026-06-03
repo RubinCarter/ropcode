@@ -6,6 +6,7 @@
 
 import { ListProviderSessions, LoadProviderSessionHistory, LoadProviderSessionHistoryFrames } from './rpc-client';
 import type { SessionFrame } from './session-frame/types';
+import type { main } from './rpc-client';
 
 export type ProviderHistoryMessageType = 'system' | 'assistant' | 'user' | 'result' | 'info' | 'error';
 
@@ -28,6 +29,12 @@ export interface ProviderInfo {
   displayName: string;
   baseUrl?: string;
   enabledModels?: string[];
+}
+
+export function normalizeProviderSessions(
+  sessions: main.ProviderSession[] | null | undefined
+): main.ProviderSession[] {
+  return Array.isArray(sessions) ? sessions : [];
 }
 
 // Common providers list
@@ -54,7 +61,7 @@ export const providers = {
    * List provider sessions for a project
    */
   listSessions: async (projectPath: string, providerName: string) => {
-    return ListProviderSessions(projectPath, providerName);
+    return normalizeProviderSessions(await ListProviderSessions(projectPath, providerName));
   },
 
   /**

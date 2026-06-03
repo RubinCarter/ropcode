@@ -44,6 +44,8 @@ For Windows release work, `npm run build:release` may fail under `cmd.exe` becau
 
 Wails v3 is intentionally isolated under `wails3\`. Do not add `wails3_*.go` files to the repository root. Use `.\wails3\scripts\build-wails3.ps1` to build `wails3\build\bin\RopcodeWails3.exe`; the script builds `ropcode-server`, copies `frontend/dist` into the v3 module, and embeds both into the Wails v3 shell. Wails v3 currently requires Go 1.25+.
 
+Current local app target: when the user asks for a Windows exe to try, a manual/playtest build, or a desktop-shell repro without naming Electron or legacy Wails, prefer the Wails v3 build path. Build `wails3\build\bin\RopcodeWails3.exe` with `.\wails3\scripts\build-wails3.ps1` and report that path. Use Electron packaged builds or Wails v2 only when the user explicitly asks for those shells or the bug is shell-specific.
+
 ## Architecture
 
 ### Electron ↔ Go handshake
@@ -61,6 +63,8 @@ Go picks a free port and prints `WS_PORT:<port>` to stdout. Electron parses this
 The legacy Wails v2 shell is configured by `wails.json` and `scripts/build-wails.ps1`. It builds `build-wails\bin\RopcodeWails.exe`, starts the existing `BootstrapRuntime` in-process, and exposes WebSocket RPC routes through the Wails asset server. Do not ship a bare `go build -tags wails` binary; use the script so Wails production tags and metadata are applied.
 
 The Wails v3 shell is a separate module in `wails3\`. Keep all v3-specific source, scripts, copied frontend files, embedded server binaries, and build output inside that directory. It embeds `ropcode-server.exe` and `frontend/dist`, extracts them at runtime, starts the server as a child process, then loads the frontend through the Wails v3 asset server while proxying `/ws`, `/ws/rpc`, `/ws/sync`, `/api/upload-attachment`, and `/local-file/` to the child server.
+
+Treat Wails v3 as the default local Windows exe for user playtests and desktop-shell repros unless another shell is explicitly requested.
 
 ### RPC is reflection-based
 

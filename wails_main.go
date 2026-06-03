@@ -37,14 +37,16 @@ import (
 var wailsFrontend embed.FS
 
 type wailsShell struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	serverCmd   *exec.Cmd
-	serverDone  chan struct{}
-	serverReady chan struct{}
-	serverPort  int
-	authKey     string
-	mu          sync.RWMutex
+	rendererLogger        *logging.RendererLogger
+	rendererLoggerCleanup func()
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	serverCmd             *exec.Cmd
+	serverDone            chan struct{}
+	serverReady           chan struct{}
+	serverPort            int
+	authKey               string
+	mu                    sync.RWMutex
 }
 
 func main() {
@@ -112,6 +114,15 @@ func (s *wailsShell) startup(ctx context.Context) {
 		return
 	}
 	log.Printf("[wails] using ropcode-server binary: %s", serverPath)
+
+	rendererLog, cleanupRendererLog, err := logging.ConfigureRendererLoggingForCurrentUser()
+	if err != nil {
+		log.Printf("Failed to configure renderer logging: %v", err)
+	} else {
+		log.Printf("[wails] renderer logging to %s", rendererLog.Path)
+		s.rendererLogger = rendererLog
+		s.rendererLoggerCleanup = cleanupRendererLog
+	}
 
 	authKey := strconv.FormatInt(time.Now().UnixNano(), 36)
 	cmd := exec.CommandContext(s.ctx, serverPath)
@@ -196,6 +207,11 @@ func (s *wailsShell) domReady(ctx context.Context) {
 }
 
 func (s *wailsShell) shutdown(ctx context.Context) {
+	if s.rendererLoggerCleanup != nil {
+		s.rendererLoggerCleanup()
+		s.rendererLoggerCleanup = nil
+	}
+	s.rendererLogger = nil
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -482,6 +498,7 @@ var _ http.ResponseWriter = (*responseRecorder)(nil)
 var _ io.Writer = (*responseRecorder)(nil)
 
 func (s *wailsShell) WriteRendererLog(level string, scope string, args []interface{}) {
+	s.rendererLogger.Write(level, scope, args)
 	log.Printf("[renderer:%s:%s] %v", level, scope, args)
 }
 

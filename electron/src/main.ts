@@ -80,6 +80,7 @@ async function createWindow() {
   process.env.ROPCODE_AUTH_KEY = goServerInfo!.authKey;
 
   mainWindow = new BrowserWindow({
+    title: 'Ropcode',
     width: 1100,
     height: 700,
     minWidth: 1100,

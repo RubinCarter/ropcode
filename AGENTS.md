@@ -45,6 +45,8 @@ Wails build note: do not ship or test `build-wails\bin\RopcodeWails.exe` produce
 
 Wails v3 build note: v3 is intentionally isolated under `wails3\`. Do not add `wails3_*.go` files to the repository root. Use `.\wails3\scripts\build-wails3.ps1` to build `wails3\build\bin\RopcodeWails3.exe`; the script builds `ropcode-server`, copies `frontend/dist` into the v3 module, and embeds both into the Wails v3 shell. Wails v3 currently requires Go 1.25+.
 
+Current local app target: when the user asks for a Windows exe to try, a manual/playtest build, or a desktop-shell repro without naming Electron or legacy Wails, prefer the Wails v3 build path. Build `wails3\build\bin\RopcodeWails3.exe` with `.\wails3\scripts\build-wails3.ps1` and report that path. Use Electron packaged builds or Wails v2 only when the user explicitly asks for those shells or the bug is shell-specific.
+
 ## Architecture Notes
 
 ### Electron to Go Startup
@@ -86,6 +88,7 @@ The Wails v3 shell is isolated in `wails3\` as a separate Go module. Keep all v3
 For Wails v3 repros or distribution tests:
 
 - Build with `.\wails3\scripts\build-wails3.ps1`; add `-SkipFrontend` only when `frontend/dist` has already been rebuilt from current source.
+- Treat Wails v3 as the default local Windows exe for user playtests and desktop-shell repros unless another shell is explicitly requested.
 - Do not put Wails v3 entrypoints in the root module. The root module remains the v2 Wails/Electron/server module.
 - After frontend or backend changes, verify the running process path is `wails3\build\bin\RopcodeWails3.exe` and check the embedded `wails3\bin\ropcode-server.exe` hash or timestamp before judging the fix.
 - Wails v3 uses the system WebView2 runtime and does not bundle Electron, Chromium, Bun, or Node. Electron `<webview>` functionality is not full parity in this shell.

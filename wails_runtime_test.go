@@ -7,7 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"ropcode/internal/logging"
 )
 
 type wailsRuntimeTestApp struct{}
@@ -75,6 +78,32 @@ func TestFindDevServerBinaryPrefersRepoBin(t *testing.T) {
 	if !os.SameFile(gotInfo, wantInfo) {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
+}
+
+func TestWailsWriteRendererLogWritesRendererFile(t *testing.T) {
+	logger, cleanup, err := logging.ConfigureRendererLogging(t.TempDir())
+	if err != nil {
+		t.Fatalf("ConfigureRendererLogging failed: %v", err)
+	}
+	defer cleanup()
+
+	shell := &wailsShell{rendererLogger: logger}
+	shell.WriteRendererLog("info", "renderer-debug-log", []interface{}{"wails renderer line"})
+	cleanup()
+
+	content, err := os.ReadFile(logger.Path)
+	if err != nil {
+		t.Fatalf("read renderer log: %v", err)
+	}
+	if !strings.Contains(string(content), "wails renderer line") {
+		t.Fatalf("expected renderer log line, got %q", string(content))
+	}
+}
+
+func TestWailsWriteRendererLogAllowsMissingLogger(t *testing.T) {
+	shell := &wailsShell{}
+
+	shell.WriteRendererLog("info", "renderer-debug-log", []interface{}{"without file logger"})
 }
 
 func containsAll(value string, needles ...string) bool {
