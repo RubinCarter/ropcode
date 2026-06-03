@@ -87,6 +87,7 @@ class WSRpcClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   // Guard against concurrent doConnect() calls
   private connecting = false;
+  private hiddenAt = 0;
 
   /**
    * Initialize connection
@@ -106,13 +107,18 @@ class WSRpcClient {
     // WS, which forced every mounted AiCodeSession to re-fetch its full
     // session JSONL via LoadProviderSessionHistory, pegging the renderer.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible') {
+        this.hiddenAt = Date.now();
+        return;
+      }
       if (!this.wsUrl) return;
+      const hiddenDuration = this.hiddenAt > 0 ? Date.now() - this.hiddenAt : 0;
+      this.hiddenAt = 0;
       // Trust the readyState. If the OS truly froze the connection (iOS
       // background) readyState will already be CLOSED or CLOSING by the
       // time we get the visible event.
       if (this.isConnected()) return;
-      this.forceReconnect();
+      this.forceReconnect(hiddenDuration > 2000 ? 'long idle visibility restore' : 'visibility restore');
     });
 
     this.connectPromise = this.doConnect();
@@ -172,7 +178,9 @@ class WSRpcClient {
    * Designed for iOS visibility restore where frozen timers and stale
    * onclose events make the normal reconnect path unreliable.
    */
-  private forceReconnect(): void {
+  private forceReconnect(reason: string = 'manual'): void {
+    console.log(`[WSRpc] Force reconnect (${reason})`);
+
     // 1. Cancel any frozen/pending scheduled reconnect timer
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -412,6 +420,7 @@ class WSRpcClient {
       pending.timeoutId = setTimeout(() => {
         if (this.pending.has(id)) {
           this.pending.delete(id);
+          this.forceReconnect(`RPC timeout: ${method}`);
           reject(new Error(`RPC call ${method} timed out`));
         }
       }, timeout);
