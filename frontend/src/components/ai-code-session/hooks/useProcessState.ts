@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
 import { wsClient } from "@/lib/ws-rpc-client";
-import { useProcessChanged } from "@/hooks";
+import { useProcessChanged, useProviderActivityChanged, type ProviderSessionActivityEvent } from "@/hooks";
 import { resolveSessionProvider } from "@/lib/session-frame/provider";
 
 export interface UseProcessStateOptions {
@@ -116,6 +116,38 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
     }
   }, [activeRuntimeSessionId, projectPath, provider]);
 
+  const applyProviderActivity = useCallback((activity: ProviderSessionActivityEvent) => {
+    if (activity.provider_id && resolveSessionProvider(activity.provider_id) !== provider) {
+      return;
+    }
+    if (activeRuntimeSessionId === null && !isPendingSendRef.current) {
+      return;
+    }
+
+    const expectedSessionId = activeRuntimeSessionId || interactiveSessionIdRef.current;
+    if (activity.session_id && expectedSessionId && activity.session_id !== expectedSessionId) {
+      return;
+    }
+
+    if (activity.session_id) {
+      setInteractiveSessionIdWithRef(activity.session_id);
+    }
+
+    const running = Boolean(activity.running);
+    const active = Boolean(activity.active);
+    hasActiveSessionRef.current = running;
+
+    if (isPendingSendRef.current && running && !active) {
+      return;
+    }
+
+    setIsLoading(active);
+
+    if (!activity.running && activity.session_id && activity.session_id === interactiveSessionIdRef.current) {
+      setInteractiveSessionIdWithRef(null);
+    }
+  }, [activeRuntimeSessionId, provider, setInteractiveSessionIdWithRef, setIsLoading]);
+
   useEffect(() => {
     if (activeRuntimeSessionId === undefined) {
       return;
@@ -163,6 +195,8 @@ export function useProcessState(options: UseProcessStateOptions): UseProcessStat
       setInteractiveSessionIdWithRef(null);
     }
   });
+
+  useProviderActivityChanged(projectPath, applyProviderActivity);
 
   return {
     isLoading,

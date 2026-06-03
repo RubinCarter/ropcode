@@ -67,18 +67,16 @@ func newSession(ctx context.Context, id string, driver ProviderDriver, config Se
 }
 
 func (s *Session) Start() error {
-	s.mu.Lock()
-	s.state = StateStarting
-	s.mu.Unlock()
+	before, after := s.setState(StateStarting)
+	s.emitActivityChanged(before, after)
 
 	binaryPath := s.binaryPath
 	if binaryPath == "" {
 		var err error
 		binaryPath, err = DiscoverBinary(s.driver.BinaryName(), s.driver.BinaryCandidates())
 		if err != nil {
-			s.mu.Lock()
-			s.state = StateFailed
-			s.mu.Unlock()
+			before, after := s.setState(StateFailed)
+			s.emitActivityChanged(before, after)
 			return fmt.Errorf("discover binary: %w", err)
 		}
 	}
@@ -93,17 +91,15 @@ func (s *Session) Start() error {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		s.mu.Lock()
-		s.state = StateFailed
-		s.mu.Unlock()
+		before, after := s.setState(StateFailed)
+		s.emitActivityChanged(before, after)
 		return fmt.Errorf("stdout pipe: %w", err)
 	}
 
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		s.mu.Lock()
-		s.state = StateFailed
-		s.mu.Unlock()
+		before, after := s.setState(StateFailed)
+		s.emitActivityChanged(before, after)
 		return fmt.Errorf("stderr pipe: %w", err)
 	}
 
@@ -111,27 +107,28 @@ func (s *Session) Start() error {
 	if s.config.Interactive {
 		stdin, err = cmd.StdinPipe()
 		if err != nil {
-			s.mu.Lock()
-			s.state = StateFailed
-			s.mu.Unlock()
+			before, after := s.setState(StateFailed)
+			s.emitActivityChanged(before, after)
 			return fmt.Errorf("stdin pipe: %w", err)
 		}
 	}
 
 	if err := sessionproc.Start(cmd); err != nil {
-		s.mu.Lock()
-		s.state = StateFailed
-		s.mu.Unlock()
+		before, after := s.setState(StateFailed)
+		s.emitActivityChanged(before, after)
 		return fmt.Errorf("start process: %w", err)
 	}
 
 	s.mu.Lock()
+	before = s.activitySnapshotLocked()
 	s.cmd = cmd
 	s.stdin = stdin
 	s.pid = cmd.Process.Pid
 	s.state = StateRunning
 	s.done = make(chan struct{})
+	after = s.activitySnapshotLocked()
 	s.mu.Unlock()
+	s.emitActivityChanged(before, after)
 
 	if s.monitor != nil {
 		s.monitor.Register(s.ID)
@@ -256,13 +253,16 @@ func (s *Session) updateActivityFromEvent(event *OutputEvent) {
 	if event == nil || event.Message == nil {
 		return
 	}
-	activity := *s.Activity()
+	sidechain := isSidechainMessage(event.Message)
+
+	s.mu.Lock()
+	before := s.activitySnapshotLocked()
+	activity := before
 	status := activity.Status
 	threadStatus := activity.ThreadStatus
 	turnID := activity.TurnID
 	active := activity.Active
 	canInterrupt := activity.CanInterrupt
-	sidechain := isSidechainMessage(event.Message)
 
 	switch event.Subtype {
 	case "session_state_changed":
@@ -327,7 +327,6 @@ func (s *Session) updateActivityFromEvent(event *OutputEvent) {
 		canInterrupt = false
 	}
 
-	s.mu.Lock()
 	s.activity = activity
 	s.activity.Status = status
 	s.activity.ThreadStatus = threadStatus
@@ -336,7 +335,10 @@ func (s *Session) updateActivityFromEvent(event *OutputEvent) {
 	s.activity.Active = active
 	s.activity.CanInterrupt = canInterrupt
 	s.activity.UpdatedAt = time.Now()
+	after := s.activitySnapshotLocked()
 	s.mu.Unlock()
+
+	s.emitActivityChanged(before, after)
 }
 
 func isSidechainMessage(message map[string]interface{}) bool {
@@ -425,9 +427,7 @@ func (s *Session) extractProviderSessionID(event *OutputEvent) {
 		return
 	}
 	if sid := identifier.ProviderSessionID(event); sid != "" {
-		s.mu.Lock()
-		s.providerSessionID = sid
-		s.mu.Unlock()
+		s.SetProviderSessionID(sid)
 	}
 }
 
@@ -444,6 +444,7 @@ func (s *Session) waitForExit() {
 	}
 
 	s.mu.Lock()
+	before := s.activitySnapshotLocked()
 	prevState := s.state
 	if prevState == StateCancelling {
 		s.state = StateCancelled
@@ -452,7 +453,23 @@ func (s *Session) waitForExit() {
 	} else {
 		s.state = StateFailed
 	}
+	s.activity = s.activitySnapshotLocked()
+	if exitCode == 0 || prevState == StateCancelling {
+		s.activity.Status = SessionActivityIdle
+		s.activity.Error = ""
+	} else {
+		s.activity.Status = SessionActivityError
+		if err != nil {
+			s.activity.Error = err.Error()
+		}
+	}
+	s.activity.Active = false
+	s.activity.CanInterrupt = false
+	s.activity.Running = false
+	s.activity.UpdatedAt = time.Now()
+	after := s.activitySnapshotLocked()
 	s.mu.Unlock()
+	s.emitActivityChanged(before, after)
 
 	if s.monitor != nil {
 		s.monitor.Unregister(s.ID)
@@ -479,9 +496,17 @@ func (s *Session) terminate() error {
 		s.mu.Unlock()
 		return nil
 	}
+	before := s.activitySnapshotLocked()
 	s.state = StateCancelling
+	s.activity = s.activitySnapshotLocked()
+	s.activity.Status = SessionActivityIdle
+	s.activity.Active = false
+	s.activity.CanInterrupt = false
+	s.activity.UpdatedAt = time.Now()
+	after := s.activitySnapshotLocked()
 	done := s.done
 	s.mu.Unlock()
+	s.emitActivityChanged(before, after)
 
 	if s.cmd != nil && s.cmd.Process != nil {
 		sessionproc.Terminate(s.cmd, done)
@@ -550,8 +575,11 @@ func (s *Session) GetProviderSessionID() string {
 
 func (s *Session) SetProviderSessionID(id string) {
 	s.mu.Lock()
+	before := s.activitySnapshotLocked()
 	s.providerSessionID = id
+	after := s.activitySnapshotLocked()
 	s.mu.Unlock()
+	s.emitActivityChanged(before, after)
 }
 
 func (s *Session) GetConfig() SessionConfig {
@@ -581,22 +609,13 @@ func (s *Session) Status() *SessionStatus {
 func (s *Session) Activity() *SessionActivity {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	activity := s.activity
-	if activity.Status == "" {
-		activity = s.defaultActivityLocked()
-	} else {
-		activity.SessionID = s.ID
-		activity.ProviderID = s.driver.ID()
-		activity.ProviderSessionID = s.providerSessionID
-		activity.ProjectPath = s.config.ProjectPath
-		activity.Running = s.state == StateRunning || s.state == StateStarting
-	}
+	activity := s.activitySnapshotLocked()
 	return &activity
 }
 
 func (s *Session) MarkActivityActive() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	before := s.activitySnapshotLocked()
 	running := s.state == StateRunning || s.state == StateStarting
 	s.activity.SessionID = s.ID
 	s.activity.ProviderID = s.driver.ID()
@@ -607,6 +626,9 @@ func (s *Session) MarkActivityActive() {
 	s.activity.Active = running
 	s.activity.CanInterrupt = running
 	s.activity.UpdatedAt = time.Now()
+	after := s.activitySnapshotLocked()
+	s.mu.Unlock()
+	s.emitActivityChanged(before, after)
 }
 
 func (s *Session) defaultActivity() SessionActivity {
@@ -634,6 +656,59 @@ func (s *Session) defaultActivityLocked() SessionActivity {
 		CanInterrupt:      running && !s.config.Interactive,
 		UpdatedAt:         time.Now(),
 	}
+}
+
+func (s *Session) setState(state SessionState) (SessionActivity, SessionActivity) {
+	s.mu.Lock()
+	before := s.activitySnapshotLocked()
+	s.state = state
+	after := s.activitySnapshotLocked()
+	s.mu.Unlock()
+	return before, after
+}
+
+func (s *Session) activitySnapshotLocked() SessionActivity {
+	activity := s.activity
+	if activity.Status == "" {
+		activity = s.defaultActivityLocked()
+	}
+	activity.SessionID = s.ID
+	activity.ProviderID = s.driver.ID()
+	activity.ProviderSessionID = s.providerSessionID
+	activity.ProjectPath = s.config.ProjectPath
+	activity.Running = s.state == StateRunning || s.state == StateStarting
+	if !activity.Running {
+		activity.Active = false
+		activity.CanInterrupt = false
+		if activity.Status == SessionActivityActive {
+			activity.Status = SessionActivityIdle
+		}
+	}
+	if activity.UpdatedAt.IsZero() {
+		activity.UpdatedAt = time.Now()
+	}
+	return activity
+}
+
+func sessionActivityChanged(before, after SessionActivity) bool {
+	return before.SessionID != after.SessionID ||
+		before.ProviderID != after.ProviderID ||
+		before.ProviderSessionID != after.ProviderSessionID ||
+		before.ProjectPath != after.ProjectPath ||
+		before.Status != after.Status ||
+		before.Running != after.Running ||
+		before.Active != after.Active ||
+		before.CanInterrupt != after.CanInterrupt ||
+		before.ThreadStatus != after.ThreadStatus ||
+		before.TurnID != after.TurnID ||
+		before.Error != after.Error
+}
+
+func (s *Session) emitActivityChanged(before, after SessionActivity) {
+	if s.emitter == nil || !sessionActivityChanged(before, after) {
+		return
+	}
+	s.emitter.Emit(ProviderActivityChangedEvent, after)
 }
 
 func (s *Session) Output() string {

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// mockEmitter 收集发出的事件用于断言。
+// mockEmitter records emitted events for assertions.
 type mockEmitter struct {
 	mu     sync.Mutex
 	events []mockEvent
@@ -37,6 +37,18 @@ func (e *mockEmitter) count(name string) int {
 		}
 	}
 	return n
+}
+
+func (e *mockEmitter) eventsByName(name string) []mockEvent {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	events := make([]mockEvent, 0)
+	for _, ev := range e.events {
+		if ev.name == name {
+			events = append(events, ev)
+		}
+	}
+	return events
 }
 
 func TestManager_RegisterDriver(t *testing.T) {
@@ -419,6 +431,99 @@ func TestSessionActivityUsesSessionStateChangedEvents(t *testing.T) {
 	activity = session.Activity()
 	if activity.Status != SessionActivityIdle || activity.Active || activity.CanInterrupt || activity.ThreadStatus != "idle" {
 		t.Fatalf("expected idle session activity, got %#v", activity)
+	}
+}
+
+func TestSessionActivityChangedEventsAreEmittedFromProviderEvents(t *testing.T) {
+	emitter := &mockEmitter{}
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&echoDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		emitter,
+		nil,
+		nil,
+	)
+	session.SetProviderSessionID("native-1")
+	session.state = StateRunning
+
+	session.updateActivityFromEvent(&OutputEvent{
+		Type:    "system",
+		Subtype: "session_state_changed",
+		Message: map[string]interface{}{
+			"state": "running",
+		},
+	})
+
+	events := emitter.eventsByName(ProviderActivityChangedEvent)
+	if len(events) != 2 {
+		t.Fatalf("expected provider session id and running activity events, got %d", len(events))
+	}
+	activity, ok := events[1].data.(SessionActivity)
+	if !ok {
+		t.Fatalf("expected SessionActivity payload, got %T", events[1].data)
+	}
+	if activity.SessionID != "session-1" || activity.ProviderID != "echo" || activity.ProviderSessionID != "native-1" {
+		t.Fatalf("expected provider activity identity, got %#v", activity)
+	}
+	if activity.Status != SessionActivityActive || !activity.Running || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected active activity event, got %#v", activity)
+	}
+
+	session.updateActivityFromEvent(&OutputEvent{
+		Type:    "system",
+		Subtype: "session_state_changed",
+		Message: map[string]interface{}{
+			"state": "running",
+		},
+	})
+	if got := len(emitter.eventsByName(ProviderActivityChangedEvent)); got != 2 {
+		t.Fatalf("expected unchanged activity to skip duplicate events, got %d", got)
+	}
+
+	session.updateActivityFromEvent(&OutputEvent{
+		Type:    "system",
+		Subtype: "session_state_changed",
+		Message: map[string]interface{}{
+			"state": "idle",
+		},
+	})
+	events = emitter.eventsByName(ProviderActivityChangedEvent)
+	if len(events) != 3 {
+		t.Fatalf("expected idle activity event, got %d events", len(events))
+	}
+	activity = events[2].data.(SessionActivity)
+	if activity.Status != SessionActivityIdle || activity.Active || activity.CanInterrupt {
+		t.Fatalf("expected idle activity event, got %#v", activity)
+	}
+}
+
+func TestMarkActivityActiveEmitsUnifiedProviderActivity(t *testing.T) {
+	emitter := &mockEmitter{}
+	session := newSession(
+		context.Background(),
+		"session-1",
+		&echoDriver{},
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		emitter,
+		nil,
+		nil,
+	)
+	session.state = StateRunning
+
+	session.MarkActivityActive()
+
+	events := emitter.eventsByName(ProviderActivityChangedEvent)
+	if len(events) != 1 {
+		t.Fatalf("expected one activity event, got %d", len(events))
+	}
+	activity, ok := events[0].data.(SessionActivity)
+	if !ok {
+		t.Fatalf("expected SessionActivity payload, got %T", events[0].data)
+	}
+	if activity.Status != SessionActivityActive || !activity.Running || !activity.Active || !activity.CanInterrupt {
+		t.Fatalf("expected active activity event, got %#v", activity)
 	}
 }
 

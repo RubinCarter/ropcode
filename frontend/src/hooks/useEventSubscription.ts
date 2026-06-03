@@ -26,6 +26,21 @@ export interface ProcessChangedEvent {
   session_id?: string;
 }
 
+export interface ProviderSessionActivityEvent {
+  session_id?: string;
+  provider_id?: string;
+  provider_session_id?: string;
+  project_path?: string;
+  status: 'unknown' | 'idle' | 'active' | 'error';
+  running: boolean;
+  active: boolean;
+  can_interrupt: boolean;
+  thread_status?: string;
+  turn_id?: string;
+  error?: string;
+  updated_at?: string;
+}
+
 export interface SessionChangedEvent {
   id: string;
   cwd: string;
@@ -123,6 +138,22 @@ export function useProcessChanged(
   );
 
   useEventSubscription('process:changed', stableCallback, true);
+}
+
+export function useProviderActivityChanged(
+  projectPath: string | undefined,
+  callback: (event: ProviderSessionActivityEvent) => void
+): void {
+  const stableCallback = useCallback(
+    (event: ProviderSessionActivityEvent) => {
+      if (!projectPath || event.project_path === projectPath) {
+        callback(event);
+      }
+    },
+    [projectPath, callback]
+  );
+
+  useEventSubscription('provider:activity_changed', stableCallback, true);
 }
 
 // ============ Session Events ============

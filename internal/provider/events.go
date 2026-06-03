@@ -5,6 +5,8 @@ type EventEmitter interface {
 	Emit(eventName string, data interface{})
 }
 
+const ProviderActivityChangedEvent = "provider:activity_changed"
+
 // ProcessChangedEmitter is the interface for emitting process state changes.
 type ProcessChangedEmitter interface {
 	EmitProcessChanged(event ProcessChangedEvent)

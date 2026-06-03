@@ -17,6 +17,13 @@ test('process changed events expose provider and session identity', () => {
   assert.match(source, /session_id\?: string;/);
 });
 
+test('provider activity events expose unified runtime state', () => {
+  assert.match(source, /export interface ProviderSessionActivityEvent/);
+  assert.match(source, /can_interrupt: boolean;/);
+  assert.match(source, /useProviderActivityChanged/);
+  assert.match(source, /useEventSubscription\('provider:activity_changed', stableCallback, true\);/);
+});
+
 test('session changed provider stays provider-agnostic', () => {
   assert.match(source, /provider: string;/);
   assert.doesNotMatch(source, /provider: 'claude' \| 'gemini' \| 'codex';/);
