@@ -596,8 +596,14 @@ func (d *Driver) rememberTurnCompleted(params map[string]interface{}) {
 	if threadID == "" {
 		return
 	}
+	turnID, _ := params["turnId"].(string)
+	if turnID == "" {
+		turnID, _ = nestedCodexString(params, "turn", "id")
+	}
 	d.mu.Lock()
-	delete(d.activeTurnByThread, threadID)
+	if turnID == "" || d.activeTurnByThread[threadID] == turnID {
+		delete(d.activeTurnByThread, threadID)
+	}
 	d.mu.Unlock()
 }
 

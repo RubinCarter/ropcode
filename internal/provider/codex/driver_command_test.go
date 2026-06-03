@@ -87,6 +87,55 @@ func TestDriverProviderCommandRejectsUnsupportedTUICommand(t *testing.T) {
 	}
 }
 
+func TestDriverInterruptRequiresActiveTurnID(t *testing.T) {
+	session := &commandSession{
+		config:            provider.SessionConfig{Interactive: true, ProjectPath: t.TempDir()},
+		providerSessionID: "thread-1",
+		state:             provider.StateRunning,
+	}
+
+	driver := &Driver{}
+	err := driver.Interrupt(session)
+	if err == nil {
+		t.Fatal("expected missing active turn error")
+	}
+	if len(session.writes) != 0 {
+		t.Fatalf("interrupt without turn id should not write to Codex stdin, got %d writes", len(session.writes))
+	}
+}
+
+func TestDriverInterruptSendsThreadAndTurnID(t *testing.T) {
+	session := &commandSession{
+		config:            provider.SessionConfig{Interactive: true, ProjectPath: t.TempDir()},
+		providerSessionID: "thread-1",
+		state:             provider.StateRunning,
+	}
+
+	driver := &Driver{}
+	driver.rememberTurnStarted(map[string]interface{}{
+		"threadId": "thread-1",
+		"turn":     map[string]interface{}{"id": "turn-1"},
+	})
+	if err := driver.Interrupt(session); err != nil {
+		t.Fatalf("interrupt active turn: %v", err)
+	}
+	if len(session.writes) != 1 {
+		t.Fatalf("expected one JSON-RPC write, got %d", len(session.writes))
+	}
+
+	var request map[string]any
+	if err := json.Unmarshal(session.writes[0], &request); err != nil {
+		t.Fatalf("decode JSON-RPC request: %v", err)
+	}
+	if request["method"] != "turn/interrupt" {
+		t.Fatalf("expected turn/interrupt, got %#v", request["method"])
+	}
+	params, _ := request["params"].(map[string]any)
+	if params["threadId"] != "thread-1" || params["turnId"] != "turn-1" {
+		t.Fatalf("expected thread and turn id params, got %#v", params)
+	}
+}
+
 type commandSession struct {
 	writes            [][]byte
 	config            provider.SessionConfig

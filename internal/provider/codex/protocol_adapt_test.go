@@ -218,6 +218,46 @@ func TestInteractive_ThreadReadActivityActiveTurn(t *testing.T) {
 	}
 }
 
+func TestInteractive_ThreadReadActiveWithoutLiveTurnIsNotInterruptible(t *testing.T) {
+	d := &Driver{}
+	activity := d.activityFromThreadRead("thread1", true, map[string]interface{}{
+		"result": map[string]interface{}{
+			"thread": map[string]interface{}{
+				"id":     "thread1",
+				"status": map[string]interface{}{"type": "active"},
+				"turns": []interface{}{
+					map[string]interface{}{"id": "turn1", "status": "completed"},
+				},
+			},
+		},
+	})
+	if activity.Status != provider.SessionActivityActive || !activity.Active {
+		t.Fatalf("expected active activity, got %#v", activity)
+	}
+	if activity.CanInterrupt || activity.TurnID != "" {
+		t.Fatalf("expected active without interrupt target, got %#v", activity)
+	}
+}
+
+func TestInteractive_TurnCompletedClearsMatchingTurnFromNestedPayload(t *testing.T) {
+	d := &Driver{}
+	_ = d.ParseOutput([]byte(`{"method":"turn/started","params":{"threadId":"t1","turn":{"id":"turn1","status":"inProgress"}}}`))
+	_ = d.ParseOutput([]byte(`{"method":"turn/completed","params":{"threadId":"t1","turn":{"id":"turn1","status":"interrupted"}}}`))
+	if got := d.currentActiveTurn("t1"); got != "" {
+		t.Fatalf("expected completed turn to clear active turn, got %q", got)
+	}
+}
+
+func TestInteractive_TurnCompletedDoesNotClearNewerTurn(t *testing.T) {
+	d := &Driver{}
+	_ = d.ParseOutput([]byte(`{"method":"turn/started","params":{"threadId":"t1","turn":{"id":"turn1","status":"inProgress"}}}`))
+	_ = d.ParseOutput([]byte(`{"method":"turn/started","params":{"threadId":"t1","turn":{"id":"turn2","status":"inProgress"}}}`))
+	_ = d.ParseOutput([]byte(`{"method":"turn/completed","params":{"threadId":"t1","turn":{"id":"turn1","status":"interrupted"}}}`))
+	if got := d.currentActiveTurn("t1"); got != "turn2" {
+		t.Fatalf("expected newer active turn to remain, got %q", got)
+	}
+}
+
 func TestInteractive_ThreadReadActivityUsesActiveChildTurn(t *testing.T) {
 	d := &Driver{}
 	_ = d.ParseOutput([]byte(`{"method":"item/started","params":{"item":{"type":"collabAgentToolCall","id":"call_abc123","tool":"spawnAgent","status":"inProgress","senderThreadId":"root","receiverThreadIds":[],"prompt":"search","agentsStates":{}},"threadId":"root","turnId":"turn1"}}`))

@@ -426,10 +426,11 @@ func (d *Driver) Interrupt(session provider.SessionHandle) error {
 		},
 	}
 	targetThreadID, targetTurnID := d.currentInterruptTarget(threadID)
-	req["params"].(map[string]interface{})["threadId"] = targetThreadID
-	if targetTurnID != "" {
-		req["params"].(map[string]interface{})["turnId"] = targetTurnID
+	if targetTurnID == "" {
+		return fmt.Errorf("codex session has no active turn to interrupt")
 	}
+	req["params"].(map[string]interface{})["threadId"] = targetThreadID
+	req["params"].(map[string]interface{})["turnId"] = targetTurnID
 	data, _ := json.Marshal(req)
 	data = append(data, '\n')
 	return session.WriteStdin(data)
@@ -774,7 +775,6 @@ func (d *Driver) activityFromThreadRead(threadID string, running bool, raw map[s
 	case "active":
 		activity.Status = provider.SessionActivityActive
 		activity.Active = true
-		activity.CanInterrupt = true
 	case "idle", "notLoaded":
 		activity.Status = provider.SessionActivityIdle
 	case "systemError":
@@ -795,12 +795,14 @@ func (d *Driver) activityFromThreadRead(threadID string, running bool, raw map[s
 		activity.Active = true
 		activity.CanInterrupt = true
 	}
-	if _, subagentTurnID := d.activeSubagentTurn(); subagentTurnID != "" {
+	if subagentThreadID, subagentTurnID := d.activeSubagentTurn(); subagentThreadID != "" && subagentTurnID != "" {
 		activity.ThreadStatus = "active"
 		activity.TurnID = subagentTurnID
 		activity.Status = provider.SessionActivityActive
 		activity.Active = true
 		activity.CanInterrupt = true
+		activity.UpdatedAt = time.Now()
+		return activity
 	}
 	activity.UpdatedAt = time.Now()
 	return activity
