@@ -29,13 +29,15 @@ import (
 var resources embed.FS
 
 type shell struct {
-	app        *application.App
-	window     application.Window
-	serverCmd  *exec.Cmd
-	serverDone chan struct{}
-	serverPort int
-	authKey    string
-	mu         sync.RWMutex
+	app                   *application.App
+	window                application.Window
+	serverCmd             *exec.Cmd
+	serverDone            chan struct{}
+	serverPort            int
+	authKey               string
+	rendererLogger        *rendererLogger
+	rendererLoggerCleanup func()
+	mu                    sync.RWMutex
 }
 
 func main() {
@@ -57,10 +59,15 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 		OnShutdown: func() {
+			s.closeRendererLogger()
 			s.stopServer()
 		},
 	})
 	s.app = app
+
+	if err := s.openRendererLogger(); err != nil {
+		log.Printf("failed to configure renderer logging: %v", err)
+	}
 
 	if err := s.startServer(app.Context()); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to start ropcode-server: %v\n", err)
@@ -114,6 +121,7 @@ func (s *shell) startServer(ctx context.Context) error {
 		"ROPCODE_AUTH_KEY="+authKey,
 		"ROPCODE_MODE=websocket",
 		"ROPCODE_FRONTEND_DIR="+frontendDir,
+		"ROPCODE_NOTIFICATION_ACTIVATION_EXE="+shellExecutablePath(),
 	)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -155,6 +163,14 @@ func (s *shell) startServer(ctx context.Context) error {
 	return fmt.Errorf("server exited before reporting WS_PORT")
 }
 
+func shellExecutablePath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return exe
+}
+
 func (s *shell) stopServer() {
 	if s.serverCmd == nil || s.serverCmd.Process == nil {
 		return
@@ -165,6 +181,33 @@ func (s *shell) stopServer() {
 		close(done)
 	}
 	_ = terminateServerProcess(s.serverCmd, done)
+}
+
+func (s *shell) openRendererLogger() error {
+	logger, cleanup, err := createRendererLoggerForCurrentUser()
+	if err != nil {
+		return err
+	}
+	s.rendererLogger = logger
+	s.rendererLoggerCleanup = cleanup
+	log.Printf("[wails3] renderer logging to %s", logger.path)
+	return nil
+}
+
+func (s *shell) closeRendererLogger() {
+	if s.rendererLoggerCleanup != nil {
+		s.rendererLoggerCleanup()
+		s.rendererLoggerCleanup = nil
+	}
+	s.rendererLogger = nil
+}
+
+func (s *shell) writeRendererLog(level string, scope string, value interface{}) {
+	args, ok := value.([]interface{})
+	if !ok {
+		args = []interface{}{value}
+	}
+	s.rendererLogger.write(level, scope, args)
 }
 
 func parseWSPort(output string) (int, bool) {
@@ -220,8 +263,8 @@ func (s *shell) proxyServerRequest(w http.ResponseWriter, r *http.Request) bool 
 	case r.URL.Path == "/ws",
 		r.URL.Path == "/ws/rpc",
 		r.URL.Path == "/ws/sync",
-		strings.HasPrefix(r.URL.Path, "/ws/session-stream/"),
-		strings.HasPrefix(r.URL.Path, "/ws/bulk-stream/"),
+		strings.HasPrefix(r.URL.Path, "/ws/stream/session/"),
+		strings.HasPrefix(r.URL.Path, "/ws/stream/bulk/"),
 		r.URL.Path == "/health",
 		r.URL.Path == "/api/upload-attachment",
 		strings.HasPrefix(r.URL.Path, "/local-file/"):
@@ -272,6 +315,7 @@ func (s *shell) handleShellBridge(w http.ResponseWriter, r *http.Request) {
 func (s *shell) dispatch(action string, args []interface{}) (interface{}, error) {
 	switch action {
 	case "write-renderer-log":
+		s.writeRendererLog(stringArg(args, 0), stringArg(args, 1), argsAt(args, 2))
 		log.Printf("[renderer:%s:%s] %v", stringArg(args, 0), stringArg(args, 1), argsAt(args, 2))
 	case "minimize-window":
 		if s.window != nil {
