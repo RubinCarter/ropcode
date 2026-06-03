@@ -280,8 +280,7 @@ func TestInteractive_AgentMessageDelta(t *testing.T) {
 
 func TestInteractive_AgentMessageStarted(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"agentMessage","id":"msg1","text":"","phase":"commentary"},"threadId":"t1","turnId":"turn1"}}`)
-	// agentMessage started should produce a system event (no visible content yet)
-	assertType(t, ev, "system", "agentMessage started")
+	assertNil(t, ev, "agentMessage started")
 }
 
 func TestInteractive_AgentMessageCompleted(t *testing.T) {
@@ -325,7 +324,7 @@ func TestInteractive_AgentMessageCompletedAfterDeltasEmitsPartialEchoForBridgeRe
 
 func TestInteractive_ReasoningStarted(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"reasoning","id":"rs1","summary":[],"content":[]},"threadId":"t1","turnId":"turn1"}}`)
-	assertType(t, ev, "system", "reasoning started")
+	assertNil(t, ev, "reasoning started")
 }
 
 func TestInteractive_ReasoningCompleted_WithContent(t *testing.T) {
@@ -337,11 +336,7 @@ func TestInteractive_ReasoningCompleted_WithContent(t *testing.T) {
 
 func TestInteractive_ReasoningCompleted_Empty(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"reasoning","id":"rs1","summary":[],"content":[]},"threadId":"t1","turnId":"turn1"}}`)
-	// Empty reasoning should still produce an event but with empty thinking
-	if ev == nil {
-		return // nil is acceptable for empty reasoning
-	}
-	assertType(t, ev, "system", "empty reasoning")
+	assertNil(t, ev, "empty reasoning")
 }
 
 // --- 1D. Tool Use (commandExecution) ---
@@ -967,6 +962,13 @@ func assertHistorySubtype(t *testing.T, ev provider.OutputEvent, expectedSubtype
 	}
 }
 
+func assertHistorySuppressed(t *testing.T, ev provider.OutputEvent, context string) {
+	t.Helper()
+	if !ev.Suppressed() {
+		t.Fatalf("[%s] expected suppressed event, got %#v", context, ev)
+	}
+}
+
 func getHistoryContentBlocks(t *testing.T, ev provider.OutputEvent) []map[string]interface{} {
 	t.Helper()
 	msg := ev.Message
@@ -1292,6 +1294,42 @@ func TestHistory_LoadEventsRetargetsWriteStdinOutput(t *testing.T) {
 	}
 }
 
+func TestHistory_LoadEventsSuppressesDisplaylessCodexEvents(t *testing.T) {
+	codexDir := t.TempDir()
+	sessionID := "session-suppressed-events"
+	sessionDir := filepath.Join(codexDir, "sessions", "2026", "06", "03")
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		t.Fatalf("mkdir session dir: %v", err)
+	}
+	sessionFile := filepath.Join(sessionDir, "rollout-2026-06-03T00-00-00-"+sessionID+".jsonl")
+	lines := []string{
+		`{"type":"event_msg","payload":{"type":"agent_message","message":"duplicate assistant message"}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":""}]}}`,
+		`{"type":"response_item","payload":{"type":"reasoning","summary":[],"content":[]}}`,
+		`{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Visible assistant text"}]}}`,
+		`{"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"npx tsc --noEmit\"}","call_id":"call_tsc"}}`,
+	}
+	if err := os.WriteFile(sessionFile, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+		t.Fatalf("write session file: %v", err)
+	}
+
+	events, err := LoadHistoryEvents(codexDir, sessionID)
+	if err != nil {
+		t.Fatalf("load history events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 visible events, got %d: %#v", len(events), events)
+	}
+	textBlocks := getHistoryContentBlocks(t, events[0])
+	if textBlocks[0]["text"] != "Visible assistant text" {
+		t.Fatalf("expected visible assistant text, got %v", textBlocks[0]["text"])
+	}
+	toolBlocks := getHistoryContentBlocks(t, events[1])
+	if toolBlocks[0]["type"] != "tool_use" || toolBlocks[0]["name"] != "Bash" {
+		t.Fatalf("expected Bash tool_use, got %#v", toolBlocks[0])
+	}
+}
+
 // --- 3F. Batch item.completed (Stored-like format) ---
 
 func TestHistory_ItemCompleted_AgentMessage(t *testing.T) {
@@ -1375,18 +1413,17 @@ func TestHistory_ResponseItem_WebSearchOpenPageMapsToWebFetch(t *testing.T) {
 
 func TestHistory_ResponseItem_ToolSearchCall(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"tool_search_call","status":"completed"}}`)
-	// tool_search_call is internal, should produce nil or minimal event
-	assertHistoryType(t, ev, "assistant", "tool_search_call")
+	assertHistorySuppressed(t, ev, "tool_search_call")
 }
 
 func TestHistory_ResponseItem_ToolSearchOutput(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"tool_search_output","call_id":"call_x","tools":[{"name":"spawn_agent"}]}}`)
-	assertHistoryType(t, ev, "assistant", "tool_search_output")
+	assertHistorySuppressed(t, ev, "tool_search_output")
 }
 
 func TestHistory_ResponseItem_DeveloperMessage(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"system instructions"}]}}`)
-	assertHistoryType(t, ev, "assistant", "developer message")
+	assertHistorySuppressed(t, ev, "developer message")
 }
 
 // =============================================================================
@@ -1426,12 +1463,12 @@ func TestHistory_UnknownType(t *testing.T) {
 
 func TestHistory_NilPayload(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"response_item","payload":null}`)
-	assertHistoryType(t, ev, "assistant", "nil payload")
+	assertHistorySuppressed(t, ev, "nil payload")
 }
 
 func TestHistory_EmptyItem(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"item.completed","item":null}`)
-	assertHistoryType(t, ev, "assistant", "nil item")
+	assertHistorySuppressed(t, ev, "nil item")
 }
 
 // --- Protocol Compliance: No empty content blocks ---

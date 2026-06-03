@@ -155,6 +155,9 @@ func LoadHistoryEvents(codexDir, sessionID string) ([]provider.OutputEvent, erro
 		}
 
 		ev := NormalizeHistoryEntry(raw)
+		if ev.Suppressed() {
+			continue
+		}
 		fixCodexHistoryEvent(&ev, threadToSpawn, lsCallIDs)
 
 		events = append(events, ev)

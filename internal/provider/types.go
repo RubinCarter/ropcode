@@ -73,6 +73,12 @@ type OutputEvent struct {
 	Raw               string                 `json:"raw,omitempty"`
 }
 
+// Suppressed reports whether a provider-normalized event has no user-visible
+// representation and should not be converted into a session frame.
+func (e OutputEvent) Suppressed() bool {
+	return e.Type == "" && e.Subtype == "" && e.Message == nil && e.Raw == ""
+}
+
 // StderrEvent represents a stderr output event.
 type StderrEvent struct {
 	Level   string `json:"level"`

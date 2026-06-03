@@ -729,6 +729,9 @@ func readMessagesRange(filePath string, start, end int) ([]provider.Message, err
 			continue
 		}
 		event := NormalizeHistoryEntry(raw)
+		if event.Suppressed() {
+			continue
+		}
 		messages = append(messages, provider.Message{
 			Type:      event.Type,
 			Timestamp: str(raw, "timestamp"),

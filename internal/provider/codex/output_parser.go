@@ -170,16 +170,15 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 		}
 	case "agentMessage":
 		text, _ := item["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			return nil
+		}
 		messageID := codexItemMessageID(params)
 		return eventAssistantText(messageID, text)
 	case "reasoning":
 		text := codexReasoningText(item)
 		if text == "" {
-			return &provider.OutputEvent{
-				Type:    "system",
-				Subtype: "reasoning_completed",
-				Message: params,
-			}
+			return nil
 		}
 		return eventThinking(text)
 	case "commandExecution":
@@ -229,11 +228,7 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 		}
 		return eventToolUseWithResult(id, toolName, input, result, false)
 	default:
-		return &provider.OutputEvent{
-			Type:    "system",
-			Subtype: itemType + "_completed",
-			Message: params,
-		}
+		return nil
 	}
 }
 
@@ -287,11 +282,7 @@ func (d *Driver) parseItemStarted(item map[string]interface{}, itemType string, 
 			return eventToolUse(id, claudeName, claudeInput)
 		}
 	}
-	return &provider.OutputEvent{
-		Type:    "system",
-		Subtype: itemType + "_started",
-		Message: params,
-	}
+	return nil
 }
 
 func (d *Driver) parseCommandExecution(item map[string]interface{}, params map[string]interface{}) *provider.OutputEvent {
@@ -826,11 +817,7 @@ func (d *Driver) parseBatchItemStarted(raw map[string]interface{}) *provider.Out
 		toolName, toolInput := adaptCommandAction(item, command)
 		return eventToolUse(id, toolName, toolInput)
 	default:
-		return &provider.OutputEvent{
-			Type:    "system",
-			Subtype: itemType + "_started",
-			Message: raw,
-		}
+		return nil
 	}
 }
 
@@ -850,6 +837,9 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 		return eventToolResult(id, normalizeCodexCommandResult(item, command, output), isError)
 	case "agent_message", "message":
 		text, _ := item["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			return nil
+		}
 		id, _ := item["id"].(string)
 		return eventAssistantText(id, text)
 	case "function_call", "local_shell_exec":
@@ -875,7 +865,7 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 		}
 		return d.eventFunctionCallOutput(callID, output, itemType == "local_shell_output")
 	default:
-		return &provider.OutputEvent{Type: "assistant", Message: raw}
+		return nil
 	}
 }
 
@@ -888,6 +878,9 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 	switch payloadType {
 	case "message":
 		text := extractTextFromPayload(payload)
+		if strings.TrimSpace(text) == "" {
+			return nil
+		}
 		if role, _ := payload["role"].(string); role == "user" {
 			return &provider.OutputEvent{
 				Type:    "user",
@@ -918,7 +911,7 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 		}
 		return d.eventFunctionCallOutput(callID, output, false)
 	default:
-		return &provider.OutputEvent{Type: "assistant", Subtype: payloadType, Message: raw}
+		return nil
 	}
 }
 

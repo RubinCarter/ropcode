@@ -21,16 +21,25 @@ func NormalizeHistoryEntry(raw map[string]any) provider.OutputEvent {
 	case "response_item":
 		payload := mval(raw["payload"])
 		msg = normalizePayloadHistory(payload)
+		if msg == nil {
+			return provider.OutputEvent{}
+		}
 		annotateCodexHistoryMessage(msg, raw, payload)
 		evType = historyEventType(raw)
 		evSubtype = historySubtype(raw)
 	case "item.completed":
 		item := mval(raw["item"])
 		msg = normalizeItemHistory(item)
+		if msg == nil {
+			return provider.OutputEvent{}
+		}
 		annotateCodexHistoryMessage(msg, raw, item)
 		evType = historyEventType(raw)
 		evSubtype = historySubtype(raw)
 	case "message.delta":
+		if strings.TrimSpace(str(raw, "delta")) == "" {
+			return provider.OutputEvent{}
+		}
 		msg = assistantTextWithID(codexHistoryEventID(raw, nil, true), str(raw, "delta"))
 		evType = "assistant"
 	case "turn.completed", "thread.completed", "thread.cancelled":
@@ -137,13 +146,13 @@ func normalizeEventMsg(raw map[string]any) provider.OutputEvent {
 	switch payloadType {
 	case "agent_message":
 		// Redundant with response_item/message — suppress to avoid duplicates
-		return provider.OutputEvent{Type: "system", Subtype: "agent_message"}
+		return provider.OutputEvent{}
 	case "agent_reasoning":
 		// Redundant with response_item/reasoning — suppress
-		return provider.OutputEvent{Type: "system", Subtype: "agent_reasoning"}
+		return provider.OutputEvent{}
 	case "user_message":
 		// Redundant with response_item/message(role=user) — suppress
-		return provider.OutputEvent{Type: "system", Subtype: "user_message"}
+		return provider.OutputEvent{}
 	case "task_complete":
 		return provider.OutputEvent{
 			Type:    "assistant",
@@ -1138,6 +1147,9 @@ func normalizePayloadHistory(payload map[string]any) map[string]any {
 			return nil
 		}
 		text := payloadText(payload)
+		if strings.TrimSpace(text) == "" {
+			return nil
+		}
 		// subagent_notification — emit as sidechain message for subagent panel
 		if role == "user" && strings.Contains(text, "<subagent_notification>") {
 			return parseSubagentNotification(text)
@@ -1207,7 +1219,11 @@ func normalizeItemHistory(item map[string]any) map[string]any {
 	}
 	switch str(item, "type") {
 	case "agent_message", "message":
-		return assistantText(str(item, "text"))
+		text := str(item, "text")
+		if strings.TrimSpace(text) == "" {
+			return nil
+		}
+		return assistantText(text)
 	case "command_execution", "function_call", "local_shell_exec":
 		name := str(item, "name")
 		if name == "" {

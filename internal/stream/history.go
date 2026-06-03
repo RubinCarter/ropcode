@@ -5,6 +5,9 @@ import "ropcode/internal/provider"
 func AdaptClaudeHistoryEntry(ctx ProviderOutputContext, raw map[string]any, seq int64) (SessionFrame, error) {
 	ctx.Provider = firstNonEmpty(ctx.Provider, "claude")
 	event := provider.NormalizeHistoryEntry("claude", raw)
+	if event.Suppressed() {
+		return SessionFrame{}, ErrProviderOutputSuppressed
+	}
 	event.SessionID = firstNonEmpty(ctx.RuntimeSessionID, stringFromMap(raw, "runtime_session_id"))
 	event.Provider = "claude"
 	event.ProjectPath = ctx.ProjectPath
@@ -16,6 +19,9 @@ func AdaptClaudeHistoryEntry(ctx ProviderOutputContext, raw map[string]any, seq 
 func AdaptCodexHistoryEvent(ctx ProviderOutputContext, raw map[string]any, seq int64) (SessionFrame, error) {
 	ctx.Provider = firstNonEmpty(ctx.Provider, "codex")
 	event := provider.NormalizeHistoryEntry("codex", raw)
+	if event.Suppressed() {
+		return SessionFrame{}, ErrProviderOutputSuppressed
+	}
 	event.SessionID = firstNonEmpty(ctx.RuntimeSessionID, stringFromMap(raw, "session_id"))
 	event.Provider = "codex"
 	event.ProjectPath = ctx.ProjectPath
@@ -38,6 +44,9 @@ func FramesFromEvents(providerID string, ctx ProviderOutputContext, events []pro
 	ctx.Provider = firstNonEmpty(ctx.Provider, providerID)
 	var frames []SessionFrame
 	for i, event := range events {
+		if event.Suppressed() {
+			continue
+		}
 		event.Provider = providerID
 		event.SessionID = firstNonEmpty(event.SessionID, ctx.RuntimeSessionID)
 		event.ProjectPath = firstNonEmpty(event.ProjectPath, ctx.ProjectPath)
@@ -47,7 +56,7 @@ func FramesFromEvents(providerID string, ctx ProviderOutputContext, events []pro
 		if err != nil {
 			return nil, err
 		}
-		if len(frame.Content) == 0 && frame.Kind != FrameKindMetadata && frame.Kind != FrameKindResult {
+		if frameHasNoDisplayablePayload(frame) {
 			continue
 		}
 		frames = append(frames, frame)

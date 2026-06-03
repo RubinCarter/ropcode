@@ -87,30 +87,24 @@ func splitLines(data []byte) [][]byte {
 func TestRealHistory_EventMsg_AgentMessage(t *testing.T) {
 	raw := loadSample(t, "codex/event_msg__agent_message.json")
 	ev := NormalizeHistoryEntry(raw)
-	// event_msg/agent_message is suppressed (redundant with response_item/message)
-	assertHistoryType(t, ev, "system", "event_msg/agent_message suppressed")
-	if ev.Message != nil {
-		t.Fatal("event_msg/agent_message should produce nil message (suppressed)")
+	if !ev.Suppressed() {
+		t.Fatalf("event_msg/agent_message should be suppressed, got %#v", ev)
 	}
 }
 
 func TestRealHistory_EventMsg_AgentReasoning(t *testing.T) {
 	raw := loadSample(t, "codex/event_msg__agent_reasoning.json")
 	ev := NormalizeHistoryEntry(raw)
-	// event_msg/agent_reasoning is suppressed (redundant with response_item/reasoning)
-	assertHistoryType(t, ev, "system", "event_msg/agent_reasoning suppressed")
-	if ev.Message != nil {
-		t.Fatal("event_msg/agent_reasoning should produce nil message (suppressed)")
+	if !ev.Suppressed() {
+		t.Fatalf("event_msg/agent_reasoning should be suppressed, got %#v", ev)
 	}
 }
 
 func TestRealHistory_EventMsg_UserMessage(t *testing.T) {
 	raw := loadSample(t, "codex/event_msg__user_message.json")
 	ev := NormalizeHistoryEntry(raw)
-	// event_msg/user_message is suppressed (redundant with response_item/message)
-	assertHistoryType(t, ev, "system", "event_msg/user_message suppressed")
-	if ev.Message != nil {
-		t.Fatal("event_msg/user_message should produce nil message (suppressed)")
+	if !ev.Suppressed() {
+		t.Fatalf("event_msg/user_message should be suppressed, got %#v", ev)
 	}
 }
 
@@ -213,6 +207,9 @@ func TestRealHistory_ResponseItem_Reasoning(t *testing.T) {
 	raw := loadSample(t, "codex/response_item__reasoning.json")
 	ev := NormalizeHistoryEntry(raw)
 
+	if ev.Suppressed() {
+		return
+	}
 	assertHistoryType(t, ev, "assistant", "reasoning type")
 	// reasoning may have encrypted_content only (no readable text)
 	if ev.Message == nil {

@@ -24,6 +24,12 @@ func TestProviderBridgeRoutesOutputEventToDeterministicStream(t *testing.T) {
 		Message: map[string]any{
 			"type":       "assistant",
 			"unexpected": "kept",
+			"message": map[string]any{
+				"role": "assistant",
+				"content": []any{
+					map[string]any{"type": "text", "text": "routed message"},
+				},
+			},
 		},
 	})
 	if err != nil {
@@ -55,7 +61,15 @@ func TestProviderBridgeUsesEventProviderAndRuntimeSessionFallbacks(t *testing.T)
 		Type:      "assistant",
 		SessionID: "event-runtime",
 		Provider:  "codex",
-		Message:   map[string]any{"type": "message", "text": "hello"},
+		Message: map[string]any{
+			"type": "assistant",
+			"message": map[string]any{
+				"role": "assistant",
+				"content": []any{
+					map[string]any{"type": "text", "text": "hello"},
+				},
+			},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -79,9 +93,9 @@ func TestProviderBridgeAssignsMonotonicSeqPerStream(t *testing.T) {
 	defer subB.Close()
 
 	events := []provider.OutputEvent{
-		{Type: "assistant", SessionID: "runtime-a", Provider: "claude"},
-		{Type: "assistant", SessionID: "runtime-a", Provider: "claude"},
-		{Type: "assistant", SessionID: "runtime-b", Provider: "claude"},
+		claudeAssistantMessageEvent("runtime-a", "msg-a-1", "first"),
+		claudeAssistantMessageEvent("runtime-a", "msg-a-2", "second"),
+		claudeAssistantMessageEvent("runtime-b", "msg-b-1", "third"),
 	}
 	for _, event := range events {
 		if err := bridge.EmitProviderOutput(ProviderOutputContext{}, event); err != nil {
@@ -419,6 +433,12 @@ func assistantMessageEvent(runtimeSessionID, messageID, text string) provider.Ou
 			},
 		},
 	}
+}
+
+func claudeAssistantMessageEvent(runtimeSessionID, messageID, text string) provider.OutputEvent {
+	event := assistantMessageEvent(runtimeSessionID, messageID, text)
+	event.Provider = "claude"
+	return event
 }
 
 func TestProviderBridgeScopesTaskNotificationReplyToSidechain(t *testing.T) {

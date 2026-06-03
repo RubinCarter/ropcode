@@ -11,6 +11,7 @@ import (
 var ErrMissingProviderRuntimeSession = errors.New("provider output missing runtime session id")
 var ErrUserEchoFrameSuppressed = errors.New("provider user echo frame suppressed")
 var ErrProviderStreamFrameSuppressed = errors.New("provider stream frame suppressed")
+var ErrProviderOutputSuppressed = errors.New("provider output suppressed")
 
 type ProviderOutputContext struct {
 	RuntimeSessionID  string
@@ -40,7 +41,7 @@ func NewProviderBridge(hub *Hub) *ProviderBridge {
 func (b *ProviderBridge) EmitProviderOutput(ctx ProviderOutputContext, event provider.OutputEvent) error {
 	frame, err := b.FrameFromProviderOutput(ctx, event)
 	if err != nil {
-		if errors.Is(err, ErrUserEchoFrameSuppressed) || errors.Is(err, ErrProviderStreamFrameSuppressed) {
+		if errors.Is(err, ErrUserEchoFrameSuppressed) || errors.Is(err, ErrProviderStreamFrameSuppressed) || errors.Is(err, ErrProviderOutputSuppressed) {
 			return nil
 		}
 		return err
@@ -49,6 +50,10 @@ func (b *ProviderBridge) EmitProviderOutput(ctx ProviderOutputContext, event pro
 }
 
 func (b *ProviderBridge) FrameFromProviderOutput(ctx ProviderOutputContext, event provider.OutputEvent) (SessionFrame, error) {
+	if event.Suppressed() {
+		return SessionFrame{}, ErrProviderOutputSuppressed
+	}
+
 	providerID := firstNonEmpty(ctx.Provider, event.Provider)
 	runtimeSessionID := firstNonEmpty(ctx.RuntimeSessionID, event.SessionID)
 	if runtimeSessionID == "" {
@@ -64,6 +69,9 @@ func (b *ProviderBridge) FrameFromProviderOutput(ctx ProviderOutputContext, even
 	if isSuppressibleUserEchoFrame(frame) {
 		return SessionFrame{}, ErrUserEchoFrameSuppressed
 	}
+	if frameHasNoDisplayablePayload(frame) {
+		return SessionFrame{}, ErrProviderOutputSuppressed
+	}
 	b.applyTaskNotificationReplyScope(streamID, event, &frame)
 	frame, err = b.applyStreamingAggregation(frame)
 	if err != nil {
@@ -71,6 +79,16 @@ func (b *ProviderBridge) FrameFromProviderOutput(ctx ProviderOutputContext, even
 	}
 	frame.refreshStableFrameID()
 	return frame, nil
+}
+
+func frameHasNoDisplayablePayload(frame SessionFrame) bool {
+	if len(frame.Content) > 0 || frame.Kind == FrameKindResult || frame.Usage != nil || frame.Runtime != nil {
+		return false
+	}
+	if isBackgroundTaskControlFrame(frame.Meta.Raw, frame.Content) {
+		return false
+	}
+	return frame.Kind == FrameKindMessage || frame.Kind == FrameKindMetadata
 }
 
 func (b *ProviderBridge) nextSeq(streamID string) int64 {
