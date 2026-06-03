@@ -10,9 +10,10 @@ const subscriberBufferSize = 256
 var ErrMissingStreamID = errors.New("stream frame missing streamId")
 
 type Hub struct {
-	mu      sync.Mutex
-	streams map[string]*streamState
-	aliases map[string]string // realStreamID → virtualStreamID (forward frames to alias)
+	mu       sync.Mutex
+	streams  map[string]*streamState
+	aliases  map[string]string // realStreamID → virtualStreamID (forward frames to alias)
+	aliasSeq map[string]int64
 }
 
 type streamState struct {
@@ -30,8 +31,9 @@ type Subscription struct {
 
 func NewHub() *Hub {
 	return &Hub{
-		streams: make(map[string]*streamState),
-		aliases: make(map[string]string),
+		streams:  make(map[string]*streamState),
+		aliases:  make(map[string]string),
+		aliasSeq: make(map[string]int64),
 	}
 }
 
@@ -49,11 +51,11 @@ func (h *Hub) Append(frame SessionFrame) error {
 	}
 	// Check if this stream has an alias (forward to virtual stream)
 	aliasID := h.aliases[frame.StreamID]
+	var aliasFrame SessionFrame
 	var aliasSubscribers []*Subscription
 	if aliasID != "" {
 		aliasState := h.stateFor(aliasID)
-		aliasFrame := frame
-		aliasFrame.StreamID = aliasID
+		aliasFrame = h.nextAliasFrame(aliasID, frame)
 		aliasState.queue.append(aliasFrame)
 		aliasSubscribers = make([]*Subscription, 0, len(aliasState.subscribers))
 		for sub := range aliasState.subscribers {
@@ -66,11 +68,30 @@ func (h *Hub) Append(frame SessionFrame) error {
 		sub.ch <- frame
 	}
 	if aliasID != "" {
-		aliasFrame := frame
-		aliasFrame.StreamID = aliasID
 		for _, sub := range aliasSubscribers {
 			sub.ch <- aliasFrame
 		}
+	}
+	return nil
+}
+
+func (h *Hub) AppendVirtual(streamID string, frame SessionFrame) error {
+	if streamID == "" {
+		return ErrMissingStreamID
+	}
+
+	h.mu.Lock()
+	state := h.stateFor(streamID)
+	virtualFrame := h.nextAliasFrame(streamID, frame)
+	state.queue.append(virtualFrame)
+	subscribers := make([]*Subscription, 0, len(state.subscribers))
+	for sub := range state.subscribers {
+		subscribers = append(subscribers, sub)
+	}
+	h.mu.Unlock()
+
+	for _, sub := range subscribers {
+		sub.ch <- virtualFrame
 	}
 	return nil
 }
@@ -80,14 +101,34 @@ func (h *Hub) Append(frame SessionFrame) error {
 // from the real provider session stream.
 func (h *Hub) RegisterAlias(realStreamID, aliasID string) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	// Remove any previous alias pointing to this aliasID
-	for k, v := range h.aliases {
-		if v == aliasID {
-			delete(h.aliases, k)
-		}
+	if realStreamID == "" || aliasID == "" || h.aliases[realStreamID] == aliasID {
+		h.mu.Unlock()
+		return
 	}
 	h.aliases[realStreamID] = aliasID
+
+	var replay []SessionFrame
+	var aliasSubscribers []*Subscription
+	realState := h.streams[realStreamID]
+	if realState != nil && realState.queue.len() > 0 {
+		aliasState := h.stateFor(aliasID)
+		for _, frame := range realState.queue.snapshot() {
+			aliasFrame := h.nextAliasFrame(aliasID, frame)
+			aliasState.queue.append(aliasFrame)
+			replay = append(replay, aliasFrame)
+		}
+		aliasSubscribers = make([]*Subscription, 0, len(aliasState.subscribers))
+		for sub := range aliasState.subscribers {
+			aliasSubscribers = append(aliasSubscribers, sub)
+		}
+	}
+	h.mu.Unlock()
+
+	for _, frame := range replay {
+		for _, sub := range aliasSubscribers {
+			sub.ch <- frame
+		}
+	}
 }
 
 // UnregisterAlias removes the alias for a real stream.
@@ -150,6 +191,15 @@ func (h *Hub) stateFor(streamID string) *streamState {
 		h.streams[streamID] = state
 	}
 	return state
+}
+
+func (h *Hub) nextAliasFrame(aliasID string, frame SessionFrame) SessionFrame {
+	h.aliasSeq[aliasID]++
+	aliasFrame := frame
+	aliasFrame.StreamID = aliasID
+	aliasFrame.Seq = h.aliasSeq[aliasID]
+	aliasFrame.FrameID = aliasFrameID(aliasID, frame)
+	return aliasFrame
 }
 
 func (s *Subscription) Close() {

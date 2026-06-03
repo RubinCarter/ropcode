@@ -100,6 +100,27 @@ func TestProviderBridgeAssignsMonotonicSeqPerStream(t *testing.T) {
 	}
 }
 
+func TestProviderBridgeFrameIdentityIgnoresSeqForNativeMessageID(t *testing.T) {
+	bridge := NewProviderBridge(NewHub())
+	event := assistantMessageEvent("runtime-1", "msg-1", "same message")
+
+	first, err := bridge.FrameFromProviderOutput(ProviderOutputContext{}, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := bridge.FrameFromProviderOutput(ProviderOutputContext{}, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if first.Seq == second.Seq {
+		t.Fatalf("expected monotonic seq to keep display ordering, got %d and %d", first.Seq, second.Seq)
+	}
+	if first.FrameID != second.FrameID {
+		t.Fatalf("expected stable frame id to ignore seq, got %q and %q", first.FrameID, second.FrameID)
+	}
+}
+
 func TestProviderBridgeEmitsTerminalRuntimeForClaudeEndTurn(t *testing.T) {
 	hub := NewHub()
 	bridge := NewProviderBridge(hub)
@@ -286,6 +307,46 @@ func TestProviderBridgeTreatsCompletedTextAsAuthoritativeAfterDeltas(t *testing.
 	}
 	if got := frameContentText(completed.Content); got != "A robust implementation uses backend stream upserts" {
 		t.Fatalf("expected authoritative completed text, got %q", got)
+	}
+}
+
+func TestProviderBridgeUpsertsCompletedTextAfterResultClearsDeltaState(t *testing.T) {
+	hub := NewHub()
+	bridge := NewProviderBridge(hub)
+	sub := hub.Subscribe(StreamIDForSession("codex", "runtime-1"))
+	defer sub.Close()
+
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, assistantDeltaEvent("runtime-1", "msg-1", "partial")); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "assistant",
+		Subtype:   "result",
+		SessionID: "runtime-1",
+		Provider:  "codex",
+		Message: map[string]any{
+			"type":    "result",
+			"subtype": "success",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridge.EmitProviderOutput(ProviderOutputContext{}, assistantMessageEvent("runtime-1", "msg-1", "complete final reply")); err != nil {
+		t.Fatal(err)
+	}
+
+	streamed := receiveFrame(t, sub)
+	_ = receiveFrame(t, sub)
+	completed := receiveFrame(t, sub)
+
+	if completed.Operation != FrameOperationUpsert {
+		t.Fatalf("expected completed text to upsert streamed frame after result, got %q", completed.Operation)
+	}
+	if completed.FrameID != streamed.FrameID {
+		t.Fatalf("expected completed text to reuse streamed frame identity, got %q and %q", streamed.FrameID, completed.FrameID)
+	}
+	if got := frameContentText(completed.Content); got != "complete final reply" {
+		t.Fatalf("expected complete final reply, got %q", got)
 	}
 }
 

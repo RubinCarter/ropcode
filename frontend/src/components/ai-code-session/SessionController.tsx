@@ -31,7 +31,7 @@ import { SessionMessagePane } from "./messages/SessionMessagePane";
 import { SessionLayoutChrome } from "./layout/SessionLayoutChrome";
 import { CopyConversationMenu } from "./composer/CopyConversationMenu";
 import { LoadProjectChatHistory } from "@/lib/rpc-client";
-import { replaceSessionFrames } from "@/stores/sessionFrameStore";
+import { mergeSessionFrames } from "@/stores/sessionFrameStore";
 import { resolveSessionProvider } from "@/lib/session-frame/provider";
 
 // Import refactored hooks and types
@@ -247,18 +247,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
       try {
         const allFrames = await LoadProjectChatHistory(projectChatId);
         if (cancelled || !allFrames || !Array.isArray(allFrames) || allFrames.length === 0) return;
-        // Store frames under each segment's streamId
-        const framesByStream = new Map<string, typeof allFrames>();
-        for (const frame of allFrames) {
-          const sid = frame.streamId;
-          if (!framesByStream.has(sid)) {
-            framesByStream.set(sid, []);
-          }
-          framesByStream.get(sid)!.push(frame);
-        }
-        for (const [sid, frames] of framesByStream) {
-          replaceSessionFrames(sid, frames);
-        }
+        mergeSessionFrames(projectChatId, allFrames);
       } catch (err) {
         console.warn('[SessionController] Failed to load ProjectChat history:', err);
       }

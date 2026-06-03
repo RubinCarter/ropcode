@@ -69,6 +69,7 @@ func (b *ProviderBridge) FrameFromProviderOutput(ctx ProviderOutputContext, even
 	if err != nil {
 		return SessionFrame{}, err
 	}
+	frame.refreshStableFrameID()
 	return frame, nil
 }
 
@@ -141,6 +142,7 @@ func (b *ProviderBridge) upsertStreamingDeltaFrame(frame SessionFrame) SessionFr
 	}
 	syncRawMessageContent(&frame)
 	b.streamingMessages[key] = frame
+	frame.refreshStableFrameID()
 	return frame
 }
 
@@ -155,7 +157,7 @@ func (b *ProviderBridge) reconcileStreamingCompletedFrame(frame SessionFrame) (S
 	b.mu.Unlock()
 
 	if !ok {
-		return frame, nil
+		return markAssistantTextMessageUpsert(frame), nil
 	}
 
 	previousText := frameContentText(existing.Content)
@@ -168,9 +170,18 @@ func (b *ProviderBridge) reconcileStreamingCompletedFrame(frame SessionFrame) (S
 	}
 
 	frame.Kind = FrameKindMessage
-	frame.Operation = FrameOperationUpsert
+	frame = markAssistantTextMessageUpsert(frame)
 	syncRawMessageContent(&frame)
+	frame.refreshStableFrameID()
 	return frame, nil
+}
+
+func markAssistantTextMessageUpsert(frame SessionFrame) SessionFrame {
+	if frame.MessageID != "" && frame.Role == RoleAssistant && textOnlyFrameContent(frame.Content) {
+		frame.Kind = FrameKindMessage
+		frame.Operation = FrameOperationUpsert
+	}
+	return frame
 }
 
 func (b *ProviderBridge) clearStreamingMessagesForFrameScope(frame SessionFrame) {

@@ -6,6 +6,7 @@ import {
   clearSessionFrames,
   getSessionFrames,
   getSessionMessages,
+  mergeSessionFrames,
   subscribeSessionFrames,
 } from './sessionFrameStore';
 
@@ -142,6 +143,119 @@ test('sessionFrameStore accepts upsert updates that reuse the same frame id', ()
     ['message-frame'],
   );
   assert.deepEqual(getSessionMessages('stream-1')[0].content, [{ type: 'text', text: 'hello' }]);
+});
+
+test('sessionFrameStore accepts later upsert after a duplicate stable frame id', () => {
+  clearSessionFrames('stream-1');
+
+  appendSessionFrame(frame({
+    frameId: 'stable-message',
+    messageId: 'message-1',
+    operation: 'upsert',
+    seq: 1,
+    content: [{ type: 'text', text: 'partial' }],
+  }));
+  appendSessionFrame(frame({
+    frameId: 'stable-message',
+    messageId: 'message-1',
+    operation: 'upsert',
+    seq: 3,
+    content: [{ type: 'text', text: 'complete final reply' }],
+  }));
+
+  const frames = getSessionFrames('stream-1');
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].seq, 3);
+  assert.deepEqual(getSessionMessages('stream-1')[0].content, [{ type: 'text', text: 'complete final reply' }]);
+});
+
+test('sessionFrameStore merges history without removing live project chat frames', () => {
+  clearSessionFrames('project-chat-1');
+
+  appendSessionFrame(frame({
+    streamId: 'project-chat-1',
+    frameId: 'live-2',
+    seq: 2,
+    content: [{ type: 'text', text: 'live reply' }],
+  }));
+
+  mergeSessionFrames('project-chat-1', [
+    frame({
+      streamId: 'project-chat-1',
+      frameId: 'history-1',
+      seq: 1,
+      content: [{ type: 'text', text: 'history reply' }],
+    }),
+  ]);
+
+  assert.deepEqual(
+    getSessionFrames('project-chat-1').map((item) => item.frameId),
+    ['history-1', 'live-2'],
+  );
+  assert.deepEqual(
+    getSessionMessages('project-chat-1').map((item) => item.content[0]),
+    [
+      { type: 'text', text: 'history reply' },
+      { type: 'text', text: 'live reply' },
+    ],
+  );
+});
+
+test('sessionFrameStore does not let history merge replace newer live upserts', () => {
+  clearSessionFrames('project-chat-1');
+
+  appendSessionFrame(frame({
+    streamId: 'project-chat-1',
+    frameId: 'stable-message',
+    messageId: 'message-1',
+    operation: 'upsert',
+    seq: 2,
+    content: [{ type: 'text', text: 'complete live reply' }],
+  }));
+
+  mergeSessionFrames('project-chat-1', [
+    frame({
+      streamId: 'project-chat-1',
+      frameId: 'stable-message',
+      messageId: 'message-1',
+      operation: 'upsert',
+      seq: -1,
+      content: [{ type: 'text', text: 'old history reply' }],
+    }),
+  ]);
+
+  assert.deepEqual(
+    getSessionFrames('project-chat-1').map((item) => item.content[0]),
+    [{ type: 'text', text: 'complete live reply' }],
+  );
+});
+
+test('sessionFrameStore lets history merge complete a partial live upsert', () => {
+  clearSessionFrames('project-chat-1');
+
+  appendSessionFrame(frame({
+    streamId: 'project-chat-1',
+    frameId: 'stable-message',
+    messageId: 'message-1',
+    operation: 'upsert',
+    seq: 5,
+    content: [{ type: 'text', text: 'partial' }],
+  }));
+
+  mergeSessionFrames('project-chat-1', [
+    frame({
+      streamId: 'project-chat-1',
+      frameId: 'stable-message',
+      messageId: 'message-1',
+      operation: 'upsert',
+      seq: -1,
+      content: [{ type: 'text', text: 'partial complete reply' }],
+    }),
+  ]);
+
+  const frames = getSessionFrames('project-chat-1');
+  assert.equal(frames[0].seq, 5);
+  assert.deepEqual(frames[0].content[0], { type: 'text', text: 'partial complete reply' });
 });
 
 test('sessionFrameStore keeps sidechain frames out of root display messages', () => {

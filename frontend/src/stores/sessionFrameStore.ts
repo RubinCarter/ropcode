@@ -34,12 +34,11 @@ const PROJECTCHAT_CONTEXT_SYNC_SUBTYPE = 'projectchat_context_sync';
 
 export function appendSessionFrame(frame: SessionFrame): void {
   const ids = frameIdsFor(frame.streamId);
-  if (ids.has(frame.frameId) && frame.operation !== 'upsert') {
+  const frames = insertSessionFrame(framesByStream.get(frame.streamId) ?? [], frame);
+  if (ids.has(frame.frameId) && frames === framesByStream.get(frame.streamId)) {
     return;
   }
   ids.add(frame.frameId);
-
-  const frames = insertSessionFrame(framesByStream.get(frame.streamId) ?? [], frame);
   framesByStream.set(frame.streamId, frames);
   messagesByStream.delete(frame.streamId);
 
@@ -53,6 +52,54 @@ export function replaceSessionFrames(streamId: string, frames: SessionFrame[]): 
   messagesByStream.delete(streamId);
   for (const frame of frames) {
     appendSessionFrame(frame);
+  }
+  notify(streamId);
+}
+
+export function mergeSessionFrames(streamId: string, frames: SessionFrame[]): void {
+  if (frames.length === 0) {
+    return;
+  }
+
+  let nextFrames = framesByStream.get(streamId) ?? [];
+  let ids = frameIdsFor(streamId);
+  let changed = false;
+  const runtimeFrames: SessionFrame[] = [];
+
+  for (const sourceFrame of frames) {
+    const frame = sourceFrame.streamId === streamId
+      ? sourceFrame
+      : { ...sourceFrame, streamId };
+
+    if (ids.has(frame.frameId)) {
+      const existingIndex = nextFrames.findIndex((item) => item.frameId === frame.frameId);
+      if (existingIndex >= 0 && shouldAcceptMergedHistoryFrame(nextFrames[existingIndex], frame)) {
+        const mergedFrame = { ...frame, seq: nextFrames[existingIndex].seq };
+        nextFrames = [
+          ...nextFrames.slice(0, existingIndex),
+          mergedFrame,
+          ...nextFrames.slice(existingIndex + 1),
+        ].sort(compareSessionFrames);
+        runtimeFrames.push(mergedFrame);
+        changed = true;
+      }
+      continue;
+    }
+
+    ids.add(frame.frameId);
+    nextFrames = insertSessionFrame(nextFrames, frame);
+    runtimeFrames.push(frame);
+    changed = true;
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  framesByStream.set(streamId, nextFrames);
+  messagesByStream.delete(streamId);
+  for (const frame of runtimeFrames) {
+    applySessionRuntimeFrame(frame);
   }
   notify(streamId);
 }
@@ -142,16 +189,19 @@ function canMergeDelta(previous: SessionDisplayMessage | undefined, frame: Sessi
 
 function insertSessionFrame(frames: SessionFrame[], frame: SessionFrame): SessionFrame[] {
   if (frame.operation !== 'upsert' || !frame.messageId) {
+    if (frames.some((item) => item.frameId === frame.frameId)) {
+      return frames;
+    }
     return [...frames, frame].sort(compareSessionFrames);
   }
 
-  const existingIndex = frames.findIndex((item) => canUpsertFrame(item, frame));
+  const existingIndex = frames.findIndex((item) => item.frameId === frame.frameId || canUpsertFrame(item, frame));
   if (existingIndex < 0) {
     return [...frames, frame].sort(compareSessionFrames);
   }
 
   const nextFrames = [...frames];
-  nextFrames[existingIndex] = frame;
+  nextFrames[existingIndex] = { ...frame, seq: Math.max(nextFrames[existingIndex].seq, frame.seq) };
   return nextFrames.sort(compareSessionFrames);
 }
 
@@ -165,6 +215,35 @@ function canUpsertFrame(existing: SessionFrame, frame: SessionFrame): boolean {
     existing.taskId === frame.taskId &&
     existing.agentId === frame.agentId,
   );
+}
+
+function shouldAcceptMergedHistoryFrame(existing: SessionFrame, incoming: SessionFrame): boolean {
+  if (incoming.subtype === PROJECTCHAT_CONTEXT_SYNC_SUBTYPE) {
+    return false;
+  }
+  if (existing.operation === 'upsert' || incoming.operation === 'upsert' || existing.messageId || incoming.messageId) {
+    return incomingContentIsMoreComplete(existing.content, incoming.content);
+  }
+  return false;
+}
+
+function incomingContentIsMoreComplete(existing: ContentBlock[], incoming: ContentBlock[]): boolean {
+  if (incoming.length === 0) {
+    return false;
+  }
+  if (existing.length === 0) {
+    return true;
+  }
+  if (textOnly(existing) && textOnly(incoming)) {
+    const existingText = contentText(existing);
+    const incomingText = contentText(incoming);
+    return incomingText.length > existingText.length && incomingText.startsWith(existingText);
+  }
+  return incoming.length > existing.length;
+}
+
+function contentText(content: ContentBlock[]): string {
+  return content.map((block) => block.type === 'text' ? block.text : '').join('');
 }
 
 function mergeContent(left: ContentBlock[], right: ContentBlock[]): ContentBlock[] {

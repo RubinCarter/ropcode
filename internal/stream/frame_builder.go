@@ -21,7 +21,6 @@ func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, s
 	streamID := StreamIDForSession(providerID, runtimeSessionID)
 	frame := SessionFrame{
 		StreamID:          streamID,
-		FrameID:           nextFrameID(streamID, seq),
 		MessageID:         messageIDFromProviderMessage(event.Message),
 		Provider:          providerID,
 		RuntimeSessionID:  runtimeSessionID,
@@ -54,6 +53,7 @@ func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, s
 	if frame.TaskID != "" {
 		frame.AgentID = frame.TaskID
 	}
+	frame.applyContentIDs()
 
 	// Claude-specific metadata enrichment (no-op for other providers)
 	frame.applyRuntimeState(event.Message)
@@ -68,7 +68,30 @@ func AdaptUnifiedOutput(ctx ProviderOutputContext, event provider.OutputEvent, s
 	if frame.Usage == nil {
 		frame.Usage = extractUsage(firstMap(mapFromAny(event.Message["usage"]), mapFromAny(mapFromAny(event.Message["message"])["usage"])))
 	}
+	frame.refreshStableFrameID()
 	return frame, nil
+}
+
+func (f *SessionFrame) refreshStableFrameID() {
+	f.FrameID = stableFrameID(f.StreamID, *f)
+}
+
+func (f *SessionFrame) applyContentIDs() {
+	for _, block := range f.Content {
+		switch block.Type {
+		case ContentToolUse:
+			if f.ToolUseID == "" {
+				f.ToolUseID = block.ToolUseID
+			}
+		case ContentToolResult:
+			if f.ToolUseID == "" {
+				f.ToolUseID = block.ToolUseID
+			}
+			if f.ParentToolUseID == "" {
+				f.ParentToolUseID = block.ToolUseID
+			}
+		}
+	}
 }
 
 func messageIDFromProviderMessage(raw map[string]any) string {

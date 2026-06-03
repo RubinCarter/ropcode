@@ -546,9 +546,6 @@ func (m *Manager) LoadAllSegmentFrames(chatID string) ([]stream.SessionFrame, er
 		if err != nil {
 			continue
 		}
-		for i := range frames {
-			frames[i].StreamID = chatID
-		}
 
 		allFrames = append(allFrames, frames...)
 	}
@@ -556,7 +553,7 @@ func (m *Manager) LoadAllSegmentFrames(chatID string) ([]stream.SessionFrame, er
 	if allFrames == nil {
 		allFrames = []stream.SessionFrame{}
 	}
-	return allFrames, nil
+	return stream.RebaseFramesToStream(chatID, allFrames), nil
 }
 
 // --- Private helpers ---
@@ -666,13 +663,15 @@ func (m *Manager) emitContextSyncFrame(chatID, projectPath string, seg *database
 		return
 	}
 	frame := newContextSyncFrame(chatID, projectPath, seg, runtimeSessionID, message)
-	_ = m.streamHub.Append(frame)
+	_ = m.streamHub.AppendVirtual(chatID, frame)
 }
 
 func newContextSyncFrame(chatID, projectPath string, seg *database.ChatSegment, runtimeSessionID, message string) stream.SessionFrame {
 	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+	eventID := fmt.Sprintf("%s:%s:%s", chatID, seg.ID, projectChatContextSyncSubtype)
 	raw := map[string]any{
 		"type":               "user",
+		"event_id":           eventID,
 		"source":             projectChatContextSyncSubtype,
 		"subtype":            projectChatContextSyncSubtype,
 		"provider":           seg.Provider,
@@ -695,7 +694,7 @@ func newContextSyncFrame(chatID, projectPath string, seg *database.ChatSegment, 
 	}
 	return stream.SessionFrame{
 		StreamID:          chatID,
-		FrameID:           fmt.Sprintf("%s:%s:%s", chatID, seg.ID, projectChatContextSyncSubtype),
+		FrameID:           eventID,
 		Provider:          seg.Provider,
 		RuntimeSessionID:  runtimeSessionID,
 		ProviderSessionID: seg.ProviderSessionID,
