@@ -27,6 +27,7 @@ type SkillCapabilityOptions struct {
 	Provider   string
 	Scope      CapabilityScope
 	BaseDir    string
+	BaseDirs   []string
 	PluginID   *string
 	PluginName *string
 }
@@ -101,18 +102,52 @@ func LoadFilesystemCapabilityDirs(providerID string, scope CapabilityScope, dirs
 	return capabilities
 }
 
+func UserAgentSkillDirs() []string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(homeDir) == "" {
+		return nil
+	}
+	return []string{filepath.Join(homeDir, ".agents", "skills")}
+}
+
 func LoadSkillCapabilities(opts SkillCapabilityOptions) ([]Capability, error) {
-	if strings.TrimSpace(opts.BaseDir) == "" {
+	baseDirs := skillCapabilityBaseDirs(opts)
+	if len(baseDirs) == 0 {
 		return nil, nil
 	}
-	entries, err := os.ReadDir(opts.BaseDir)
+
+	var capabilities []Capability
+	for _, baseDir := range baseDirs {
+		loaded, err := loadSkillCapabilitiesFromDir(opts, baseDir)
+		if err != nil {
+			return capabilities, err
+		}
+		capabilities = append(capabilities, loaded...)
+	}
+	return capabilities, nil
+}
+
+func skillCapabilityBaseDirs(opts SkillCapabilityOptions) []string {
+	var baseDirs []string
+	if strings.TrimSpace(opts.BaseDir) != "" {
+		baseDirs = append(baseDirs, opts.BaseDir)
+	}
+	for _, baseDir := range opts.BaseDirs {
+		if strings.TrimSpace(baseDir) != "" {
+			baseDirs = append(baseDirs, baseDir)
+		}
+	}
+	return baseDirs
+}
+
+func loadSkillCapabilitiesFromDir(opts SkillCapabilityOptions, baseDir string) ([]Capability, error) {
+	entries, err := os.ReadDir(baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-
 	capabilities := make([]Capability, 0, len(entries))
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".") {
@@ -120,7 +155,7 @@ func LoadSkillCapabilities(opts SkillCapabilityOptions) ([]Capability, error) {
 		}
 
 		nameHint := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
-		filePath := filepath.Join(opts.BaseDir, entry.Name())
+		filePath := filepath.Join(baseDir, entry.Name())
 		if entry.IsDir() {
 			filePath = filepath.Join(filePath, "SKILL.md")
 			nameHint = entry.Name()

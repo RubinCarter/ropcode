@@ -37,8 +37,16 @@ func (d *Driver) DiscoverProviderCapabilities(ctx context.Context, projectPath s
 		Provider: d.ID(),
 		Scope:    provider.CapabilityScopeUser,
 		BaseDir:  filepath.Join(codexDir, "skills"),
+		BaseDirs: provider.UserAgentSkillDirs(),
 	})
 	capabilities = append(capabilities, userSkills...)
+
+	systemSkills, _ := provider.LoadSkillCapabilities(provider.SkillCapabilityOptions{
+		Provider: d.ID(),
+		Scope:    provider.CapabilityScopeSystem,
+		BaseDir:  filepath.Join(codexDir, "skills", ".system"),
+	})
+	capabilities = append(capabilities, systemSkills...)
 
 	appServerCapabilities, err := d.discoverAppServerCapabilities(ctx, projectPath, force)
 	if err != nil {

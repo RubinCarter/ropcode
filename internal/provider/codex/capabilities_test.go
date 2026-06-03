@@ -11,8 +11,10 @@ import (
 
 func TestDiscoverProviderCapabilitiesLoadsCodexCommandsAgentsAndSkills(t *testing.T) {
 	codexDir := t.TempDir()
+	homeDir := t.TempDir()
 	projectPath := t.TempDir()
 	t.Setenv("CODEX_HOME", codexDir)
+	t.Setenv("HOME", homeDir)
 	restoreCapabilities := stubCodexAppServerCapabilities(func(ctx context.Context, binaryPath, providerID, projectPath string, force bool) ([]provider.Capability, error) {
 		return nil, nil
 	})
@@ -23,6 +25,8 @@ func TestDiscoverProviderCapabilitiesLoadsCodexCommandsAgentsAndSkills(t *testin
 	writeCapabilityFile(t, filepath.Join(codexDir, "prompts", "code-review.md"), "---\ndescription: Review code\n---\nReview body")
 	writeCapabilityFile(t, filepath.Join(codexDir, "agents", "researcher.md"), "---\ndescription: Research agent\n---\nAgent body")
 	writeCapabilityFile(t, filepath.Join(codexDir, "skills", "video", "SKILL.md"), "---\nname: video\ndescription: Video skill\n---\nSkill body")
+	writeCapabilityFile(t, filepath.Join(codexDir, "skills", ".system", "imagegen", "SKILL.md"), "---\nname: imagegen\ndescription: Image generation skill\n---\nSkill body")
+	writeCapabilityFile(t, filepath.Join(homeDir, ".agents", "skills", "canvas", "SKILL.md"), "---\nname: canvas-design\ndescription: Canvas design skill\n---\nSkill body")
 	writeCapabilityFile(t, filepath.Join(projectPath, ".codex", "prompts", "project.md"), "Project prompt")
 	writeCapabilityFile(t, filepath.Join(projectPath, ".codex", "skills", "project-skill", "SKILL.md"), "---\ndescription: Project skill\n---\nSkill body")
 
@@ -34,6 +38,8 @@ func TestDiscoverProviderCapabilitiesLoadsCodexCommandsAgentsAndSkills(t *testin
 	assertCapability(t, layers.AllVisible, "command", "/code-review", "user")
 	assertCapability(t, layers.AllVisible, "agent", "/researcher", "user")
 	assertCapability(t, layers.AllVisible, "skill", "/video", "user")
+	assertCapability(t, layers.AllVisible, "skill", "/imagegen", "system")
+	assertCapability(t, layers.AllVisible, "skill", "/canvas-design", "user")
 	assertCapability(t, layers.AllVisible, "command", "/project", "project")
 	assertCapability(t, layers.AllVisible, "skill", "/project-skill", "project")
 	assertCapability(t, layers.AllVisible, "command", "/model", "system")
