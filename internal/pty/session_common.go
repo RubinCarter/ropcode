@@ -28,19 +28,28 @@ var (
 
 // Session represents a PTY terminal session
 type Session struct {
-	ID    string
-	Cwd   string
-	Shell string
-	Rows  int
-	Cols  int
+	ID          string
+	Cwd         string
+	Shell       string
+	Rows        int
+	Cols        int
+	integration *shellIntegrationFiles
 
 	pty     gopty.Pty
 	cmd     *gopty.Cmd
 	mu      sync.Mutex
+	seq     int64
 	closed  bool
 	started bool // indicates if Start() has completed successfully
 
 	doneCh chan struct{}
+}
+
+func (s *Session) NextSeq() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seq++
+	return s.seq
 }
 
 // NewSession creates a new PTY session
@@ -49,13 +58,19 @@ func NewSession(id, cwd string, rows, cols int, shell string) (*Session, error) 
 		shell = getDefaultShell()
 	}
 
+	integration, err := prepareShellIntegrationFiles(shell)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Session{
-		ID:     id,
-		Cwd:    normalizeCwd(cwd),
-		Shell:  shell,
-		Rows:   rows,
-		Cols:   cols,
-		doneCh: make(chan struct{}),
+		ID:          id,
+		Cwd:         normalizeCwd(cwd),
+		Shell:       shell,
+		Rows:        rows,
+		Cols:        cols,
+		integration: integration,
+		doneCh:      make(chan struct{}),
 	}
 
 	return s, nil
@@ -88,13 +103,9 @@ func (s *Session) buildShellArgs() []string {
 
 	switch shellType {
 	case ShellTypeBash:
-		// Use --rcfile to load only .bashrc, avoiding full login shell initialization
-		// This is faster than -l which loads /etc/profile, ~/.bash_profile, etc.
-		bashrc := filepath.Join(os.Getenv("HOME"), ".bashrc")
-		if _, err := os.Stat(bashrc); err == nil {
-			return []string{"--rcfile", bashrc}
+		if s.integration != nil && s.integration.bashRC != "" {
+			return []string{"--rcfile", s.integration.bashRC, "-i"}
 		}
-		// Fallback to interactive mode if no .bashrc
 		return []string{"-i"}
 
 	case ShellTypeZsh:
@@ -103,11 +114,17 @@ func (s *Session) buildShellArgs() []string {
 		return []string{"-i"}
 
 	case ShellTypeFish:
+		if s.integration != nil && s.integration.fishInit != "" {
+			return []string{"-i", "-C", "source " + shellQuote(s.integration.fishInit)}
+		}
 		// Fish uses -i for interactive, -l for login
 		// Interactive mode is sufficient and faster
 		return []string{"-i"}
 
 	case ShellTypePowerShell:
+		if s.integration != nil && s.integration.pwshInit != "" {
+			return []string{"-NoLogo", "-ExecutionPolicy", "Bypass", "-NoExit", "-File", s.integration.pwshInit}
+		}
 		return []string{"-NoLogo"}
 
 	default:
@@ -123,6 +140,9 @@ func (s *Session) buildShellArgs() []string {
 func (s *Session) buildShellEnv() []string {
 	env := os.Environ()
 	env = append(env, "TERM=xterm-256color")
+	if s.integration != nil && s.integration.zdotdir != "" {
+		env = append(env, "ZDOTDIR="+s.integration.zdotdir)
+	}
 
 	shellType := getShellType(s.Shell)
 
@@ -225,7 +245,14 @@ func (s *Session) Close() error {
 	close(s.doneCh)
 
 	if s.pty != nil {
-		return s.pty.Close()
+		err := s.pty.Close()
+		if s.integration != nil {
+			s.integration.cleanup()
+		}
+		return err
+	}
+	if s.integration != nil {
+		s.integration.cleanup()
 	}
 
 	return nil

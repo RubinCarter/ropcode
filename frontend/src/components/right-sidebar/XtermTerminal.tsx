@@ -2,9 +2,10 @@ import React, { useRef, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import '@xterm/xterm/css/xterm.css';
 import { useTerminalInstance, terminalManager } from '@/hooks/useTerminalInstance';
-import { usePtySession } from '@/hooks/usePtySession';
 import { useThemeContext } from '@/contexts/ThemeContext';
-import type { TermWrap } from '@/widgets/terminal/TermWrap';
+import type { PtyShellState, PtyTermWrap } from '@/widgets/terminal/PtyTermWrap';
+import { api } from '@/lib/api';
+import { EventsOn } from '@/lib/rpc-events';
 
 /**
  * Convert CSS color values to hex format
@@ -35,9 +36,9 @@ interface XtermTerminalProps {
   sessionId: string;
   workspaceId: string;
   cwd?: string;
-  onExit?: () => void;
   className?: string;
   isActive: boolean;
+  onShellStateChange?: (state: PtyShellState) => void;
 }
 
 /**
@@ -49,33 +50,39 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
   sessionId,
   workspaceId,
   cwd,
-  onExit,
   className,
-  isActive
+  isActive,
+  onShellStateChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const shellStateChangeRef = useRef<typeof onShellStateChange>(onShellStateChange);
   const { theme, systemTheme, customColors } = useThemeContext();
-  const [attachedTermWrap, setAttachedTermWrap] = useState<TermWrap | null>(null);
+  const [attachedTermWrap, setAttachedTermWrap] = useState<PtyTermWrap | null>(null);
+  const [isReady, setIsReady] = useState(false);
 
   // Get manager key
   const { managerKey } = useTerminalInstance(workspaceId, sessionId);
+
+  useEffect(() => {
+    shellStateChangeRef.current = onShellStateChange;
+    attachedTermWrap?.setShellStateChangeHandler(onShellStateChange);
+  }, [attachedTermWrap, onShellStateChange]);
 
   // Attach Terminal to container, create TermWrap
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const termWrap = terminalManager.attach(managerKey, containerRef.current);
+    const termWrap = terminalManager.attach(managerKey, containerRef.current, sessionId, (state) => {
+      shellStateChangeRef.current?.(state);
+    });
     setAttachedTermWrap(termWrap);
 
     if (termWrap) {
       // Try delayed fit after attach
       const tryFit = () => {
         try {
-          termWrap.fit();
-          const terminal = termWrap.getTerminal();
-          if (terminal.rows > 0) {
-            terminal.refresh(0, terminal.rows - 1);
-          }
+          termWrap.fitAndReport();
+          termWrap.refresh();
         } catch (err) {
           // Fit error is expected when container is not yet visible
         }
@@ -83,29 +90,61 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       requestAnimationFrame(tryFit);
       setTimeout(tryFit, 50);
     }
+
+    return () => {
+      terminalManager.detach(managerKey);
+      setAttachedTermWrap((current) => (current === termWrap ? null : current));
+    };
   }, [managerKey, sessionId, workspaceId]);
 
-  // Get terminal instance for PTY use
-  const terminal = attachedTermWrap?.getTerminal() || null;
+  useEffect(() => {
+    if (!attachedTermWrap) return;
+    let cancelled = false;
+    const readyUnsubscribe = EventsOn('pty-ready', (payload: { session_id: string; success: boolean; error?: string }) => {
+      if (payload.session_id !== sessionId) return;
+      if (payload.success) {
+        setIsReady(true);
+      } else {
+        attachedTermWrap.terminal.writeln(`\x1b[1;31mError: ${payload.error || 'Failed to start PTY'}\x1b[0m`);
+      }
+    });
 
-  // PTY session management
-  const { isReady } = usePtySession({
-    sessionId,
-    workspaceId,
-    cwd,
-    terminal,
-    rows: 24,
-    cols: 80,
-    onExit,
-  });
+    const create = async () => {
+      try {
+        const dims = attachedTermWrap.getDimensions();
+        const alive = await api.isPtySessionAlive(sessionId);
+        if (!alive) {
+          await api.createPtySession(
+            sessionId,
+            cwd || undefined,
+            dims.rows || 24,
+            dims.cols || 80,
+            undefined,
+          );
+        }
+        if (!cancelled) {
+          setIsReady(true);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          attachedTermWrap.terminal.writeln('\x1b[1;31mError: Failed to create PTY session\x1b[0m');
+        }
+      }
+    };
+
+    create();
+
+    return () => {
+      cancelled = true;
+      readyUnsubscribe();
+    };
+  }, [attachedTermWrap, cwd, sessionId]);
 
   // Apply theme background color to Terminal
   useEffect(() => {
     if (!attachedTermWrap || !containerRef.current) return;
 
     const applyTheme = () => {
-      const terminal = attachedTermWrap.getTerminal();
-
       // Get current theme bg/fg colors from CSS variables
       // Note: CSS vars use oklch format but xterm.js needs hex conversion
       const styles = getComputedStyle(document.documentElement);
@@ -130,28 +169,13 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
       }
 
       try {
-        terminal.options.theme = {
+        attachedTermWrap.setTheme({
           background,
           foreground,
           selectionBackground,
-          selectionForeground: undefined,
           selectionInactiveBackground,
-        };
-
-        if (containerRef.current) {
-          containerRef.current.style.backgroundColor = background;
-        }
-
-        const termEl = (terminal as any).element as HTMLElement | null;
-        if (termEl) {
-          termEl.style.backgroundColor = background;
-          const viewport = termEl.querySelector('.xterm-viewport') as HTMLElement | null;
-          if (viewport) viewport.style.backgroundColor = background;
-        }
-
-        if (terminal.rows > 0) {
-          terminal.refresh(0, terminal.rows - 1);
-        }
+        });
+        attachedTermWrap.refresh();
       } catch (err) {
         // Theme application may fail
       }
@@ -168,11 +192,8 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     if (isActive && attachedTermWrap && containerRef.current) {
       requestAnimationFrame(() => {
         try {
-          attachedTermWrap.fit();
-          const terminal = attachedTermWrap.getTerminal();
-          if (terminal.rows > 0) {
-            terminal.refresh(0, terminal.rows - 1);
-          }
+          attachedTermWrap.fitAndReport();
+          attachedTermWrap.refresh();
         } catch (error) {
           // Fit errors are expected
         }
@@ -186,26 +207,9 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
 
     const handleResize = () => {
       if (containerRef.current && containerRef.current.offsetWidth > 0) {
-        try {
-          attachedTermWrap.fit();
-        } catch (error) {
-          // Resize fit errors are expected
-        }
+        attachedTermWrap.scheduleFit();
       }
     };
-
-    let resizeRaf: number | null = null;
-    const resizeObserver = new ResizeObserver(() => {
-      if (resizeRaf === null) {
-        resizeRaf = requestAnimationFrame(() => {
-          resizeRaf = null;
-          handleResize();
-        });
-      }
-    });
-    if (containerRef.current) {
-      resizeObserver.observe(containerRef.current);
-    }
 
     window.addEventListener('resize', handleResize);
     const onVisible = () => handleResize();
@@ -213,7 +217,6 @@ export const XtermTerminal: React.FC<XtermTerminalProps> = ({
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      resizeObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);

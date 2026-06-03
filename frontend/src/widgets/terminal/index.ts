@@ -2,8 +2,9 @@
  * Terminal Widget module exports
  */
 
-// Export TermWrap class
-export { TermWrap, type TermWrapOptions } from './TermWrap';
+// Export PTY terminal runtime
+export { PtyTermWrap as TermWrap, type PtyTermWrapOptions as TermWrapOptions } from './PtyTermWrap';
+export { PtyTermWrap, type PtyTermWrapOptions } from './PtyTermWrap';
 
 // Export Zustand store
 export { useTerminalStore } from './TerminalModel';

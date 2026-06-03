@@ -13,6 +13,7 @@ import { XtermTerminal } from './XtermTerminal';
 import { RunTabPane } from './RunTabPane';
 import { FileTreeBrowser } from './FileTreeBrowser';
 import { ClaudeActivityPane } from './ClaudeActivityPane';
+import type { PtyShellState } from '@/widgets/terminal/PtyTermWrap';
 import { api, listen, type Action } from '@/lib/api';
 import { useWorkspaceTabContext } from '@/contexts/WorkspaceTabContext';
 import {
@@ -646,6 +647,22 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
     handleSubmitCommand(command);
   }, [handleSubmitCommand]);
 
+  const handleTerminalShellState = useCallback((shellState: PtyShellState) => {
+    if (shellState.commandHistory.length === 0) return;
+    const currentState = getCurrentState();
+    const nextHistory = [
+      ...shellState.commandHistory,
+      ...currentState.commandHistory,
+    ].filter((command, index, all) => command && all.indexOf(command) === index).slice(0, 100);
+    if (nextHistory.join('\n') === currentState.commandHistory.join('\n')) {
+      return;
+    }
+    currentState.commandHistory = nextHistory;
+    const key = getWorkspaceStorageKey(currentProjectPath);
+    saveTerminalState(key, currentState);
+    triggerUpdate();
+  }, [getCurrentState, currentProjectPath]);
+
   // Switch session
   const handleSelectSession = useCallback((id: string) => {
     const currentState = getCurrentState();
@@ -885,6 +902,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   cwd={currentProjectPath}
                   className="absolute inset-0"
                   isActive={session.id === state.activeSessionId}
+                  onShellStateChange={handleTerminalShellState}
                 />
               ) : null
             ))}

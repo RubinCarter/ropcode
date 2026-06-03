@@ -11,6 +11,7 @@ export interface BulkStreamClientOptions {
   onFrame?: (frame: BulkFrame) => void;
   onDisconnect?: (event?: CloseEvent | Event) => void;
   onError?: (event: Event) => void;
+  appendToStore?: boolean;
   reloadOnRepeatedFailure?: boolean;
   WebSocketCtor?: typeof WebSocket;
 }
@@ -47,7 +48,9 @@ export function connectBulkStream(
 
   ws.onmessage = (event) => {
     const frame = JSON.parse(event.data) as BulkFrame;
-    appendBulkFrame(frame);
+    if (options.appendToStore !== false) {
+      appendBulkFrame(frame);
+    }
     options.onFrame?.(frame);
   };
 

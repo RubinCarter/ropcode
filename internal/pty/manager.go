@@ -119,7 +119,8 @@ func (m *Manager) CreateSession(id, cwd string, rows, cols int, shell string) (*
 //   - Session shutdown: residual bytes are flushed before the goroutine
 //     exits so the user sees the final lines.
 const (
-	ptyFlushInterval = 16 * time.Millisecond
+	ptyFlushInterval    = 16 * time.Millisecond
+	ptyInteractiveFlush = 2 * time.Millisecond
 	// Flush eagerly when a single batch exceeds this many bytes so very large
 	// outputs (compiler dumps, log floods) don't pile up unbounded in memory.
 	ptyFlushHighWater = 64 * 1024
@@ -140,10 +141,11 @@ func (m *Manager) readOutput(session *Session) {
 		m.mu.RUnlock()
 		if bulkHub != nil {
 			_ = bulkHub.Append(stream.BulkFrame{
-				Source: "pty",
-				ID:     session.ID,
-				Seq:    time.Now().UnixNano(),
-				Data:   content,
+				Source:    "pty",
+				ID:        session.ID,
+				Seq:       session.NextSeq(),
+				Timestamp: time.Now().Format(time.RFC3339Nano),
+				Data:      content,
 				Meta: map[string]any{
 					"outputType": "stdout",
 				},
@@ -162,11 +164,11 @@ func (m *Manager) readOutput(session *Session) {
 		<-timer.C
 	}
 	timerArmed := false
-	armTimer := func() {
+	armTimer := func(delay time.Duration) {
 		if timerArmed {
 			return
 		}
-		timer.Reset(ptyFlushInterval)
+		timer.Reset(delay)
 		timerArmed = true
 	}
 	go func() {
@@ -227,9 +229,22 @@ func (m *Manager) readOutput(session *Session) {
 				}
 				continue
 			}
-			armTimer()
+			armTimer(ptyFlushDelay(buf[:n]))
 		}
 	}
+}
+
+func ptyFlushDelay(data []byte) time.Duration {
+	if len(data) <= 8 {
+		return ptyInteractiveFlush
+	}
+	for _, b := range data {
+		switch b {
+		case '\r', '\n', 0x1b, 0x07:
+			return ptyInteractiveFlush
+		}
+	}
+	return ptyFlushInterval
 }
 
 // Write sends data to a PTY session

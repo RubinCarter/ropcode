@@ -116,3 +116,36 @@ func TestPtyManager_CloseAll(t *testing.T) {
 		t.Errorf("Expected 0 sessions after CloseAll, got %d", len(sessions))
 	}
 }
+
+func TestPtyFlushDelayUsesInteractivePathForEchoAndControlBytes(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+		want time.Duration
+	}{
+		{name: "single key echo", data: []byte("s"), want: ptyInteractiveFlush},
+		{name: "enter echo", data: []byte("\r\n"), want: ptyInteractiveFlush},
+		{name: "escape sequence", data: []byte("\x1b[?25h"), want: ptyInteractiveFlush},
+		{name: "osc terminator", data: []byte("\x07"), want: ptyInteractiveFlush},
+		{name: "bulk output", data: []byte("this is a longer output chunk without control bytes"), want: ptyFlushInterval},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ptyFlushDelay(tt.data); got != tt.want {
+				t.Fatalf("ptyFlushDelay(%q) = %s, want %s", string(tt.data), got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSessionNextSeqIsMonotonic(t *testing.T) {
+	session, err := NewSession("test-seq", "/tmp", 24, 80, "/bin/sh")
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	if got := []int64{session.NextSeq(), session.NextSeq(), session.NextSeq()}; got[0] != 1 || got[1] != 2 || got[2] != 3 {
+		t.Fatalf("unexpected seq values: %v", got)
+	}
+}

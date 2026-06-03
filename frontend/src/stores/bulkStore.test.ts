@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendBulkFrame, clearBulkFrames, getBulkText, subscribeBulk } from './bulkStore';
+import { appendBulkFrame, clearBulkFrames, getBulkText, subscribeBulk, subscribeBulkFrames } from './bulkStore';
 
 test('bulkStore appends text by source and id in seq order', () => {
   clearBulkFrames('pty', 'term-1');
@@ -26,4 +26,22 @@ test('bulkStore notifies only matching stream subscribers', () => {
 
   assert.equal(matching, 1);
   assert.equal(other, 0);
+});
+
+test('bulkStore frame subscribers receive only incremental frames', () => {
+  clearBulkFrames('pty', 'term-frames');
+
+  const frames: string[] = [];
+  const unsubscribe = subscribeBulkFrames('pty', 'term-frames', (frame) => {
+    frames.push(frame.data ?? '');
+  });
+
+  appendBulkFrame({ source: 'pty', id: 'term-frames', seq: 1, data: 'a' });
+  appendBulkFrame({ source: 'pty', id: 'term-other', seq: 1, data: 'ignored' });
+  appendBulkFrame({ source: 'pty', id: 'term-frames', seq: 2, data: 'b' });
+  unsubscribe();
+  appendBulkFrame({ source: 'pty', id: 'term-frames', seq: 3, data: 'c' });
+
+  assert.deepEqual(frames, ['a', 'b']);
+  assert.equal(getBulkText('pty', 'term-frames'), 'abc');
 });

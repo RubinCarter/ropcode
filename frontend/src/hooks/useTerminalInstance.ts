@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import '@xterm/xterm/css/xterm.css';
-import { TermWrap } from '@/widgets/terminal/TermWrap';
+import { PtyTermWrap, type PtyShellState } from '@/widgets/terminal/PtyTermWrap';
+import { api } from '@/lib/api';
 
 /**
  * Terminal instance manager
@@ -8,7 +9,7 @@ import { TermWrap } from '@/widgets/terminal/TermWrap';
  */
 class TerminalInstanceManager {
   private instances = new Map<string, {
-    termWrap: TermWrap | null;  // Created on attach
+    termWrap: PtyTermWrap | null;  // Created on attach
     container: HTMLDivElement | null;
     refCount: number;
   }>();
@@ -17,7 +18,7 @@ class TerminalInstanceManager {
    * Get or create a Terminal instance placeholder
    * The actual TermWrap is created on attach (requires container element)
    */
-  getOrCreate(key: string): { termWrap: TermWrap | null } {
+  getOrCreate(key: string): { termWrap: PtyTermWrap | null } {
     let instance = this.instances.get(key);
 
     if (!instance) {
@@ -39,7 +40,12 @@ class TerminalInstanceManager {
   /**
    * Attach Terminal to a container, creating TermWrap
    */
-  attach(key: string, container: HTMLDivElement): TermWrap | null {
+  attach(
+    key: string,
+    container: HTMLDivElement,
+    sessionId: string,
+    onShellStateChange?: (state: PtyShellState) => void,
+  ): PtyTermWrap | null {
     const instance = this.instances.get(key);
     if (!instance) {
       console.error('[TerminalManager] Instance does not exist:', key);
@@ -48,9 +54,13 @@ class TerminalInstanceManager {
 
     // If TermWrap hasn't been created yet, create it
     if (!instance.termWrap) {
-      instance.termWrap = new TermWrap(
-        container,
-        {
+      instance.termWrap = new PtyTermWrap({
+        id: sessionId,
+        useWebGL: false,
+        onData: (data) => api.writeToPty(sessionId, data),
+        onResize: (rows, cols) => api.resizePty(sessionId, rows, cols),
+        onShellStateChange,
+        terminalOptions: {
           fontSize: 13,
           fontFamily: '"MesloLGS NF", "FiraCode Nerd Font", "JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
           cursorBlink: true,
@@ -58,27 +68,20 @@ class TerminalInstanceManager {
           scrollback: 10000,
           allowProposedApi: true,
         },
-        {
-          useWebGL: true,
-          lazyWebGL: true,
-        }
-      );
+      });
+      instance.termWrap.attach(container);
       instance.container = container;
     } else {
       // TermWrap already exists, handle container change
-      const terminal = instance.termWrap.getTerminal();
-      const currentElement = (terminal as any)?.element as HTMLElement | null;
-
-      if (currentElement && currentElement.parentElement !== container) {
-        container.appendChild(currentElement);
-        instance.container = container;
-      }
+      instance.termWrap.setShellStateChangeHandler(onShellStateChange);
+      instance.termWrap.attach(container);
+      instance.container = container;
     }
 
     // Fit to container size
     try {
       if (container.offsetWidth > 0 && instance.termWrap) {
-        instance.termWrap.fit();
+        instance.termWrap.fitAndReport();
       }
     } catch (error) {
       console.warn('[TerminalManager] Fit failed:', error);
@@ -94,6 +97,7 @@ class TerminalInstanceManager {
     const instance = this.instances.get(key);
     if (!instance) return;
 
+    instance.termWrap?.detach();
     instance.container = null;
   }
 
@@ -105,6 +109,9 @@ class TerminalInstanceManager {
     if (!instance) return;
 
     instance.refCount--;
+    if (instance.refCount <= 0) {
+      this.destroy(key);
+    }
   }
 
   /**
@@ -124,7 +131,7 @@ class TerminalInstanceManager {
   /**
    * Get instance (if it exists)
    */
-  get(key: string): { termWrap: TermWrap | null } | undefined {
+  get(key: string): { termWrap: PtyTermWrap | null } | undefined {
     const instance = this.instances.get(key);
     if (!instance) return undefined;
 
@@ -165,7 +172,7 @@ export function useTerminalInstance(
   terminalId: string
 ) {
   const key = `${workspaceId}::${terminalId}`;
-  const [termWrap, setTermWrap] = useState<TermWrap | null>(null);
+  const [termWrap, setTermWrap] = useState<PtyTermWrap | null>(null);
 
   // Create/get instance
   useEffect(() => {
