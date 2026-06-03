@@ -75,10 +75,14 @@ func parseCapabilityInvocation(message string) (capabilityInvocation, bool) {
 
 func parseCapabilityInvocationText(text string) (capabilityInvocation, bool) {
 	text = strings.TrimSpace(text)
-	if !strings.HasPrefix(text, "/") {
+	if text == "" {
 		return capabilityInvocation{}, false
 	}
-	body := strings.TrimPrefix(text, "/")
+	prefix := text[0]
+	if prefix != '/' && prefix != ':' {
+		return capabilityInvocation{}, false
+	}
+	body := text[1:]
 	if strings.TrimSpace(body) == "" {
 		return capabilityInvocation{}, false
 	}

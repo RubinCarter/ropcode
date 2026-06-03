@@ -44,7 +44,7 @@ export function wrapFirstMessageWithWorktreeInstructions(
 You are working inside Ropcode, a Mac app that lets the user run many coding agents in parallel.
 Your work should take place in the ${worktreeInfo.current_path}, which has been set up for you to work in.
 
-Do NOT read or write files outside the workspace directory. DO NOT EVER read or write files at ${worktreeInfo.root_path}. EVERY absolute path you use should start with ${worktreeInfo.current_path}.
+Project file changes must stay inside the workspace directory unless the user explicitly asks you to modify files elsewhere and the tool policy allows it. You may read files outside ${worktreeInfo.current_path} when needed for context. Do NOT write files outside ${worktreeInfo.current_path} or at ${worktreeInfo.root_path} unless the user explicitly allows that specific write.
 
 Exception: you may read pasted/dragged images stored under ~/.ropcode/temp-images/ (read-only).
 

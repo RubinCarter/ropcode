@@ -283,6 +283,31 @@ func TestManager_ExpandProviderCapability_ReplacesInvocationBetweenSystemWrapper
 	}
 }
 
+func TestManager_ExpandProviderCapability_ReplacesColonSkillInvocation(t *testing.T) {
+	driver := &capabilityDriver{}
+	projectPath := t.TempDir()
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	if err := m.RegisterDriver(driver); err != nil {
+		t.Fatalf("register driver: %v", err)
+	}
+
+	message := "<system_instruction>\nUse the workspace.\n</system_instruction>\n\n:demo-skill render a poster"
+	expanded, err := m.ExpandProviderCapability(driver.ID(), projectPath, message)
+	if err != nil {
+		t.Fatalf("expand provider capability: %v", err)
+	}
+	if !strings.Contains(expanded, "<system_instruction>") {
+		t.Fatalf("expected wrapper to be preserved, got %q", expanded)
+	}
+	if !strings.Contains(expanded, "Use the demo skill:\n\nrender a poster") {
+		t.Fatalf("expected colon skill invocation to expand, got %q", expanded)
+	}
+	if strings.Contains(expanded, ":demo-skill") {
+		t.Fatalf("expected raw colon invocation to be removed, got %q", expanded)
+	}
+}
+
 func TestManager_ExpandProviderCapability_RejectsUnhandledCommand(t *testing.T) {
 	driver := &capabilityDriver{}
 	projectPath := t.TempDir()
@@ -829,6 +854,15 @@ func (d *capabilityDriver) DiscoverProviderCapabilities(ctx context.Context, pro
 			Scope:       string(CapabilityScopeProject),
 			Content:     "Check the system:",
 			Description: "Check system",
+		},
+		{
+			Provider:    d.ID(),
+			Name:        "demo-skill",
+			SlashName:   "/demo-skill",
+			Kind:        string(CapabilityKindSkill),
+			Scope:       string(CapabilityScopeUser),
+			Content:     "Use the demo skill:\n\n$ARGUMENTS",
+			Description: "Demo skill",
 		},
 		{
 			Provider:    d.ID(),
