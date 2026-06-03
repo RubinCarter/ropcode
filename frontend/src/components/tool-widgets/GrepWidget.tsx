@@ -183,6 +183,18 @@ export const GrepWidget: React.FC<{
           lineNumber: parseInt(match[2], 10),
           content: match[3]
         });
+        return;
+      }
+
+      // Claude often returns single-file grep output as lineNumber:content
+      // when the path is already part of the tool input.
+      const singleFileMatch = line.match(/^(\d+):(.*)$/);
+      if (singleFileMatch && path) {
+        results.push({
+          file: path,
+          lineNumber: parseInt(singleFileMatch[1], 10),
+          content: singleFileMatch[2]
+        });
       }
     });
     
@@ -190,6 +202,7 @@ export const GrepWidget: React.FC<{
   };
   
   const grepResults = result && !isError ? parseGrepResults(resultContent) : [];
+  const hasRawResult = result && !isError && grepResults.length === 0 && resultContent.trim().length > 0;
   
   return (
     <div className="space-y-2">
@@ -324,6 +337,12 @@ export const GrepWidget: React.FC<{
                 </div>
               )}
             </>
+          ) : hasRawResult ? (
+            <div className="rounded-lg border bg-background overflow-hidden">
+              <pre className="max-h-[400px] overflow-y-auto whitespace-pre-wrap break-words p-3 text-xs font-mono text-muted-foreground">
+                {resultContent.trim()}
+              </pre>
+            </div>
           ) : (
             <div className="flex items-center gap-3 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
               <Info className="h-5 w-5 text-amber-500 flex-shrink-0" />

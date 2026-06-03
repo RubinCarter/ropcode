@@ -24,3 +24,17 @@ func TestParseStderrClassifiesCodexWarnings(t *testing.T) {
 		t.Fatalf("expected warning level, got %q", got.Level)
 	}
 }
+
+func TestSanitizeCodexShellOutputRemovesTerminalControlSequences(t *testing.T) {
+	input := "\x1b]7;file://localhost/tmp\x07" +
+		"\x1b]16162;A\x07" +
+		"\x1b[?25lhello\x1b[0m\r\n" +
+		"__ropcode_si_precmd: command not found\n" +
+		"world\x1b[?25h\n"
+
+	got := sanitizeCodexShellOutput(input)
+	want := "hello\nworld\n"
+	if got != want {
+		t.Fatalf("sanitized output = %q, want %q", got, want)
+	}
+}
