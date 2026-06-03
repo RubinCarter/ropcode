@@ -80,6 +80,7 @@ export async function startGoServer(): Promise<GoServerInfo> {
         ...process.env,
         ROPCODE_AUTH_KEY: authKey,
         ROPCODE_MODE: 'websocket',
+        ROPCODE_NOTIFICATION_ACTIVATION_EXE: process.execPath,
         // Dev mode: Go reverse proxies to Vite dev server for browser access
         ...viteEnv,
         // Production: Go serves static frontend files from resources

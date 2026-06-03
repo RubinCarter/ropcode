@@ -17,6 +17,7 @@ import (
 	"ropcode/internal/git"
 	"ropcode/internal/mcp"
 	"ropcode/internal/models"
+	"ropcode/internal/notifications"
 	"ropcode/internal/plugin"
 	"ropcode/internal/process"
 	"ropcode/internal/projectchat"
@@ -39,23 +40,23 @@ type App struct {
 	mu     sync.RWMutex
 	config *config.Config
 
-	// Core managers
-	ptyManager         *pty.Manager
-	processManager     *process.Manager
-	dbManager          *database.Database
-	providerManager    *provider.Manager
-	claudeActivity     *claudeactivity.Service
-	mcpManager         *mcp.Manager
-	sshManager         *ssh.Manager
-	pluginManager      *plugin.Manager
-	eventHub           *eventhub.EventHub
-	sessionStreamHub   *stream.Hub
-	syncHub            *stream.SyncHub
-	bulkHub            *stream.BulkHub
-	gitWatcher         *git.GitWatcher
-	modelRegistry      *models.Registry
-	sessionTitles      *sessionTitleStore
-	projectChatManager *projectchat.Manager
+	ptyManager          *pty.Manager
+	processManager      *process.Manager
+	dbManager           *database.Database
+	providerManager     *provider.Manager
+	claudeActivity      *claudeactivity.Service
+	mcpManager          *mcp.Manager
+	sshManager          *ssh.Manager
+	pluginManager       *plugin.Manager
+	eventHub            *eventhub.EventHub
+	sessionStreamHub    *stream.Hub
+	syncHub             *stream.SyncHub
+	bulkHub             *stream.BulkHub
+	gitWatcher          *git.GitWatcher
+	modelRegistry       *models.Registry
+	notificationService *notifications.Service
+	sessionTitles       *sessionTitleStore
+	projectChatManager  *projectchat.Manager
 }
 
 // NewApp creates a new App application struct
@@ -92,6 +93,7 @@ func (a *App) startup(ctx context.Context) {
 		a.SyncPiModelsFromLocalConfig()
 
 		a.loadGeneratedSessionTitles()
+		a.notificationService = notifications.NewService(db, nil)
 	}
 
 	// Initialize EventHub (before managers that need it)
@@ -101,13 +103,14 @@ func (a *App) startup(ctx context.Context) {
 	a.bulkHub = stream.NewBulkHub()
 
 	// Create event emitter that uses EventHub
-	eventEmitter := &eventEmitter{eventHub: a.eventHub}
+	eventEmitter := &eventEmitter{eventHub: a.eventHub, notifications: a.notificationService}
 	a.claudeActivity = claudeactivity.NewService()
 	providerEmitter := &providerStreamEmitter{
 		eventHub:       a.eventHub,
 		bridge:         stream.NewProviderBridge(a.sessionStreamHub),
 		claudeActivity: a.claudeActivity,
 		db:             a.dbManager,
+		notifications:  a.notificationService,
 	}
 
 	// Initialize PTY manager with event emitter
@@ -182,10 +185,16 @@ func (a *App) shutdown(ctx context.Context) {
 
 // eventEmitter adapts EventHub to pty.EventEmitter
 type eventEmitter struct {
-	eventHub *eventhub.EventHub
+	eventHub      *eventhub.EventHub
+	notifications *notifications.Service
 }
 
 func (e *eventEmitter) Emit(eventName string, data interface{}) {
+	if eventName == "claude-complete" && e.notifications != nil {
+		if err := e.notifications.NotifyClaudeComplete(data); err != nil {
+			log.Printf("[notifications] session finished notification failed: %v", err)
+		}
+	}
 	e.eventHub.Emit(eventName, data)
 }
 
@@ -196,12 +205,18 @@ type providerStreamEmitter struct {
 	bridge         *stream.ProviderBridge
 	claudeActivity *claudeactivity.Service
 	db             *database.Database
+	notifications  *notifications.Service
 }
 
 func (e *providerStreamEmitter) Emit(eventName string, data interface{}) {
 	if eventName != "provider-output" {
 		if eventName == "process:changed" {
 			e.updateAgentRunFromProcessEvent(data)
+		}
+		if eventName == "claude-complete" && e.notifications != nil {
+			if err := e.notifications.NotifyClaudeComplete(data); err != nil {
+				log.Printf("[notifications] session finished notification failed: %v", err)
+			}
 		}
 		e.eventHub.Emit(eventName, data)
 		return

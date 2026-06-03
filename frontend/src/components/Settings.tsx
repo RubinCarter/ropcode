@@ -75,6 +75,8 @@ const deferUntilIdle = (callback: () => void, timeout = 300): (() => void) => {
   return () => window.clearTimeout(id);
 };
 
+const SESSION_FINISHED_NOTIFICATIONS_KEY = 'system_notifications_session_finished';
+
 interface SettingsProps {
   /**
    * Callback to go back to the main view
@@ -143,6 +145,7 @@ export const Settings: React.FC<SettingsProps> = ({
   const [tabPersistenceEnabled, setTabPersistenceEnabled] = useState(true);
   // Startup intro preference
   const [startupIntroEnabled, setStartupIntroEnabled] = useState(true);
+  const [sessionFinishedNotificationsEnabled, setSessionFinishedNotificationsEnabled] = useState(false);
   const [sessionTitleModel, setSessionTitleModel] = useState("");
   const [sessionTitleProviderApiId, setSessionTitleProviderApiId] = useState("");
   const [titleProviderOptions, setTitleProviderOptions] = useState<TitleProviderOption[]>([]);
@@ -164,6 +167,10 @@ export const Settings: React.FC<SettingsProps> = ({
     (async () => {
       const pref = await api.getSetting('startup_intro_enabled');
       setStartupIntroEnabled(pref === null ? true : pref === 'true');
+    })();
+    (async () => {
+      const pref = await api.getSetting(SESSION_FINISHED_NOTIFICATIONS_KEY);
+      setSessionFinishedNotificationsEnabled(pref === 'true');
     })();
   }, []);
 
@@ -1055,6 +1062,37 @@ export const Settings: React.FC<SettingsProps> = ({
                             });
                           } catch (e) {
                             setToast({ message: 'Failed to update preference', type: 'error' });
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-1">
+                        <Label htmlFor="session-finished-notifications">
+                          {t('settings.sessionFinishedNotifications')}
+                        </Label>
+                        <p className="text-caption text-muted-foreground">
+                          {t('settings.sessionFinishedNotificationsDesc')}
+                        </p>
+                      </div>
+                      <Switch
+                        id="session-finished-notifications"
+                        checked={sessionFinishedNotificationsEnabled}
+                        onCheckedChange={async (checked) => {
+                          setSessionFinishedNotificationsEnabled(checked);
+                          try {
+                            await api.saveSetting(SESSION_FINISHED_NOTIFICATIONS_KEY, checked ? 'true' : 'false');
+                            trackEvent.settingsChanged('system_notifications_session_finished', checked);
+                            setToast({
+                              message: checked
+                                ? t('settings.sessionFinishedNotificationsEnabled')
+                                : t('settings.sessionFinishedNotificationsDisabled'),
+                              type: 'success'
+                            });
+                          } catch (e) {
+                            setSessionFinishedNotificationsEnabled(!checked);
+                            setToast({ message: t('settings.savedError'), type: 'error' });
                           }
                         }}
                       />
