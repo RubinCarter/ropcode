@@ -2,7 +2,6 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover } from '@/components/ui/popover';
-import { TooltipSimple } from '@/components/ui/tooltip-modern';
 import type { ClaudeStreamMessage } from '../types';
 
 interface CopyConversationMenuProps {
@@ -32,15 +31,15 @@ export function CopyConversationMenu({ messages, projectPath }: CopyConversation
     return (
       <Popover
         trigger={
-          <TooltipSimple content="Copy conversation" side="top">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 text-muted-foreground hover:text-foreground active:scale-[0.97]"
-            >
-              <Copy className="h-3.5 w-3.5" />
-            </Button>
-          </TooltipSimple>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground hover:text-foreground active:scale-[0.97]"
+            title="Copy conversation"
+            aria-label="Copy conversation"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </Button>
         }
         content={
           <div className="w-44 p-1">

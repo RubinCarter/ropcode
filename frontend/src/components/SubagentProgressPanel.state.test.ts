@@ -351,6 +351,14 @@ test('grep results stay readable inside narrow message cards', async () => {
   assert.doesNotMatch(grepWidgetSource, /max-h-\[400px\] overflow-y-auto whitespace-pre-wrap break-words p-3 text-xs font-mono text-muted-foreground/);
 });
 
+test('copy conversation menu uses a single popover button trigger', async () => {
+  const copyConversationMenuSource = await readSource(path.resolve(currentDir, './ai-code-session/composer/CopyConversationMenu.tsx'));
+
+  assert.match(copyConversationMenuSource, /title="Copy conversation"/);
+  assert.match(copyConversationMenuSource, /aria-label="Copy conversation"/);
+  assert.doesNotMatch(copyConversationMenuSource, /TooltipSimple/);
+});
+
 test('collapsed MCP parameters do not stringify or highlight large JSON', async () => {
   const mcpWidgetSource = await readSource(mcpWidgetPath);
 
