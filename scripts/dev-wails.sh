@@ -4,6 +4,40 @@
 
 set -e
 
+resolve_wails() {
+  if command -v wails &>/dev/null; then command -v wails; return; fi
+  local go_bin
+  go_bin="$(go env GOPATH 2>/dev/null)/bin"
+  if [[ -x "$go_bin/wails" ]]; then echo "$go_bin/wails"; return; fi
+  go_bin="$(go env GOBIN 2>/dev/null)"
+  if [[ -n "$go_bin" && -x "$go_bin/wails" ]]; then echo "$go_bin/wails"; return; fi
+}
+
+ensure_frontend_deps() {
+  if [[ ! -x "frontend/node_modules/.bin/vite" ]]; then
+    echo "[dev-wails] Installing frontend dependencies..."
+    (cd frontend && npm install)
+  fi
+}
+
+ensure_wails() {
+  local wails_bin
+  wails_bin="$(resolve_wails)"
+  if [[ -z "$wails_bin" ]]; then
+    echo "[dev-wails] Installing Wails CLI..."
+    go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+    wails_bin="$(resolve_wails)"
+  fi
+  if [[ -z "$wails_bin" ]]; then
+    echo "[dev-wails] wails not found. Run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0" >&2
+    exit 127
+  fi
+  echo "$wails_bin"
+}
+
+ensure_frontend_deps
+WAILS="$(ensure_wails)"
+
 # Build ropcode-server (the subprocess that handles RPC)
 echo "[dev-wails] Building ropcode-server..."
 go build -tags server -o bin/ropcode-server .
@@ -19,4 +53,4 @@ fi
 # - frontend:dev:watcher runs "vite build --watch" for auto-rebuild
 # - Serves built assets from frontend/dist with middleware injection
 # - Auto-reloads webview when frontend/dist changes
-exec wails dev -tags wails -skipbindings
+exec "$WAILS" dev -tags wails -skipbindings
