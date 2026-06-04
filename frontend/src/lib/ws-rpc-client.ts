@@ -65,7 +65,7 @@ function getRpcTimeout(method: string): number {
   if (longTimeoutMethods.includes(method)) {
     return 120000; // 2 minutes for slow operations
   }
-  if (method === 'CreateProjectChat' || method === 'SendProjectChatMessage' || method === 'SwitchProjectChatProvider') {
+  if (method === 'EnsureProjectChat' || method === 'SendProjectChatMessage' || method === 'SwitchProjectChatProvider') {
     return 45000;
   }
   return 30000;

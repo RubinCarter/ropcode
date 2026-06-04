@@ -96,7 +96,7 @@ function createFakeBrowser() {
 test('uses longer timeout for project chat provider operations', async () => {
   const { getRpcTimeout } = await loadModule();
 
-  assert.equal(getRpcTimeout('CreateProjectChat') > 30_000, true);
+  assert.equal(getRpcTimeout('EnsureProjectChat') > 30_000, true);
   assert.equal(getRpcTimeout('SendProjectChatMessage') > 30_000, true);
   assert.equal(getRpcTimeout('SwitchProjectChatProvider') > 30_000, true);
 });

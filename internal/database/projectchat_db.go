@@ -47,9 +47,33 @@ func (d *Database) ListProjectChats(projectPath string) ([]*ProjectChat, error) 
 }
 
 func (d *Database) UpdateProjectChatActive(id, provider, segmentID string) error {
-	_, err := d.db.Exec(`UPDATE project_chats SET active_provider = ?, active_segment_id = ?, updated_at = ? WHERE id = ?`,
-		provider, segmentID, time.Now().Unix(), id)
-	return err
+	now := time.Now().Unix()
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if segmentID != "" {
+		if _, err := tx.Exec(
+			`UPDATE chat_segments SET status = ?, completed_at = COALESCE(completed_at, ?) WHERE project_chat_id = ? AND id != ? AND status = ?`,
+			SegmentStatusInterrupted, now, id, segmentID, SegmentStatusActive,
+		); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`UPDATE chat_segments SET status = ?, completed_at = NULL WHERE project_chat_id = ? AND id = ?`,
+			SegmentStatusActive, id, segmentID,
+		); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(`UPDATE project_chats SET active_provider = ?, active_segment_id = ?, updated_at = ? WHERE id = ?`,
+		provider, segmentID, now, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (d *Database) UpdateProjectChatTitle(id, title string) error {
@@ -112,6 +136,41 @@ func (d *Database) ListChatSegments(chatID string) ([]*ChatSegment, error) {
 func (d *Database) GetActiveSegment(chatID string) (*ChatSegment, error) {
 	row := d.db.QueryRow(`SELECT id, project_chat_id, provider, model, runtime_session_id, provider_session_id, seq, status, context_injected, created_at, completed_at FROM chat_segments WHERE project_chat_id = ? AND status = ? ORDER BY seq DESC LIMIT 1`, chatID, SegmentStatusActive)
 	return scanChatSegment(row)
+}
+
+func (d *Database) FindChatSegmentByProviderSession(projectPath, provider, providerSessionID string) (*ProjectChat, *ChatSegment, error) {
+	row := d.db.QueryRow(`
+		SELECT
+			c.id, c.project_path, c.title, c.active_provider, c.active_segment_id, c.created_at, c.updated_at,
+			s.id, s.project_chat_id, s.provider, s.model, s.runtime_session_id, s.provider_session_id, s.seq, s.status, s.context_injected, s.created_at, s.completed_at
+		FROM chat_segments s
+		JOIN project_chats c ON c.id = s.project_chat_id
+		WHERE c.project_path = ? AND s.provider = ? AND s.provider_session_id = ?
+		ORDER BY c.updated_at DESC, s.seq DESC
+		LIMIT 1`, projectPath, provider, providerSessionID)
+
+	c := &ProjectChat{}
+	s := &ChatSegment{}
+	var title, activeSegmentID sql.NullString
+	var model, runtimeSID, providerSID sql.NullString
+	var contextInjected int
+	var completedAt sql.NullInt64
+	if err := row.Scan(
+		&c.ID, &c.ProjectPath, &title, &c.ActiveProvider, &activeSegmentID, &c.CreatedAt, &c.UpdatedAt,
+		&s.ID, &s.ProjectChatID, &s.Provider, &model, &runtimeSID, &providerSID, &s.Seq, &s.Status, &contextInjected, &s.CreatedAt, &completedAt,
+	); err != nil {
+		return nil, nil, err
+	}
+	c.Title = title.String
+	c.ActiveSegmentID = activeSegmentID.String
+	s.Model = model.String
+	s.RuntimeSessionID = runtimeSID.String
+	s.ProviderSessionID = providerSID.String
+	s.ContextInjected = contextInjected != 0
+	if completedAt.Valid {
+		s.CompletedAt = &completedAt.Int64
+	}
+	return c, s, nil
 }
 
 func (d *Database) UpdateChatSegmentStatus(id, status string, completedAt *int64) error {

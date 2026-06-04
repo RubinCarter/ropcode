@@ -46,7 +46,7 @@ interface WorkspaceTabContextType {
   removeTab: (id: string) => void;
   closeOtherTabs: (id: string) => void;
   closeTabsToRight: (id: string, orderedTabIds: string[]) => void;
-  updateTab: (id: string, updates: Partial<WorkspaceTab>) => void;
+  updateTab: (id: string, updates: Partial<WorkspaceTab> & { allowProjectChatRebind?: boolean }) => void;
   setActiveTab: (id: string) => void;
   getTabById: (id: string) => WorkspaceTab | undefined;
   findTabByType: (type: WorkspaceTabType) => WorkspaceTab | undefined;
@@ -158,13 +158,23 @@ export const WorkspaceTabProvider: React.FC<WorkspaceTabProviderProps> = ({ work
     });
   }, [activeTabId]);
 
-  const updateTab = useCallback((id: string, updates: Partial<WorkspaceTab>) => {
+  const updateTab = useCallback((id: string, updates: Partial<WorkspaceTab> & { allowProjectChatRebind?: boolean }) => {
     setTabs(prev =>
-      prev.map(tab =>
-        tab.id === id
-          ? { ...tab, ...updates, updatedAt: new Date() }
-          : tab
-      )
+      prev.map(tab => {
+        if (tab.id !== id) return tab;
+        const safeUpdates = { ...updates };
+        const allowProjectChatRebind = !!safeUpdates.allowProjectChatRebind;
+        delete safeUpdates.allowProjectChatRebind;
+        if (
+          tab.projectChatId &&
+          safeUpdates.projectChatId &&
+          safeUpdates.projectChatId !== tab.projectChatId &&
+          !allowProjectChatRebind
+        ) {
+          delete safeUpdates.projectChatId;
+        }
+        return { ...tab, ...safeUpdates, updatedAt: new Date() };
+      })
     );
   }, []);
 

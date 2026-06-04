@@ -926,8 +926,8 @@ export interface SwitchResult {
   model: string;
 }
 
-export function CreateProjectChat(projectPath: string, providerId: string, model: string, providerApiId?: string, existingSessionId?: string): Promise<SwitchResult> {
-  return wsClient.call('CreateProjectChat', projectPath, providerId, model, providerApiId || '', existingSessionId || '');
+export function EnsureProjectChat(projectPath: string, providerId: string, model: string, providerApiId?: string, existingSessionId?: string, forceNew?: boolean): Promise<SwitchResult> {
+  return wsClient.call('EnsureProjectChat', projectPath, providerId, model, providerApiId || '', existingSessionId || '', Boolean(forceNew));
 }
 
 export function SendProjectChatMessage(chatId: string, message: string, model?: string, providerApiId?: string, reasoningEffort?: string): Promise<string> {

@@ -7,15 +7,11 @@ import (
 
 func ProjectChatHandlers(d *Deps) map[string]Handler {
 	return map[string]Handler{
-		"CreateProjectChat": func(p json.RawMessage) (any, error) {
+		"EnsureProjectChat": func(p json.RawMessage) (any, error) {
 			if d.ProjectChat == nil {
 				return nil, errNotInitialized("project chat")
 			}
-			existingSessionID := argString(p, 4)
-			if existingSessionID != "" {
-				return d.ProjectChat.CreateChat(argString(p, 0), argString(p, 1), argString(p, 2), argString(p, 3), existingSessionID)
-			}
-			return d.ProjectChat.CreateChat(argString(p, 0), argString(p, 1), argString(p, 2), argString(p, 3))
+			return d.ProjectChat.EnsureChat(argString(p, 0), argString(p, 1), argString(p, 2), argString(p, 3), argString(p, 4), argBool(p, 5))
 		},
 		"SendProjectChatMessage": func(p json.RawMessage) (any, error) {
 			if d.ProjectChat == nil {

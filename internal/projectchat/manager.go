@@ -55,7 +55,23 @@ func (m *Manager) SetSessionConfigResolver(resolver SessionConfigResolver) {
 	m.configResolver = resolver
 }
 
-func (m *Manager) CreateChat(projectPath, providerID, model, providerApiID string, existingSessionID ...string) (*SwitchResult, error) {
+func (m *Manager) EnsureChat(projectPath, providerID, model, providerApiID, existingProviderSessionID string, forceNew bool) (*SwitchResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existingProviderSessionID = strings.TrimSpace(existingProviderSessionID)
+	if !forceNew {
+		if reusable, err := m.ensureExistingProjectChat(projectPath, providerID, model, providerApiID, existingProviderSessionID); err != nil {
+			return nil, err
+		} else if reusable != nil {
+			return reusable, nil
+		}
+	}
+
+	return m.createChatLocked(projectPath, providerID, model, providerApiID, existingProviderSessionID)
+}
+
+func (m *Manager) createChatLocked(projectPath, providerID, model, providerApiID, existingProviderSessionID string) (*SwitchResult, error) {
 	chatID := uuid.New().String()
 	segmentID := uuid.New().String()
 	now := time.Now().Unix()
@@ -87,10 +103,10 @@ func (m *Manager) CreateChat(projectPath, providerID, model, providerApiID strin
 
 	runtimeSessionID := ""
 	providerSessionID := ""
-	if len(existingSessionID) > 0 && existingSessionID[0] != "" {
-		runtimeSessionID = m.provider.ResolveRunningSessionID(providerID, projectPath, existingSessionID[0])
+	if existingProviderSessionID != "" {
+		runtimeSessionID = m.provider.ResolveRunningSessionID(providerID, projectPath, existingProviderSessionID)
 		if runtimeSessionID == "" {
-			providerSessionID = existingSessionID[0]
+			providerSessionID = existingProviderSessionID
 		}
 	}
 
@@ -120,6 +136,148 @@ func (m *Manager) CreateChat(projectPath, providerID, model, providerApiID strin
 	}, nil
 }
 
+func (m *Manager) ensureExistingProjectChat(projectPath, providerID, model, providerApiID, existingProviderSessionID string) (*SwitchResult, error) {
+	if existingProviderSessionID != "" {
+		if chat, seg, err := m.db.FindChatSegmentByProviderSession(projectPath, providerID, existingProviderSessionID); err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("find project chat by provider session: %w", err)
+			}
+		} else {
+			if model == "" {
+				model = seg.Model
+			}
+			providerSessionID := seg.ProviderSessionID
+			if providerSessionID == "" {
+				providerSessionID = existingProviderSessionID
+			}
+			runtimeSessionID := ""
+			if seg.RuntimeSessionID != "" {
+				runtimeSessionID = m.provider.ResolveRunningSessionID(providerID, projectPath, seg.RuntimeSessionID)
+			}
+			if runtimeSessionID == "" {
+				runtimeSessionID = m.provider.ResolveRunningSessionID(providerID, projectPath, providerSessionID)
+			}
+			if runtimeSessionID != seg.RuntimeSessionID || providerSessionID != seg.ProviderSessionID {
+				_ = m.db.UpdateChatSegmentRuntime(seg.ID, runtimeSessionID, providerSessionID)
+			}
+			if m.streamHub != nil && runtimeSessionID != "" {
+				m.streamHub.RegisterAlias(streamID(providerID, runtimeSessionID), chat.ID)
+			}
+			_ = m.db.UpdateProjectChatActive(chat.ID, providerID, seg.ID)
+			m.emitEvent("projectchat:reused", map[string]any{
+				"chat_id":    chat.ID,
+				"provider":   providerID,
+				"session_id": runtimeSessionID,
+				"stream_id":  chat.ID,
+			})
+			return &SwitchResult{
+				ChatID:           chat.ID,
+				SegmentID:        seg.ID,
+				RuntimeSessionID: runtimeSessionID,
+				StreamID:         chat.ID,
+				Provider:         providerID,
+				Model:            model,
+			}, nil
+		}
+	}
+
+	chat, err := m.db.GetActiveChatForProject(projectPath)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get active chat: %w", err)
+	}
+
+	segments, err := m.db.ListChatSegments(chat.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list existing segments: %w", err)
+	}
+
+	currentSeg, err := m.db.GetChatSegment(chat.ActiveSegmentID)
+	if err != nil {
+		return nil, fmt.Errorf("get current segment: %w", err)
+	}
+
+	if currentSeg.Provider != providerID {
+		if existingProviderSessionID == "" {
+			return &SwitchResult{
+				ChatID:           chat.ID,
+				SegmentID:        currentSeg.ID,
+				RuntimeSessionID: currentSeg.RuntimeSessionID,
+				StreamID:         chat.ID,
+				Provider:         currentSeg.Provider,
+				Model:            currentSeg.Model,
+			}, nil
+		}
+		return m.switchProviderLocked(chat, currentSeg, segments, providerID, model, providerApiID)
+	}
+
+	if len(segments) != 1 || currentSeg.Seq != 0 || currentSeg.Status != database.SegmentStatusActive {
+		return &SwitchResult{
+			ChatID:           chat.ID,
+			SegmentID:        currentSeg.ID,
+			RuntimeSessionID: currentSeg.RuntimeSessionID,
+			StreamID:         chat.ID,
+			Provider:         currentSeg.Provider,
+			Model:            currentSeg.Model,
+		}, nil
+	}
+
+	if currentSeg.RuntimeSessionID != "" || currentSeg.ProviderSessionID != "" {
+		return &SwitchResult{
+			ChatID:           chat.ID,
+			SegmentID:        currentSeg.ID,
+			RuntimeSessionID: currentSeg.RuntimeSessionID,
+			StreamID:         chat.ID,
+			Provider:         currentSeg.Provider,
+			Model:            currentSeg.Model,
+		}, nil
+	}
+
+	if currentSeg.Provider != providerID {
+		return nil, nil
+	}
+
+	if model == "" {
+		model = currentSeg.Model
+	}
+
+	runtimeSessionID := ""
+	providerSessionID := ""
+	if existingProviderSessionID != "" {
+		runtimeSessionID = m.provider.ResolveRunningSessionID(providerID, projectPath, existingProviderSessionID)
+		if runtimeSessionID == "" {
+			providerSessionID = existingProviderSessionID
+		}
+	}
+	if providerSessionID == "" {
+		providerSessionID = m.captureProviderSessionID(currentSeg.ID, runtimeSessionID)
+	}
+	_ = m.db.UpdateChatSegmentRuntime(currentSeg.ID, runtimeSessionID, providerSessionID)
+
+	if m.streamHub != nil && runtimeSessionID != "" {
+		m.streamHub.RegisterAlias(streamID(providerID, runtimeSessionID), chat.ID)
+	}
+	_ = m.db.UpdateProjectChatActive(chat.ID, providerID, currentSeg.ID)
+
+	m.emitEvent("projectchat:reused", map[string]any{
+		"chat_id":    chat.ID,
+		"provider":   providerID,
+		"session_id": runtimeSessionID,
+		"stream_id":  chat.ID,
+	})
+
+	return &SwitchResult{
+		ChatID:           chat.ID,
+		SegmentID:        currentSeg.ID,
+		RuntimeSessionID: runtimeSessionID,
+		StreamID:         chat.ID,
+		Provider:         providerID,
+		Model:            model,
+	}, nil
+}
+
 func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEffort string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -133,9 +291,14 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 	if err != nil {
 		return "", fmt.Errorf("get active segment: %w", err)
 	}
+	if err := m.db.UpdateProjectChatActive(chat.ID, seg.Provider, seg.ID); err == nil {
+		chat.ActiveProvider = seg.Provider
+		seg.Status = database.SegmentStatusActive
+		seg.CompletedAt = nil
+	}
 
 	// Update providerSessionID if not yet captured
-	if seg.ProviderSessionID == "" {
+	if needsProviderSessionCapture(seg.ProviderSessionID) && seg.RuntimeSessionID != "" {
 		seg.ProviderSessionID = m.captureProviderSessionID(seg.ID, seg.RuntimeSessionID)
 	}
 	if m.streamHub != nil && seg.RuntimeSessionID != "" {
@@ -210,7 +373,7 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 			return "", fmt.Errorf("start session: %w", err)
 		}
 		sentRuntimeSessionID = resolvedRuntimeSessionID
-		if seg.ProviderSessionID == "" {
+		if needsProviderSessionCapture(seg.ProviderSessionID) {
 			seg.ProviderSessionID = m.captureProviderSessionID(seg.ID, resolvedRuntimeSessionID)
 		}
 		_ = m.db.UpdateChatSegmentRuntime(seg.ID, resolvedRuntimeSessionID, seg.ProviderSessionID)
@@ -229,7 +392,7 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 		}
 		sentRuntimeSessionID = dispatchedRuntimeSessionID
 		if dispatchedRuntimeSessionID != resolvedRuntimeSessionID {
-			if seg.ProviderSessionID == "" {
+			if needsProviderSessionCapture(seg.ProviderSessionID) {
 				seg.ProviderSessionID = m.captureProviderSessionID(seg.ID, dispatchedRuntimeSessionID)
 			}
 			_ = m.db.UpdateChatSegmentRuntime(seg.ID, dispatchedRuntimeSessionID, seg.ProviderSessionID)
@@ -237,16 +400,16 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 				m.streamHub.RegisterAlias(streamID(seg.Provider, dispatchedRuntimeSessionID), chatID)
 			}
 		}
-	} else if resolvedRuntimeSessionID, err := m.provider.SendUserMessage(seg.Provider, chat.ProjectPath, seg.RuntimeSessionID, actualMessage); err != nil {
+	} else if resolvedRuntimeSessionID, err := m.provider.SendUserMessage(seg.Provider, chat.ProjectPath, activeProviderSessionID(seg), actualMessage); err != nil {
 		// Session might be gone (after restart/hot-reload) - try to restart it
 		config := m.sessionConfig(seg.Provider, chat.ProjectPath, model, providerApiID, reasoningEffort)
-		config.Resume = seg.ProviderSessionID != ""
-		config.ResumeSessionID = seg.ProviderSessionID
+		config.ResumeSessionID = activeProviderSessionID(seg)
+		config.Resume = config.ResumeSessionID != ""
 		newRuntimeID, startErr := m.provider.EnsureUserSession(seg.Provider, config)
 		if startErr != nil {
 			return "", fmt.Errorf("send message: %w (restart also failed: %v)", err, startErr)
 		}
-		if seg.ProviderSessionID == "" {
+		if needsProviderSessionCapture(seg.ProviderSessionID) {
 			seg.ProviderSessionID = m.captureProviderSessionID(seg.ID, newRuntimeID)
 		}
 		_ = m.db.UpdateChatSegmentRuntime(seg.ID, newRuntimeID, seg.ProviderSessionID)
@@ -256,7 +419,7 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 			m.streamHub.RegisterAlias(realStream, chatID)
 		}
 		sentRuntimeSessionID = newRuntimeID
-		if seg.ProviderSessionID == "" {
+		if needsProviderSessionCapture(seg.ProviderSessionID) {
 			seg.ProviderSessionID = m.captureProviderSessionID(seg.ID, newRuntimeID)
 		}
 		_ = m.db.UpdateChatSegmentRuntime(seg.ID, newRuntimeID, seg.ProviderSessionID)
@@ -274,7 +437,7 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 		}
 	} else {
 		sentRuntimeSessionID = resolvedRuntimeSessionID
-		if seg.ProviderSessionID == "" {
+		if needsProviderSessionCapture(seg.ProviderSessionID) {
 			seg.ProviderSessionID = m.captureProviderSessionID(seg.ID, resolvedRuntimeSessionID)
 		}
 		_ = m.db.UpdateChatSegmentRuntime(seg.ID, resolvedRuntimeSessionID, seg.ProviderSessionID)
@@ -377,6 +540,17 @@ func (m *Manager) SwitchProvider(chatID, newProviderID, model, providerApiID str
 		}, nil
 	}
 
+	segments, err := m.db.ListChatSegments(chatID)
+	if err != nil {
+		return nil, fmt.Errorf("list segments: %w", err)
+	}
+
+	return m.switchProviderLocked(chat, currentSeg, segments, newProviderID, model, providerApiID)
+}
+
+func (m *Manager) switchProviderLocked(chat *database.ProjectChat, currentSeg *database.ChatSegment, segments []*database.ChatSegment, newProviderID, model, providerApiID string) (*SwitchResult, error) {
+	chatID := chat.ID
+
 	// Resolve providerSessionID BEFORE terminating (session still in live list)
 	if currentSeg.ProviderSessionID == "" && currentSeg.RuntimeSessionID != "" {
 		currentSeg.ProviderSessionID = m.captureProviderSessionID(currentSeg.ID, currentSeg.RuntimeSessionID)
@@ -393,11 +567,6 @@ func (m *Manager) SwitchProvider(chatID, newProviderID, model, providerApiID str
 	// Build context from previous segments
 	// Incremental: if target provider already had a segment, only include segments after its last one
 	// Full: if target provider never had a segment, include all segments
-	segments, err := m.db.ListChatSegments(chatID)
-	if err != nil {
-		return nil, fmt.Errorf("list segments: %w", err)
-	}
-
 	// Find the last segment index for the target provider (incremental sync)
 	lastTargetSegIdx := -1
 	var lastTargetSeg *database.ChatSegment
@@ -746,6 +915,17 @@ func (m *Manager) captureProviderSessionID(segmentID, runtimeSessionID string) s
 		return s.ProviderSessionID
 	}
 	return ""
+}
+
+func activeProviderSessionID(seg *database.ChatSegment) string {
+	if !needsProviderSessionCapture(seg.ProviderSessionID) {
+		return seg.ProviderSessionID
+	}
+	return seg.RuntimeSessionID
+}
+
+func needsProviderSessionCapture(providerSessionID string) bool {
+	return providerSessionID == "" || providerSessionID == provider.FreshSessionSentinel
 }
 
 func (m *Manager) emitContextSyncFrame(chatID, projectPath string, seg *database.ChatSegment, runtimeSessionID, message string) {

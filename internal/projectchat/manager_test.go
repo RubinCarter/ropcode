@@ -171,7 +171,7 @@ func TestSwitchProviderResumesExistingProviderSession(t *testing.T) {
 	manager := NewManager(db, prov, &testEmitter{}, nil)
 
 	projectPath := t.TempDir()
-	created, err := manager.CreateChat(projectPath, "claude", "sonnet", "")
+	created, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
@@ -237,6 +237,256 @@ func TestSwitchProviderResumesExistingProviderSession(t *testing.T) {
 	}
 }
 
+func TestEnsureChatReusesActiveProjectChat(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+
+	claudeDriver := &resumeProbeDriver{id: "claude"}
+	if err := prov.RegisterDriver(claudeDriver); err != nil {
+		t.Fatalf("register claude: %v", err)
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+
+	first, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", false)
+	if err != nil {
+		t.Fatalf("ensure first chat: %v", err)
+	}
+	second, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", false)
+	if err != nil {
+		t.Fatalf("ensure second chat: %v", err)
+	}
+
+	if second.ChatID != first.ChatID {
+		t.Fatalf("expected empty active chat to be reused, first=%s second=%s", first.ChatID, second.ChatID)
+	}
+	if second.SegmentID != first.SegmentID {
+		t.Fatalf("expected initial segment to be reused, first=%s second=%s", first.SegmentID, second.SegmentID)
+	}
+	chats, err := db.ListProjectChats(projectPath)
+	if err != nil {
+		t.Fatalf("list chats: %v", err)
+	}
+	if len(chats) != 1 {
+		t.Fatalf("expected one project chat, got %d", len(chats))
+	}
+
+	if _, err := manager.SendMessage(first.ChatID, "hello", "sonnet", "", ""); err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+	third, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", false)
+	if err != nil {
+		t.Fatalf("ensure third chat: %v", err)
+	}
+	if third.ChatID != first.ChatID {
+		t.Fatalf("expected non-empty active chat to remain the backend-owned project chat")
+	}
+
+	forced, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", true)
+	if err != nil {
+		t.Fatalf("force new chat: %v", err)
+	}
+	if forced.ChatID == first.ChatID {
+		t.Fatalf("expected forceNew to create a new project chat")
+	}
+}
+
+func TestEnsureChatDoesNotSwitchActiveProviderWithoutHistoricalSession(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+	for _, id := range []string{"claude", "codex"} {
+		if err := prov.RegisterDriver(&resumeProbeDriver{id: id}); err != nil {
+			t.Fatalf("register %s: %v", id, err)
+		}
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+
+	codexChat, err := manager.EnsureChat(projectPath, "codex", "gpt-5", "", "", true)
+	if err != nil {
+		t.Fatalf("create codex chat: %v", err)
+	}
+
+	restored, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", false)
+	if err != nil {
+		t.Fatalf("ensure active chat with default claude provider: %v", err)
+	}
+	if restored.ChatID != codexChat.ChatID {
+		t.Fatalf("expected active codex chat %s, got %s", codexChat.ChatID, restored.ChatID)
+	}
+	if restored.Provider != "codex" {
+		t.Fatalf("expected ensure without historical session to preserve codex, got %q", restored.Provider)
+	}
+	if restored.SegmentID != codexChat.SegmentID {
+		t.Fatalf("expected active segment %s, got %s", codexChat.SegmentID, restored.SegmentID)
+	}
+
+	active, err := db.GetProjectChat(codexChat.ChatID)
+	if err != nil {
+		t.Fatalf("get active chat: %v", err)
+	}
+	if active.ActiveProvider != "codex" || active.ActiveSegmentID != codexChat.SegmentID {
+		t.Fatalf("expected database to keep active codex segment, got provider=%q segment=%q", active.ActiveProvider, active.ActiveSegmentID)
+	}
+
+	segments, err := db.ListChatSegments(codexChat.ChatID)
+	if err != nil {
+		t.Fatalf("list segments: %v", err)
+	}
+	if len(segments) != 1 {
+		t.Fatalf("expected no implicit provider switch segment, got %d segments", len(segments))
+	}
+}
+
+func TestEnsureChatPrefersExistingProviderSessionOverActiveProjectChat(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+	for _, id := range []string{"claude", "codex"} {
+		if err := prov.RegisterDriver(&resumeProbeDriver{id: id}); err != nil {
+			t.Fatalf("register %s: %v", id, err)
+		}
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+
+	codexChat, err := manager.EnsureChat(projectPath, "codex", "gpt-5", "", "codex-history-session", true)
+	if err != nil {
+		t.Fatalf("create codex history chat: %v", err)
+	}
+	claudeChat, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "claude-history-session", true)
+	if err != nil {
+		t.Fatalf("create newer claude chat: %v", err)
+	}
+	if claudeChat.ChatID == codexChat.ChatID {
+		t.Fatalf("expected distinct chats")
+	}
+
+	restored, err := manager.EnsureChat(projectPath, "codex", "gpt-5", "", "codex-history-session", false)
+	if err != nil {
+		t.Fatalf("restore codex chat: %v", err)
+	}
+	if restored.ChatID != codexChat.ChatID {
+		t.Fatalf("expected codex history chat %s, got %s", codexChat.ChatID, restored.ChatID)
+	}
+	if restored.SegmentID != codexChat.SegmentID {
+		t.Fatalf("expected codex segment %s, got %s", codexChat.SegmentID, restored.SegmentID)
+	}
+	if restored.Provider != "codex" {
+		t.Fatalf("expected restored provider codex, got %q", restored.Provider)
+	}
+
+	active, err := db.GetProjectChat(codexChat.ChatID)
+	if err != nil {
+		t.Fatalf("get restored chat: %v", err)
+	}
+	if active.ActiveProvider != "codex" || active.ActiveSegmentID != codexChat.SegmentID {
+		t.Fatalf("expected restored chat active codex segment, got provider=%q segment=%q", active.ActiveProvider, active.ActiveSegmentID)
+	}
+}
+
+func TestEnsureChatRestoresExistingProviderSessionSegmentWithoutCreatingNewSegment(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+	for _, id := range []string{"claude", "codex"} {
+		if err := prov.RegisterDriver(&resumeProbeDriver{id: id}); err != nil {
+			t.Fatalf("register %s: %v", id, err)
+		}
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+
+	codexChat, err := manager.EnsureChat(projectPath, "codex", "gpt-5", "", "codex-history-session", true)
+	if err != nil {
+		t.Fatalf("create codex history chat: %v", err)
+	}
+	claudeSegment, err := manager.SwitchProvider(codexChat.ChatID, "claude", "sonnet", "")
+	if err != nil {
+		t.Fatalf("switch to claude: %v", err)
+	}
+
+	codexBeforeRestore, err := db.GetChatSegment(codexChat.SegmentID)
+	if err != nil {
+		t.Fatalf("get codex segment before restore: %v", err)
+	}
+	if codexBeforeRestore.Status != database.SegmentStatusInterrupted {
+		t.Fatalf("expected codex segment to be interrupted after provider switch, got %q", codexBeforeRestore.Status)
+	}
+
+	restored, err := manager.EnsureChat(projectPath, "codex", "gpt-5", "", "codex-history-session", false)
+	if err != nil {
+		t.Fatalf("restore codex history chat: %v", err)
+	}
+	if restored.ChatID != codexChat.ChatID {
+		t.Fatalf("expected same project chat %s, got %s", codexChat.ChatID, restored.ChatID)
+	}
+	if restored.SegmentID != codexChat.SegmentID {
+		t.Fatalf("expected existing codex segment %s, got %s", codexChat.SegmentID, restored.SegmentID)
+	}
+
+	segments, err := db.ListChatSegments(codexChat.ChatID)
+	if err != nil {
+		t.Fatalf("list segments: %v", err)
+	}
+	if len(segments) != 2 {
+		t.Fatalf("expected no new segment on provider session restore, got %d segments", len(segments))
+	}
+
+	codexAfterRestore, err := db.GetChatSegment(codexChat.SegmentID)
+	if err != nil {
+		t.Fatalf("get codex segment after restore: %v", err)
+	}
+	if codexAfterRestore.Status != database.SegmentStatusActive || codexAfterRestore.CompletedAt != nil {
+		t.Fatalf("expected restored codex segment active with no completion timestamp, got status=%q completed=%v", codexAfterRestore.Status, codexAfterRestore.CompletedAt)
+	}
+	if codexAfterRestore.ProviderSessionID != "codex-history-session" {
+		t.Fatalf("expected provider session id to be preserved, got %q", codexAfterRestore.ProviderSessionID)
+	}
+
+	claudeAfterRestore, err := db.GetChatSegment(claudeSegment.SegmentID)
+	if err != nil {
+		t.Fatalf("get claude segment after restore: %v", err)
+	}
+	if claudeAfterRestore.Status != database.SegmentStatusInterrupted {
+		t.Fatalf("expected previous claude segment to be interrupted, got %q", claudeAfterRestore.Status)
+	}
+
+	active, err := db.GetProjectChat(codexChat.ChatID)
+	if err != nil {
+		t.Fatalf("get active chat: %v", err)
+	}
+	if active.ActiveProvider != "codex" || active.ActiveSegmentID != codexChat.SegmentID {
+		t.Fatalf("expected active codex segment, got provider=%q segment=%q", active.ActiveProvider, active.ActiveSegmentID)
+	}
+}
+
 func TestSendMessageUsesProviderSessionResolver(t *testing.T) {
 	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -253,7 +503,7 @@ func TestSendMessageUsesProviderSessionResolver(t *testing.T) {
 	}
 
 	manager := NewManager(db, prov, &testEmitter{}, nil)
-	created, err := manager.CreateChat(t.TempDir(), "claude", "sonnet", "")
+	created, err := manager.EnsureChat(t.TempDir(), "claude", "sonnet", "", "", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
@@ -293,7 +543,7 @@ func TestClearChatKeepsProjectChatAndStartsEmptyActiveSegment(t *testing.T) {
 
 	manager := NewManager(db, prov, &testEmitter{}, nil)
 	projectPath := t.TempDir()
-	created, err := manager.CreateChat(projectPath, "claude", "sonnet", "")
+	created, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
@@ -377,6 +627,9 @@ func TestClearChatKeepsProjectChatAndStartsEmptyActiveSegment(t *testing.T) {
 	if clearSeg.ProviderSessionID == "" {
 		t.Fatal("expected post-clear codex send to create a provider session")
 	}
+	if clearSeg.ProviderSessionID == provider.FreshSessionSentinel {
+		t.Fatal("expected post-clear codex send to replace the fresh-session sentinel")
+	}
 	if clearSeg.ProviderSessionID == codexSeg.ProviderSessionID {
 		t.Fatalf("expected post-clear codex session not to reuse %q", codexSeg.ProviderSessionID)
 	}
@@ -425,7 +678,7 @@ func TestSendMessageProviderCommandDoesNotConsumePendingContext(t *testing.T) {
 
 	manager := NewManager(db, prov, &testEmitter{}, nil)
 	projectPath := t.TempDir()
-	created, err := manager.CreateChat(projectPath, "claude", "sonnet", "")
+	created, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
@@ -526,7 +779,7 @@ func TestSendMessageExpandsProviderCapabilityBeforeContextInjection(t *testing.T
 
 	manager := NewManager(db, prov, &testEmitter{}, nil)
 	projectPath := t.TempDir()
-	created, err := manager.CreateChat(projectPath, "claude", "sonnet", "")
+	created, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
@@ -589,7 +842,7 @@ func TestInterruptActiveSegmentUsesProviderInterrupt(t *testing.T) {
 
 	manager := NewManager(db, prov, &testEmitter{}, nil)
 	projectPath := t.TempDir()
-	created, err := manager.CreateChat(projectPath, "codex", "gpt-5", "")
+	created, err := manager.EnsureChat(projectPath, "codex", "gpt-5", "", "", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
@@ -672,7 +925,7 @@ func TestSendMessageResumesWrappedProviderSessionID(t *testing.T) {
 
 	manager := NewManager(db, prov, &testEmitter{}, nil)
 	projectPath := t.TempDir()
-	created, err := manager.CreateChat(projectPath, "claude", "sonnet", "", "provider-history-session")
+	created, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "provider-history-session", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
@@ -699,6 +952,127 @@ func TestSendMessageResumesWrappedProviderSessionID(t *testing.T) {
 	}
 	if len(claudeDriver.sends) != 1 || claudeDriver.sends[0] != "hello from wrapped session" {
 		t.Fatalf("expected one resumed send with original prompt, got %#v", claudeDriver.sends)
+	}
+}
+
+func TestSendMessagePrefersProviderSessionIDOverStaleRuntimeSessionID(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+
+	codexDriver := &resumeProbeDriver{id: "codex"}
+	if err := prov.RegisterDriver(codexDriver); err != nil {
+		t.Fatalf("register codex: %v", err)
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+	created, err := manager.EnsureChat(projectPath, "codex", "gpt-5", "", "provider-history-session", true)
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+	if err := db.UpdateChatSegmentRuntime(created.SegmentID, "stale-runtime-session", "provider-history-session"); err != nil {
+		t.Fatalf("set stale runtime id: %v", err)
+	}
+
+	if _, err := manager.SendMessage(created.ChatID, "resume from provider id", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+
+	codexDriver.mu.Lock()
+	resumes := append([]string(nil), codexDriver.resumes...)
+	sends := append([]string(nil), codexDriver.sends...)
+	codexDriver.mu.Unlock()
+
+	if len(resumes) != 1 || resumes[0] != "provider-history-session" {
+		t.Fatalf("expected resume with provider-history-session, got %#v", resumes)
+	}
+	if len(sends) != 1 || sends[0] != "resume from provider id" {
+		t.Fatalf("expected one send with original prompt, got %#v", sends)
+	}
+
+	seg, err := db.GetChatSegment(created.SegmentID)
+	if err != nil {
+		t.Fatalf("get segment: %v", err)
+	}
+	if seg.RuntimeSessionID == "" || seg.RuntimeSessionID == "stale-runtime-session" {
+		t.Fatalf("expected stale runtime id to be replaced, got %q", seg.RuntimeSessionID)
+	}
+	if seg.ProviderSessionID != "provider-history-session" {
+		t.Fatalf("expected provider session id to remain stable, got %q", seg.ProviderSessionID)
+	}
+}
+
+func TestSendMessageRepairsTerminalActiveSegmentBeforeDispatch(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+	for _, id := range []string{"claude", "codex"} {
+		if err := prov.RegisterDriver(&resumeProbeDriver{id: id}); err != nil {
+			t.Fatalf("register %s: %v", id, err)
+		}
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+	created, err := manager.EnsureChat(projectPath, "codex", "gpt-5", "", "provider-history-session", true)
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+	staleClaude, err := manager.SwitchProvider(created.ChatID, "claude", "sonnet", "")
+	if err != nil {
+		t.Fatalf("switch to claude: %v", err)
+	}
+
+	completedAt := time.Now().Unix()
+	if err := db.UpdateChatSegmentStatus(created.SegmentID, database.SegmentStatusCompleted, &completedAt); err != nil {
+		t.Fatalf("mark codex terminal: %v", err)
+	}
+	if err := db.UpdateProjectChatActive(created.ChatID, "codex", created.SegmentID); err != nil {
+		t.Fatalf("point project chat at codex segment: %v", err)
+	}
+	if err := db.UpdateChatSegmentStatus(created.SegmentID, database.SegmentStatusCompleted, &completedAt); err != nil {
+		t.Fatalf("simulate terminal active pointer: %v", err)
+	}
+	if err := db.UpdateChatSegmentStatus(staleClaude.SegmentID, database.SegmentStatusActive, nil); err != nil {
+		t.Fatalf("simulate stale active claude segment: %v", err)
+	}
+
+	if _, err := manager.SendMessage(created.ChatID, "send after repair", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+
+	codexSeg, err := db.GetChatSegment(created.SegmentID)
+	if err != nil {
+		t.Fatalf("get codex segment: %v", err)
+	}
+	if codexSeg.Status != database.SegmentStatusActive || codexSeg.CompletedAt != nil {
+		t.Fatalf("expected codex segment repaired to active, got status=%q completed=%v", codexSeg.Status, codexSeg.CompletedAt)
+	}
+	claudeSeg, err := db.GetChatSegment(staleClaude.SegmentID)
+	if err != nil {
+		t.Fatalf("get claude segment: %v", err)
+	}
+	if claudeSeg.Status != database.SegmentStatusInterrupted {
+		t.Fatalf("expected stale claude active segment to be interrupted, got %q", claudeSeg.Status)
+	}
+
+	chat, err := db.GetProjectChat(created.ChatID)
+	if err != nil {
+		t.Fatalf("get chat: %v", err)
+	}
+	if chat.ActiveProvider != "codex" || chat.ActiveSegmentID != created.SegmentID {
+		t.Fatalf("expected active codex segment after repair, got provider=%q segment=%q", chat.ActiveProvider, chat.ActiveSegmentID)
 	}
 }
 
@@ -739,7 +1113,7 @@ func TestLoadAllSegmentFramesUsesProjectChatStreamID(t *testing.T) {
 	}
 
 	manager := NewManager(db, prov, &testEmitter{}, nil)
-	created, err := manager.CreateChat(t.TempDir(), "claude", "sonnet", "", "provider-native-session")
+	created, err := manager.EnsureChat(t.TempDir(), "claude", "sonnet", "", "provider-native-session", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
@@ -795,7 +1169,7 @@ func TestLoadAllSegmentFramesUsesProviderSessionIDForHistoryOnlySegment(t *testi
 	}
 
 	manager := NewManager(db, prov, &testEmitter{}, nil)
-	created, err := manager.CreateChat(t.TempDir(), "codex", "gpt-5", "", "provider-history-session")
+	created, err := manager.EnsureChat(t.TempDir(), "codex", "gpt-5", "", "provider-history-session", true)
 	if err != nil {
 		t.Fatalf("create chat: %v", err)
 	}
