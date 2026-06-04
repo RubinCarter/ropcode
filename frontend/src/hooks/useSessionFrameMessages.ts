@@ -80,7 +80,7 @@ export function legacyPayloadFromFrame(frame: SessionFrame): string | null {
     return raw.raw;
   }
   if (raw && Object.keys(raw).length > 0) {
-    const payload = withFrameSemantics(frame, withFrameMessageIdentity(frame, withFrameRuntimeIdentity(frame, raw)));
+    const payload = withFrameSemantics(frame, withFrameContentIdentity(frame, withFrameMessageIdentity(frame, withFrameRuntimeIdentity(frame, raw))));
     return JSON.stringify(payload);
   }
   const payload = withFrameSemantics(frame, withFrameMessageIdentity(frame, sessionFrameToLegacyMessage(frame)));
@@ -136,6 +136,36 @@ function withFrameMessageIdentity(frame: SessionFrame, payload: Record<string, u
     nextPayload.frame_operation = nextPayload.frame_operation ?? frame.operation;
   }
   return nextPayload;
+}
+
+function withFrameContentIdentity(frame: SessionFrame, payload: Record<string, unknown>): Record<string, unknown> {
+  if (frame.content.length === 0 || !isRecord(payload.message)) {
+    return payload;
+  }
+  const rawContent = Array.isArray(payload.message.content) ? payload.message.content : null;
+  if (!rawContent || rawContent.length !== frame.content.length) {
+    return payload;
+  }
+
+  const content = rawContent.map((block, index) => {
+    if (!isRecord(block)) return block;
+    const frameBlock = frame.content[index];
+    if (block.type === 'tool_use' && frameBlock?.type === 'tool_use' && frameBlock.toolUseId) {
+      return { ...block, id: block.id ?? frameBlock.toolUseId };
+    }
+    if (block.type === 'tool_result' && frameBlock?.type === 'tool_result' && frameBlock.toolUseId) {
+      return { ...block, tool_use_id: block.tool_use_id ?? frameBlock.toolUseId };
+    }
+    return block;
+  });
+
+  return {
+    ...payload,
+    message: {
+      ...payload.message,
+      content,
+    },
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

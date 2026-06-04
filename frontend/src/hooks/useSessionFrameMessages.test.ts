@@ -62,6 +62,46 @@ test('legacyPayloadFromFrame exposes message identity for backend upserts', () =
   assert.equal(message.message.id, 'message-1');
 });
 
+test('legacyPayloadFromFrame overlays tool ids onto raw live content', () => {
+  const toolUsePayload = legacyPayloadFromFrame(frame({
+    provider: 'codex',
+    kind: 'tool',
+    role: 'assistant',
+    content: [{ type: 'tool_use', toolUseId: 'call_patch', name: 'Edit', input: { file_path: 'app.go' } }],
+    meta: {
+      raw: {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'tool_use', name: 'Edit', input: { file_path: 'app.go' } }],
+        },
+      },
+    },
+  }));
+  const toolResultPayload = legacyPayloadFromFrame(frame({
+    provider: 'codex',
+    kind: 'tool',
+    role: 'user',
+    content: [{ type: 'tool_result', toolUseId: 'call_patch', text: 'The file app.go has been updated.' }],
+    meta: {
+      raw: {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', content: 'The file app.go has been updated.' }],
+        },
+      },
+    },
+  }));
+
+  assert.ok(toolUsePayload);
+  assert.ok(toolResultPayload);
+  const toolUse = JSON.parse(toolUsePayload);
+  const toolResult = JSON.parse(toolResultPayload);
+  assert.equal(toolUse.message.content[0].id, 'call_patch');
+  assert.equal(toolResult.message.content[0].tool_use_id, 'call_patch');
+});
+
 test('legacyPayloadFromFrame overlays runtime identity onto raw provider data', () => {
   const payload = legacyPayloadFromFrame(frame({
     streamId: 'claude:runtime-1',
