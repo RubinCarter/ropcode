@@ -1,15 +1,12 @@
-import React, { Suspense, lazy, useEffect, useRef } from 'react';
+import React, { Suspense, lazy, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTabState } from '@/hooks/useTabState';
 import { useScreenTracking } from '@/hooks/useAnalytics';
 import { Tab } from '@/contexts/TabContext';
 import { Loader2 } from 'lucide-react';
-import { api } from '@/lib/api';
 import { shouldKeepTabMounted } from '@/lib/tabUtils';
-import * as rpcClient from '@/lib/rpc-client';
 import { MCPManager } from '@/components/MCPManager';
 import { SettingsLoadingShell } from '@/components/SettingsLoadingShell';
-import { projectChatExistingSessionId, projectChatSegmentFromSwitchResult } from '@/lib/projectChatSession';
 
 const loadSettings = () => import('@/components/Settings').then(m => ({ default: m.Settings }));
 
@@ -55,7 +52,6 @@ interface TabPanelProps {
 
 const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
   const { updateTab, closeTab } = useTabState();
-  const projectChatPreparationRef = useRef<Promise<{ chatId: string; segments: NonNullable<Tab['projectChatSegments']> }> | null>(null);
 
   // Performance: determine if tab should stay mounted
   const keepMounted = shouldKeepTabMounted(tab.type);
@@ -77,136 +73,9 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
     return scheduleSettingsPrefetch();
   }, [isActive, tab.type]);
 
-  const prepareProjectChatForTab = async () => {
-    if (tab.type !== 'chat') {
-      throw new Error('not a chat tab');
-    }
-    if (tab.projectChatId && tab.projectChatSegments?.length) {
-      return {
-        chatId: tab.projectChatId,
-        segments: tab.projectChatSegments,
-      };
-    }
-    if (projectChatPreparationRef.current) {
-      return projectChatPreparationRef.current;
-    }
-
-    const actualProjectPath = tab.sessionData?.project_path || tab.initialProjectPath || tab.sessionData?.project_id;
-    if (!actualProjectPath) {
-      throw new Error('chat tab has no project path');
-    }
-
-    const providerId = tab.providerId || 'claude';
-    const model = tab.sessionData?.model || '';
-    projectChatPreparationRef.current = rpcClient.CreateProjectChat(
-      actualProjectPath,
-      providerId,
-      model,
-      '',
-      projectChatExistingSessionId(tab.sessionData, tab.sessionId)
-    ).then((chat) => {
-      const segment = projectChatSegmentFromSwitchResult(chat, providerId, model, 0);
-      const segments = [segment];
-      updateTab(tab.id, {
-        sessionId: chat.runtime_session_id || tab.sessionId,
-        projectChatId: chat.chat_id,
-        projectChatSegments: segments,
-      });
-
-      return {
-        chatId: chat.chat_id,
-        segments,
-      };
-    }).finally(() => {
-      projectChatPreparationRef.current = null;
-    });
-
-    return projectChatPreparationRef.current;
-  };
-
-  const getPreparedProjectChatForTab = async () => {
-    if (tab.projectChatId && tab.projectChatSegments?.length) {
-      return {
-        chatId: tab.projectChatId,
-        segments: tab.projectChatSegments,
-      };
-    }
-    return projectChatPreparationRef.current;
-  };
-
-  useEffect(() => {
-    if (tab.type !== 'chat') return;
-    if (tab.projectChatId && tab.projectChatSegments?.length) return;
-    void prepareProjectChatForTab().catch((err) => {
-      console.error('[TabPanel] Failed to prepare ProjectChat:', err);
-    });
-  }, [
-    tab.id,
-    tab.type,
-    tab.projectChatId,
-    tab.projectChatSegments?.length,
-    tab.initialProjectPath,
-    tab.providerId,
-    tab.sessionId,
-    tab.sessionData?.id,
-    tab.sessionData?.project_path,
-    tab.sessionData?.project_id,
-  ]);
-
   // Handle provider change - reload sessions for the new provider
   const handleProviderChange = async (providerId: string) => {
-
-    if (tab.type !== 'chat' || !(tab.initialProjectPath || tab.sessionData?.project_path || tab.sessionData?.project_id)) {
-      console.warn('[TabPanel] Cannot change provider: not a chat tab or no project path');
-      return;
-    }
-
-    try {
-      const actualProjectPath = tab.sessionData?.project_path || tab.initialProjectPath || tab.sessionData?.project_id;
-      if (!actualProjectPath) {
-        return;
-      }
-
-      const projectChat = await getPreparedProjectChatForTab();
-      if (!projectChat) {
-        console.warn('[TabPanel] ProjectChat is not ready for provider change');
-        return;
-      }
-
-      if (tab.providerId === providerId) {
-        updateTab(tab.id, { providerId });
-        return;
-      }
-      const currentModel = tab.sessionData?.model || '';
-      const result = await rpcClient.SwitchProjectChatProvider(
-        projectChat.chatId, providerId, currentModel
-      );
-
-      const newSegment = {
-        id: result.segment_id,
-        provider: result.provider,
-        model: result.model,
-        runtimeSessionId: result.runtime_session_id,
-        streamId: result.stream_id,
-        seq: projectChat.segments.length,
-      };
-
-      updateTab(tab.id, {
-        providerId,
-        sessionId: result.runtime_session_id,
-        projectChatId: projectChat.chatId,
-        projectChatSegments: [...projectChat.segments, newSegment],
-      });
-
-      // Save the provider selection to project index
-      try {
-        await api.updateProjectLastProvider(actualProjectPath, providerId);
-      } catch (err) {
-        console.warn(`Failed to save last provider:`, err);
-      }
-    } catch (err) {
-      console.error('[TabPanel] Failed to change provider:', err);
-    }
+    updateTab(tab.id, { providerId });
   };
 
   // Performance: conditional render vs CSS hidden

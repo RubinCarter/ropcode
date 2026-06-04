@@ -123,31 +123,29 @@ test('WorkspaceContainer deduplicates explicit new session tabs', async () => {
   assert.match(source, /setActiveTab\(existingNewSessionTab\.id\)/);
 });
 
-test('WorkspaceContainer reuses the initial blank chat tab for explicit new sessions', async () => {
+test('WorkspaceContainer does not replace existing ProjectChat ids for explicit new sessions', async () => {
   const source = await readSource(path.resolve(currentDir, './containers/WorkspaceContainer.tsx'));
 
   assert.match(source, /tabsRef/);
-  assert.match(source, /existingBlankChatTab/);
   assert.match(source, /title: 'New chat'/);
   assert.match(source, /skipSessionRestore: true/);
   assert.match(source, /providerSessions: undefined/);
-  assert.match(source, /sessionResetNonce: \(existingBlankChatTab\.sessionResetNonce \?\? 0\) \+ 1/);
-  assert.match(source, /setActiveTab\(existingBlankChatTab\.id\)/);
-  assert.match(source, /updateTab\(existingBlankChatTab\.id,/);
-  assert.match(source, /Skipping background session restore for explicit new tab/);
+  assert.match(source, /ensureProjectChatForTabSession\(spacePath, 'claude', undefined, true\)/);
+  assert.doesNotMatch(source, /existingBlankChatTab/);
+  assert.doesNotMatch(source, /updateTab\(existingBlankChatTab\.id,/);
 });
 
-test('WorkspaceContainer replaces the active chat tab for explicit new sessions', async () => {
+test('WorkspaceContainer creates a backend-owned ProjectChat for explicit new sessions', async () => {
   const source = await readSource(path.resolve(currentDir, './containers/WorkspaceContainer.tsx'));
 
   assert.match(source, /lastHandledNewSessionRef/);
   assert.match(source, /newSessionKey/);
-  assert.match(source, /replacementTab/);
+  assert.doesNotMatch(source, /replacementTab/);
   assert.match(source, /sessionId: undefined/);
   assert.match(source, /sessionData: undefined/);
   assert.match(source, /providerSessions: undefined/);
   assert.match(source, /sessionResetNonce/);
-  assert.match(source, /key=\{`\$\{tab\.id\}-\$\{tab\.providerId \|\| 'claude'\}-\$\{tab\.sessionResetNonce \?\? 0\}`\}/);
+  assert.match(source, /projectChatId: projectChat\.chat\.chat_id/);
 });
 
 test('WorkspaceContainer creates pending new sessions during initialization', async () => {
