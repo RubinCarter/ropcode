@@ -295,11 +295,12 @@ test('SessionController delegates lifecycle, runtime status, and element selecti
   assert.match(runtimeHookSource, /setInterval\(\(\) => \{/);
   assert.match(elementSelectionHookSource, /window\.addEventListener\('webview-element-selected'/);
   assert.doesNotMatch(promptActionsHookSource, /CreateProjectChat/);
+  assert.match(promptActionsHookSource, /ClearProjectChat/);
   assert.match(promptActionsHookSource, /SendProjectChatMessage/);
   assert.match(promptActionsHookSource, /InterruptProjectChat/);
   assert.doesNotMatch(promptActionsHookSource, /api\.startProviderSession/);
-  assert.match(promptActionsHookSource, /api\.stopProviderSessionsByProject/);
-  assert.match(promptActionsHookSource, /api\.interruptProviderSession/);
+  assert.doesNotMatch(promptActionsHookSource, /api\.stopProviderSessionsByProject/);
+  assert.doesNotMatch(promptActionsHookSource, /api\.interruptProviderSession/);
   assert.match(promptActionsHookSource, /classifyPromptSubmit/);
 });
 

@@ -9,7 +9,6 @@ export interface SessionComposerProps {
     providerApiId?: string | null,
     thinkingMode?: string,
     provider?: string,
-    options?: { forceFreshProviderSession?: boolean },
   ) => Promise<boolean>;
   onCancel: () => Promise<void>;
   stopStatusLabel?: string;

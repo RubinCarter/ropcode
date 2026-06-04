@@ -31,7 +31,9 @@ import { SessionMessagePane } from "./messages/SessionMessagePane";
 import { SessionLayoutChrome } from "./layout/SessionLayoutChrome";
 import { CopyConversationMenu } from "./composer/CopyConversationMenu";
 import { LoadProjectChatHistory } from "@/lib/rpc-client";
-import { mergeSessionFrames } from "@/stores/sessionFrameStore";
+import { EventsOn } from "@/lib/rpc-events";
+import { clearSessionFrames, mergeSessionFrames } from "@/stores/sessionFrameStore";
+import { clearSessionRuntime } from "@/stores/sessionRuntimeStore";
 import { resolveSessionProvider } from "@/lib/session-frame/provider";
 
 // Import refactored hooks and types
@@ -65,6 +67,11 @@ function streamIdForRuntimeSession(provider: string, runtimeSessionId?: string |
     return null;
   }
   return `${resolveSessionProvider(provider)}:${runtimeSessionId}`;
+}
+
+interface ProjectChatClearedEvent {
+  chat_id?: string;
+  stream_id?: string;
 }
 
 /**
@@ -253,6 +260,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
 
     return () => { cancelled = true; };
   }, [projectChatId]);
+
   const terminalFrameRuntimePhase = frameRuntimeState.runtime?.phase;
   const terminalFrameRuntime =
     terminalFrameRuntimePhase === 'completed' ||
@@ -357,6 +365,39 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     isLoading: processState.isLoading,
     interactiveSessionId: processState.interactiveSessionId,
   });
+
+  useEffect(() => {
+    if (!projectChatId) return;
+
+    const off = EventsOn('projectchat:cleared', (event: ProjectChatClearedEvent) => {
+      const clearedChatId = event?.chat_id || event?.stream_id;
+      if (clearedChatId !== projectChatId) return;
+
+      clearSessionFrames(projectChatId);
+      clearSessionRuntime(projectChatId);
+      messagesState.clearMessages();
+      sessionState.setClaudeSessionId(null);
+      sessionState.setExtractedSessionInfo(null);
+      sessionState.setIsFirstPrompt(true);
+      metricsState.resetMetrics();
+      processState.setIsLoading(false);
+      processState.setIsPendingSend(false);
+      processState.setInteractiveSessionId(null);
+      processState.hasActiveSessionRef.current = false;
+      queueState.clearQueue();
+      setError(null);
+    });
+
+    return off;
+  }, [
+    messagesState,
+    metricsState,
+    processState,
+    projectChatId,
+    queueState,
+    sessionState,
+    setError,
+  ]);
   const { handleSendPrompt, handleCancelExecution } = useSessionPromptActions({
     defaultProvider,
     projectChatId,
@@ -367,9 +408,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     queueState,
     stopStatus,
     firstPromptForTitleRef,
-    loadedSessionIdRef,
     pendingFreshProviderSessionRef,
-    skipRecoveryUntilRef,
     setError,
     refreshCurrentSubagentTranscripts,
     trackEvent,

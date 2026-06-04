@@ -1,11 +1,7 @@
 import { useCallback } from "react";
-import { api } from "@/lib/api";
 import { ClearProjectChat, InterruptProjectChat, SendProjectChatMessage } from "@/lib/rpc-client";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
-import { clearSessionFrames } from "@/stores/sessionFrameStore";
-import { clearSessionRuntime } from "@/stores/sessionRuntimeStore";
 import { resetRuntimeTracker } from "../state/runtimeTrackerStore";
-import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "../utils/clearCommand";
 import { classifyPromptSubmit } from "../utils/promptSubmitClassification";
 import type { ClaudeStreamMessage } from "../types";
 import type { UseProcessStateReturn } from "./useProcessState";
@@ -31,9 +27,7 @@ export interface UseSessionPromptActionsOptions {
   queueState: UsePromptQueueReturn;
   stopStatus: UseStopStatusFeedbackReturn;
   firstPromptForTitleRef: React.MutableRefObject<string | null>;
-  loadedSessionIdRef: React.MutableRefObject<string | null>;
   pendingFreshProviderSessionRef: React.MutableRefObject<boolean>;
-  skipRecoveryUntilRef: React.MutableRefObject<number>;
   setError: (error: string | null) => void;
   refreshCurrentSubagentTranscripts: (sessionIdOverride?: string | null) => Promise<void>;
   trackEvent: SessionPromptActionsTracking;
@@ -46,7 +40,6 @@ export interface UseSessionPromptActionsReturn {
     providerApiId?: string | null,
     thinkingMode?: string,
     provider?: string,
-    options?: { forceFreshProviderSession?: boolean },
   ) => Promise<boolean>;
   handleCancelExecution: () => Promise<void>;
 }
@@ -61,78 +54,21 @@ export function useSessionPromptActions({
   queueState,
   stopStatus,
   firstPromptForTitleRef,
-  loadedSessionIdRef,
   pendingFreshProviderSessionRef,
-  skipRecoveryUntilRef,
   setError,
   refreshCurrentSubagentTranscripts,
   trackEvent,
 }: UseSessionPromptActionsOptions): UseSessionPromptActionsReturn {
-  const handleLocalClearFallback = useCallback(async () => {
-    const shouldShowStopFeedback = shouldShowStopFeedbackOnLocalClear({
-      provider: defaultProvider,
-      isLoading: processState.isLoading,
-      interactiveSessionId: processState.interactiveSessionId,
-    });
-
-    if (shouldShowStopFeedback) {
-      stopStatus.stopRequestedRef.current = true;
-      stopStatus.showStopStatusBubble();
-      skipRecoveryUntilRef.current = Date.now() + 5000;
-    } else {
-      stopStatus.stopRequestedRef.current = false;
-    }
-
-    if (projectChatId) {
-      try {
-        await ClearProjectChat(projectChatId);
-        clearSessionFrames(projectChatId);
-        clearSessionRuntime(projectChatId);
-      } catch (err) {
-        console.error('[AiCodeSession] Failed to clear project chat:', err);
-      }
-      pendingFreshProviderSessionRef.current = false;
-    } else if (processState.interactiveSessionId) {
-      try {
-        await api.stopProviderSessionsByProject(sessionState.projectPath);
-      } catch (err) {
-        console.error('[AiCodeSession] Failed to stop provider session during clear:', err);
-      }
-    }
-
+  const handleBackendClear = useCallback(async () => {
     if (!projectChatId) {
-      pendingFreshProviderSessionRef.current = true;
+      throw new Error("ProjectChat is not available for this session");
     }
-    messagesState.clearMessages();
-    sessionState.setClaudeSessionId(null);
-    sessionState.setExtractedSessionInfo(null);
-    sessionState.setIsFirstPrompt(true);
-    metricsState.resetMetrics();
-    setError(null);
-    processState.setInteractiveSessionId(null);
-    processState.hasActiveSessionRef.current = false;
-    queueState.clearQueue();
 
-    const clearMessage: ClaudeStreamMessage = {
-      type: "system",
-      subtype: "info",
-      message: {
-        content: [{ type: "text", text: getLocalClearMessage({ provider: defaultProvider, didStopSession: shouldShowStopFeedback }) }]
-      }
-    };
-    messagesState.addMessage(clearMessage);
+    await ClearProjectChat(projectChatId);
+    pendingFreshProviderSessionRef.current = false;
   }, [
-    defaultProvider,
-    messagesState,
-    metricsState,
     pendingFreshProviderSessionRef,
-    processState,
     projectChatId,
-    queueState,
-    sessionState,
-    setError,
-    skipRecoveryUntilRef,
-    stopStatus,
   ]);
 
   const handleSendPrompt = useCallback(async (
@@ -141,7 +77,6 @@ export function useSessionPromptActions({
     providerApiId?: string | null,
     thinkingMode?: string,
     provider?: string,
-    options?: { forceFreshProviderSession?: boolean }
   ): Promise<boolean> => {
     const activeProvider = provider || defaultProvider;
     // Store first prompt for title generation after first round completes
@@ -155,7 +90,6 @@ export function useSessionPromptActions({
       hasProjectPath: Boolean(sessionState.projectPath),
       isLoading: processState.isLoading,
       hasInteractiveSession: Boolean(processState.interactiveSessionIdRef.current),
-      forceFreshSession: options?.forceFreshProviderSession,
     });
 
     if (classification.action === 'ignore') {
@@ -167,8 +101,8 @@ export function useSessionPromptActions({
       return false;
     }
 
-    if (classification.action === 'local-clear') {
-      await handleLocalClearFallback();
+    if (classification.action === 'backend-clear') {
+      await handleBackendClear();
       return true;
     }
 
@@ -184,16 +118,10 @@ export function useSessionPromptActions({
       resetRuntimeTracker(sessionState.projectPath);
       processState.hasActiveSessionRef.current = true;
 
-      const forceFreshProviderSession =
-        options?.forceFreshProviderSession === true ||
-        pendingFreshProviderSessionRef.current;
       pendingFreshProviderSessionRef.current = false;
 
-      if (forceFreshProviderSession) {
-        loadedSessionIdRef.current = null;
-        processState.setInteractiveSessionId(null);
-        processState.hasActiveSessionRef.current = false;
-        queueState.clearQueue();
+      if (!projectChatId) {
+        throw new Error("ProjectChat is not available for this session");
       }
 
       // Ensure session ID
@@ -238,9 +166,6 @@ export function useSessionPromptActions({
         session_age_ms: Date.now() - metricsState.sessionStartTime.current
       });
 
-      if (!projectChatId) {
-        throw new Error("ProjectChat is not available for this session");
-      }
       trackEvent.modelSelected(model);
       await SendProjectChatMessage(projectChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
 
@@ -262,8 +187,7 @@ export function useSessionPromptActions({
   }, [
     defaultProvider,
     firstPromptForTitleRef,
-    handleLocalClearFallback,
-    loadedSessionIdRef,
+    handleBackendClear,
     messagesState,
     metricsState,
     pendingFreshProviderSessionRef,
@@ -286,13 +210,10 @@ export function useSessionPromptActions({
       const sessionStartTimeValue = messagesState.messages.length > 0 ? messagesState.messages[0].timestamp || Date.now() : Date.now();
       const duration = Date.now() - sessionStartTimeValue;
 
-      if (projectChatId) {
-        await InterruptProjectChat(projectChatId);
-      } else if (runtimeSessionId) {
-        await api.interruptProviderSession(runtimeSessionId);
-      } else {
-        await api.stopProviderSessionsByProject(sessionState.projectPath);
+      if (!projectChatId) {
+        throw new Error("ProjectChat is not available for this session");
       }
+      await InterruptProjectChat(projectChatId);
       await processState.syncProcessState();
 
       // Track enhanced session stopped

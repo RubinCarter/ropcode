@@ -31,7 +31,7 @@ test('classifyPromptSubmit returns explicit submit actions', async () => {
 
   assert.match(source, /export type PromptSubmitClassification =/);
   assert.match(source, /\| \{ action: 'ignore'; reason: 'empty' \}/);
-  assert.match(source, /\| \{ action: 'local-clear' \}/);
+  assert.match(source, /\| \{ action: 'backend-clear' \}/);
   assert.match(source, /\| \{ action: 'reject'; reason: 'missing-project' \}/);
   assert.match(source, /\| \{ action: 'enqueue' \}/);
   assert.match(source, /\| \{ action: 'send' \}/);
@@ -42,8 +42,8 @@ test('classifyPromptSubmit prioritizes empty missing project clear queue and sen
 
   assert.match(source, /if \(!trimmedPrompt\) \{[\s\S]*return \{ action: 'ignore', reason: 'empty' \};[\s\S]*\}/);
   assert.match(source, /if \(!input\.hasProjectPath\) \{[\s\S]*return \{ action: 'reject', reason: 'missing-project' \};[\s\S]*\}/);
-  assert.match(source, /if \(shouldUseLocalClearFallback\(trimmedPrompt, input\.provider\)\) \{[\s\S]*return \{ action: 'local-clear' \};[\s\S]*\}/);
-  assert.match(source, /if \(input\.isLoading && !input\.hasInteractiveSession && input\.forceFreshSession !== true\) \{[\s\S]*return \{ action: 'enqueue' \};[\s\S]*\}/);
+  assert.match(source, /if \(isExactClearCommand\(trimmedPrompt\)\) \{[\s\S]*return \{ action: 'backend-clear' \};[\s\S]*\}/);
+  assert.match(source, /if \(input\.isLoading && !input\.hasInteractiveSession\) \{[\s\S]*return \{ action: 'enqueue' \};[\s\S]*\}/);
   assert.match(source, /return \{ action: 'send' \};/);
 });
 
@@ -52,8 +52,8 @@ test('session prompt actions route prompt submission through the classifier', as
 
   assert.match(source, /import \{ classifyPromptSubmit \} from "\.\.\/utils\/promptSubmitClassification";/);
   assert.match(source, /const activeProvider = provider \|\| defaultProvider;/);
-  assert.match(source, /const classification = classifyPromptSubmit\(\{[\s\S]*prompt,[\s\S]*provider: activeProvider,[\s\S]*hasProjectPath: Boolean\(sessionState\.projectPath\),[\s\S]*isLoading: processState\.isLoading,[\s\S]*hasInteractiveSession: Boolean\(processState\.interactiveSessionIdRef\.current\),[\s\S]*forceFreshSession: options\?\.forceFreshProviderSession,[\s\S]*\}\);/);
-  assert.match(source, /if \(classification\.action === 'local-clear'\) \{[\s\S]*await handleLocalClearFallback\(\);[\s\S]*return true;[\s\S]*\}/);
+  assert.match(source, /const classification = classifyPromptSubmit\(\{[\s\S]*prompt,[\s\S]*provider: activeProvider,[\s\S]*hasProjectPath: Boolean\(sessionState\.projectPath\),[\s\S]*isLoading: processState\.isLoading,[\s\S]*hasInteractiveSession: Boolean\(processState\.interactiveSessionIdRef\.current\),[\s\S]*\}\);/);
+  assert.match(source, /if \(classification\.action === 'backend-clear'\) \{[\s\S]*await handleBackendClear\(\);[\s\S]*return true;[\s\S]*\}/);
   assert.match(source, /if \(classification\.action === 'enqueue'\) \{[\s\S]*queueState\.addToQueue\(prompt, model, providerApiId, thinkingMode, activeProvider\);[\s\S]*return true;[\s\S]*\}/);
 });
 
@@ -74,11 +74,15 @@ test('session prompt actions send follow-ups through project chat', async () => 
   assert.doesNotMatch(source, /api\.sendProviderSessionMessage/);
 });
 
-test('local clear resets only the project chat stream in the frontend', async () => {
+test('clear command is executed by backend and applied from project chat events', async () => {
   const source = await readSessionPromptActionsSource();
+  const sessionSource = await readAiCodeSessionSource();
 
-  assert.match(source, /await ClearProjectChat\(projectChatId\);[\s\S]*clearSessionFrames\(projectChatId\);[\s\S]*clearSessionRuntime\(projectChatId\);/);
-  assert.doesNotMatch(source, /onProjectChatCleared/);
+  assert.match(source, /await ClearProjectChat\(projectChatId\);/);
+  assert.doesNotMatch(source, /clearSessionFrames\(projectChatId\);/);
+  assert.doesNotMatch(source, /clearSessionRuntime\(projectChatId\);/);
+  assert.match(sessionSource, /EventsOn\('projectchat:cleared'/);
+  assert.match(sessionSource, /clearSessionFrames\(projectChatId\);[\s\S]*clearSessionRuntime\(projectChatId\);/);
 });
 
 test('ProjectChat message stream is keyed only by projectChatId', async () => {
