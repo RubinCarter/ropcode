@@ -1,7 +1,9 @@
 import { useCallback } from "react";
 import { api } from "@/lib/api";
-import { InterruptProjectChat, SendProjectChatMessage } from "@/lib/rpc-client";
+import { ClearProjectChat, InterruptProjectChat, SendProjectChatMessage } from "@/lib/rpc-client";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
+import { clearSessionFrames } from "@/stores/sessionFrameStore";
+import { clearSessionRuntime } from "@/stores/sessionRuntimeStore";
 import { resetRuntimeTracker } from "../state/runtimeTrackerStore";
 import { getLocalClearMessage, shouldShowStopFeedbackOnLocalClear } from "../utils/clearCommand";
 import { classifyPromptSubmit } from "../utils/promptSubmitClassification";
@@ -81,7 +83,16 @@ export function useSessionPromptActions({
       stopStatus.stopRequestedRef.current = false;
     }
 
-    if (processState.interactiveSessionId) {
+    if (projectChatId) {
+      try {
+        await ClearProjectChat(projectChatId);
+        clearSessionFrames(projectChatId);
+        clearSessionRuntime(projectChatId);
+      } catch (err) {
+        console.error('[AiCodeSession] Failed to clear project chat:', err);
+      }
+      pendingFreshProviderSessionRef.current = false;
+    } else if (processState.interactiveSessionId) {
       try {
         await api.stopProviderSessionsByProject(sessionState.projectPath);
       } catch (err) {
@@ -89,7 +100,9 @@ export function useSessionPromptActions({
       }
     }
 
-    pendingFreshProviderSessionRef.current = true;
+    if (!projectChatId) {
+      pendingFreshProviderSessionRef.current = true;
+    }
     messagesState.clearMessages();
     sessionState.setClaudeSessionId(null);
     sessionState.setExtractedSessionInfo(null);
@@ -114,6 +127,7 @@ export function useSessionPromptActions({
     metricsState,
     pendingFreshProviderSessionRef,
     processState,
+    projectChatId,
     queueState,
     sessionState,
     setError,

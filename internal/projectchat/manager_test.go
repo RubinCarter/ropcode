@@ -29,6 +29,7 @@ type resumeProbeDriver struct {
 	interrupts       int
 	history          []provider.OutputEvent
 	capabilities     []provider.Capability
+	nextNativeID     int
 }
 
 func (d *resumeProbeDriver) ID() string         { return d.id }
@@ -95,7 +96,11 @@ func (d *resumeProbeDriver) WaitForInit(session provider.SessionHandle, timeout 
 	if config.ResumeSessionID != "" {
 		session.SetProviderSessionID(config.ResumeSessionID)
 	} else if session.GetProviderSessionID() == "" {
-		session.SetProviderSessionID(fmt.Sprintf("%s-native-%d", d.id, len(d.starts)))
+		d.mu.Lock()
+		d.nextNativeID++
+		nativeID := d.nextNativeID
+		d.mu.Unlock()
+		session.SetProviderSessionID(fmt.Sprintf("%s-native-%d", d.id, nativeID))
 	}
 	session.MarkInitialized()
 	return nil
@@ -264,6 +269,135 @@ func TestSendMessageUsesProviderSessionResolver(t *testing.T) {
 	}
 	if claudeDriver.sends[0] != "hello" {
 		t.Fatalf("expected provider to receive raw user message, got %q", claudeDriver.sends[0])
+	}
+}
+
+func TestClearChatKeepsProjectChatAndStartsEmptyActiveSegment(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	prov := provider.NewManager(context.Background(), &testEmitter{}, nil)
+	t.Cleanup(prov.Shutdown)
+
+	claudeDriver := &resumeProbeDriver{id: "claude"}
+	codexDriver := &resumeProbeDriver{id: "codex"}
+	if err := prov.RegisterDriver(claudeDriver); err != nil {
+		t.Fatalf("register claude: %v", err)
+	}
+	if err := prov.RegisterDriver(codexDriver); err != nil {
+		t.Fatalf("register codex: %v", err)
+	}
+
+	manager := NewManager(db, prov, &testEmitter{}, nil)
+	projectPath := t.TempDir()
+	created, err := manager.CreateChat(projectPath, "claude", "sonnet", "")
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+	if _, err := manager.SendMessage(created.ChatID, "send claude", "sonnet", "", ""); err != nil {
+		t.Fatalf("send claude: %v", err)
+	}
+	claudeSeg, err := db.GetChatSegment(created.SegmentID)
+	if err != nil {
+		t.Fatalf("get claude segment: %v", err)
+	}
+
+	switched, err := manager.SwitchProvider(created.ChatID, "codex", "gpt-5", "")
+	if err != nil {
+		t.Fatalf("choose codex: %v", err)
+	}
+	if _, err := manager.SendMessage(created.ChatID, "send codex", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send codex: %v", err)
+	}
+	codexSeg, err := db.GetChatSegment(switched.SegmentID)
+	if err != nil {
+		t.Fatalf("get codex segment: %v", err)
+	}
+	if codexSeg.ProviderSessionID == "" {
+		t.Fatal("expected codex provider session before clear")
+	}
+
+	cleared, err := manager.ClearChat(created.ChatID)
+	if err != nil {
+		t.Fatalf("clear chat: %v", err)
+	}
+	if cleared.ChatID != created.ChatID {
+		t.Fatalf("expected project chat id to stay %q, got %q", created.ChatID, cleared.ChatID)
+	}
+	if cleared.Provider != "codex" {
+		t.Fatalf("expected clear to keep active provider codex, got %q", cleared.Provider)
+	}
+	if cleared.RuntimeSessionID != "" {
+		t.Fatalf("expected clear segment to be runtime-empty, got %q", cleared.RuntimeSessionID)
+	}
+
+	chat, err := db.GetProjectChat(created.ChatID)
+	if err != nil {
+		t.Fatalf("get chat after clear: %v", err)
+	}
+	if chat.ActiveSegmentID != cleared.SegmentID {
+		t.Fatalf("expected active segment %q, got %q", cleared.SegmentID, chat.ActiveSegmentID)
+	}
+	clearSeg, err := db.GetChatSegment(cleared.SegmentID)
+	if err != nil {
+		t.Fatalf("get clear segment: %v", err)
+	}
+	if clearSeg.Provider != "codex" || clearSeg.Status != database.SegmentStatusActive {
+		t.Fatalf("expected active codex clear segment, got provider=%q status=%q", clearSeg.Provider, clearSeg.Status)
+	}
+	if clearSeg.RuntimeSessionID != "" || clearSeg.ProviderSessionID != provider.FreshSessionSentinel {
+		t.Fatalf("expected clear segment to be runtime-empty and marked fresh, got runtime=%q provider=%q", clearSeg.RuntimeSessionID, clearSeg.ProviderSessionID)
+	}
+
+	reloadedClaudeSeg, err := db.GetChatSegment(claudeSeg.ID)
+	if err != nil {
+		t.Fatalf("reload claude segment: %v", err)
+	}
+	if reloadedClaudeSeg.Status != database.SegmentStatusInterrupted {
+		t.Fatalf("expected claude segment to stay interrupted, got %q", reloadedClaudeSeg.Status)
+	}
+	reloadedCodexSeg, err := db.GetChatSegment(codexSeg.ID)
+	if err != nil {
+		t.Fatalf("reload codex segment: %v", err)
+	}
+	if reloadedCodexSeg.Status != database.SegmentStatusInterrupted {
+		t.Fatalf("expected pre-clear codex segment interrupted, got %q", reloadedCodexSeg.Status)
+	}
+
+	if _, err := manager.SendMessage(created.ChatID, "send codex after clear", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send codex after clear: %v", err)
+	}
+	clearSeg, err = db.GetChatSegment(cleared.SegmentID)
+	if err != nil {
+		t.Fatalf("reload clear segment after send: %v", err)
+	}
+	if clearSeg.ProviderSessionID == "" {
+		t.Fatal("expected post-clear codex send to create a provider session")
+	}
+	if clearSeg.ProviderSessionID == codexSeg.ProviderSessionID {
+		t.Fatalf("expected post-clear codex session not to reuse %q", codexSeg.ProviderSessionID)
+	}
+
+	codexDriver.mu.Lock()
+	starts := len(codexDriver.starts)
+	resumes := append([]string(nil), codexDriver.resumes...)
+	codexDriver.mu.Unlock()
+	if starts != 2 {
+		t.Fatalf("expected codex to start once before clear and once after clear, got %d", starts)
+	}
+	if len(resumes) != 0 {
+		t.Fatalf("expected post-clear codex not to resume old session, got %#v", resumes)
+	}
+
+	sameProvider, err := manager.SwitchProvider(created.ChatID, "codex", "gpt-5", "")
+	if err != nil {
+		t.Fatalf("choose codex while already on codex: %v", err)
+	}
+	if sameProvider.SegmentID != cleared.SegmentID {
+		t.Fatalf("expected same-provider switch to keep clear segment %q, got %q", cleared.SegmentID, sameProvider.SegmentID)
 	}
 }
 

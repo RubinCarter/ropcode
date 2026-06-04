@@ -290,6 +290,69 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 	return streamID(seg.Provider, sentRuntimeSessionID), nil
 }
 
+func (m *Manager) ClearChat(chatID string) (*SwitchResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	chat, err := m.db.GetProjectChat(chatID)
+	if err != nil {
+		return nil, fmt.Errorf("get chat: %w", err)
+	}
+
+	currentSeg, err := m.db.GetChatSegment(chat.ActiveSegmentID)
+	if err != nil {
+		return nil, fmt.Errorf("get active segment: %w", err)
+	}
+
+	if currentSeg.ProviderSessionID == "" && currentSeg.RuntimeSessionID != "" {
+		currentSeg.ProviderSessionID = m.captureProviderSessionID(currentSeg.ID, currentSeg.RuntimeSessionID)
+		_ = m.db.UpdateChatSegmentRuntime(currentSeg.ID, currentSeg.RuntimeSessionID, currentSeg.ProviderSessionID)
+	}
+	if currentSeg.RuntimeSessionID != "" && m.provider != nil {
+		_ = m.provider.InterruptSession(currentSeg.RuntimeSessionID)
+	}
+
+	now := time.Now().Unix()
+	status := database.SegmentStatusCompleted
+	if currentSeg.Status == database.SegmentStatusActive {
+		status = database.SegmentStatusInterrupted
+	}
+	_ = m.db.UpdateChatSegmentStatus(currentSeg.ID, status, &now)
+
+	newSegmentID := uuid.New().String()
+	newSeg := &database.ChatSegment{
+		ID:                newSegmentID,
+		ProjectChatID:     chatID,
+		Provider:          currentSeg.Provider,
+		Model:             currentSeg.Model,
+		ProviderSessionID: provider.FreshSessionSentinel,
+		Seq:               currentSeg.Seq + 1,
+		Status:            database.SegmentStatusActive,
+		CreatedAt:         now,
+	}
+	if err := m.db.CreateChatSegment(newSeg); err != nil {
+		return nil, fmt.Errorf("create clear segment: %w", err)
+	}
+	_ = m.db.UpdateProjectChatActive(chatID, currentSeg.Provider, newSegmentID)
+
+	m.emitEvent("projectchat:cleared", map[string]any{
+		"chat_id":             chatID,
+		"provider":            currentSeg.Provider,
+		"previous_segment_id": currentSeg.ID,
+		"segment_id":          newSegmentID,
+		"stream_id":           chatID,
+	})
+
+	return &SwitchResult{
+		ChatID:           chatID,
+		SegmentID:        newSegmentID,
+		RuntimeSessionID: "",
+		StreamID:         chatID,
+		Provider:         currentSeg.Provider,
+		Model:            currentSeg.Model,
+	}, nil
+}
+
 func (m *Manager) SwitchProvider(chatID, newProviderID, model, providerApiID string) (*SwitchResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -302,6 +365,16 @@ func (m *Manager) SwitchProvider(chatID, newProviderID, model, providerApiID str
 	currentSeg, err := m.db.GetChatSegment(chat.ActiveSegmentID)
 	if err != nil {
 		return nil, fmt.Errorf("get current segment: %w", err)
+	}
+	if currentSeg.Provider == newProviderID {
+		return &SwitchResult{
+			ChatID:           chatID,
+			SegmentID:        currentSeg.ID,
+			RuntimeSessionID: currentSeg.RuntimeSessionID,
+			StreamID:         chatID,
+			Provider:         currentSeg.Provider,
+			Model:            currentSeg.Model,
+		}, nil
 	}
 
 	// Resolve providerSessionID BEFORE terminating (session still in live list)
@@ -511,6 +584,23 @@ func (m *Manager) LoadAllSegmentFrames(chatID string) ([]stream.SessionFrame, er
 		return []stream.SessionFrame{}, nil
 	}
 
+	return m.loadSegmentFrames(chatID, segments)
+}
+
+func (m *Manager) LoadActiveSegmentFrames(chatID string) ([]stream.SessionFrame, error) {
+	chat, err := m.db.GetProjectChat(chatID)
+	if err != nil {
+		return []stream.SessionFrame{}, nil
+	}
+	seg, err := m.db.GetChatSegment(chat.ActiveSegmentID)
+	if err != nil {
+		return []stream.SessionFrame{}, nil
+	}
+
+	return m.loadSegmentFrames(chatID, []*database.ChatSegment{seg})
+}
+
+func (m *Manager) loadSegmentFrames(chatID string, segments []*database.ChatSegment) ([]stream.SessionFrame, error) {
 	chat, err := m.db.GetProjectChat(chatID)
 	if err != nil {
 		return []stream.SessionFrame{}, nil

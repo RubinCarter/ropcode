@@ -35,6 +35,12 @@ func ProjectChatHandlers(d *Deps) map[string]Handler {
 			}
 			return nil, d.ProjectChat.InterruptActiveSegment(argString(p, 0))
 		},
+		"ClearProjectChat": func(p json.RawMessage) (any, error) {
+			if d.ProjectChat == nil {
+				return nil, errNotInitialized("project chat")
+			}
+			return d.ProjectChat.ClearChat(argString(p, 0))
+		},
 		"GetProjectChat": func(p json.RawMessage) (any, error) {
 			if d.ProjectChat == nil {
 				return nil, errNotInitialized("project chat")
@@ -60,6 +66,12 @@ func ProjectChatHandlers(d *Deps) map[string]Handler {
 			return d.ProjectChat.ResumeChat(argString(p, 0))
 		},
 		"LoadProjectChatHistory": func(p json.RawMessage) (any, error) {
+			if d.ProjectChat == nil {
+				return nil, errNotInitialized("project chat")
+			}
+			return d.ProjectChat.LoadActiveSegmentFrames(argString(p, 0))
+		},
+		"LoadProjectChatAllSegmentHistory": func(p json.RawMessage) (any, error) {
 			if d.ProjectChat == nil {
 				return nil, errNotInitialized("project chat")
 			}

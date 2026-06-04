@@ -74,6 +74,24 @@ test('session prompt actions send follow-ups through project chat', async () => 
   assert.doesNotMatch(source, /api\.sendProviderSessionMessage/);
 });
 
+test('local clear resets only the project chat stream in the frontend', async () => {
+  const source = await readSessionPromptActionsSource();
+
+  assert.match(source, /await ClearProjectChat\(projectChatId\);[\s\S]*clearSessionFrames\(projectChatId\);[\s\S]*clearSessionRuntime\(projectChatId\);/);
+  assert.doesNotMatch(source, /onProjectChatCleared/);
+});
+
+test('ProjectChat message stream is keyed only by projectChatId', async () => {
+  const source = await readAiCodeSessionSource();
+
+  assert.match(source, /const activeStreamId = projectChatId[\s\S]*\? projectChatId[\s\S]*: streamIdForRuntimeSession/);
+  assert.match(source, /if \(!projectChatId\) return;/);
+  assert.match(source, /mergeSessionFrames\(projectChatId, allFrames\);/);
+  assert.match(source, /\}, \[projectChatId\]\);/);
+  assert.doesNotMatch(source, /projectChatSegments\?\.length\]\);/);
+  assert.doesNotMatch(source, /activeRuntimeSessionId: projectChatId/);
+});
+
 test('FloatingPromptInput only clears drafts when the session consumes the prompt', async () => {
   const source = await readFloatingPromptInputSource();
 

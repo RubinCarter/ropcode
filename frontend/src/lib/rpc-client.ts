@@ -942,6 +942,10 @@ export function InterruptProjectChat(chatId: string): Promise<void> {
   return wsClient.call('InterruptProjectChat', chatId);
 }
 
+export function ClearProjectChat(chatId: string): Promise<SwitchResult> {
+  return wsClient.call('ClearProjectChat', chatId);
+}
+
 export function GetProjectChat(chatId: string): Promise<ProjectChatDetail> {
   return wsClient.call('GetProjectChat', chatId);
 }
@@ -960,6 +964,10 @@ export function ResumeProjectChat(chatId: string): Promise<string> {
 
 export function LoadProjectChatHistory(chatId: string): Promise<SessionFrame[]> {
   return wsClient.call('LoadProjectChatHistory', chatId);
+}
+
+export function LoadProjectChatAllSegmentHistory(chatId: string): Promise<SessionFrame[]> {
+  return wsClient.call('LoadProjectChatAllSegmentHistory', chatId);
 }
 
 export function StreamSessionOutput(projectPath: string, sessionId: string): Promise<void> {

@@ -138,9 +138,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const processState = useProcessState({
     projectPath: sessionState.projectPath,
     provider: defaultProvider,
-    activeRuntimeSessionId: projectChatId
-      ? activeProjectChatSegment?.runtimeSessionId || null
-      : undefined,
+    activeRuntimeSessionId: undefined,
   });
 
   // Session metrics
@@ -238,9 +236,9 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const frameRuntimeState = useSessionRuntime(activeStreamId);
   const loadingStartedFrameSeqRef = useRef<{ streamId: string | null; seq: number } | null>(null);
 
-  // ProjectChat: load all segment history when segments change
+  // ProjectChat renders the project chat stream. Provider segments remain a backend detail.
   useEffect(() => {
-    if (!projectChatId || !projectChatSegments || projectChatSegments.length === 0) return;
+    if (!projectChatId) return;
 
     let cancelled = false;
     (async () => {
@@ -254,7 +252,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     })();
 
     return () => { cancelled = true; };
-  }, [projectChatId, projectChatSegments?.length]);
+  }, [projectChatId]);
   const terminalFrameRuntimePhase = frameRuntimeState.runtime?.phase;
   const terminalFrameRuntime =
     terminalFrameRuntimePhase === 'completed' ||
