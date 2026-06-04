@@ -335,6 +335,22 @@ test('collapsed read and edit results do not parse or highlight file content', a
   assert.doesNotMatch(readWidgetSource + editWidgetSource, /shouldUsePlainCode|PLAIN_CODE|shouldRenderPlainCodeBlock/);
 });
 
+test('grep results stay readable inside narrow message cards', async () => {
+  const grepWidgetSource = await readSource(path.resolve(toolWidgetsDir, './GrepWidget.tsx'));
+
+  assert.match(grepWidgetSource, /<div className="space-y-2 min-w-0">/);
+  assert.match(grepWidgetSource, /rounded-lg border bg-muted\/20 p-3 space-y-2 min-w-0/);
+  assert.match(grepWidgetSource, /flex-1 min-w-0 font-mono text-sm[\s\S]*whitespace-pre-wrap break-words/);
+  assert.match(grepWidgetSource, /rounded-lg border bg-background overflow-hidden min-w-0/);
+  assert.match(grepWidgetSource, /max-h-\[400px\] overflow-auto/);
+  assert.match(grepWidgetSource, /flex min-w-max items-start gap-3/);
+  assert.match(grepWidgetSource, /block whitespace-pre text-\[11px\] leading-4 font-mono/);
+  assert.match(grepWidgetSource, /const noLineMatch = line\.match/);
+  assert.match(grepWidgetSource, /lineNumber: 0/);
+  assert.match(grepWidgetSource, /<pre className="max-h-\[400px\] overflow-auto whitespace-pre p-3 text-\[11px\] leading-4 font-mono text-muted-foreground">/);
+  assert.doesNotMatch(grepWidgetSource, /max-h-\[400px\] overflow-y-auto whitespace-pre-wrap break-words p-3 text-xs font-mono text-muted-foreground/);
+});
+
 test('collapsed MCP parameters do not stringify or highlight large JSON', async () => {
   const mcpWidgetSource = await readSource(mcpWidgetPath);
 

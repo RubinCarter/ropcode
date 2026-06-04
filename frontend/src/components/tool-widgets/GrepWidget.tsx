@@ -186,6 +186,19 @@ export const GrepWidget: React.FC<{
         return;
       }
 
+      // Claude's Grep tool can omit line numbers and return filename:content.
+      // Keep those in the structured result path so wide output uses the
+      // scrollable compact layout instead of the raw fallback card.
+      const noLineMatch = line.match(/^(.+\.[A-Za-z0-9_+-]+):(.*)$/);
+      if (noLineMatch) {
+        results.push({
+          file: noLineMatch[1],
+          lineNumber: 0,
+          content: noLineMatch[2]
+        });
+        return;
+      }
+
       // Claude often returns single-file grep output as lineNumber:content
       // when the path is already part of the tool input.
       const singleFileMatch = line.match(/^(\d+):(.*)$/);
@@ -205,7 +218,7 @@ export const GrepWidget: React.FC<{
   const hasRawResult = result && !isError && grepResults.length === 0 && resultContent.trim().length > 0;
   
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 min-w-0">
       <div className="flex items-center gap-2 p-3 rounded-lg bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20">
         <Search className="h-4 w-4 text-emerald-500" />
         <span className="text-sm font-medium">Searching with grep</span>
@@ -218,27 +231,27 @@ export const GrepWidget: React.FC<{
       </div>
       
       {/* Search Parameters */}
-      <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+      <div className="rounded-lg border bg-muted/20 p-3 space-y-2 min-w-0">
         <div className="grid gap-2">
           {/* Pattern with regex highlighting */}
-          <div className="flex items-start gap-3">
+          <div className="flex items-start gap-3 min-w-0">
             <div className="flex items-center gap-1.5 min-w-[80px]">
               <Code className="h-3 w-3 text-emerald-500" />
               <span className="text-xs font-medium text-muted-foreground">Pattern</span>
             </div>
-            <code className="flex-1 font-mono text-sm bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-md text-emerald-600 dark:text-emerald-400">
+            <code className="flex-1 min-w-0 font-mono text-sm bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-md text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap break-words">
               {pattern}
             </code>
           </div>
           
           {/* Path */}
           {path && (
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3 min-w-0">
               <div className="flex items-center gap-1.5 min-w-[80px]">
                 <FolderOpen className="h-3 w-3 text-muted-foreground" />
                 <span className="text-xs font-medium text-muted-foreground">Path</span>
               </div>
-              <code className="flex-1 font-mono text-xs bg-muted px-2 py-1 rounded truncate" title={path}>
+              <code className="flex-1 min-w-0 font-mono text-xs bg-muted px-2 py-1 rounded truncate" title={path}>
                 {shortenPath(path)}
               </code>
             </div>
@@ -300,8 +313,8 @@ export const GrepWidget: React.FC<{
               </button>
               
               {isExpanded && (
-                <div className="rounded-lg border bg-background overflow-hidden">
-                  <div className="max-h-[400px] overflow-y-auto">
+                <div className="rounded-lg border bg-background overflow-hidden min-w-0">
+                  <div className="max-h-[400px] overflow-auto">
                     {grepResults.map((match, idx) => {
                       const shortenedPath = shortenPath(match.file);
 
@@ -309,24 +322,26 @@ export const GrepWidget: React.FC<{
                         <div
                           key={idx}
                           className={cn(
-                            "flex items-start gap-3 p-3 border-b border-border hover:bg-muted/50 transition-colors",
+                            "flex min-w-max items-start gap-3 p-3 border-b border-border hover:bg-muted/50 transition-colors",
                             idx === grepResults.length - 1 && "border-b-0"
                           )}
                         >
                           <div className="flex items-center gap-2 min-w-[60px]">
                             <FileText className="h-3.5 w-3.5 text-emerald-500" />
-                            <span className="text-xs font-mono text-emerald-400">
-                              {match.lineNumber}
-                            </span>
+                            {match.lineNumber > 0 && (
+                              <span className="text-xs font-mono text-emerald-400">
+                                {match.lineNumber}
+                              </span>
+                            )}
                           </div>
 
-                          <div className="flex-1 space-y-1 min-w-0">
+                          <div className="space-y-1 min-w-[28rem]">
                             <div className="flex items-center gap-2" title={match.file}>
-                              <span className="text-xs font-medium text-blue-400 truncate">
+                              <span className="max-w-[70ch] truncate text-[11px] font-medium text-blue-400">
                                 {shortenedPath}
                               </span>
                             </div>
-                            <code className="text-xs font-mono text-zinc-300 block whitespace-pre-wrap break-all">
+                            <code className="block whitespace-pre text-[11px] leading-4 font-mono text-zinc-300">
                               {match.content.trim()}
                             </code>
                           </div>
@@ -338,8 +353,8 @@ export const GrepWidget: React.FC<{
               )}
             </>
           ) : hasRawResult ? (
-            <div className="rounded-lg border bg-background overflow-hidden">
-              <pre className="max-h-[400px] overflow-y-auto whitespace-pre-wrap break-words p-3 text-xs font-mono text-muted-foreground">
+            <div className="rounded-lg border bg-background overflow-hidden min-w-0">
+              <pre className="max-h-[400px] overflow-auto whitespace-pre p-3 text-[11px] leading-4 font-mono text-muted-foreground">
                 {resultContent.trim()}
               </pre>
             </div>
