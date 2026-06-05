@@ -183,7 +183,7 @@ export class PtyTermWrap {
   }
 
   fitAndReport(): void {
-    if (!this.container || this.container.offsetWidth <= 0 || this.container.offsetHeight <= 0) {
+    if (this.disposed || !this.container || this.container.offsetWidth <= 0 || this.container.offsetHeight <= 0) {
       return;
     }
     const oldRows = this.terminal.rows;

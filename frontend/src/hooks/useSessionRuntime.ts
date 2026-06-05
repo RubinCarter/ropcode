@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import {
   getSessionRuntime,
   subscribeSessionRuntime,
@@ -12,9 +12,13 @@ const EMPTY_RUNTIME: SessionRuntimeState = {
 };
 
 export function useSessionRuntime(streamId: string | null | undefined): SessionRuntimeState {
-  return useSyncExternalStore(
-    (listener) => (streamId ? subscribeSessionRuntime(streamId, listener) : () => undefined),
-    () => (streamId ? getSessionRuntime(streamId) : EMPTY_RUNTIME),
-    () => EMPTY_RUNTIME,
+  const subscribe = useCallback(
+    (listener: () => void) => (streamId ? subscribeSessionRuntime(streamId, listener) : () => undefined),
+    [streamId],
   );
+  const getSnapshot = useCallback(
+    () => (streamId ? getSessionRuntime(streamId) : EMPTY_RUNTIME),
+    [streamId],
+  );
+  return useSyncExternalStore(subscribe, getSnapshot, () => EMPTY_RUNTIME);
 }

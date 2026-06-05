@@ -14,13 +14,17 @@ type Listener = () => void;
 
 const states = new Map<string, SessionRuntimeState>();
 const listeners = new Map<string, Set<Listener>>();
+const emptyStates = new Map<string, SessionRuntimeState>();
 
 export function getSessionRuntime(streamId: string): SessionRuntimeState {
-  return states.get(streamId) ?? {
-    streamId,
-    connected: false,
-    lastSeq: 0,
-  };
+  const existing = states.get(streamId);
+  if (existing) return existing;
+  let empty = emptyStates.get(streamId);
+  if (!empty) {
+    empty = { streamId, connected: false, lastSeq: 0 };
+    emptyStates.set(streamId, empty);
+  }
+  return empty;
 }
 
 export function setSessionRuntimeConnected(streamId: string, connected: boolean): void {
