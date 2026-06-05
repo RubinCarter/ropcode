@@ -676,8 +676,10 @@ func (m *Manager) InterruptActiveSegment(chatID string) error {
 		}
 	}
 
-	now := time.Now().Unix()
-	return m.db.UpdateChatSegmentStatus(seg.ID, database.SegmentStatusInterrupted, &now)
+	// Interrupting stops the current provider turn, not the ProjectChat segment.
+	// Keeping the segment active lets the next prompt continue the same provider
+	// session/thread instead of treating the chat as a closed segment.
+	return nil
 }
 
 func (m *Manager) GetChat(chatID string) (*ProjectChatDetail, error) {

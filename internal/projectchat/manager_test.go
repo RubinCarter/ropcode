@@ -870,6 +870,33 @@ func TestInterruptActiveSegmentUsesProviderInterrupt(t *testing.T) {
 	if !prov.IsProviderSessionRunningForProject(projectPath, seg.RuntimeSessionID) {
 		t.Fatalf("expected provider runtime to remain alive after interrupt")
 	}
+
+	segAfterInterrupt, err := db.GetChatSegment(created.SegmentID)
+	if err != nil {
+		t.Fatalf("reload segment after interrupt: %v", err)
+	}
+	if segAfterInterrupt.Status != database.SegmentStatusActive {
+		t.Fatalf("expected interrupted turn to keep segment active, got %q", segAfterInterrupt.Status)
+	}
+
+	driver.mu.Lock()
+	startsBeforeNextSend := len(driver.starts)
+	driver.mu.Unlock()
+
+	if _, err := manager.SendMessage(created.ChatID, "continue work", "gpt-5", "", ""); err != nil {
+		t.Fatalf("send after interrupt: %v", err)
+	}
+
+	driver.mu.Lock()
+	startsAfterNextSend := len(driver.starts)
+	sends := append([]string(nil), driver.sends...)
+	driver.mu.Unlock()
+	if startsAfterNextSend != startsBeforeNextSend {
+		t.Fatalf("expected send after interrupt to reuse provider session, starts before=%d after=%d", startsBeforeNextSend, startsAfterNextSend)
+	}
+	if len(sends) < 2 || sends[len(sends)-1] != "continue work" {
+		t.Fatalf("expected continuation prompt to be sent on existing session, got %#v", sends)
+	}
 }
 
 func userHistoryEvent(providerID, sessionID, text string) provider.OutputEvent {
