@@ -240,11 +240,119 @@ func TestHubDiagnosticsAndSubscriberCloseCleanup(t *testing.T) {
 	}
 }
 
+func TestHubAppendDoesNotBlockWhenSubscriberBufferIsFull(t *testing.T) {
+	hub := NewHub()
+	sub := hub.Subscribe("stream-a")
+	defer sub.Close()
+
+	for i := int64(1); i <= subscriberBufferSize; i++ {
+		if err := hub.Append(testFrame("stream-a", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- hub.Append(testFrame("stream-a", subscriberBufferSize+1))
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("append blocked on a full subscriber buffer")
+	}
+
+	if got := hub.Diagnostics("stream-a").QueueLength; got != subscriberBufferSize+1 {
+		t.Fatalf("expected queued frame to be retained, got queue length %d", got)
+	}
+	waitForSubscribers(t, hub, "stream-a", 0)
+}
+
+func TestHubAliasAppendDoesNotBlockWhenVirtualSubscriberBufferIsFull(t *testing.T) {
+	hub := NewHub()
+	hub.RegisterAlias("codex:runtime-1", "project-chat-1")
+	sub := hub.Subscribe("project-chat-1")
+	defer sub.Close()
+
+	for i := int64(1); i <= subscriberBufferSize; i++ {
+		if err := hub.Append(testFrame("codex:runtime-1", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- hub.Append(testFrame("codex:runtime-1", subscriberBufferSize+1))
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("append blocked on a full alias subscriber buffer")
+	}
+
+	if got := hub.Diagnostics("project-chat-1").QueueLength; got != subscriberBufferSize+1 {
+		t.Fatalf("expected alias queue to retain all frames, got %d", got)
+	}
+	waitForSubscribers(t, hub, "project-chat-1", 0)
+}
+
+func TestHubSubscribeDoesNotBlockOnLargeReplay(t *testing.T) {
+	hub := NewHub()
+	total := subscriberBufferSize + 10
+	for i := int64(1); i <= int64(total); i++ {
+		if err := hub.Append(testFrame("stream-a", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	done := make(chan *Subscription, 1)
+	go func() {
+		done <- hub.Subscribe("stream-a")
+	}()
+
+	var sub *Subscription
+	select {
+	case sub = <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("subscribe blocked while replaying a large queue")
+	}
+	defer sub.Close()
+
+	first := receiveFrame(t, sub)
+	if first.Seq != 11 {
+		t.Fatalf("expected replay to start at seq 11, got %d", first.Seq)
+	}
+}
+
 func appendFrames(t *testing.T, hub *Hub, streamID string, seqs ...int64) {
 	t.Helper()
 	for _, seq := range seqs {
 		if err := hub.Append(testFrame(streamID, seq)); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func waitForSubscribers(t *testing.T, hub *Hub, streamID string, want int) {
+	t.Helper()
+	deadline := time.After(2 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("expected %d subscribers for %s, got %d", want, streamID, hub.Diagnostics(streamID).Subscribers)
+		case <-ticker.C:
+			if got := hub.Diagnostics(streamID).Subscribers; got == want {
+				return
+			}
 		}
 	}
 }

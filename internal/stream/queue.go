@@ -46,3 +46,12 @@ func (q *streamQueue) snapshot() []SessionFrame {
 	copy(frames, q.frames)
 	return frames
 }
+
+func (q *streamQueue) snapshotTail(limit int) []SessionFrame {
+	if limit <= 0 || len(q.frames) <= limit {
+		return q.snapshot()
+	}
+	frames := make([]SessionFrame, limit)
+	copy(frames, q.frames[len(q.frames)-limit:])
+	return frames
+}

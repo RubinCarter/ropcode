@@ -26,6 +26,8 @@ type Subscription struct {
 	hub      *Hub
 	streamID string
 	ch       chan SessionFrame
+	mu       sync.Mutex
+	closed   bool
 	once     sync.Once
 }
 
@@ -65,11 +67,11 @@ func (h *Hub) Append(frame SessionFrame) error {
 	h.mu.Unlock()
 
 	for _, sub := range subscribers {
-		sub.ch <- frame
+		sub.deliver(frame)
 	}
 	if aliasID != "" {
 		for _, sub := range aliasSubscribers {
-			sub.ch <- aliasFrame
+			sub.deliver(aliasFrame)
 		}
 	}
 	return nil
@@ -91,7 +93,7 @@ func (h *Hub) AppendVirtual(streamID string, frame SessionFrame) error {
 	h.mu.Unlock()
 
 	for _, sub := range subscribers {
-		sub.ch <- virtualFrame
+		sub.deliver(virtualFrame)
 	}
 	return nil
 }
@@ -126,7 +128,7 @@ func (h *Hub) RegisterAlias(realStreamID, aliasID string) {
 
 	for _, frame := range replay {
 		for _, sub := range aliasSubscribers {
-			sub.ch <- frame
+			sub.deliver(frame)
 		}
 	}
 }
@@ -148,12 +150,15 @@ func (h *Hub) Subscribe(streamID string) *Subscription {
 
 	h.mu.Lock()
 	state := h.stateFor(streamID)
-	replay := state.queue.snapshot()
+	// Full history is loaded through the RPC history APIs. The stream
+	// subscription only needs a bounded live replay so opening an old, busy
+	// stream cannot block before the WebSocket writer starts reading.
+	replay := state.queue.snapshotTail(subscriberBufferSize)
 	state.subscribers[sub] = struct{}{}
 	h.mu.Unlock()
 
 	for _, frame := range replay {
-		sub.ch <- frame
+		sub.deliver(frame)
 	}
 
 	return sub
@@ -205,6 +210,27 @@ func (h *Hub) nextAliasFrame(aliasID string, frame SessionFrame) SessionFrame {
 func (s *Subscription) Close() {
 	s.once.Do(func() {
 		s.hub.unsubscribe(s)
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.closed = true
 		close(s.ch)
 	})
+}
+
+func (s *Subscription) deliver(frame SessionFrame) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	select {
+	case s.ch <- frame:
+		return true
+	default:
+		// A slow or orphaned WebSocket must not block provider output. The
+		// frame is already retained in the hub queue; closing the subscription
+		// lets the client reconnect and replay the bounded tail.
+		go s.Close()
+		return false
+	}
 }

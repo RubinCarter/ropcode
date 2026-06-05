@@ -8,6 +8,7 @@ export interface UseSessionStreamOptions {
   port?: number | string;
   authKey?: string;
   reloadOnRepeatedFailure?: boolean;
+  reconnectDelayMs?: number;
 }
 
 export function useSessionStream(streamId: string | null | undefined, options: UseSessionStreamOptions = {}): void {
@@ -24,18 +25,41 @@ export function useSessionStream(streamId: string | null | undefined, options: U
     }
 
     let connection: SessionStreamConnection | undefined;
+    let reconnectTimer: number | undefined;
+    let stopped = false;
+    const reconnectDelayMs = options.reconnectDelayMs ?? 1000;
     setSessionRuntimeConnected(streamId, false);
 
-    connection = connectSessionStream(port, authKey, streamId, {
-      reloadOnRepeatedFailure: options.reloadOnRepeatedFailure,
-      onFrame: () => setSessionRuntimeConnected(streamId, true),
-      onDisconnect: () => setSessionRuntimeConnected(streamId, false),
-      onError: () => setSessionRuntimeConnected(streamId, false),
-    });
+    const scheduleReconnect = () => {
+      if (stopped) return;
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
+      reconnectTimer = window.setTimeout(connect, reconnectDelayMs);
+    };
+
+    const connect = () => {
+      if (stopped) return;
+      connection = connectSessionStream(port, authKey, streamId, {
+        reloadOnRepeatedFailure: options.reloadOnRepeatedFailure,
+        onFrame: () => setSessionRuntimeConnected(streamId, true),
+        onDisconnect: () => {
+          setSessionRuntimeConnected(streamId, false);
+          scheduleReconnect();
+        },
+        onError: () => setSessionRuntimeConnected(streamId, false),
+      });
+    };
+
+    connect();
 
     return () => {
+      stopped = true;
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
       connection?.close();
       setSessionRuntimeConnected(streamId, false);
     };
-  }, [authKey, enabled, options.reloadOnRepeatedFailure, port, streamId]);
+  }, [authKey, enabled, options.reconnectDelayMs, options.reloadOnRepeatedFailure, port, streamId]);
 }

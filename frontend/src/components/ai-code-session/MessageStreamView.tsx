@@ -9,7 +9,7 @@
  * Virtuoso lifecycle here keeps the parent JSX small and gives us a single
  * place to memoise the per-row callbacks.
  */
-import React, { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { cn } from "@/lib/utils";
 import { StreamMessage } from "../StreamMessage";
@@ -98,6 +98,20 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
         : item.message.uuid || `msg-${item.originalIndex}`,
     [],
   );
+
+  const virtuosoComponents = useMemo(() => ({
+    Header: () => <div className="pt-6" />,
+    Footer: () => (
+      <>
+        {error && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mx-4 max-w-6xl">
+            {error}
+          </div>
+        )}
+        <div className="h-60" />
+      </>
+    ),
+  }), [error]);
 
   const itemContent = useCallback(
     (
@@ -201,20 +215,6 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     ],
   );
 
-  const virtuosoComponents = useMemo(() => ({
-    Header: () => <div className="pt-6" />,
-    Footer: () => (
-      <>
-        {error && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive mx-4 max-w-6xl">
-            {error}
-          </div>
-        )}
-        <div className="h-60" />
-      </>
-    ),
-  }), [error]);
-
   // Wrap items construction in useMemo: deps are stable refs from useMessages internal memoized output,
   // displayableMessageIndexes / subagentProgress only change refs when structuralVersion changes.
   // Under streaming setState storms, this is completely skipped when no structural changes;
@@ -284,14 +284,14 @@ export const MessageStreamView: React.FC<MessageStreamViewProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messagesState.subagentProgress, messagesState.displayableMessageIndexes, isLoading]);
 
-  // Surface the count back to the parent so it can decide whether to render
-  // peripheral chrome (scroll buttons). Only fires when the count actually
-  // changes to avoid an infinite microtask loop.
   const prevItemsCountRef = useRef(0);
-  if (onStreamItemsCountChange && items.length !== prevItemsCountRef.current) {
+  useEffect(() => {
+    if (!onStreamItemsCountChange || items.length === prevItemsCountRef.current) {
+      return;
+    }
     prevItemsCountRef.current = items.length;
-    queueMicrotask(() => onStreamItemsCountChange(items.length));
-  }
+    onStreamItemsCountChange(items.length);
+  }, [items.length, onStreamItemsCountChange]);
 
   return (
     <Virtuoso

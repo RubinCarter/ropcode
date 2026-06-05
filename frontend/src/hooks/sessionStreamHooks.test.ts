@@ -20,6 +20,8 @@ test('session stream hooks are thin useSyncExternalStore adapters', async () => 
 
   assert.match(streamSource, /connectSessionStream/);
   assert.doesNotMatch(streamSource, /useState<.*SessionFrame/s);
+  assert.match(streamSource, /reconnectDelayMs/);
+  assert.match(streamSource, /scheduleReconnect\(\);/);
   assert.match(messagesSource, /useSyncExternalStore/);
   assert.match(messagesSource, /getSessionMessages/);
   assert.match(runtimeSource, /useSyncExternalStore/);
