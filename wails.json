@@ -4,7 +4,7 @@
   "outputfilename": "Ropcode",
   "assetdir": "frontend/dist",
   "frontend:install": "",
-  "frontend:build": "npm run build",
+  "frontend:build": "npm run build:dev",
   "frontend:dev:watcher": "npx vite build --watch --mode development --emptyOutDir false",
   "frontend:dev:serverUrl": "",
   "build:dir": "release",

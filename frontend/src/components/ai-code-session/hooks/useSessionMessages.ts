@@ -549,6 +549,13 @@ export function useSessionMessages(): UseSessionMessagesReturn {
   }, []);
 
   const clearMessages = useCallback(() => {
+    if (flushRafRef.current !== null) {
+      cancelAnimationFrame(flushRafRef.current);
+      flushRafRef.current = null;
+    }
+    deltaBufferRef.current = [];
+    messageQueueRef.current = [];
+    pendingLocalUserMessagesRef.current = 0;
     messagesRef.current = [];
     derivedRef.current = createEmptyDerivedMessagesState();
     setSubagentTranscripts({});

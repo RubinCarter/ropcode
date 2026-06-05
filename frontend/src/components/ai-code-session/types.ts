@@ -67,21 +67,6 @@ export interface AiCodeSessionProps {
    * ProjectChat ID for unified cross-provider chat mode.
    */
   projectChatId?: string;
-  /**
-   * Segments of the ProjectChat for multi-stream message rendering.
-   */
-  projectChatSegments?: Array<{
-    id: string;
-    provider: string;
-    model: string;
-    runtimeSessionId: string;
-    streamId: string;
-    seq: number;
-  }>;
-  /**
-   * Callback when the active ProjectChat segment gets a runtime session id.
-   */
-  onProjectChatSegmentRuntimeSession?: (segmentId: string, runtimeSessionId: string) => void;
 }
 
 /**

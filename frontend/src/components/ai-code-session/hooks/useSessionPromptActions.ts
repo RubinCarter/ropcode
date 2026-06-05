@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { ClearProjectChat, InterruptProjectChat, SendProjectChatMessage } from "@/lib/rpc-client";
 import { maybeWrapFirstMessage } from "@/lib/worktreeHelper";
+import { writeRendererDiagnostic } from "@/lib/rendererDiagnostics";
 import { resetRuntimeTracker } from "../state/runtimeTrackerStore";
 import { classifyPromptSubmit } from "../utils/promptSubmitClassification";
 import type { ClaudeStreamMessage } from "../types";
@@ -65,11 +66,7 @@ export function useSessionPromptActions({
     }
 
     await ClearProjectChat(projectChatId);
-    pendingFreshProviderSessionRef.current = false;
-  }, [
-    pendingFreshProviderSessionRef,
-    projectChatId,
-  ]);
+  }, [projectChatId]);
 
   const handleSendPrompt = useCallback(async (
     prompt: string,
@@ -79,6 +76,7 @@ export function useSessionPromptActions({
     provider?: string,
   ): Promise<boolean> => {
     const activeProvider = provider || defaultProvider;
+
     // Store first prompt for title generation after first round completes
     if (sessionState.isFirstPrompt && prompt.trim().length > 0) {
       firstPromptForTitleRef.current = prompt;
@@ -167,7 +165,18 @@ export function useSessionPromptActions({
       });
 
       trackEvent.modelSelected(model);
-      await SendProjectChatMessage(projectChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
+      const runtimeSessionId = await SendProjectChatMessage(projectChatId, wrappedPrompt, model, providerApiId || undefined, thinkingMode);
+      writeRendererDiagnostic('projectchat-send-runtime', {
+        projectChatId,
+        provider: activeProvider,
+        model,
+        runtimeSessionId,
+        streamId: projectChatId,
+      });
+      if (runtimeSessionId) {
+        processState.setInteractiveSessionId(runtimeSessionId);
+        processState.interactiveSessionIdRef.current = runtimeSessionId;
+      }
 
       // Clear pending flag after init message arrives
       setTimeout(() => {
@@ -178,6 +187,12 @@ export function useSessionPromptActions({
     } catch (err) {
       console.error('[AiCodeSession] Failed to send prompt:', err);
       const errorMessage = err instanceof Error ? err.message : String(err);
+      writeRendererDiagnostic('projectchat-send-failed', {
+        projectChatId,
+        provider: activeProvider,
+        model,
+        error: errorMessage,
+      });
       setError(`Failed to send prompt: ${errorMessage}`);
       processState.setIsLoading(false);
       processState.setIsPendingSend(false);

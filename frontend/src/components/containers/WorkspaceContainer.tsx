@@ -542,7 +542,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             defaultProvider={tab.providerId}
             skipSessionRestore={tab.skipSessionRestore}
             projectChatId={tab.projectChatId}
-            projectChatSegments={tab.projectChatSegments}
             onBack={handleBack}
             onStreamingChange={(isStreaming, sessionId) => handleStreamingChange(tab.id, isStreaming, sessionId)}
             onProcessAliveChange={(isAlive) => handleProcessAliveChange(tab.id, isAlive)}
@@ -550,16 +549,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
             onProviderChange={handleProviderChange}
             onSessionTitleGenerated={(title) => updateTab(tab.id, { title })}
             onSessionActivityComplete={(sessionId) => handleSessionActivityComplete(tab.id, sessionId)}
-            onProjectChatSegmentRuntimeSession={(segmentId, runtimeSessionId) => {
-              updateTab(tab.id, {
-                sessionId: runtimeSessionId,
-                projectChatSegments: (tab.projectChatSegments || []).map((segment) =>
-                  segment.id === segmentId
-                    ? { ...segment, runtimeSessionId }
-                    : segment
-                ),
-              });
-            }}
           />
         );
 

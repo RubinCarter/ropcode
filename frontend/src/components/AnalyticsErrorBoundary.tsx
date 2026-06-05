@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { eventBuilders, analytics } from '@/lib/analytics';
+import { writeRendererErrorDiagnostic } from '@/lib/rendererDiagnostics';
 
 interface Props {
   children: ReactNode;
@@ -40,6 +41,7 @@ export class AnalyticsErrorBoundary extends Component<Props, State> {
       error.stack || error.message,
       errorInfo.componentStack,
     ]);
+    writeRendererErrorDiagnostic('analytics-error-boundary-detail', error, errorInfo);
   }
 
   reset = () => {

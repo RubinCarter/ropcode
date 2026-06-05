@@ -45,7 +45,7 @@ go build -tags server -o bin/ropcode-server .
 # Ensure frontend/dist exists for initial load
 if [ ! -f "frontend/dist/index.html" ]; then
   echo "[dev-wails] Building frontend for first run..."
-  (cd frontend && npm run build)
+  (cd frontend && npm run build:dev)
 fi
 
 # wails dev handles:

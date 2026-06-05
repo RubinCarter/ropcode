@@ -99,7 +99,6 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
               defaultProvider={tab.providerId || "claude"}
               skipSessionRestore={tab.skipSessionRestore}
               projectChatId={tab.projectChatId}
-              projectChatSegments={tab.projectChatSegments}
               onBack={() => {
                 // Close current tab - projects are in sidebar
                 closeTab(tab.id);
@@ -108,16 +107,6 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
                 // Don't update tab title - keep it as "Chat"
               }}
               onProviderChange={handleProviderChange}
-              onProjectChatSegmentRuntimeSession={(segmentId, runtimeSessionId) => {
-                updateTab(tab.id, {
-                  sessionId: runtimeSessionId,
-                  projectChatSegments: (tab.projectChatSegments || []).map((segment) =>
-                    segment.id === segmentId
-                      ? { ...segment, runtimeSessionId }
-                      : segment
-                  ),
-                });
-              }}
             />
           </div>
         );
@@ -340,8 +329,7 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
            prevProps.isActive === nextProps.isActive &&
            prevProps.tab.sessionData?.id === nextProps.tab.sessionData?.id &&
            prevProps.tab.providerId === nextProps.tab.providerId &&
-           prevProps.tab.projectChatId === nextProps.tab.projectChatId &&
-           prevProps.tab.projectChatSegments?.length === nextProps.tab.projectChatSegments?.length;
+           prevProps.tab.projectChatId === nextProps.tab.projectChatId;
   }
 });
 

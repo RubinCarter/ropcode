@@ -27,6 +27,8 @@ export interface WSMessage {
 
 type EventHandler = (payload: any) => void;
 type PendingRequest = {
+  method: string;
+  params: any[];
   resolve: (value: any) => void;
   reject: (reason: any) => void;
   timeoutId?: ReturnType<typeof setTimeout>;
@@ -351,7 +353,15 @@ class WSRpcClient {
           this.pending.delete(id);
           if (pending.timeoutId) clearTimeout(pending.timeoutId);
           if (error) {
-            pending.reject(new Error(error));
+            window.electronAPI?.writeRendererLog?.('error', 'rpc-response-error', [
+              JSON.stringify({
+                id,
+                method: pending.method,
+                params: pending.params,
+                error,
+              }, null, 2),
+            ]);
+            pending.reject(new Error(`${pending.method}: ${error}`));
           } else {
             pending.resolve(result);
           }
@@ -412,7 +422,7 @@ class WSRpcClient {
     };
 
     return new Promise((resolve, reject) => {
-      const pending: PendingRequest = { resolve, reject };
+      const pending: PendingRequest = { method, params, resolve, reject };
       this.pending.set(id, pending);
 
       // Set timeout (default 30s)

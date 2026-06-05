@@ -2,6 +2,7 @@ import React, { Component, ReactNode } from "react";
 import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { writeRendererErrorDiagnostic } from "@/lib/rendererDiagnostics";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -34,6 +35,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       error.stack || error.message,
       errorInfo.componentStack,
     ]);
+    writeRendererErrorDiagnostic('react-error-boundary-detail', error, errorInfo);
   }
 
   reset = () => {

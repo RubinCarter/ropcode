@@ -61,8 +61,12 @@ const pathUtilsModule = process.platform === 'win32'
   : path.resolve(__dirname, './src/lib/pathUtils.ts')
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: './', // 使用相对路径，以便在 Electron file:// 协议下正确加载资源
+  build: {
+    sourcemap: mode === 'development',
+    minify: mode === 'development' ? false : 'esbuild',
+  },
   server: {
     port: 5174,
     strictPort: false,
@@ -158,4 +162,4 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
-})
+}))

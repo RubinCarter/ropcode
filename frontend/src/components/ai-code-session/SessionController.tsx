@@ -16,7 +16,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { type FloatingPromptInputRef } from "../FloatingPromptInput";
-import { TooltipProvider } from "@/components/ui/tooltip-modern";
 import { WebviewPreview } from "../WebviewPreview";
 import { type VirtuosoHandle } from "react-virtuoso";
 import { useTrackEvent, useComponentMetrics, useWorkflowTracking, useSubagentTranscriptSync } from "@/hooks";
@@ -32,6 +31,7 @@ import { SessionLayoutChrome } from "./layout/SessionLayoutChrome";
 import { CopyConversationMenu } from "./composer/CopyConversationMenu";
 import { LoadProjectChatHistory } from "@/lib/rpc-client";
 import { EventsOn } from "@/lib/rpc-events";
+import { writeRendererDiagnostic } from "@/lib/rendererDiagnostics";
 import { clearSessionFrames, mergeSessionFrames } from "@/stores/sessionFrameStore";
 import { clearSessionRuntime } from "@/stores/sessionRuntimeStore";
 import { resolveSessionProvider } from "@/lib/session-frame/provider";
@@ -61,6 +61,7 @@ import {
 
 const streamingViewportIncrease = { top: 100, bottom: 250 };
 const idleViewportIncrease = { top: 300, bottom: 600 };
+const projectChatHistoryBackfillIntervalMs = 3000;
 
 function streamIdForRuntimeSession(provider: string, runtimeSessionId?: string | null): string | null {
   if (!runtimeSessionId) {
@@ -72,6 +73,8 @@ function streamIdForRuntimeSession(provider: string, runtimeSessionId?: string |
 interface ProjectChatClearedEvent {
   chat_id?: string;
   stream_id?: string;
+  segment_id?: string;
+  previous_segment_id?: string;
 }
 
 /**
@@ -93,8 +96,6 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   onSessionTitleGenerated,
   onSessionActivityComplete,
   projectChatId,
-  projectChatSegments,
-  onProjectChatSegmentRuntimeSession,
 }) => {
   // ==================================================================
   // REFS (Must be declared before hooks that use them)
@@ -117,6 +118,8 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   ) => Promise<boolean>>(async () => false);
   const sessionRef = useRef(session);
   sessionRef.current = session;
+  const lastHandledClearEventRef = useRef<string | null>(null);
+  const clearResetQueuedRef = useRef(false);
   // ==================================================================
 
   useEffect(() => {
@@ -133,13 +136,6 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
 
   // Messages state
   const messagesState = useSessionMessages();
-
-  const activeProjectChatSegment = React.useMemo(() => {
-    if (!projectChatSegments || projectChatSegments.length === 0) {
-      return undefined;
-    }
-    return projectChatSegments[projectChatSegments.length - 1];
-  }, [projectChatSegments]);
 
   // Process state
   const processState = useProcessState({
@@ -226,22 +222,13 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     ? projectChatId
     : streamIdForRuntimeSession(defaultProvider, processState.interactiveSessionId || sessionState.extractedSessionInfo?.runtimeSessionId);
 
-  useEffect(() => {
-    if (!activeProjectChatSegment || !processState.interactiveSessionId) {
-      return;
-    }
-    if (activeProjectChatSegment.runtimeSessionId === processState.interactiveSessionId) {
-      return;
-    }
-    onProjectChatSegmentRuntimeSession?.(activeProjectChatSegment.id, processState.interactiveSessionId);
-  }, [
-    activeProjectChatSegment,
-    onProjectChatSegmentRuntimeSession,
-    processState.interactiveSessionId,
-  ]);
-
   const frameRuntimeState = useSessionRuntime(activeStreamId);
   const loadingStartedFrameSeqRef = useRef<{ streamId: string | null; seq: number } | null>(null);
+  const mergeProjectChatHistory = useCallback(async (chatId: string, shouldMerge: () => boolean = () => true) => {
+    const allFrames = await LoadProjectChatHistory(chatId);
+    if (!shouldMerge() || !allFrames || !Array.isArray(allFrames) || allFrames.length === 0) return;
+    mergeSessionFrames(chatId, allFrames);
+  }, []);
 
   // ProjectChat renders the project chat stream. Provider segments remain a backend detail.
   useEffect(() => {
@@ -250,16 +237,35 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     let cancelled = false;
     (async () => {
       try {
-        const allFrames = await LoadProjectChatHistory(projectChatId);
-        if (cancelled || !allFrames || !Array.isArray(allFrames) || allFrames.length === 0) return;
-        mergeSessionFrames(projectChatId, allFrames);
+        await mergeProjectChatHistory(projectChatId, () => !cancelled);
       } catch (err) {
         console.warn('[SessionController] Failed to load ProjectChat history:', err);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [projectChatId]);
+  }, [mergeProjectChatHistory, projectChatId]);
+
+  useEffect(() => {
+    if (!projectChatId || !processState.isLoading) return;
+
+    let cancelled = false;
+    const backfill = async () => {
+      try {
+        await mergeProjectChatHistory(projectChatId, () => !cancelled);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[SessionController] Failed to backfill ProjectChat history:', err);
+        }
+      }
+    };
+
+    const interval = window.setInterval(backfill, projectChatHistoryBackfillIntervalMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [mergeProjectChatHistory, processState.isLoading, projectChatId]);
 
   const terminalFrameRuntimePhase = frameRuntimeState.runtime?.phase;
   const terminalFrameRuntime =
@@ -351,6 +357,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const [isRecoveringHistory, setIsRecoveringHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSlashCommandsSettings, setShowSlashCommandsSettings] = useState(false);
+  const [clearResetEpoch, setClearResetEpoch] = useState(0);
   const previewState = useSessionPreview();
   const [isScrollPaused, setIsScrollPaused] = useState(false);
   // SubagentProgressPanel(s) now manage their own expanded state internally
@@ -372,30 +379,51 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     const off = EventsOn('projectchat:cleared', (event: ProjectChatClearedEvent) => {
       const clearedChatId = event?.chat_id || event?.stream_id;
       if (clearedChatId !== projectChatId) return;
+      const clearEventKey = `${clearedChatId}:${event?.segment_id || ''}:${event?.previous_segment_id || ''}`;
+      if (lastHandledClearEventRef.current === clearEventKey) return;
+      lastHandledClearEventRef.current = clearEventKey;
+      if (clearResetQueuedRef.current) return;
+      clearResetQueuedRef.current = true;
 
-      clearSessionFrames(projectChatId);
-      clearSessionRuntime(projectChatId);
-      messagesState.clearMessages();
-      sessionState.setClaudeSessionId(null);
-      sessionState.setExtractedSessionInfo(null);
-      sessionState.setIsFirstPrompt(true);
-      metricsState.resetMetrics();
-      processState.setIsLoading(false);
-      processState.setIsPendingSend(false);
-      processState.setInteractiveSessionId(null);
-      processState.hasActiveSessionRef.current = false;
-      queueState.clearQueue();
-      setError(null);
+      writeRendererDiagnostic('projectchat-clear-reset-applied', {
+        event,
+        projectChatId,
+        messageCount: messagesState.messages.length,
+        isLoading: processState.isLoading,
+        isPendingSend: processState.isPendingSend,
+        interactiveSessionId: processState.interactiveSessionId,
+        queuedPrompts: queueState.queuedPrompts.length,
+      });
+
+      queueMicrotask(() => {
+        clearSessionFrames(projectChatId);
+        clearSessionRuntime(projectChatId);
+        messagesState.clearMessages();
+        queueState.clearQueue();
+        processState.setIsLoading(false);
+        processState.setIsPendingSend(false);
+        processState.setInteractiveSessionId(null);
+        processState.hasActiveSessionRef.current = false;
+        processState.interactiveSessionIdRef.current = null;
+        setError(null);
+        setExpandedSubagentIds(new Set());
+        setExpandedMessageCards(new Set());
+        setIsScrollPaused(false);
+        streamItemsCountRef.current = 0;
+        setStreamItemsCount(0);
+        setClearResetEpoch((epoch) => epoch + 1);
+        clearResetQueuedRef.current = false;
+      });
     });
 
-    return off;
+    return () => {
+      off();
+    };
   }, [
     messagesState,
-    metricsState,
     processState,
     projectChatId,
     queueState,
-    sessionState,
     setError,
   ]);
   const { handleSendPrompt, handleCancelExecution } = useSessionPromptActions({
@@ -552,14 +580,21 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
 
   const streamItemsCountRef = useRef(0);
   const [streamItemsCount, setStreamItemsCount] = useState(0);
+  const atBottomRef = useRef(true);
   const handleStreamItemsCountChange = useCallback((count: number) => {
     if (streamItemsCountRef.current === count) return;
     streamItemsCountRef.current = count;
     setStreamItemsCount(count);
   }, []);
+  const handleAtBottomChange = useCallback((isAtBottom: boolean) => {
+    if (atBottomRef.current === isAtBottom) return;
+    atBottomRef.current = isAtBottom;
+    setAtBottom(isAtBottom);
+  }, []);
 
   const messagesList = (
     <SessionMessagePane
+      key={clearResetEpoch}
       messagesState={messagesState}
       isLoading={processState.isLoading}
       virtuosoRef={virtuosoRef}
@@ -568,7 +603,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
       streamingViewportIncrease={streamingViewportIncrease}
       idleViewportIncrease={idleViewportIncrease}
       followOutput={followOutput}
-      setAtBottom={setAtBottom}
+      setAtBottom={handleAtBottomChange}
       expandedSubagentIds={expandedSubagentIds}
       setExpandedSubagentIds={setExpandedSubagentIds}
       expandedMessageCards={expandedMessageCards}
@@ -610,7 +645,6 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   }
 
   return (
-    <TooltipProvider>
       <SessionStreamProvider streamId={activeStreamId}>
       <div className={cn("relative flex flex-col h-full bg-background", className)}>
         <div className="w-full h-full flex flex-col">
@@ -654,6 +688,5 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
         </div>
       </div>
       </SessionStreamProvider>
-    </TooltipProvider>
   );
 };
