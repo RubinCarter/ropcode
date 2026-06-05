@@ -9,6 +9,14 @@ import { WorkspaceTabManager } from './WorkspaceTabManager';
 import type { ProviderSessionSummary } from '@/lib/api';
 import * as rpcClient from '@/lib/rpc-client';
 import { projectChatExistingSessionId, projectChatSegmentFromSwitchResult } from '@/lib/projectChatSession';
+import { useProjectChatSegments } from '@/hooks/useProjectChatSegments';
+import {
+  getProjectChatSegments,
+  setProjectChatSegments,
+  updateProjectChatSegmentRuntimeSession,
+  upsertProjectChatSegment,
+  type ProjectChatSegment,
+} from '@/stores/projectChatSegmentStore';
 import { useTranslation } from 'react-i18next';
 
 // Lazy load heavy components
@@ -41,13 +49,12 @@ const getHistoricalSessionTitle = (session: ProviderSessionSummary) => {
   return `${session.provider} session`;
 };
 
-type WorkspaceProjectChatSegment = NonNullable<WorkspaceTab['projectChatSegments']>[number];
-
 interface WorkspaceProjectChatSeed {
   chatId: string;
   providerId: string;
   sessionId?: string;
-  segment: WorkspaceProjectChatSegment;
+  segment: ProjectChatSegment;
+  segments: ProjectChatSegment[];
   restoredExisting: boolean;
 }
 
@@ -63,10 +70,13 @@ async function ensureProjectChatForHistoricalSession(
     '',
     projectChatExistingSessionId(session),
   );
+  const segment = projectChatSegmentFromSwitchResult(chat, session.provider, model, 0);
+  const segments = await hydrateProjectChatSegments(chat.chat_id, segment, session.provider);
 
   return {
     chat,
-    segment: projectChatSegmentFromSwitchResult(chat, session.provider, model, 0),
+    segment: segments.find(item => item.id === chat.segment_id) || segment,
+    segments,
   };
 }
 
@@ -85,10 +95,13 @@ async function ensureProjectChatForTabSession(
     session ? projectChatExistingSessionId(session) : '',
     forceNew,
   );
+  const segment = projectChatSegmentFromSwitchResult(chat, providerId, model, 0);
+  const segments = await hydrateProjectChatSegments(chat.chat_id, segment, providerId);
 
   return {
     chat,
-    segment: projectChatSegmentFromSwitchResult(chat, providerId, model, 0),
+    segment: segments.find(item => item.id === chat.segment_id) || segment,
+    segments,
   };
 }
 
@@ -96,7 +109,7 @@ function projectChatSegmentFromStoredSegment(
   chatId: string,
   segment: rpcClient.ChatSegment,
   fallbackProvider: string,
-): WorkspaceProjectChatSegment {
+): ProjectChatSegment {
   return {
     id: segment.id,
     provider: segment.provider || fallbackProvider,
@@ -107,6 +120,30 @@ function projectChatSegmentFromStoredSegment(
   };
 }
 
+function projectChatSegmentsFromStoredSegments(
+  chatId: string,
+  segments: rpcClient.ChatSegment[],
+  fallbackProvider: string,
+): ProjectChatSegment[] {
+  return segments.map(segment => projectChatSegmentFromStoredSegment(chatId, segment, fallbackProvider));
+}
+
+async function hydrateProjectChatSegments(
+  chatId: string,
+  fallbackSegment: ProjectChatSegment,
+  fallbackProvider: string,
+): Promise<ProjectChatSegment[]> {
+  const detail = await rpcClient.GetProjectChat(chatId);
+  const segments = projectChatSegmentsFromStoredSegments(
+    chatId,
+    detail.segments,
+    detail.chat.active_provider || fallbackProvider,
+  );
+  const nextSegments = segments.length > 0 ? segments : [fallbackSegment];
+  setProjectChatSegments(chatId, nextSegments);
+  return nextSegments;
+}
+
 async function loadActiveProjectChatForWorkspace(spacePath: string): Promise<WorkspaceProjectChatSeed | null> {
   const activeChat = await rpcClient.GetActiveChatForProject(spacePath);
   if (!activeChat?.id) {
@@ -114,6 +151,12 @@ async function loadActiveProjectChatForWorkspace(spacePath: string): Promise<Wor
   }
 
   const detail = await rpcClient.GetProjectChat(activeChat.id);
+  const segments = projectChatSegmentsFromStoredSegments(
+    activeChat.id,
+    detail.segments,
+    activeChat.active_provider || 'claude',
+  );
+  setProjectChatSegments(activeChat.id, segments);
   const activeSegment = detail.segments.find(segment => segment.id === activeChat.active_segment_id)
     || detail.segments[detail.segments.length - 1];
   if (!activeSegment) {
@@ -131,6 +174,7 @@ async function loadActiveProjectChatForWorkspace(spacePath: string): Promise<Wor
     providerId: segment.provider,
     sessionId: segment.runtimeSessionId || undefined,
     segment,
+    segments,
     restoredExisting: true,
   };
 }
@@ -147,9 +191,61 @@ async function getInitialProjectChatForWorkspace(spacePath: string): Promise<Wor
     providerId: projectChat.segment.provider || 'claude',
     sessionId: projectChat.chat.runtime_session_id || undefined,
     segment: projectChat.segment,
+    segments: projectChat.segments,
     restoredExisting: false,
   };
 }
+
+interface WorkspaceChatSessionProps {
+  tab: WorkspaceTab;
+  onBack: () => void;
+  onStreamingChange: (tabId: string, isStreaming: boolean, sessionId?: string | null) => void;
+  onProcessAliveChange: (tabId: string, isAlive: boolean) => void;
+  onProjectPathChange: (path: string) => void;
+  onProviderChange: (providerId: string) => void;
+  onSessionTitleGenerated: (tabId: string, title: string) => void;
+  onSessionActivityComplete: (tabId: string, sessionId?: string | null) => void;
+  updateTab: ReturnType<typeof useWorkspaceTabContext>['updateTab'];
+}
+
+const WorkspaceChatSession: React.FC<WorkspaceChatSessionProps> = ({
+  tab,
+  onBack,
+  onStreamingChange,
+  onProcessAliveChange,
+  onProjectPathChange,
+  onProviderChange,
+  onSessionTitleGenerated,
+  onSessionActivityComplete,
+  updateTab,
+}) => {
+  const projectChatSegments = useProjectChatSegments(tab.projectChatId);
+
+  return (
+    <AiCodeSession
+      key={`${tab.id}-${tab.sessionResetNonce ?? 0}`}
+      session={tab.sessionData}
+      initialProjectPath={tab.projectPath}
+      defaultProvider={tab.providerId}
+      skipSessionRestore={tab.skipSessionRestore}
+      projectChatId={tab.projectChatId}
+      projectChatSegments={projectChatSegments}
+      onBack={onBack}
+      onStreamingChange={(isStreaming, sessionId) => onStreamingChange(tab.id, isStreaming, sessionId)}
+      onProcessAliveChange={(isAlive) => onProcessAliveChange(tab.id, isAlive)}
+      onProjectPathChange={onProjectPathChange}
+      onProviderChange={onProviderChange}
+      onSessionTitleGenerated={(title) => onSessionTitleGenerated(tab.id, title)}
+      onSessionActivityComplete={(sessionId) => onSessionActivityComplete(tab.id, sessionId)}
+      onProjectChatSegmentRuntimeSession={(segmentId, runtimeSessionId) => {
+        if (tab.projectChatId) {
+          updateProjectChatSegmentRuntimeSession(tab.projectChatId, segmentId, runtimeSessionId);
+        }
+        updateTab(tab.id, { sessionId: runtimeSessionId });
+      }}
+    />
+  );
+};
 
 const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) => {
   const { tabs, activeTabId, addTab, updateTab, removeTab, getTabById, setActiveTab } = useWorkspaceTabContext();
@@ -197,7 +293,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         projectPath: workspaceId,
         providerId: 'claude',
         projectChatId: projectChat.chat.chat_id,
-        projectChatSegments: [projectChat.segment],
         status: 'idle',
         hasUnsavedChanges: false,
         icon: 'message-square',
@@ -221,7 +316,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         projectPath: workspaceId,
         providerId: session.provider,
         projectChatId: projectChat.chat.chat_id,
-        projectChatSegments: [projectChat.segment],
         status: session.is_running ? 'running' : 'idle',
         hasUnsavedChanges: false,
         icon: 'message-square',
@@ -240,7 +334,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
       projectPath: workspaceId,
       providerId: projectChat.providerId,
       projectChatId: projectChat.chatId,
-      projectChatSegments: [projectChat.segment],
       status: 'idle',
       hasUnsavedChanges: false,
       icon: 'message-square',
@@ -282,7 +375,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
 
             const restoredProjectChat = await ensureProjectChatForHistoricalSession(workspaceId, selectedSession);
             let nextProjectChatId = restoredProjectChat.chat.chat_id;
-            let nextProjectChatSegments = [restoredProjectChat.segment];
+            let nextSegments = restoredProjectChat.segments;
             let nextSessionId = selectedSession.id;
 
             if (initialTab?.projectChatId && initialTab.providerId !== selectedSession.provider) {
@@ -295,9 +388,10 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
                 result,
                 selectedSession.provider,
                 selectedSession.model || '',
-                nextProjectChatSegments.length
+                nextSegments.length
               );
-              nextProjectChatSegments = [...nextProjectChatSegments, newSegment];
+              nextSegments = [...nextSegments, newSegment];
+              setProjectChatSegments(nextProjectChatId, nextSegments);
               nextSessionId = result.runtime_session_id || selectedSession.id;
             } else {
               nextSessionId = restoredProjectChat.chat.runtime_session_id || selectedSession.id;
@@ -308,7 +402,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
               sessionId: nextSessionId,
               sessionData: selectedSession,
               projectChatId: nextProjectChatId,
-              projectChatSegments: nextProjectChatSegments,
               allowProjectChatRebind: true,
             });
           }
@@ -346,17 +439,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     }
   }, [updateTab]);
 
-  const getProjectChatForTab = useCallback((tab: typeof tabs[number]) => {
-    if (tab.projectChatId && tab.projectChatSegments?.length) {
-      return {
-        chatId: tab.projectChatId,
-        segments: tab.projectChatSegments,
-        sessionId: tab.sessionId,
-      };
-    }
-    return null;
-  }, []);
-
   const handleProviderChange = useCallback(async (providerId: string) => {
     const tabId = activeTabIdRef.current;
     const tab = tabId ? getTabById(tabId) : undefined;
@@ -367,8 +449,7 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     }
 
     try {
-      const projectChat = getProjectChatForTab(tab);
-      if (!projectChat) {
+      if (!tab.projectChatId) {
         console.warn('[WorkspaceContainer] ProjectChat is not ready for provider change');
         return;
       }
@@ -378,29 +459,32 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         return;
       }
       const currentModel = tab.sessionData?.model || '';
+      let currentSegments = getProjectChatSegments(tab.projectChatId);
+      if (currentSegments.length === 0) {
+        const detail = await rpcClient.GetProjectChat(tab.projectChatId);
+        currentSegments = projectChatSegmentsFromStoredSegments(
+          tab.projectChatId,
+          detail.segments,
+          detail.chat.active_provider || tab.providerId || 'claude',
+        );
+        setProjectChatSegments(tab.projectChatId, currentSegments);
+      }
       const result = await rpcClient.SwitchProjectChatProvider(
-        projectChat.chatId, providerId, currentModel
+        tab.projectChatId, providerId, currentModel
       );
 
-      const newSegment = {
-        id: result.segment_id,
-        provider: result.provider,
-        model: result.model,
-        runtimeSessionId: result.runtime_session_id,
-        streamId: result.stream_id,
-        seq: projectChat.segments.length,
-      };
+      const newSegment = projectChatSegmentFromSwitchResult(result, providerId, currentModel, currentSegments.length);
+      upsertProjectChatSegment(tab.projectChatId, newSegment);
 
       updateTab(tabId, {
         providerId,
         sessionId: result.runtime_session_id,
-        projectChatId: projectChat.chatId,
-        projectChatSegments: [...projectChat.segments, newSegment],
+        projectChatId: tab.projectChatId,
       });
     } catch (err) {
       console.error('[WorkspaceContainer] Failed to change provider:', err);
     }
-  }, [getProjectChatForTab, updateTab, getTabById]);
+  }, [updateTab, getTabById]);
 
   const handleBack = useCallback(() => {
     // Chat tab doesn't have a back button, this is a no-op
@@ -446,7 +530,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         projectPath: spacePath,
         providerId: session.provider,
         projectChatId: projectChat.chat.chat_id,
-        projectChatSegments: [projectChat.segment],
         status: session.is_running ? 'running' : 'idle',
         hasUnsavedChanges: false,
         icon: 'message-square',
@@ -502,7 +585,6 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
         projectPath: spacePath,
         providerId: 'claude',
         projectChatId: projectChat.chat.chat_id,
-        projectChatSegments: [projectChat.segment],
         status: 'idle',
         hasUnsavedChanges: false,
         icon: 'message-square',
@@ -535,20 +617,16 @@ const WorkspaceContent: React.FC<{ workspaceId: string }> = ({ workspaceId }) =>
     switch (tab.type) {
       case 'chat':
         return (
-            <AiCodeSession
-            key={`${tab.id}-${tab.sessionResetNonce ?? 0}`}
-            session={tab.sessionData}
-            initialProjectPath={tab.projectPath}
-            defaultProvider={tab.providerId}
-            skipSessionRestore={tab.skipSessionRestore}
-            projectChatId={tab.projectChatId}
+          <WorkspaceChatSession
+            tab={tab}
             onBack={handleBack}
-            onStreamingChange={(isStreaming, sessionId) => handleStreamingChange(tab.id, isStreaming, sessionId)}
-            onProcessAliveChange={(isAlive) => handleProcessAliveChange(tab.id, isAlive)}
+            onStreamingChange={handleStreamingChange}
+            onProcessAliveChange={handleProcessAliveChange}
             onProjectPathChange={handleProjectPathChange}
             onProviderChange={handleProviderChange}
-            onSessionTitleGenerated={(title) => updateTab(tab.id, { title })}
-            onSessionActivityComplete={(sessionId) => handleSessionActivityComplete(tab.id, sessionId)}
+            onSessionTitleGenerated={(tabId, title) => updateTab(tabId, { title })}
+            onSessionActivityComplete={handleSessionActivityComplete}
+            updateTab={updateTab}
           />
         );
 

@@ -9,6 +9,9 @@ const classifierPath = path.resolve(currentDir, './promptSubmitClassification.ts
 const sessionControllerPath = path.resolve(currentDir, '../SessionController.tsx');
 const sessionPromptActionsPath = path.resolve(currentDir, '../hooks/useSessionPromptActions.ts');
 const workspaceContainerPath = path.resolve(currentDir, '../../containers/WorkspaceContainer.tsx');
+const tabContextPath = path.resolve(currentDir, '../../../contexts/TabContext.tsx');
+const workspaceTabContextPath = path.resolve(currentDir, '../../../contexts/WorkspaceTabContext.tsx');
+const projectChatSegmentStorePath = path.resolve(currentDir, '../../../stores/projectChatSegmentStore.ts');
 const tooltipModernPath = path.resolve(currentDir, '../../ui/tooltip-modern.tsx');
 const messageStreamViewPath = path.resolve(currentDir, '../MessageStreamView.tsx');
 const wsRpcClientPath = path.resolve(currentDir, '../../../lib/ws-rpc-client.ts');
@@ -27,6 +30,18 @@ async function readSessionPromptActionsSource() {
 
 async function readWorkspaceContainerSource() {
   return readFile(workspaceContainerPath, 'utf8');
+}
+
+async function readTabContextSource() {
+  return readFile(tabContextPath, 'utf8');
+}
+
+async function readWorkspaceTabContextSource() {
+  return readFile(workspaceTabContextPath, 'utf8');
+}
+
+async function readProjectChatSegmentStoreSource() {
+  return readFile(projectChatSegmentStorePath, 'utf8');
 }
 
 async function readTooltipModernSource() {
@@ -118,15 +133,24 @@ test('ProjectChat clear event applies frontend reset without hiding the message 
   assert.doesNotMatch(sessionSource, /clearResetTimeoutRef/);
 });
 
-test('ProjectChat session runtime depends only on stable projectChatId', async () => {
+test('ProjectChat segments are kept outside tab and workspace state', async () => {
   const sessionSource = await readAiCodeSessionSource();
   const workspaceSource = await readWorkspaceContainerSource();
+  const tabContextSource = await readTabContextSource();
+  const workspaceTabContextSource = await readWorkspaceTabContextSource();
+  const storeSource = await readProjectChatSegmentStoreSource();
 
-  assert.doesNotMatch(sessionSource, /projectChatSegments/);
-  assert.doesNotMatch(sessionSource, /onProjectChatSegmentRuntimeSession/);
-  assert.doesNotMatch(sessionSource, /activeProjectChatSegment/);
+  assert.match(sessionSource, /projectChatSegments,/);
+  assert.match(sessionSource, /onProjectChatSegmentRuntimeSession/);
+  assert.match(sessionSource, /activeProjectChatSegment/);
+  assert.match(storeSource, /projectChatSegmentsByChatId/);
+  assert.match(storeSource, /export function setProjectChatSegments/);
+  assert.match(storeSource, /export function updateProjectChatSegmentRuntimeSession/);
+  assert.doesNotMatch(tabContextSource, /projectChatSegments\?:/);
+  assert.doesNotMatch(workspaceTabContextSource, /projectChatSegments\?:/);
+  assert.doesNotMatch(workspaceSource, /projectChatSegments: \[/);
+  assert.doesNotMatch(workspaceSource, /projectChatSegments: \[\.\.\./);
   assert.doesNotMatch(workspaceSource, /projectChatSegments=\{tab\.projectChatSegments\}/);
-  assert.doesNotMatch(workspaceSource, /onProjectChatSegmentRuntimeSession=/);
   assert.doesNotMatch(workspaceSource, /onProjectChatCleared=/);
 });
 
@@ -139,7 +163,6 @@ test('ProjectChat message stream is keyed only by projectChatId', async () => {
   assert.match(source, /projectChatHistoryBackfillIntervalMs/);
   assert.match(source, /window\.setInterval\(backfill, projectChatHistoryBackfillIntervalMs\)/);
   assert.match(source, /\}, \[mergeProjectChatHistory, processState\.isLoading, projectChatId\]\);/);
-  assert.doesNotMatch(source, /projectChatSegments\?\.length\]\);/);
   assert.doesNotMatch(source, /activeRuntimeSessionId: projectChatId/);
 });
 

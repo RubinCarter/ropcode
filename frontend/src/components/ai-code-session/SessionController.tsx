@@ -34,6 +34,7 @@ import { EventsOn } from "@/lib/rpc-events";
 import { writeRendererDiagnostic } from "@/lib/rendererDiagnostics";
 import { clearSessionFrames, mergeSessionFrames } from "@/stores/sessionFrameStore";
 import { clearSessionRuntime } from "@/stores/sessionRuntimeStore";
+import { upsertProjectChatSegment, getProjectChatSegments } from "@/stores/projectChatSegmentStore";
 import { resolveSessionProvider } from "@/lib/session-frame/provider";
 
 // Import refactored hooks and types
@@ -96,6 +97,8 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   onSessionTitleGenerated,
   onSessionActivityComplete,
   projectChatId,
+  projectChatSegments,
+  onProjectChatSegmentRuntimeSession,
 }) => {
   // ==================================================================
   // REFS (Must be declared before hooks that use them)
@@ -120,6 +123,8 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   sessionRef.current = session;
   const lastHandledClearEventRef = useRef<string | null>(null);
   const clearResetQueuedRef = useRef(false);
+  const onProjectChatSegmentRuntimeSessionRef = useRef(onProjectChatSegmentRuntimeSession);
+  onProjectChatSegmentRuntimeSessionRef.current = onProjectChatSegmentRuntimeSession;
   // ==================================================================
 
   useEffect(() => {
@@ -136,6 +141,13 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
 
   // Messages state
   const messagesState = useSessionMessages();
+
+  const activeProjectChatSegment = React.useMemo(() => {
+    if (!projectChatSegments || projectChatSegments.length === 0) {
+      return undefined;
+    }
+    return projectChatSegments[projectChatSegments.length - 1];
+  }, [projectChatSegments]);
 
   // Process state
   const processState = useProcessState({
@@ -221,6 +233,19 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
   const activeStreamId = projectChatId
     ? projectChatId
     : streamIdForRuntimeSession(defaultProvider, processState.interactiveSessionId || sessionState.extractedSessionInfo?.runtimeSessionId);
+
+  useEffect(() => {
+    if (!activeProjectChatSegment || !processState.interactiveSessionId) {
+      return;
+    }
+    if (activeProjectChatSegment.runtimeSessionId === processState.interactiveSessionId) {
+      return;
+    }
+    onProjectChatSegmentRuntimeSessionRef.current?.(activeProjectChatSegment.id, processState.interactiveSessionId);
+  }, [
+    activeProjectChatSegment,
+    processState.interactiveSessionId,
+  ]);
 
   const frameRuntimeState = useSessionRuntime(activeStreamId);
   const loadingStartedFrameSeqRef = useRef<{ streamId: string | null; seq: number } | null>(null);
@@ -396,15 +421,29 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
       });
 
       queueMicrotask(() => {
+        processState.setInteractiveSessionId(null);
+        processState.hasActiveSessionRef.current = false;
+        processState.interactiveSessionIdRef.current = null;
+        processState.setIsLoading(false);
+        processState.setIsPendingSend(false);
+        if (event?.segment_id) {
+          const currentSegments = getProjectChatSegments(projectChatId);
+          const previousSegment = currentSegments?.[currentSegments.length - 1];
+          upsertProjectChatSegment(projectChatId, {
+            id: event.segment_id,
+            provider: (event as any)?.provider || previousSegment?.provider || defaultProvider,
+            model: previousSegment?.model || '',
+            runtimeSessionId: '',
+            streamId: projectChatId,
+            seq: previousSegment?.id === event.segment_id
+              ? previousSegment.seq
+              : (previousSegment?.seq ?? -1) + 1,
+          });
+        }
         clearSessionFrames(projectChatId);
         clearSessionRuntime(projectChatId);
         messagesState.clearMessages();
         queueState.clearQueue();
-        processState.setIsLoading(false);
-        processState.setIsPendingSend(false);
-        processState.setInteractiveSessionId(null);
-        processState.hasActiveSessionRef.current = false;
-        processState.interactiveSessionIdRef.current = null;
         setError(null);
         setExpandedSubagentIds(new Set());
         setExpandedMessageCards(new Set());
@@ -425,6 +464,7 @@ export const SessionController: React.FC<AiCodeSessionProps> = ({
     projectChatId,
     queueState,
     setError,
+    defaultProvider,
   ]);
   const { handleSendPrompt, handleCancelExecution } = useSessionPromptActions({
     defaultProvider,
