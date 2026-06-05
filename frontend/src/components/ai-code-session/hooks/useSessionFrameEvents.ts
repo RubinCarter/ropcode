@@ -296,6 +296,7 @@ export function useSessionFrameEvents(options: UseSessionFrameEventsOptions): Us
       }
 
       const message = JSON.parse(payload) as ClaudeStreamMessage;
+      (message as any).source = 'broadcast';
       const provider = resolveSessionProvider((message as any).provider, options.provider);
 
       enqueueRuntimeTrackerUpdate(message);
