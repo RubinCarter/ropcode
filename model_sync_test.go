@@ -449,3 +449,53 @@ base_url = "`+server.URL+`"
 		t.Fatalf("expected both gpt-5.4 and gpt-5.3-codex to be synced, got %#v", synced)
 	}
 }
+
+func TestSyncProviderModelsFromAPIReadsClaudeSettingsJSON(t *testing.T) {
+	var hit bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("expected /v1/models, got %q", r.URL.Path)
+		}
+		if got := r.Header.Get("x-api-key"); got != "sk-from-claude-settings" {
+			t.Fatalf("expected x-api-key from Claude settings, got %q", got)
+		}
+		hit = true
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"id": "claude-sonnet-4-6"}},
+		})
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatalf("mkdir .claude: %v", err)
+	}
+	settings := `{"env":{"ANTHROPIC_BASE_URL":"` + server.URL + `","ANTHROPIC_AUTH_TOKEN":"sk-from-claude-settings"}}`
+	if err := os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte(settings), 0o600); err != nil {
+		t.Fatalf("write settings.json: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("ANTHROPIC_BASE_URL", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	app := &App{dbManager: db, modelRegistry: models.NewRegistry(db)}
+
+	synced, err := app.SyncProviderModelsFromAPI("claude", "")
+	if err != nil {
+		t.Fatalf("SyncProviderModelsFromAPI failed: %v", err)
+	}
+	if !hit {
+		t.Fatal("expected sync to hit the gateway from Claude settings")
+	}
+	if len(synced) != 2 {
+		t.Fatalf("expected synced model plus [1m] variant, got %#v", synced)
+	}
+}

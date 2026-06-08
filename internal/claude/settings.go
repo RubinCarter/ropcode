@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func LoadSettings(path string) (map[string]interface{}, error) {
@@ -35,6 +36,31 @@ func SaveSettings(path string, settings map[string]interface{}) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+// LoadSettingsEnv reads the "env" object from settings.json as string values.
+func LoadSettingsEnv(path string) (map[string]string, error) {
+	settings, err := LoadSettings(path)
+	if err != nil {
+		return nil, err
+	}
+
+	rawEnv, ok := settings["env"].(map[string]interface{})
+	if !ok {
+		return map[string]string{}, nil
+	}
+
+	env := make(map[string]string, len(rawEnv))
+	for key, value := range rawEnv {
+		name := strings.TrimSpace(key)
+		if name == "" {
+			continue
+		}
+		if s, ok := value.(string); ok {
+			env[name] = strings.TrimSpace(s)
+		}
+	}
+	return env, nil
 }
 
 func GetSystemPrompt(claudeDir string) (string, error) {

@@ -5,13 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"ropcode/internal/claude"
 	"ropcode/internal/database"
 	"ropcode/internal/provider/codex"
 	providerPi "ropcode/internal/provider/pi"
@@ -195,9 +198,14 @@ func parsePiListModelsOutput(output string) []string {
 
 func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*database.ProviderApiConfig, error) {
 	if strings.TrimSpace(providerApiID) != "" {
-		return a.dbManager.GetProviderApiConfig(providerApiID)
+		cfg, err := a.dbManager.GetProviderApiConfig(providerApiID)
+		if err == nil && cfg != nil {
+			log.Printf("[ModelsSync] %s using explicit api config id=%s base=%q", providerID, cfg.ID, cfg.BaseURL)
+		}
+		return cfg, err
 	}
 	if cfg, err := a.dbManager.GetDefaultProviderApiConfig(providerID); err == nil && cfg != nil {
+		log.Printf("[ModelsSync] %s using default api config id=%s base=%q", providerID, cfg.ID, cfg.BaseURL)
 		return cfg, nil
 	}
 	if providerID == "pi" {
@@ -207,18 +215,27 @@ func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*datab
 	}
 	if providerID == "codex" {
 		if cfg := codexConfigToProviderAPI(); cfg != nil {
+			log.Printf("[ModelsSync] codex using ~/.codex/config.toml provider=%q base=%q", cfg.Name, cfg.BaseURL)
+			return cfg, nil
+		}
+	}
+	if providerID == "claude" {
+		if cfg := claudeSettingsToProviderAPI(); cfg != nil {
+			log.Printf("[ModelsSync] claude using ~/.claude/settings.json base=%q", cfg.BaseURL)
 			return cfg, nil
 		}
 	}
 	if all, err := a.dbManager.GetAllProviderApiConfigs(); err == nil {
 		for _, cfg := range all {
 			if cfg != nil && cfg.ProviderID == providerID {
+				log.Printf("[ModelsSync] %s using first api config id=%s base=%q (no default flagged)", providerID, cfg.ID, cfg.BaseURL)
 				return cfg, nil
 			}
 		}
 	}
 	switch providerID {
 	case "codex":
+		log.Printf("[ModelsSync] codex no api config saved; falling back to OPENAI_API_KEY env")
 		return &database.ProviderApiConfig{
 			ProviderID: providerID,
 			BaseURL:    "https://api.openai.com",
@@ -229,9 +246,10 @@ func (a *App) resolveProviderAPIConfig(providerID, providerApiID string) (*datab
 		if token == "" {
 			token = os.Getenv("ANTHROPIC_AUTH_TOKEN")
 		}
+		log.Printf("[ModelsSync] claude no api config saved; falling back to ANTHROPIC env vars")
 		return &database.ProviderApiConfig{
 			ProviderID: providerID,
-			BaseURL:    "https://api.anthropic.com",
+			BaseURL:    firstNonEmpty(os.Getenv("ANTHROPIC_BASE_URL"), "https://api.anthropic.com"),
 			AuthToken:  token,
 		}, nil
 	}
@@ -249,6 +267,37 @@ func codexConfigToProviderAPI() *database.ProviderApiConfig {
 		BaseURL:    provider.BaseURL,
 		AuthToken:  provider.AuthToken,
 	}
+}
+
+func claudeSettingsToProviderAPI() *database.ProviderApiConfig {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	env, err := claude.LoadSettingsEnv(filepath.Join(home, ".claude", "settings.json"))
+	if err != nil {
+		return nil
+	}
+	baseURL := strings.TrimSpace(env["ANTHROPIC_BASE_URL"])
+	token := strings.TrimSpace(firstNonEmpty(env["ANTHROPIC_AUTH_TOKEN"], env["ANTHROPIC_API_KEY"]))
+	if baseURL == "" {
+		return nil
+	}
+	return &database.ProviderApiConfig{
+		ProviderID: "claude",
+		Name:       "claude settings.json",
+		BaseURL:    baseURL,
+		AuthToken:  token,
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func fetchProviderModelIDs(providerID string, apiConfig *database.ProviderApiConfig) ([]string, error) {
@@ -305,9 +354,12 @@ func fetchAnthropicModelIDs(apiConfig *database.ProviderApiConfig) ([]string, er
 }
 
 func doModelsListRequest(req *http.Request, label string) ([]string, error) {
+	log.Printf("[ModelsSync] %s GET %s", label, req.URL.String())
+
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		log.Printf("[ModelsSync] %s request error: %v", label, err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -316,6 +368,7 @@ func doModelsListRequest(req *http.Request, label string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Printf("[ModelsSync] %s status=%d content-type=%q body=%dB", label, resp.StatusCode, resp.Header.Get("Content-Type"), len(body))
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, missingModelsEndpointError(label)
 	}

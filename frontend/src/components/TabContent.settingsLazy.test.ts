@@ -11,7 +11,10 @@ test('TabContent lazy-loads Settings instead of bundling it into tab shell', asy
   const source = await fs.readFile(tabContentPath, 'utf8');
 
   assert.doesNotMatch(source, /import \{ Settings \} from '@\/components\/Settings';/);
-  assert.match(source, /const loadSettings = \(\) => import\('@\/components\/Settings'\)/);
+  assert.match(source, /const loadSettings = \(\) => \{/);
+  assert.match(source, /import\('@\/components\/Settings'\)/);
+  assert.match(source, /\[settings\] loading Settings chunk/);
+  assert.match(source, /\[settings\] Settings chunk loaded/);
   assert.match(source, /const Settings = lazy\(loadSettings\);/);
 });
 

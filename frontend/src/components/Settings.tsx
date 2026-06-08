@@ -60,6 +60,8 @@ import { useTheme, useTrackEvent, useLanguage } from "@/hooks";
 import { analytics } from "@/lib/analytics";
 import { TabPersistenceService } from "@/services/tabPersistence";
 
+console.info('[settings] Settings module evaluated');
+
 const deferUntilIdle = (callback: () => void, timeout = 300): (() => void) => {
   const win = window as typeof window & {
     requestIdleCallback?: (cb: IdleRequestCallback, opts?: IdleRequestOptions) => number;
@@ -159,19 +161,24 @@ export const Settings: React.FC<SettingsProps> = ({
 
   // Load settings on mount
   useEffect(() => {
+    console.info('[settings] Settings mounted');
     loadSettings();
     loadAnalyticsSettings();
     // Load tab persistence setting
     setTabPersistenceEnabled(TabPersistenceService.isEnabled());
     // Load startup intro setting (default to true if not set)
     (async () => {
+      console.info('[settings] loading startup intro preference');
       const pref = await api.getSetting('startup_intro_enabled');
+      console.info('[settings] loaded startup intro preference', pref);
       setStartupIntroEnabled(pref === null ? true : pref === 'true');
-    })();
+    })().catch(err => console.error('[settings] failed to load startup intro preference', err));
     (async () => {
+      console.info('[settings] loading session notification preference');
       const pref = await api.getSetting(SESSION_FINISHED_NOTIFICATIONS_KEY);
+      console.info('[settings] loaded session notification preference', pref);
       setSessionFinishedNotificationsEnabled(pref === 'true');
-    })();
+    })().catch(err => console.error('[settings] failed to load session notification preference', err));
   }, []);
 
   useEffect(() => {
@@ -194,10 +201,12 @@ export const Settings: React.FC<SettingsProps> = ({
    * Loads analytics settings
    */
   const loadAnalyticsSettings = async () => {
+    console.info('[settings] loading analytics settings');
     const settings = analytics.getSettings();
     if (settings) {
       setAnalyticsEnabled(settings.enabled);
     }
+    console.info('[settings] loaded analytics settings', settings);
   };
 
   /**
@@ -205,7 +214,9 @@ export const Settings: React.FC<SettingsProps> = ({
    */
   const loadClaudeBinaryPath = async () => {
     try {
+      console.info('[settings] loading Claude binary path');
       const path = await api.getClaudeBinaryPath();
+      console.info('[settings] loaded Claude binary path', path);
       setCurrentBinaryPath(path);
     } catch (err) {
       console.error("Failed to load Claude binary path:", err);
@@ -262,7 +273,9 @@ export const Settings: React.FC<SettingsProps> = ({
         setLoading(true);
       }
       setError(null);
+      console.info('[settings] loading Claude settings', { retries });
       const loadedSettings = await api.getClaudeSettings();
+      console.info('[settings] loaded Claude settings', loadedSettings);
       
       // Ensure loadedSettings is an object
       if (!loadedSettings || typeof loadedSettings !== 'object') {
@@ -305,6 +318,7 @@ export const Settings: React.FC<SettingsProps> = ({
       }
     } catch (err) {
       if (retries > 0) {
+        console.warn('[settings] Claude settings load failed, retrying', { retries, err });
         await new Promise(r => setTimeout(r, 500));
         return loadSettings(retries - 1);
       }

@@ -8,7 +8,18 @@ import { shouldKeepTabMounted } from '@/lib/tabUtils';
 import { MCPManager } from '@/components/MCPManager';
 import { SettingsLoadingShell } from '@/components/SettingsLoadingShell';
 
-const loadSettings = () => import('@/components/Settings').then(m => ({ default: m.Settings }));
+const loadSettings = () => {
+  console.info('[settings] loading Settings chunk');
+  return import('@/components/Settings')
+    .then(m => {
+      console.info('[settings] Settings chunk loaded');
+      return { default: m.Settings };
+    })
+    .catch(error => {
+      console.error('[settings] Settings chunk failed', error);
+      throw error;
+    });
+};
 
 const scheduleSettingsPrefetch = () => {
   const win = window as Window & {
