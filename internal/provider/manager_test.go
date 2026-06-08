@@ -201,6 +201,54 @@ func TestManager_SendMessage_ProviderCommandUsesDriverHandler(t *testing.T) {
 	}
 }
 
+func TestManager_SendMessage_WaitsForInteractiveInit(t *testing.T) {
+	driver := &initGateDriver{}
+	session := newSession(
+		context.Background(),
+		"session-1",
+		driver,
+		SessionConfig{ProjectPath: t.TempDir(), Interactive: true},
+		nil,
+		nil,
+		nil,
+	)
+	session.state = StateRunning
+
+	m := NewManager(context.Background(), nil, nil)
+	defer m.Shutdown()
+	m.mu.Lock()
+	m.sessions[session.ID] = session
+	m.mu.Unlock()
+
+	sent := make(chan error, 1)
+	go func() {
+		sent <- m.SendMessage(session.ID, "hello after init")
+	}()
+
+	select {
+	case err := <-sent:
+		t.Fatalf("send returned before init: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	session.MarkInitialized()
+
+	select {
+	case err := <-sent:
+		if err != nil {
+			t.Fatalf("send message: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("send did not complete after init")
+	}
+
+	driver.mu.Lock()
+	defer driver.mu.Unlock()
+	if len(driver.sent) != 1 || driver.sent[0] != "hello after init" {
+		t.Fatalf("expected message to be sent after init, got %#v", driver.sent)
+	}
+}
+
 func TestManager_SendMessage_ExpandsProviderCapability(t *testing.T) {
 	driver := &capabilityDriver{}
 	projectPath := t.TempDir()
@@ -817,6 +865,25 @@ func (d *commandDriver) HandleProviderCommand(session SessionHandle, message str
 	d.handled = append(d.handled, message)
 	d.mu.Unlock()
 	return nil
+}
+
+type initGateDriver struct {
+	echoDriver
+	mu   sync.Mutex
+	sent []string
+}
+
+func (d *initGateDriver) ID() string { return "init-gate" }
+
+func (d *initGateDriver) SendMessage(session SessionHandle, msg string) error {
+	d.mu.Lock()
+	d.sent = append(d.sent, msg)
+	d.mu.Unlock()
+	return nil
+}
+
+func (d *initGateDriver) WaitForInit(session SessionHandle, timeout time.Duration) error {
+	return session.WaitForInit(timeout)
 }
 
 type capabilityDriver struct {

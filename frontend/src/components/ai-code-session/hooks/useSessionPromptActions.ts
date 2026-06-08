@@ -84,10 +84,7 @@ export function useSessionPromptActions({
 
     const classification = classifyPromptSubmit({
       prompt,
-      provider: activeProvider,
       hasProjectPath: Boolean(sessionState.projectPath),
-      isLoading: processState.isLoading,
-      hasInteractiveSession: Boolean(processState.interactiveSessionIdRef.current),
     });
 
     if (classification.action === 'ignore') {
@@ -101,11 +98,6 @@ export function useSessionPromptActions({
 
     if (classification.action === 'backend-clear') {
       await handleBackendClear();
-      return true;
-    }
-
-    if (classification.action === 'enqueue') {
-      queueState.addToQueue(prompt, model, providerApiId, thinkingMode, activeProvider);
       return true;
     }
 
@@ -208,7 +200,6 @@ export function useSessionPromptActions({
     pendingFreshProviderSessionRef,
     processState,
     projectChatId,
-    queueState,
     sessionState,
     setError,
     trackEvent,

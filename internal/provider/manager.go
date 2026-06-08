@@ -548,6 +548,16 @@ func isRecoverableInitFailure(err error) bool {
 		strings.HasPrefix(msg, "session exited before initialization")
 }
 
+func waitForInteractiveSessionInit(session *Session) error {
+	if !session.GetConfig().Interactive {
+		return nil
+	}
+	if err := session.driver.WaitForInit(session, 30*time.Second); err != nil {
+		return fmt.Errorf("provider session initialization failed: %w", err)
+	}
+	return nil
+}
+
 // TerminateSession terminates the specified session.
 func (m *Manager) TerminateSession(sessionID string) error {
 	m.mu.RLock()
@@ -595,6 +605,9 @@ func (m *Manager) SendMessage(sessionID, message string) error {
 			session.EnqueueMessage(message)
 			return nil
 		default:
+			if err := waitForInteractiveSessionInit(session); err != nil {
+				return err
+			}
 			if err := handler.HandleProviderCommand(session, message); err != nil {
 				return err
 			}
@@ -621,6 +634,9 @@ func (m *Manager) SendMessage(sessionID, message string) error {
 		session.EnqueueMessage(message)
 		return nil
 	default:
+		if err := waitForInteractiveSessionInit(session); err != nil {
+			return err
+		}
 		if err := session.driver.SendMessage(session, message); err != nil {
 			return err
 		}

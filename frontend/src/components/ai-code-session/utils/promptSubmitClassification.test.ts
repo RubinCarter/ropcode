@@ -63,17 +63,19 @@ test('classifyPromptSubmit returns explicit submit actions', async () => {
   assert.match(source, /\| \{ action: 'ignore'; reason: 'empty' \}/);
   assert.match(source, /\| \{ action: 'backend-clear' \}/);
   assert.match(source, /\| \{ action: 'reject'; reason: 'missing-project' \}/);
-  assert.match(source, /\| \{ action: 'enqueue' \}/);
   assert.match(source, /\| \{ action: 'send' \}/);
+  assert.doesNotMatch(source, /\| \{ action: 'enqueue' \}/);
 });
 
-test('classifyPromptSubmit prioritizes empty missing project clear queue and send branches', async () => {
+test('classifyPromptSubmit prioritizes empty missing project clear and send branches', async () => {
   const source = await readClassifierSource();
 
   assert.match(source, /if \(!trimmedPrompt\) \{[\s\S]*return \{ action: 'ignore', reason: 'empty' \};[\s\S]*\}/);
   assert.match(source, /if \(!input\.hasProjectPath\) \{[\s\S]*return \{ action: 'reject', reason: 'missing-project' \};[\s\S]*\}/);
   assert.match(source, /if \(isExactClearCommand\(trimmedPrompt\)\) \{[\s\S]*return \{ action: 'backend-clear' \};[\s\S]*\}/);
-  assert.match(source, /if \(input\.isLoading && !input\.hasInteractiveSession\) \{[\s\S]*return \{ action: 'enqueue' \};[\s\S]*\}/);
+  assert.doesNotMatch(source, /input\.isLoading/);
+  assert.doesNotMatch(source, /hasInteractiveSession/);
+  assert.doesNotMatch(source, /action: 'enqueue'/);
   assert.match(source, /return \{ action: 'send' \};/);
 });
 
@@ -82,9 +84,12 @@ test('session prompt actions route prompt submission through the classifier', as
 
   assert.match(source, /import \{ classifyPromptSubmit \} from "\.\.\/utils\/promptSubmitClassification";/);
   assert.match(source, /const activeProvider = provider \|\| defaultProvider;/);
-  assert.match(source, /const classification = classifyPromptSubmit\(\{[\s\S]*prompt,[\s\S]*provider: activeProvider,[\s\S]*hasProjectPath: Boolean\(sessionState\.projectPath\),[\s\S]*isLoading: processState\.isLoading,[\s\S]*hasInteractiveSession: Boolean\(processState\.interactiveSessionIdRef\.current\),[\s\S]*\}\);/);
+  assert.match(source, /const classification = classifyPromptSubmit\(\{[\s\S]*prompt,[\s\S]*hasProjectPath: Boolean\(sessionState\.projectPath\),[\s\S]*\}\);/);
   assert.match(source, /if \(classification\.action === 'backend-clear'\) \{[\s\S]*await handleBackendClear\(\);[\s\S]*return true;[\s\S]*\}/);
-  assert.match(source, /if \(classification\.action === 'enqueue'\) \{[\s\S]*queueState\.addToQueue\(prompt, model, providerApiId, thinkingMode, activeProvider\);[\s\S]*return true;[\s\S]*\}/);
+  assert.doesNotMatch(source, /classification\.action === 'enqueue'/);
+  assert.doesNotMatch(source, /queueState\.addToQueue/);
+  assert.doesNotMatch(source, /isLoading: processState\.isLoading/);
+  assert.doesNotMatch(source, /hasInteractiveSession:/);
 });
 
 test('session prompt actions require pre-created project chats', async () => {

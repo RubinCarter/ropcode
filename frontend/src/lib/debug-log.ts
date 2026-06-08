@@ -20,7 +20,7 @@ function push(level: LogEntry['level'], args: unknown[]) {
   const serializedArgs = serialize(args);
   entries.push({ timestamp: Date.now(), level, args: serializedArgs });
   if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES);
-  window.electronAPI.writeRendererLog(level, 'renderer-debug-log', serializedArgs);
+  window.electronAPI?.writeRendererLog?.(level, 'renderer-debug-log', serializedArgs);
   listeners.forEach(fn => fn());
 }
 
