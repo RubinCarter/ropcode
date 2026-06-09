@@ -14,9 +14,39 @@ import (
 	"ropcode/internal/provider"
 )
 
-type testEmitter struct{}
+type emittedEvent struct {
+	name string
+	data interface{}
+}
 
-func (e *testEmitter) Emit(name string, data interface{}) {}
+type testEmitter struct {
+	mu     sync.Mutex
+	events []emittedEvent
+}
+
+func (e *testEmitter) Emit(name string, data interface{}) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.events = append(e.events, emittedEvent{name: name, data: data})
+}
+
+func (e *testEmitter) hasSessionChanged(projectPath, providerID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, event := range e.events {
+		if event.name != "session:changed" {
+			continue
+		}
+		values, ok := event.data.(map[string]any)
+		if !ok {
+			continue
+		}
+		if values["cwd"] == projectPath && values["provider"] == providerID {
+			return true
+		}
+	}
+	return false
+}
 
 type resumeProbeDriver struct {
 	id               string
@@ -519,6 +549,38 @@ func TestSendMessageUsesProviderSessionResolver(t *testing.T) {
 	}
 	if claudeDriver.sends[0] != "hello" {
 		t.Fatalf("expected provider to receive raw user message, got %q", claudeDriver.sends[0])
+	}
+}
+
+func TestSendMessageEmitsSessionChangedForSidebarRefresh(t *testing.T) {
+	db, err := database.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	emitter := &testEmitter{}
+	prov := provider.NewManager(context.Background(), emitter, nil)
+	t.Cleanup(prov.Shutdown)
+
+	claudeDriver := &resumeProbeDriver{id: "claude"}
+	if err := prov.RegisterDriver(claudeDriver); err != nil {
+		t.Fatalf("register claude: %v", err)
+	}
+
+	manager := NewManager(db, prov, emitter, nil)
+	projectPath := t.TempDir()
+	created, err := manager.EnsureChat(projectPath, "claude", "sonnet", "", "", true)
+	if err != nil {
+		t.Fatalf("create chat: %v", err)
+	}
+
+	if _, err := manager.SendMessage(created.ChatID, "hello", "sonnet", "", ""); err != nil {
+		t.Fatalf("send message: %v", err)
+	}
+
+	if !emitter.hasSessionChanged(projectPath, "claude") {
+		t.Fatalf("expected session:changed for project %q", projectPath)
 	}
 }
 

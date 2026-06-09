@@ -543,8 +543,8 @@ func ensureProjectChatProvider(client rpcSession, opts sessionCommandOptions) (p
 		if opts.sessionID != "" {
 			existingSessionID = opts.sessionID
 		}
-		if err := client.Call("CreateProjectChat", []any{opts.cwd, opts.provider, opts.model, opts.providerAPIID, existingSessionID}, &created); err != nil {
-			return projectChatSwitchResult{}, fmt.Errorf("create project chat: %w", err)
+		if err := client.Call("EnsureProjectChat", []any{opts.cwd, opts.provider, opts.model, opts.providerAPIID, existingSessionID, true}, &created); err != nil {
+			return projectChatSwitchResult{}, fmt.Errorf("ensure project chat: %w", err)
 		}
 		return created, nil
 	}
@@ -559,8 +559,8 @@ func ensureProjectChatProvider(client rpcSession, opts sessionCommandOptions) (p
 		if opts.sessionID != "" {
 			existingSessionID = opts.sessionID
 		}
-		if err := client.Call("CreateProjectChat", []any{opts.cwd, opts.provider, opts.model, opts.providerAPIID, existingSessionID}, &created); err != nil {
-			return projectChatSwitchResult{}, fmt.Errorf("create project chat: %w", err)
+		if err := client.Call("EnsureProjectChat", []any{opts.cwd, opts.provider, opts.model, opts.providerAPIID, existingSessionID, false}, &created); err != nil {
+			return projectChatSwitchResult{}, fmt.Errorf("ensure project chat: %w", err)
 		}
 		return created, nil
 	}

@@ -450,6 +450,13 @@ func (m *Manager) SendMessage(chatID, message, model, providerApiID, reasoningEf
 		m.emitContextSyncFrame(chatID, chat.ProjectPath, seg, sentRuntimeSessionID, contextSyncMessage)
 	}
 
+	m.emitEvent("session:changed", map[string]any{
+		"id":       sentRuntimeSessionID,
+		"cwd":      chat.ProjectPath,
+		"state":    "active",
+		"provider": seg.Provider,
+	})
+
 	return streamID(seg.Provider, sentRuntimeSessionID), nil
 }
 

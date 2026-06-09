@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"ropcode/internal/stream"
 )
 
 // Broadcaster 事件广播接口
@@ -16,6 +18,7 @@ type Broadcaster interface {
 type EventHub struct {
 	ctx         context.Context
 	broadcaster Broadcaster
+	syncHub     *stream.SyncHub
 }
 
 // New 创建新的 EventHub
@@ -28,12 +31,18 @@ func (h *EventHub) SetBroadcaster(b Broadcaster) {
 	h.broadcaster = b
 }
 
+// SetSyncHub connects low-frequency UI refresh events to the sync stream.
+func (h *EventHub) SetSyncHub(syncHub *stream.SyncHub) {
+	h.syncHub = syncHub
+}
+
 // emit 统一的事件发送方法
 func (h *EventHub) emit(eventName string, payload interface{}) {
 	// WebSocket ���播模式
 	if h.broadcaster != nil {
 		h.broadcaster.BroadcastEvent(eventName, payload)
 	}
+	h.broadcastSyncEvent(eventName, payload)
 }
 
 // Emit 通用事件发送方法（用于 eventEmitter）
@@ -158,4 +167,64 @@ func debugEventString(values map[string]interface{}, key string) string {
 	}
 	value, _ := values[key].(string)
 	return value
+}
+
+func (h *EventHub) broadcastSyncEvent(eventName string, payload interface{}) {
+	if h.syncHub == nil {
+		return
+	}
+	switch eventName {
+	case "session:changed":
+		if event, ok := syncSessionChangedEvent(payload); ok {
+			h.syncHub.Broadcast(event)
+		}
+	case "project:changed":
+		if event, ok := syncProjectChangedEvent(payload); ok {
+			h.syncHub.Broadcast(event)
+		}
+	}
+}
+
+func syncSessionChangedEvent(payload interface{}) (stream.SyncEvent, bool) {
+	switch event := payload.(type) {
+	case SessionChangedEvent:
+		return stream.SyncEvent{
+			Type:          "session:changed",
+			WorkspacePath: event.Cwd,
+			SessionID:     event.ID,
+			Provider:      event.Provider,
+		}, event.Cwd != ""
+	case map[string]any:
+		cwd := stringFromAny(event["cwd"])
+		return stream.SyncEvent{
+			Type:          "session:changed",
+			WorkspacePath: cwd,
+			SessionID:     stringFromAny(event["id"]),
+			Provider:      stringFromAny(event["provider"]),
+		}, cwd != ""
+	default:
+		return stream.SyncEvent{}, false
+	}
+}
+
+func syncProjectChangedEvent(payload interface{}) (stream.SyncEvent, bool) {
+	switch event := payload.(type) {
+	case ProjectChangedEvent:
+		return stream.SyncEvent{
+			Type:          "project:changed",
+			ProjectPath:   event.ProjectPath,
+			WorkspacePath: event.WorkspacePath,
+		}, event.ProjectPath != "" || event.WorkspacePath != ""
+	default:
+		return stream.SyncEvent{}, false
+	}
+}
+
+func stringFromAny(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	default:
+		return ""
+	}
 }

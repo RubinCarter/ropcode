@@ -100,6 +100,7 @@ func (a *App) startup(ctx context.Context) {
 	a.eventHub = eventhub.New(nil)
 	a.sessionStreamHub = stream.NewHub()
 	a.syncHub = stream.NewSyncHub()
+	a.eventHub.SetSyncHub(a.syncHub)
 	a.bulkHub = stream.NewBulkHub()
 
 	// Create event emitter that uses EventHub
