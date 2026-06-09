@@ -148,7 +148,41 @@ func (a *sessionRPCTestApp) ensureUserSessionForTest(provider, projectPath, prom
 	return sessionID, nil
 }
 
-func (a *sessionRPCTestApp) CreateProjectChat(projectPath, provider, model, providerApiID, existingSessionID string) (projectChatSwitchResult, error) {
+func (a *sessionRPCTestApp) EnsureProjectChat(projectPath, provider, model, providerApiID, existingSessionID string, forceNew bool) (projectChatSwitchResult, error) {
+	if !forceNew {
+		if existingSessionID != "" {
+			a.mu.Lock()
+			for _, chat := range a.chats {
+				if chat.ProjectPath == projectPath && chat.SessionIDs[provider] == existingSessionID {
+					a.mu.Unlock()
+					a.streamHub.RegisterAlias(stream.StreamIDForSession(provider, existingSessionID), chat.ID)
+					return projectChatSwitchResult{
+						ChatID:           chat.ID,
+						RuntimeSessionID: existingSessionID,
+						StreamID:         chat.ID,
+						Provider:         provider,
+						Model:            model,
+					}, nil
+				}
+			}
+			a.mu.Unlock()
+		}
+		if active, _ := a.GetActiveChatForProject(projectPath); active != nil && active.ID != "" {
+			switched, err := a.SwitchProjectChatProvider(active.ID, provider, model, providerApiID)
+			if err == nil && switched.RuntimeSessionID == "" && existingSessionID != "" {
+				a.mu.Lock()
+				if chat := a.chats[active.ID]; chat != nil {
+					chat.SessionIDs[provider] = existingSessionID
+				}
+				a.mu.Unlock()
+				a.streamHub.RegisterAlias(stream.StreamIDForSession(provider, existingSessionID), active.ID)
+				switched.RuntimeSessionID = existingSessionID
+				switched.StreamID = active.ID
+			}
+			return switched, err
+		}
+	}
+
 	sessionID := existingSessionID
 	var err error
 	if sessionID == "" {
@@ -615,8 +649,12 @@ func (a *sessionRPCTestApp) callRPCForTest(method string, args []any) (any, erro
 	}
 
 	switch method {
-	case "CreateProjectChat":
-		return a.CreateProjectChat(stringAt(0), stringAt(1), stringAt(2), stringAt(3), stringAt(4))
+	case "EnsureProjectChat":
+		forceNew := false
+		if len(args) > 5 {
+			forceNew, _ = args[5].(bool)
+		}
+		return a.EnsureProjectChat(stringAt(0), stringAt(1), stringAt(2), stringAt(3), stringAt(4), forceNew)
 	case "GetActiveChatForProject":
 		return a.GetActiveChatForProject(stringAt(0))
 	case "SwitchProjectChatProvider":

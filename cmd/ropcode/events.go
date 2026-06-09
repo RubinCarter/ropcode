@@ -18,6 +18,7 @@ type sessionEventStream struct {
 	sessionID string
 	cwd       string
 	provider  string
+	minTime   time.Time
 	minSeq    int64
 	useSplit  bool
 	doneCh    chan error
@@ -48,6 +49,7 @@ func (s *sessionEventStream) setSessionID(sessionID string) {
 
 func (s *sessionEventStream) markLiveBoundary() {
 	s.mu.Lock()
+	s.minTime = time.Now().UTC()
 	s.minSeq = time.Now().UnixNano()
 	s.mu.Unlock()
 }
@@ -103,9 +105,16 @@ func (s *sessionEventStream) attachStreamID(client rpcSession, streamID string) 
 
 func (s *sessionEventStream) handleSessionFrame(frame stream.SessionFrame) {
 	s.mu.Lock()
+	minTime := s.minTime
 	minSeq := s.minSeq
 	s.mu.Unlock()
-	if minSeq > 0 && frame.Seq <= minSeq {
+	if !minTime.IsZero() && frame.Timestamp != "" {
+		if ts, err := time.Parse(time.RFC3339Nano, frame.Timestamp); err == nil {
+			if !ts.After(minTime) {
+				return
+			}
+		}
+	} else if minSeq > 0 && frame.Seq > 1_000_000_000_000 && frame.Seq <= minSeq {
 		return
 	}
 
