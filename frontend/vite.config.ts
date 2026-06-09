@@ -71,6 +71,32 @@ export default defineConfig(({ mode }) => ({
     port: 5174,
     strictPort: false,
     host: '0.0.0.0',
+    warmup: {
+      clientFiles: [
+        './src/components/Agents.tsx',
+        './src/components/Settings.tsx',
+        './src/components/UsageDashboard.tsx',
+        './src/components/MCPManager.tsx',
+        './src/components/MarkdownEditor.tsx',
+        './src/components/CreateAgent.tsx',
+        './src/components/ai-code-session/index.ts',
+        './src/components/AgentRunOutputViewer.tsx',
+        './src/components/AgentExecution.tsx',
+        './src/components/FileViewer.tsx',
+        './src/components/right-sidebar/DiffViewer.tsx',
+        './src/components/WebViewWidget.tsx',
+        './src/components/GitHubAgentBrowser.tsx',
+        './src/components/ClaudeVersionSelector.tsx',
+        './src/components/StorageTab.tsx',
+        './src/components/HooksEditor.tsx',
+        './src/components/SlashCommandsManager.tsx',
+        './src/components/ProxySettings.tsx',
+        './src/components/ProviderApiManager.tsx',
+        './src/components/ClaudeAgentsManager.tsx',
+        './src/components/PluginsManager.tsx',
+        './src/components/DebugLogs.tsx',
+      ],
+    },
     // ROPCODE_NO_HMR=1 disables HMR — Vite still rebuilds on file changes but
     // the browser stays put until you manually reload. Useful when you want a
     // dev server that won't yank the page out from under you mid-test.

@@ -530,6 +530,26 @@ func TestInteractive_FunctionCallStarted_ApplyPatchStringArgumentsMapsToEdit(t *
 	}
 }
 
+func TestInteractive_CustomToolCallStarted_ApplyPatchInputMapsToEdit(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"customToolCall","callId":"call_patch_custom","name":"apply_patch","input":"*** Begin Patch\n*** Update File: app.go\n@@\n-old value\n+new value\n*** End Patch"},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "assistant", "customToolCall apply_patch input")
+	assertContentBlockType(t, ev, 0, "tool_use", "customToolCall tool_use")
+	assertContentField(t, ev, 0, "id", "call_patch_custom", "customToolCall callId")
+	assertContentField(t, ev, 0, "name", "Edit", "customToolCall apply_patch should map to Edit")
+
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["file_path"] != "app.go" {
+		t.Fatalf("expected file_path app.go, got %v", input["file_path"])
+	}
+	if input["old_string"] != "old value" {
+		t.Fatalf("expected old_string from removed line, got %v", input["old_string"])
+	}
+	if input["new_string"] != "new value" {
+		t.Fatalf("expected new_string from added line, got %v", input["new_string"])
+	}
+}
+
 func TestInteractive_FunctionCallStarted_ApplyPatchInlinePatchMapsToWrite(t *testing.T) {
 	ev := parseOutput(t, `{"method":"item/started","params":{"item":{"type":"functionCall","id":"call_patch_add","name":"apply_patch","patch":"*** Begin Patch\n*** Add File: notes.txt\n+first line\n+second line\n*** End Patch"},"threadId":"t1","turnId":"turn1"}}`)
 	assertType(t, ev, "assistant", "apply_patch inline patch")
@@ -551,6 +571,14 @@ func TestInteractive_FunctionCallOutputCompleted(t *testing.T) {
 	assertType(t, ev, "user", "functionCallOutput completed")
 	assertContentBlockType(t, ev, 0, "tool_result", "functionCallOutput type")
 	assertContentField(t, ev, 0, "content", "Plan updated", "functionCallOutput content")
+}
+
+func TestInteractive_CustomToolCallOutputCompleted(t *testing.T) {
+	ev := parseOutput(t, `{"method":"item/completed","params":{"item":{"type":"customToolCallOutput","id":"out_custom","callId":"call_patch_custom","output":"Success. Updated the following files:\nM app.go\n"},"threadId":"t1","turnId":"turn1"}}`)
+	assertType(t, ev, "user", "customToolCallOutput completed")
+	assertContentBlockType(t, ev, 0, "tool_result", "customToolCallOutput type")
+	assertContentField(t, ev, 0, "tool_use_id", "call_patch_custom", "customToolCallOutput callId")
+	assertContentField(t, ev, 0, "content", "Success. Updated the following files:\nM app.go\n", "customToolCallOutput content")
 }
 
 func TestInteractive_FunctionCallCompleted_UpdatePlan(t *testing.T) {
@@ -932,6 +960,23 @@ func TestBatch_ResponseItem_FunctionCall_ApplyPatchMapsToEdit(t *testing.T) {
 	}
 }
 
+func TestBatch_ResponseItem_CustomToolCall_ApplyPatchInputMapsToEdit(t *testing.T) {
+	ev := parseOutput(t, `{"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch\n*** Update File: server.go\n@@\n-before\n+after\n*** End Patch","call_id":"call_patch_custom_batch"}}`)
+	assertType(t, ev, "assistant", "batch response_item custom_tool_call apply_patch")
+	assertContentBlockType(t, ev, 0, "tool_use", "batch custom apply_patch tool_use")
+	assertContentField(t, ev, 0, "id", "call_patch_custom_batch", "batch custom apply_patch call_id")
+	assertContentField(t, ev, 0, "name", "Edit", "batch custom apply_patch should map to Edit")
+
+	blocks := getContentBlocks(t, ev)
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["file_path"] != "server.go" {
+		t.Fatalf("expected file_path server.go, got %v", input["file_path"])
+	}
+	if input["old_string"] != "before" || input["new_string"] != "after" {
+		t.Fatalf("expected parsed edit strings, got old=%v new=%v", input["old_string"], input["new_string"])
+	}
+}
+
 func TestHistory_ItemCompleted_FunctionCall_UpdatePlan(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"item.completed","item":{"id":"call_hp1","type":"function_call","name":"update_plan","arguments":"{\"explanation\":\"开始\",\"plan\":[{\"step\":\"第一步\",\"status\":\"in_progress\"},{\"step\":\"第二步\",\"status\":\"pending\"}]}"}}`)
 	assertHistoryType(t, ev, "assistant", "history item.completed function_call")
@@ -963,6 +1008,31 @@ func TestBatch_MessageDelta(t *testing.T) {
 	assertIsDelta(t, ev, true, "batch delta")
 	assertContentBlockType(t, ev, 0, "text", "batch delta text type")
 	assertContentField(t, ev, 0, "text", "streaming text", "batch delta text")
+}
+
+func TestBatch_Compacted(t *testing.T) {
+	ev := parseOutput(t, `{"timestamp":"2026-06-08T10:08:18.741Z","type":"compacted","payload":{"message":"","replacement_history":[]}}`)
+	assertTypeSubtype(t, ev, "system", "status", "batch compacted")
+	if ev.Message["status"] != "compacted" {
+		t.Fatalf("expected compacted status, got %v", ev.Message)
+	}
+	if ev.Message["message"] != "Context compacted" {
+		t.Fatalf("expected compacted message, got %v", ev.Message)
+	}
+	if ev.Message["event_type"] != "compacted" {
+		t.Fatalf("expected event_type=compacted, got %v", ev.Message)
+	}
+}
+
+func TestBatch_ContextCompactedEventMsg(t *testing.T) {
+	ev := parseOutput(t, `{"timestamp":"2026-06-08T10:08:18.760Z","type":"event_msg","payload":{"type":"context_compacted"}}`)
+	assertTypeSubtype(t, ev, "system", "status", "batch context_compacted")
+	if ev.Message["status"] != "compacted" {
+		t.Fatalf("expected compacted status, got %v", ev.Message)
+	}
+	if ev.Message["event_type"] != "context_compacted" {
+		t.Fatalf("expected event_type=context_compacted, got %v", ev.Message)
+	}
 }
 
 func TestBatch_ThreadError(t *testing.T) {
@@ -1075,6 +1145,30 @@ func TestHistory_ThreadError(t *testing.T) {
 func TestHistory_TurnFailed(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"turn.failed","message":"model crashed"}`)
 	assertHistoryType(t, ev, "error", "turn.failed")
+}
+
+func TestHistory_Compacted(t *testing.T) {
+	ev := normalizeEntry(t, `{"timestamp":"2026-06-08T10:08:18.741Z","type":"compacted","payload":{"message":"","replacement_history":[]}}`)
+	assertHistoryType(t, ev, "system", "history compacted")
+	assertHistorySubtype(t, ev, "status", "history compacted subtype")
+	if ev.Message["status"] != "compacted" {
+		t.Fatalf("expected compacted status, got %v", ev.Message)
+	}
+	if ev.Message["message"] != "Context compacted" {
+		t.Fatalf("expected compacted message, got %v", ev.Message)
+	}
+}
+
+func TestHistory_ContextCompactedEventMsg(t *testing.T) {
+	ev := normalizeEntry(t, `{"timestamp":"2026-06-08T10:08:18.760Z","type":"event_msg","payload":{"type":"context_compacted"}}`)
+	assertHistoryType(t, ev, "system", "history context_compacted")
+	assertHistorySubtype(t, ev, "status", "history context_compacted subtype")
+	if ev.Message["status"] != "compacted" {
+		t.Fatalf("expected compacted status, got %v", ev.Message)
+	}
+	if ev.Message["event_type"] != "context_compacted" {
+		t.Fatalf("expected event_type=context_compacted, got %v", ev.Message)
+	}
 }
 
 // --- 3B. Content Output (Stored) ---
@@ -1201,6 +1295,25 @@ func TestHistory_ResponseItem_FunctionCall_ApplyPatchMapsToEdit(t *testing.T) {
 	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"function_call","name":"apply_patch","arguments":"*** Begin Patch\n*** Update File: main.go\n@@\n-left\n+right\n*** End Patch","call_id":"call_patch_history"}}`)
 	assertHistoryType(t, ev, "assistant", "function_call apply_patch")
 	blocks := getHistoryContentBlocks(t, ev)
+	if blocks[0]["name"] != "Edit" {
+		t.Fatalf("expected name=Edit, got %v", blocks[0]["name"])
+	}
+	input, _ := blocks[0]["input"].(map[string]interface{})
+	if input["file_path"] != "main.go" {
+		t.Fatalf("expected file_path main.go, got %v", input["file_path"])
+	}
+	if input["old_string"] != "left" || input["new_string"] != "right" {
+		t.Fatalf("expected parsed edit strings, got old=%v new=%v", input["old_string"], input["new_string"])
+	}
+}
+
+func TestHistory_ResponseItem_CustomToolCall_ApplyPatchInputMapsToEdit(t *testing.T) {
+	ev := normalizeEntry(t, `{"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch\n*** Update File: main.go\n@@\n-left\n+right\n*** End Patch","call_id":"call_patch_custom_history"}}`)
+	assertHistoryType(t, ev, "assistant", "custom_tool_call apply_patch")
+	blocks := getHistoryContentBlocks(t, ev)
+	if blocks[0]["id"] != "call_patch_custom_history" {
+		t.Fatalf("expected id=call_patch_custom_history, got %v", blocks[0]["id"])
+	}
 	if blocks[0]["name"] != "Edit" {
 		t.Fatalf("expected name=Edit, got %v", blocks[0]["name"])
 	}

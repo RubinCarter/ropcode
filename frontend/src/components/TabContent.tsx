@@ -5,53 +5,29 @@ import { useScreenTracking } from '@/hooks/useAnalytics';
 import { Tab } from '@/contexts/TabContext';
 import { Loader2 } from 'lucide-react';
 import { shouldKeepTabMounted } from '@/lib/tabUtils';
+import { Agents } from '@/components/Agents';
+import { CreateAgent } from '@/components/CreateAgent';
+import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { MCPManager } from '@/components/MCPManager';
+import { Settings } from '@/components/Settings';
 import { SettingsLoadingShell } from '@/components/SettingsLoadingShell';
-
-const loadSettings = () => {
-  console.info('[settings] loading Settings chunk');
-  return import('@/components/Settings')
-    .then(m => {
-      console.info('[settings] Settings chunk loaded');
-      return { default: m.Settings };
-    })
-    .catch(error => {
-      console.error('[settings] Settings chunk failed', error);
-      throw error;
-    });
-};
-
-const scheduleSettingsPrefetch = () => {
-  const win = window as Window & {
-    requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-    cancelIdleCallback?: (handle: number) => void;
-  };
-
-  if (typeof win.requestIdleCallback === 'function') {
-    const idleId = win.requestIdleCallback(() => {
-      void loadSettings().catch(() => undefined);
-    }, { timeout: 1500 });
-    return () => win.cancelIdleCallback?.(idleId);
-  }
-
-  const timeoutId = globalThis.setTimeout(() => {
-    void loadSettings().catch(() => undefined);
-  }, 600);
-  return () => globalThis.clearTimeout(timeoutId);
-};
+import { UsageDashboard } from '@/components/UsageDashboard';
+import {
+  loadAgentExecution,
+  loadAgentRunOutputViewer,
+  loadAiCodeSession,
+  loadDiffViewer,
+  loadFileViewer,
+  loadWebViewWidget,
+} from '@/lib/lazyModules';
 
 // Lazy load heavy components
-const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
-const Agents = lazy(() => import('@/components/Agents').then(m => ({ default: m.Agents })));
-const Settings = lazy(loadSettings);
-const AgentRunOutputViewer = lazy(() => import('@/components/AgentRunOutputViewer'));
-const AgentExecution = lazy(() => import('@/components/AgentExecution').then(m => ({ default: m.AgentExecution })));
-const CreateAgent = lazy(() => import('@/components/CreateAgent').then(m => ({ default: m.CreateAgent })));
-const UsageDashboard = lazy(() => import('@/components/UsageDashboard').then(m => ({ default: m.UsageDashboard })));
-const MarkdownEditor = lazy(() => import('@/components/MarkdownEditor').then(m => ({ default: m.MarkdownEditor })));
-const DiffViewer = lazy(() => import('@/components/right-sidebar/DiffViewer').then(m => ({ default: m.DiffViewer })));
-const FileViewer = lazy(() => import('@/components/FileViewer').then(m => ({ default: m.FileViewer })));
-const WebViewWidget = lazy(() => import('@/components/WebViewWidget').then(m => ({ default: m.WebViewWidget })));
+const AiCodeSession = lazy(loadAiCodeSession);
+const AgentRunOutputViewer = lazy(loadAgentRunOutputViewer);
+const AgentExecution = lazy(loadAgentExecution);
+const DiffViewer = lazy(loadDiffViewer);
+const FileViewer = lazy(loadFileViewer);
+const WebViewWidget = lazy(loadWebViewWidget);
 // const ClaudeFileEditor = lazy(() => import('@/components/ClaudeFileEditor').then(m => ({ default: m.ClaudeFileEditor })));
 
 // Import non-lazy components for projects view
@@ -78,11 +54,6 @@ const TabPanel: React.FC<TabPanelProps> = React.memo(({ tab, isActive }) => {
       }
     };
   }, [keepMounted]);
-
-  useEffect(() => {
-    if (tab.type !== 'settings' || !isActive) return;
-    return scheduleSettingsPrefetch();
-  }, [isActive, tab.type]);
 
   // Handle provider change - reload sessions for the new provider
   const handleProviderChange = async (providerId: string) => {

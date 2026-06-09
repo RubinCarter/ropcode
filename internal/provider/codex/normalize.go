@@ -51,6 +51,8 @@ func NormalizeHistoryEntry(raw map[string]any) provider.OutputEvent {
 		msg = map[string]any{"type": "error", "message": str(raw, "message")}
 		annotateCodexHistoryMessage(msg, raw, nil)
 		evType = "error"
+	case "compacted":
+		return *eventContextCompacted(raw)
 	case "event_msg":
 		return normalizeEventMsg(raw)
 	case "session_meta":
@@ -181,6 +183,8 @@ func normalizeEventMsg(raw map[string]any) provider.OutputEvent {
 			Subtype: "web_search_end",
 			Message: payload,
 		}
+	case "context_compacted":
+		return *eventContextCompacted(raw)
 	default:
 		return provider.OutputEvent{
 			Type:    "system",
@@ -1182,7 +1186,7 @@ func normalizePayloadHistory(payload map[string]any) map[string]any {
 		}
 	case "function_call", "custom_tool_call":
 		name := str(payload, "name")
-		callID := str(payload, "call_id")
+		callID := firstNonEmpty(str(payload, "call_id"), str(payload, "callId"), str(payload, "id"))
 		claudeName, claudeInput := adaptToolCall(name, extractFunctionCallArgs(payload))
 		if claudeName == "" {
 			return nil
@@ -1190,7 +1194,7 @@ func normalizePayloadHistory(payload map[string]any) map[string]any {
 		return toolUse(callID, claudeName, claudeInput)
 	case "function_call_output", "custom_tool_call_output":
 		output := str(payload, "output")
-		callID := str(payload, "call_id")
+		callID := firstNonEmpty(str(payload, "call_id"), str(payload, "callId"), str(payload, "id"))
 		parsed := parseWaitAgentOutput(output)
 		if parsed == "" {
 			return nil
@@ -1607,6 +1611,34 @@ func eventResultWithMeta(meta map[string]interface{}) *provider.OutputEvent {
 	return &provider.OutputEvent{
 		Type:    "assistant",
 		Subtype: "result",
+		Message: message,
+	}
+}
+
+func eventContextCompacted(raw map[string]interface{}) *provider.OutputEvent {
+	message := map[string]interface{}{
+		"type":    "system",
+		"subtype": "status",
+		"status":  "compacted",
+		"message": "Context compacted",
+	}
+	if rawType := str(raw, "type"); rawType != "" {
+		message["event_type"] = rawType
+	}
+	if timestamp := str(raw, "timestamp"); timestamp != "" {
+		message["timestamp"] = timestamp
+	}
+	if payload := mval(raw["payload"]); payload != nil {
+		if payloadType := str(payload, "type"); payloadType != "" {
+			message["event_type"] = payloadType
+		}
+		if text := strings.TrimSpace(str(payload, "message")); text != "" {
+			message["message"] = text
+		}
+	}
+	return &provider.OutputEvent{
+		Type:    "system",
+		Subtype: "status",
 		Message: message,
 	}
 }

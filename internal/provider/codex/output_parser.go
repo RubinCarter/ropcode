@@ -183,12 +183,12 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 		return eventThinking(text)
 	case "commandExecution":
 		return d.parseCommandExecution(item, params)
-	case "functionCall", "localShellExec":
+	case "functionCall", "customToolCall", "localShellExec":
 		name, _ := item["name"].(string)
 		if name == "" {
 			name, _ = item["command"].(string)
 		}
-		id, _ := item["id"].(string)
+		id := firstNonEmpty(str(item, "id"), str(item, "call_id"), str(item, "callId"))
 		args := extractFunctionCallArgs(item)
 		if d.rememberFunctionCallTool(id, name, args) {
 			return nil
@@ -198,19 +198,13 @@ func (d *Driver) parseItemEvent(params map[string]interface{}, phase string) *pr
 			return nil
 		}
 		return eventToolUse(id, claudeName, claudeInput)
-	case "functionCallOutput", "localShellOutput":
+	case "functionCallOutput", "customToolCallOutput", "localShellOutput":
 		output, _ := item["output"].(string)
-		callID, _ := item["call_id"].(string)
-		if callID == "" {
-			callID, _ = item["id"].(string)
-		}
+		callID := firstNonEmpty(str(item, "call_id"), str(item, "callId"), str(item, "id"))
 		return d.eventFunctionCallOutput(callID, output, itemType == "localShellOutput")
 	case "collab_tool_call":
 		output, _ := item["output"].(string)
-		callID, _ := item["call_id"].(string)
-		if callID == "" {
-			callID, _ = item["id"].(string)
-		}
+		callID := firstNonEmpty(str(item, "call_id"), str(item, "callId"), str(item, "id"))
 		return eventToolResult(callID, output, false)
 	case "collabAgentToolCall":
 		return d.parseCollabAgentCompleted(item, params)
@@ -258,8 +252,8 @@ func (d *Driver) parseItemStarted(item map[string]interface{}, itemType string, 
 		}
 		return eventToolUse(id, toolName, input)
 	}
-	if itemType == "functionCall" || itemType == "collabAgentToolCall" {
-		id, _ := item["id"].(string)
+	if itemType == "functionCall" || itemType == "customToolCall" || itemType == "collabAgentToolCall" {
+		id := firstNonEmpty(str(item, "id"), str(item, "call_id"), str(item, "callId"))
 		name, _ := item["name"].(string)
 		if itemType == "collabAgentToolCall" {
 			tool, _ := item["tool"].(string)
@@ -802,6 +796,17 @@ func (d *Driver) parseBatchEvent(raw map[string]interface{}) *provider.OutputEve
 	case "message.delta":
 		delta, _ := raw["delta"].(string)
 		return eventAssistantDelta(codexBatchMessageID(raw), delta)
+	case "compacted":
+		return eventContextCompacted(raw)
+	case "event_msg":
+		payload, _ := raw["payload"].(map[string]interface{})
+		if payloadType, _ := payload["type"].(string); payloadType == "context_compacted" {
+			return eventContextCompacted(raw)
+		}
+		return &provider.OutputEvent{
+			Type:    eventType,
+			Message: raw,
+		}
 	default:
 		return &provider.OutputEvent{
 			Type:    eventType,
@@ -848,12 +853,12 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 		}
 		id, _ := item["id"].(string)
 		return eventAssistantText(id, text)
-	case "function_call", "local_shell_exec":
+	case "function_call", "custom_tool_call", "local_shell_exec":
 		name, _ := item["name"].(string)
 		if name == "" {
 			name, _ = item["command"].(string)
 		}
-		id, _ := item["id"].(string)
+		id := firstNonEmpty(str(item, "id"), str(item, "call_id"), str(item, "callId"))
 		args := extractFunctionCallArgs(item)
 		if d.rememberFunctionCallTool(id, name, args) {
 			return nil
@@ -863,12 +868,9 @@ func (d *Driver) parseBatchItemCompleted(raw map[string]interface{}) *provider.O
 			return nil
 		}
 		return eventToolUse(id, claudeName, claudeInput)
-	case "function_call_output", "local_shell_output":
+	case "function_call_output", "custom_tool_call_output", "local_shell_output":
 		output, _ := item["output"].(string)
-		callID, _ := item["call_id"].(string)
-		if callID == "" {
-			callID, _ = item["id"].(string)
-		}
+		callID := firstNonEmpty(str(item, "call_id"), str(item, "callId"), str(item, "id"))
 		return d.eventFunctionCallOutput(callID, output, itemType == "local_shell_output")
 	default:
 		return nil
@@ -896,10 +898,7 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 		return eventAssistantText(codexBatchMessageID(raw), text)
 	case "function_call", "custom_tool_call":
 		name, _ := payload["name"].(string)
-		callID, _ := payload["call_id"].(string)
-		if callID == "" {
-			callID, _ = payload["id"].(string)
-		}
+		callID := firstNonEmpty(str(payload, "call_id"), str(payload, "callId"), str(payload, "id"))
 		args := extractFunctionCallArgs(payload)
 		if d.rememberFunctionCallTool(callID, name, args) {
 			return nil
@@ -909,12 +908,9 @@ func (d *Driver) parseBatchResponseItem(raw map[string]interface{}) *provider.Ou
 			return nil
 		}
 		return eventToolUse(callID, claudeName, claudeInput)
-	case "function_call_output":
+	case "function_call_output", "custom_tool_call_output":
 		output, _ := payload["output"].(string)
-		callID, _ := payload["call_id"].(string)
-		if callID == "" {
-			callID, _ = payload["id"].(string)
-		}
+		callID := firstNonEmpty(str(payload, "call_id"), str(payload, "callId"), str(payload, "id"))
 		return d.eventFunctionCallOutput(callID, output, false)
 	default:
 		return nil

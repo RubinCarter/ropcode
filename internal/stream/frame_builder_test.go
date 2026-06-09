@@ -219,6 +219,31 @@ func TestCodexAdapterPreservesSubagentTaskAndResultIdentity(t *testing.T) {
 	}
 }
 
+func TestCodexAdapterConvertsContextCompactedStatus(t *testing.T) {
+	frame, err := AdaptCodexOutput(ProviderOutputContext{}, provider.OutputEvent{
+		Type:      "system",
+		Subtype:   "status",
+		SessionID: "runtime-1",
+		Provider:  "codex",
+		Message: map[string]any{
+			"type":    "system",
+			"subtype": "status",
+			"status":  "compacted",
+			"message": "Context compacted",
+		},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if frame.Kind != FrameKindMetadata || frame.Role != RoleSystem || frame.Subtype != "status" {
+		t.Fatalf("unexpected compacted frame shape: %#v", frame)
+	}
+	if len(frame.Content) != 1 || frame.Content[0].Type != ContentSystem || frame.Content[0].Text != "Context compacted" {
+		t.Fatalf("expected compacted status content, got %#v", frame.Content)
+	}
+}
+
 func TestClaudeAdapterMarksAsyncBackgroundAgentFramesAsSidechain(t *testing.T) {
 	launcher, err := AdaptClaudeOutput(ProviderOutputContext{}, provider.OutputEvent{
 		Type:      "assistant",

@@ -1,36 +1,13 @@
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense } from 'react';
 import { useSystemTabContext } from '@/contexts/SystemTabContext';
 import { Loader2 } from 'lucide-react';
+import { Agents } from '@/components/Agents';
+import { CreateAgent } from '@/components/CreateAgent';
+import { MarkdownEditor } from '@/components/MarkdownEditor';
+import { MCPManager } from '@/components/MCPManager';
+import { Settings } from '@/components/Settings';
 import { SettingsLoadingShell } from '@/components/SettingsLoadingShell';
-
-const loadSettings = () => import('@/components/Settings').then(m => ({ default: m.Settings }));
-
-const prefetchSettings = () => {
-  void loadSettings().catch(() => undefined);
-};
-
-const scheduleSettingsPrefetch = () => {
-  const win = window as Window & {
-    requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-    cancelIdleCallback?: (handle: number) => void;
-  };
-
-  if (typeof win.requestIdleCallback === 'function') {
-    const idleId = win.requestIdleCallback(prefetchSettings, { timeout: 1500 });
-    return () => win.cancelIdleCallback?.(idleId);
-  }
-
-  const timeoutId = globalThis.setTimeout(prefetchSettings, 600);
-  return () => globalThis.clearTimeout(timeoutId);
-};
-
-// Lazy load components with named exports
-const Agents = lazy(() => import('@/components/Agents').then(m => ({ default: m.Agents })));
-const UsageDashboard = lazy(() => import('@/components/UsageDashboard').then(m => ({ default: m.UsageDashboard })));
-const MCPManager = lazy(() => import('@/components/MCPManager').then(m => ({ default: m.MCPManager })));
-const Settings = lazy(loadSettings);
-const MarkdownEditor = lazy(() => import('@/components/MarkdownEditor').then(m => ({ default: m.MarkdownEditor })));
-const CreateAgent = lazy(() => import('@/components/CreateAgent').then(m => ({ default: m.CreateAgent })));
+import { UsageDashboard } from '@/components/UsageDashboard';
 
 interface SystemContainerProps {
   visible: boolean;
@@ -39,10 +16,6 @@ interface SystemContainerProps {
 export const SystemContainer: React.FC<SystemContainerProps> = ({ visible }) => {
   const { getActiveTab } = useSystemTabContext();
   const activeTab = getActiveTab();
-
-  useEffect(() => {
-    return scheduleSettingsPrefetch();
-  }, []);
 
   const fallback = activeTab?.type === 'settings' ? (
     <SettingsLoadingShell />

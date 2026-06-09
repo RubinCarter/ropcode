@@ -12,6 +12,7 @@ class TerminalInstanceManager {
     termWrap: PtyTermWrap | null;  // Created on attach
     container: HTMLDivElement | null;
     refCount: number;
+    destroyTimer: number | null;
   }>();
 
   /**
@@ -26,8 +27,14 @@ class TerminalInstanceManager {
         termWrap: null,
         container: null,
         refCount: 0,
+        destroyTimer: null,
       };
       this.instances.set(key, instance);
+    }
+
+    if (instance.destroyTimer !== null) {
+      window.clearTimeout(instance.destroyTimer);
+      instance.destroyTimer = null;
     }
 
     instance.refCount++;
@@ -110,7 +117,14 @@ class TerminalInstanceManager {
 
     instance.refCount--;
     if (instance.refCount <= 0) {
-      this.destroy(key);
+      instance.refCount = 0;
+      if (instance.destroyTimer !== null) return;
+      instance.destroyTimer = window.setTimeout(() => {
+        const current = this.instances.get(key);
+        if (!current || current.refCount > 0) return;
+        current.destroyTimer = null;
+        this.destroy(key);
+      }, 100);
     }
   }
 
@@ -120,6 +134,11 @@ class TerminalInstanceManager {
   destroy(key: string): void {
     const instance = this.instances.get(key);
     if (!instance) return;
+
+    if (instance.destroyTimer !== null) {
+      window.clearTimeout(instance.destroyTimer);
+      instance.destroyTimer = null;
+    }
 
     if (instance.termWrap) {
       instance.termWrap.dispose();

@@ -11,10 +11,11 @@ import { wsClient } from '@/lib/ws-rpc-client';
 import { EventsOn } from '@/lib/rpc-events';
 import { Loader2, ArrowLeft } from 'lucide-react';
 import { RightSidebar } from '@/components/right-sidebar';
-import { FileViewer } from '@/components/FileViewer';
-import { DiffViewer } from '@/components/right-sidebar/DiffViewer';
+import { Agents } from '@/components/Agents';
+import { loadDiffViewer, loadFileViewer } from '@/lib/lazyModules';
 
-const Agents = lazy(() => import('@/components/Agents').then(m => ({ default: m.Agents })));
+const FileViewer = lazy(loadFileViewer);
+const DiffViewer = lazy(loadDiffViewer);
 
 /**
  * Wrapper that renders file/diff content when a workspace tab is active,
@@ -40,12 +41,18 @@ const MobileStatusContent: React.FC<{ projectPath: string }> = ({ projectPath })
             <span className="text-sm font-medium truncate">{activeTab.title}</span>
           </div>
           <div className="flex-1 overflow-hidden">
-            {activeTab.type === 'file' && activeTab.filePath && (
-              <FileViewer filePath={activeTab.filePath} workspacePath={activeTab.projectPath || projectPath} />
-            )}
-            {activeTab.type === 'diff' && activeTab.filePath && (
-              <DiffViewer filePath={activeTab.filePath} workspacePath={activeTab.projectPath || projectPath} gitStatus={activeTab.gitStatus} />
-            )}
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            }>
+              {activeTab.type === 'file' && activeTab.filePath && (
+                <FileViewer filePath={activeTab.filePath} workspacePath={activeTab.projectPath || projectPath} />
+              )}
+              {activeTab.type === 'diff' && activeTab.filePath && (
+                <DiffViewer filePath={activeTab.filePath} workspacePath={activeTab.projectPath || projectPath} gitStatus={activeTab.gitStatus} />
+              )}
+            </Suspense>
           </div>
         </div>
       )}
@@ -166,13 +173,7 @@ export const MobileLayout: React.FC = () => {
         {/* Agents */}
         {activeTab === 'agents' && (
           <div className="h-full overflow-auto">
-            <Suspense fallback={
-              <div className="flex items-center justify-center h-32">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
-            }>
-              <Agents />
-            </Suspense>
+            <Agents />
           </div>
         )}
 

@@ -11,6 +11,7 @@ const fixtureRoot = path.resolve(artifactsDir, 'right-sidebar-fixture');
 test.beforeEach(async ({ context }) => {
   await context.addInitScript(() => {
     localStorage.setItem('app_setting:startup_intro_enabled', 'false');
+    localStorage.setItem('sidebar_panel_mode', 'sessions');
   });
 });
 

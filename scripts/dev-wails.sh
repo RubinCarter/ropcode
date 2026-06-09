@@ -50,7 +50,6 @@ fi
 
 # wails dev handles:
 # - Go compilation + hot reload on .go changes (the wails shell binary)
-# - frontend:dev:watcher runs "vite build --watch" for auto-rebuild
-# - Serves built assets from frontend/dist with middleware injection
-# - Auto-reloads webview when frontend/dist changes
-exec "$WAILS" dev -tags wails -skipbindings
+# - frontend:dev:watcher starts the Vite dev server and auto-discovers its URL
+# - Wails proxies Vite while preserving the runtime/RPC middleware
+exec "$WAILS" dev -tags wails -skipbindings -s

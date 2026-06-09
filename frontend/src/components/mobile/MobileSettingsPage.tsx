@@ -1,12 +1,10 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React, { useState } from 'react';
 import { Settings, BarChart3, FileText, Network, Info, Bug, ChevronRight, ArrowLeft } from 'lucide-react';
-import { Loader2 } from 'lucide-react';
-
-const SettingsPage = lazy(() => import('@/components/Settings').then(m => ({ default: m.Settings })));
-const UsageDashboard = lazy(() => import('@/components/UsageDashboard').then(m => ({ default: m.UsageDashboard })));
-const MarkdownEditor = lazy(() => import('@/components/MarkdownEditor').then(m => ({ default: m.MarkdownEditor })));
-const MCPManager = lazy(() => import('@/components/MCPManager').then(m => ({ default: m.MCPManager })));
-const DebugLogs = lazy(() => import('@/components/DebugLogs').then(m => ({ default: m.DebugLogs })));
+import { DebugLogs } from '@/components/DebugLogs';
+import { MarkdownEditor } from '@/components/MarkdownEditor';
+import { MCPManager } from '@/components/MCPManager';
+import { Settings as SettingsPage } from '@/components/Settings';
+import { UsageDashboard } from '@/components/UsageDashboard';
 
 type SettingsSubPage = 'list' | 'settings' | 'usage' | 'memory' | 'mcp' | 'about' | 'debug';
 
@@ -37,23 +35,17 @@ export const MobileSettingsPage: React.FC = () => {
           </span>
         </div>
         <div className="flex-1 overflow-auto">
-          <Suspense fallback={
-            <div className="flex items-center justify-center h-32">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          {subPage === 'settings' && <SettingsPage onBack={() => setSubPage('list')} />}
+          {subPage === 'usage' && <UsageDashboard onBack={() => setSubPage('list')} />}
+          {subPage === 'memory' && <MarkdownEditor onBack={() => setSubPage('list')} />}
+          {subPage === 'mcp' && <MCPManager onBack={() => setSubPage('list')} />}
+          {subPage === 'debug' && <div className="p-3"><DebugLogs /></div>}
+          {subPage === 'about' && (
+            <div className="p-4 text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground mb-2">Ropcode</p>
+              <p>AI-powered coding assistant</p>
             </div>
-          }>
-            {subPage === 'settings' && <SettingsPage onBack={() => setSubPage('list')} />}
-            {subPage === 'usage' && <UsageDashboard onBack={() => setSubPage('list')} />}
-            {subPage === 'memory' && <MarkdownEditor onBack={() => setSubPage('list')} />}
-            {subPage === 'mcp' && <MCPManager onBack={() => setSubPage('list')} />}
-            {subPage === 'debug' && <div className="p-3"><DebugLogs /></div>}
-            {subPage === 'about' && (
-              <div className="p-4 text-sm text-muted-foreground">
-                <p className="font-semibold text-foreground mb-2">Ropcode</p>
-                <p>AI-powered coding assistant</p>
-              </div>
-            )}
-          </Suspense>
+          )}
         </div>
       </div>
     );

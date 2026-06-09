@@ -24,43 +24,31 @@ import {
 import type { TitleProviderOption } from "@/lib/rpc-client";
 import { cn } from "@/lib/utils";
 import { Toast, ToastContainer } from "@/components/ui/toast";
-// Heavy sub-components are lazy-loaded so opening the Settings tab no longer
-// pulls 5,000+ lines of TSX (Storage browser, Slash commands editor, Hooks
-// editor, etc.) up-front. Each tab fetches its panel only when the user
-// actually clicks it.
-const ClaudeVersionSelector = lazy(() =>
-  import("./ClaudeVersionSelector").then((m) => ({ default: m.ClaudeVersionSelector })),
-);
-const StorageTab = lazy(() =>
-  import("./StorageTab").then((m) => ({ default: m.StorageTab })),
-);
-const HooksEditor = lazy(() =>
-  import("./HooksEditor").then((m) => ({ default: m.HooksEditor })),
-);
-const SlashCommandsManager = lazy(() =>
-  import("./SlashCommandsManager").then((m) => ({ default: m.SlashCommandsManager })),
-);
-const ProxySettings = lazy(() =>
-  import("./ProxySettings").then((m) => ({ default: m.ProxySettings })),
-);
-const ProviderApiManager = lazy(() =>
-  import("./ProviderApiManager").then((m) => ({ default: m.ProviderApiManager })),
-);
-const ClaudeAgentsManager = lazy(() =>
-  import("./ClaudeAgentsManager").then((m) => ({ default: m.ClaudeAgentsManager })),
-);
-const PluginsManager = lazy(() =>
-  import("./PluginsManager").then((m) => ({ default: m.PluginsManager })),
-);
-const DebugLogs = lazy(() =>
-  import("./DebugLogs").then((m) => ({ default: m.DebugLogs })),
-);
 import { useTranslation } from 'react-i18next';
 import { useTheme, useTrackEvent, useLanguage } from "@/hooks";
 import { analytics } from "@/lib/analytics";
 import { TabPersistenceService } from "@/services/tabPersistence";
+import { ClaudeVersionSelector } from "@/components/ClaudeVersionSelector";
+import { DebugLogs } from "@/components/DebugLogs";
+import {
+  loadClaudeAgentsManager,
+  loadHooksEditor,
+  loadPluginsManager,
+  loadProviderApiManager,
+  loadProxySettings,
+  loadSlashCommandsManager,
+  loadStorageTab,
+} from "@/lib/lazyModules";
 
-console.info('[settings] Settings module evaluated');
+// Heavy sub-components stay lazy. Wails dev uses the Vite dev server warmup
+// list so these entry files are transformed outside the React render path.
+const StorageTab = lazy(loadStorageTab);
+const HooksEditor = lazy(loadHooksEditor);
+const SlashCommandsManager = lazy(loadSlashCommandsManager);
+const ProxySettings = lazy(loadProxySettings);
+const ProviderApiManager = lazy(loadProviderApiManager);
+const ClaudeAgentsManager = lazy(loadClaudeAgentsManager);
+const PluginsManager = lazy(loadPluginsManager);
 
 const deferUntilIdle = (callback: () => void, timeout = 300): (() => void) => {
   const win = window as typeof window & {

@@ -11,6 +11,14 @@ import * as rpcClient from '@/lib/rpc-client';
 import { projectChatExistingSessionId, projectChatSegmentFromSwitchResult } from '@/lib/projectChatSession';
 import { useProjectChatSegments } from '@/hooks/useProjectChatSegments';
 import {
+  loadAgentExecution,
+  loadAgentRunOutputViewer,
+  loadAiCodeSession,
+  loadDiffViewer,
+  loadFileViewer,
+  loadWebViewWidget,
+} from '@/lib/lazyModules';
+import {
   getProjectChatSegments,
   setProjectChatSegments,
   updateProjectChatSegmentRuntimeSession,
@@ -20,12 +28,12 @@ import {
 import { useTranslation } from 'react-i18next';
 
 // Lazy load heavy components
-const AiCodeSession = lazy(() => import('@/components/ai-code-session').then(m => ({ default: m.AiCodeSession })));
-const AgentRunOutputViewer = lazy(() => import('@/components/AgentRunOutputViewer').then(m => ({ default: m.AgentRunOutputViewer })));
-const AgentExecution = lazy(() => import('@/components/AgentExecution').then(m => ({ default: m.AgentExecution })));
-const DiffViewer = lazy(() => import('@/components/right-sidebar/DiffViewer').then(m => ({ default: m.DiffViewer })));
-const FileViewer = lazy(() => import('@/components/FileViewer').then(m => ({ default: m.FileViewer })));
-const WebViewWidget = lazy(() => import('@/components/WebViewWidget').then(m => ({ default: m.WebViewWidget })));
+const AiCodeSession = lazy(loadAiCodeSession);
+const AgentRunOutputViewer = lazy(loadAgentRunOutputViewer);
+const AgentExecution = lazy(loadAgentExecution);
+const DiffViewer = lazy(loadDiffViewer);
+const FileViewer = lazy(loadFileViewer);
+const WebViewWidget = lazy(loadWebViewWidget);
 
 const CHAT_PROVIDERS = ['claude', 'codex', 'deepseek', 'pi'] as const;
 

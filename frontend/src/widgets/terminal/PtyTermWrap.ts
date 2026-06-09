@@ -183,7 +183,7 @@ export class PtyTermWrap {
   }
 
   fitAndReport(): void {
-    if (this.disposed || !this.container || this.container.offsetWidth <= 0 || this.container.offsetHeight <= 0) {
+    if (!this.canFit()) {
       return;
     }
     const oldRows = this.terminal.rows;
@@ -368,6 +368,17 @@ export class PtyTermWrap {
     if (!this.container) return;
     this.resizeObserver = new ResizeObserver(() => this.scheduleFit());
     this.resizeObserver.observe(this.container);
+  }
+
+  private canFit(): boolean {
+    if (this.disposed || !this.container || !this.container.isConnected) {
+      return false;
+    }
+    if (this.container.offsetWidth <= 0 || this.container.offsetHeight <= 0) {
+      return false;
+    }
+    const element = this.terminal.element;
+    return !!element && element.parentElement === this.container && element.isConnected;
   }
 
   private connectBulkStream(): void {

@@ -17,14 +17,11 @@ import { open as openDialog, save } from '@/lib/dialog';
 import { useTabState } from '@/hooks/useTabState';
 import { useProcessChanged } from '@/hooks';
 import { useTranslation } from 'react-i18next';
+import { CreateAgent } from '@/components/CreateAgent';
+import { loadGitHubAgentBrowser } from '@/lib/lazyModules';
 // Note: ExportAgentToFile uses api.exportAgentToFile
 
-const GitHubAgentBrowser = lazy(() =>
-  import('@/components/GitHubAgentBrowser').then((m) => ({ default: m.GitHubAgentBrowser })),
-);
-const CreateAgent = lazy(() =>
-  import('@/components/CreateAgent').then((m) => ({ default: m.CreateAgent })),
-);
+const GitHubAgentBrowser = lazy(loadGitHubAgentBrowser);
 
 const deferUntilIdle = (callback: () => void, timeout = 800): (() => void) => {
   const win = window as typeof window & {
@@ -116,12 +113,9 @@ export const Agents: React.FC = () => {
       return;
     }
     
-    // Import the dialog function
-    const { open } = await import('@/lib/dialog');
-    
     try {
       // Prompt user to select a project directory
-      const projectPath = await open({
+      const projectPath = await openDialog({
         directory: true,
         multiple: false,
         title: t('agents.selectProjectDir', { name: agent.name })

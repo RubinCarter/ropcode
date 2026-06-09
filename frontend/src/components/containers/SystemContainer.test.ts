@@ -7,24 +7,18 @@ import { fileURLToPath } from 'node:url';
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const systemContainerPath = path.resolve(currentDir, './SystemContainer.tsx');
 
-test('SystemContainer lazy-loads Settings to keep the system shell light', async () => {
+test('SystemContainer statically imports system pages to avoid first-open lazy spinners', async () => {
   const source = await fs.readFile(systemContainerPath, 'utf8');
 
-  assert.doesNotMatch(source, /import \{ Settings \} from '@\/components\/Settings';/);
-  assert.match(source, /const loadSettings = \(\) => import\('@\/components\/Settings'\)/);
-  assert.match(source, /const Settings = lazy\(loadSettings\);/);
+  assert.match(source, /import \{ Agents \} from '@\/components\/Agents';/);
+  assert.match(source, /import \{ Settings \} from '@\/components\/Settings';/);
+  assert.match(source, /import \{ UsageDashboard \} from '@\/components\/UsageDashboard';/);
+  assert.doesNotMatch(source, /lazy\(loadAgents\)/);
+  assert.doesNotMatch(source, /lazy\(loadSettings\)/);
+  assert.doesNotMatch(source, /lazy\(loadUsageDashboard\)/);
 });
 
-test('SystemContainer lazy-loads Agents and UsageDashboard to keep the system shell light', async () => {
-  const source = await fs.readFile(systemContainerPath, 'utf8');
-
-  assert.doesNotMatch(source, /import \{ Agents \} from '@\/components\/Agents';/);
-  assert.doesNotMatch(source, /import \{ UsageDashboard \} from '@\/components\/UsageDashboard';/);
-  assert.match(source, /const Agents = lazy\(\(\) => import\('@\/components\/Agents'\)/);
-  assert.match(source, /const UsageDashboard = lazy\(\(\) => import\('@\/components\/UsageDashboard'\)/);
-});
-
-test('SystemContainer shows the Settings shell while the Settings chunk loads', async () => {
+test('SystemContainer keeps a Suspense boundary for nested lazy settings panes', async () => {
   const source = await fs.readFile(systemContainerPath, 'utf8');
 
   assert.match(source, /import \{ SettingsLoadingShell \} from '@\/components\/SettingsLoadingShell';/);

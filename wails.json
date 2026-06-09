@@ -5,8 +5,8 @@
   "assetdir": "frontend/dist",
   "frontend:install": "",
   "frontend:build": "npm run build:dev",
-  "frontend:dev:watcher": "npx vite build --watch --mode development --emptyOutDir false",
-  "frontend:dev:serverUrl": "",
+  "frontend:dev:watcher": "npm run dev -- --host 127.0.0.1",
+  "frontend:dev:serverUrl": "auto",
   "build:dir": "release",
   "build:tags": "wails",
   "author": {

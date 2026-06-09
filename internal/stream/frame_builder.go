@@ -162,6 +162,9 @@ func extractContentBlocks(raw map[string]any) []ContentBlock {
 		if text := stringFromMap(raw, "description"); text != "" {
 			return []ContentBlock{{Type: ContentSystem, Text: text}}
 		}
+		if text := stringFromMap(raw, "message"); text != "" {
+			return []ContentBlock{{Type: ContentSystem, Text: text}}
+		}
 		return []ContentBlock{}
 	}
 

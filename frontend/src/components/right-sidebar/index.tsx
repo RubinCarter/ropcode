@@ -844,8 +844,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             />
 
       {/* Tab content - Console */}
-      {activeRightTab === 'console' && (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className={cn("flex-1 flex-col overflow-hidden", activeRightTab === 'console' ? 'flex' : 'hidden')}>
               {/* Git status panel - only show with Git support */}
           {hasGitSupport && (
             <>
@@ -901,7 +900,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
                   workspaceId={currentProjectPath || 'default'}
                   cwd={currentProjectPath}
                   className="absolute inset-0"
-                  isActive={session.id === state.activeSessionId}
+                  isActive={activeRightTab === 'console' && session.id === state.activeSessionId}
                   onShellStateChange={handleTerminalShellState}
                 />
               ) : null
@@ -932,20 +931,16 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
         )}
           </div>
         </div>
-      )}
 
       {/* Tab content - Files */}
-      {activeRightTab === 'files' && (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className={cn("flex-1 flex-col overflow-hidden", activeRightTab === 'files' ? 'flex' : 'hidden')}>
           <FileTreeBrowser
             workspacePath={currentProjectPath}
             onFileClick={handleFileTreeClick}
           />
         </div>
-      )}
 
-      {activeRightTab === 'tasks' && (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className={cn("flex-1 flex-col overflow-hidden", activeRightTab === 'tasks' ? 'flex' : 'hidden')}>
           {activeClaudeChatTab ? (
             <ClaudeActivityPane
               workspacePath={currentProjectPath || activeClaudeChatTab.projectPath}
@@ -957,7 +952,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({
             </div>
           )}
         </div>
-      )}
 
       {/* Actions config dialog */}
       {(() => {
