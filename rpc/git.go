@@ -37,6 +37,9 @@ func GitHandlers(_ *Deps) map[string]Handler {
 		"GetCurrentBranch": func(p json.RawMessage) (any, error) {
 			repo, err := git.Open(argString(p, 0))
 			if err != nil {
+				if git.IsRepositoryNotExists(err) {
+					return "", nil
+				}
 				return "", err
 			}
 			return repo.CurrentBranch()

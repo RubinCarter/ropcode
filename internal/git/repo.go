@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -41,6 +42,11 @@ func Open(path string) (*Repo, error) {
 		path: path,
 		repo: repo,
 	}, nil
+}
+
+// IsRepositoryNotExists reports whether an error means the path is not a Git repository.
+func IsRepositoryNotExists(err error) bool {
+	return errors.Is(err, git.ErrRepositoryNotExists)
 }
 
 // Status returns the current status of the repository
