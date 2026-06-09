@@ -267,7 +267,7 @@ func (m *Manager) Resize(sessionID string, rows, cols int) error {
 	m.mu.RUnlock()
 
 	if !exists {
-		return fmt.Errorf("session not found: %s", sessionID)
+		return nil
 	}
 
 	return session.Resize(rows, cols)

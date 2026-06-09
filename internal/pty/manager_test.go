@@ -91,6 +91,24 @@ func TestPtyManager_ResizeSession(t *testing.T) {
 	manager.CloseSession("test-resize")
 }
 
+func TestPtyManager_ResizeMissingSessionIsNoop(t *testing.T) {
+	ctx := context.Background()
+	manager := NewManager(ctx, nil)
+
+	if err := manager.Resize("missing-session", 48, 120); err != nil {
+		t.Fatalf("expected missing session resize to be ignored, got %v", err)
+	}
+}
+
+func TestPtyManager_WriteMissingSessionStillErrors(t *testing.T) {
+	ctx := context.Background()
+	manager := NewManager(ctx, nil)
+
+	if err := manager.Write("missing-session", "hello"); err == nil {
+		t.Fatal("expected missing session write to fail")
+	}
+}
+
 func TestPtyManager_CloseAll(t *testing.T) {
 	ctx := context.Background()
 	manager := NewManager(ctx, nil)
