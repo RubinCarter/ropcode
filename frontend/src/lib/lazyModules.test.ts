@@ -36,6 +36,13 @@ test('lazy module registry is limited to heavy or nested views', async () => {
     'loadCreateAgent',
     'loadClaudeVersionSelector',
     'loadDebugLogs',
+    'loadStorageTab',
+    'loadHooksEditor',
+    'loadSlashCommandsManager',
+    'loadProxySettings',
+    'loadProviderApiManager',
+    'loadClaudeAgentsManager',
+    'loadPluginsManager',
   ]) {
     assert.doesNotMatch(source, new RegExp(`\\b${removedSystemLoader}\\b`));
   }
@@ -48,9 +55,6 @@ test('lazy module registry is limited to heavy or nested views', async () => {
     'loadFileViewer',
     'loadWebViewWidget',
     'loadGitHubAgentBrowser',
-    'loadStorageTab',
-    'loadHooksEditor',
-    'loadProviderApiManager',
   ]) {
     assert.match(source, new RegExp(`\\b${loaderName}\\b`));
   }

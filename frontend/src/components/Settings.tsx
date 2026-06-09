@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from "react";
+import React, { useState, useEffect } from "react";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -28,27 +28,15 @@ import { useTranslation } from 'react-i18next';
 import { useTheme, useTrackEvent, useLanguage } from "@/hooks";
 import { analytics } from "@/lib/analytics";
 import { TabPersistenceService } from "@/services/tabPersistence";
+import { ClaudeAgentsManager } from "@/components/ClaudeAgentsManager";
 import { ClaudeVersionSelector } from "@/components/ClaudeVersionSelector";
 import { DebugLogs } from "@/components/DebugLogs";
-import {
-  loadClaudeAgentsManager,
-  loadHooksEditor,
-  loadPluginsManager,
-  loadProviderApiManager,
-  loadProxySettings,
-  loadSlashCommandsManager,
-  loadStorageTab,
-} from "@/lib/lazyModules";
-
-// Heavy sub-components stay lazy. Wails dev uses the Vite dev server warmup
-// list so these entry files are transformed outside the React render path.
-const StorageTab = lazy(loadStorageTab);
-const HooksEditor = lazy(loadHooksEditor);
-const SlashCommandsManager = lazy(loadSlashCommandsManager);
-const ProxySettings = lazy(loadProxySettings);
-const ProviderApiManager = lazy(loadProviderApiManager);
-const ClaudeAgentsManager = lazy(loadClaudeAgentsManager);
-const PluginsManager = lazy(loadPluginsManager);
+import { HooksEditor } from "@/components/HooksEditor";
+import { PluginsManager } from "@/components/PluginsManager";
+import { ProviderApiManager } from "@/components/ProviderApiManager";
+import { ProxySettings } from "@/components/ProxySettings";
+import { SlashCommandsManager } from "@/components/SlashCommandsManager";
+import { StorageTab } from "@/components/StorageTab";
 
 const deferUntilIdle = (callback: () => void, timeout = 300): (() => void) => {
   const win = window as typeof window & {
@@ -539,13 +527,6 @@ export const Settings: React.FC<SettingsProps> = ({
               <TabsTrigger value="debug" className="py-2.5 px-3 flex-none">{t('settings.debug')}</TabsTrigger>
             </TabsList>
 
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              }
-            >
             {/* General Settings */}
             <TabsContent value="general" className="space-y-6 mt-6">
               <Card className="p-6 space-y-6">
@@ -1419,7 +1400,6 @@ export const Settings: React.FC<SettingsProps> = ({
                 <DebugLogs />
               </Card>
             </TabsContent>
-            </Suspense>
 
           </Tabs>
         </div>

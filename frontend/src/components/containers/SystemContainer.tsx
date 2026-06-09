@@ -1,12 +1,10 @@
-import React, { Suspense } from 'react';
+import React from 'react';
 import { useSystemTabContext } from '@/contexts/SystemTabContext';
-import { Loader2 } from 'lucide-react';
 import { Agents } from '@/components/Agents';
 import { CreateAgent } from '@/components/CreateAgent';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { MCPManager } from '@/components/MCPManager';
 import { Settings } from '@/components/Settings';
-import { SettingsLoadingShell } from '@/components/SettingsLoadingShell';
 import { UsageDashboard } from '@/components/UsageDashboard';
 
 interface SystemContainerProps {
@@ -16,14 +14,6 @@ interface SystemContainerProps {
 export const SystemContainer: React.FC<SystemContainerProps> = ({ visible }) => {
   const { getActiveTab } = useSystemTabContext();
   const activeTab = getActiveTab();
-
-  const fallback = activeTab?.type === 'settings' ? (
-    <SettingsLoadingShell />
-  ) : (
-    <div className="flex items-center justify-center h-full">
-      <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-    </div>
-  );
 
   const renderContent = () => {
     if (!activeTab) {
@@ -68,9 +58,7 @@ export const SystemContainer: React.FC<SystemContainerProps> = ({ visible }) => 
   return (
     <div className={`h-full w-full flex flex-col ${visible ? '' : 'hidden'}`}>
       <div className="flex-1 overflow-hidden">
-        <Suspense fallback={fallback}>
-          {renderContent()}
-        </Suspense>
+        {renderContent()}
       </div>
     </div>
   );

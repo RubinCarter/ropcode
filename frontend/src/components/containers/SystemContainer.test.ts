@@ -18,10 +18,10 @@ test('SystemContainer statically imports system pages to avoid first-open lazy s
   assert.doesNotMatch(source, /lazy\(loadUsageDashboard\)/);
 });
 
-test('SystemContainer keeps a Suspense boundary for nested lazy settings panes', async () => {
+test('SystemContainer does not wrap static system pages in Suspense', async () => {
   const source = await fs.readFile(systemContainerPath, 'utf8');
 
-  assert.match(source, /import \{ SettingsLoadingShell \} from '@\/components\/SettingsLoadingShell';/);
-  assert.match(source, /activeTab\?\.type === 'settings'/);
-  assert.match(source, /<SettingsLoadingShell \/>/);
+  assert.doesNotMatch(source, /import React, \{ Suspense \}/);
+  assert.doesNotMatch(source, /SettingsLoadingShell/);
+  assert.doesNotMatch(source, /<Suspense/);
 });
