@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"ropcode/internal/database"
+	"ropcode/internal/eventhub"
 )
 
 func ModelHandlers(d *Deps) map[string]Handler {
@@ -243,14 +244,18 @@ func AgentHandlers(d *Deps) map[string]Handler {
 						activeRuns = append(activeRuns, run)
 					case "completed", "failed", "cancelled":
 						completedAt := time.Now()
-						_ = d.DB.UpdateAgentRunStatus(run.ID, session.Status, run.PID, run.ProcessStartedAt, &completedAt)
+						if err := d.DB.UpdateAgentRunStatus(run.ID, session.Status, run.PID, run.ProcessStartedAt, &completedAt); err == nil {
+							emitAgentRunChanged(d.EventHub, run, session.Status, run.PID, &completedAt, "")
+						}
 					default:
 						activeRuns = append(activeRuns, run)
 					}
 					continue
 				}
 				completedAt := time.Now()
-				_ = d.DB.UpdateAgentRunStatus(run.ID, "failed", run.PID, run.ProcessStartedAt, &completedAt)
+				if err := d.DB.UpdateAgentRunStatus(run.ID, "failed", run.PID, run.ProcessStartedAt, &completedAt); err == nil {
+					emitAgentRunChanged(d.EventHub, run, "failed", run.PID, &completedAt, "provider session not found")
+				}
 			}
 			return activeRuns, nil
 		},
@@ -267,7 +272,11 @@ func AgentHandlers(d *Deps) map[string]Handler {
 				d.Provider.TerminateSession(run.SessionID)
 			}
 			now := run.CreatedAt
-			return nil, d.DB.UpdateAgentRunStatus(runID, "cancelled", run.PID, run.ProcessStartedAt, &now)
+			if err := d.DB.UpdateAgentRunStatus(runID, "cancelled", run.PID, run.ProcessStartedAt, &now); err != nil {
+				return nil, err
+			}
+			emitAgentRunChanged(d.EventHub, run, "cancelled", run.PID, &now, "")
+			return nil, nil
 		},
 		"DeleteAgentRun": func(p json.RawMessage) (any, error) {
 			if d.DB == nil {
@@ -289,10 +298,43 @@ func AgentHandlers(d *Deps) map[string]Handler {
 			output, outputErr := d.Provider.GetSessionOutput(run.SessionID)
 			if outputErr != nil && strings.Contains(outputErr.Error(), "session not found:") && (run.Status == "running" || run.Status == "pending") {
 				completedAt := time.Now()
-				_ = d.DB.UpdateAgentRunStatus(run.ID, "failed", run.PID, run.ProcessStartedAt, &completedAt)
+				if err := d.DB.UpdateAgentRunStatus(run.ID, "failed", run.PID, run.ProcessStartedAt, &completedAt); err == nil {
+					emitAgentRunChanged(d.EventHub, run, "failed", run.PID, &completedAt, outputErr.Error())
+				}
 				return "", nil
 			}
 			return output, outputErr
 		},
 	}
+}
+
+func emitAgentRunChanged(hub *eventhub.EventHub, run *database.AgentRun, status string, pid int, completedAt *time.Time, errorMessage string) {
+	if hub == nil || run == nil {
+		return
+	}
+	if status == "" {
+		status = run.Status
+	}
+	if pid == 0 {
+		pid = run.PID
+	}
+	if completedAt == nil {
+		completedAt = run.CompletedAt
+	}
+
+	hub.EmitAgentRunChanged(eventhub.AgentRunChangedEvent{
+		RunID:       run.ID,
+		AgentID:     run.AgentID,
+		AgentName:   run.AgentName,
+		AgentIcon:   run.AgentIcon,
+		Task:        run.Task,
+		Model:       run.Model,
+		ProjectPath: run.ProjectPath,
+		SessionID:   run.SessionID,
+		Status:      status,
+		PID:         pid,
+		Error:       errorMessage,
+		Timestamp:   time.Now().UTC(),
+		CompletedAt: completedAt,
+	})
 }

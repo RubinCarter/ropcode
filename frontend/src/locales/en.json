@@ -210,8 +210,8 @@
     "selectClaudeChat": "Select a Claude chat with a running interactive session."
   },
   "agents": {
-    "title": "Agents",
-    "subtitle": "Manage and run AI agents",
+    "title": "Agent Packs",
+    "subtitle": "Install, configure, and update reusable agents",
     "tabAgents": "Agents",
     "tabRunning": "Running",
     "tabHistory": "History",

@@ -69,8 +69,13 @@ test('Ropcode browser UI loads through Go server and navigates core panes', asyn
   await expect(page.getByRole('button', { name: 'Save Settings' })).toBeVisible();
 
   await page.getByRole('button', { name: 'Agents', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Agent Packs', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create Agent' }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Create Agent' }).first().click();
+  await expect(page.getByRole('heading', { name: 'Create Agent', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save Agent', exact: true })).toBeVisible();
+  await page.locator('button[title="Back to Agents"]').click();
+  await expect(page.getByRole('heading', { name: 'Agent Packs', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Add project' })).toBeVisible();

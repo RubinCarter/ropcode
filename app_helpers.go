@@ -220,6 +220,37 @@ func (a *App) emitProjectChanged(project *database.ProjectIndex, reason string, 
 	a.eventHub.EmitProjectChanged(event)
 }
 
+func emitAgentRunChanged(hub *eventhub.EventHub, run *database.AgentRun, status string, pid int, completedAt *time.Time, errorMessage string) {
+	if hub == nil || run == nil {
+		return
+	}
+	if status == "" {
+		status = run.Status
+	}
+	if pid == 0 {
+		pid = run.PID
+	}
+	if completedAt == nil {
+		completedAt = run.CompletedAt
+	}
+
+	hub.EmitAgentRunChanged(eventhub.AgentRunChangedEvent{
+		RunID:       run.ID,
+		AgentID:     run.AgentID,
+		AgentName:   run.AgentName,
+		AgentIcon:   run.AgentIcon,
+		Task:        run.Task,
+		Model:       run.Model,
+		ProjectPath: run.ProjectPath,
+		SessionID:   run.SessionID,
+		Status:      status,
+		PID:         pid,
+		Error:       errorMessage,
+		Timestamp:   time.Now().UTC(),
+		CompletedAt: completedAt,
+	})
+}
+
 // ExecuteAgent starts an agent run with the specified parameters.
 func (a *App) ExecuteAgent(agentID int64, projectPath, task, model string) (*database.AgentRun, error) {
 	if a.dbManager == nil || a.providerManager == nil {
@@ -243,6 +274,7 @@ func (a *App) ExecuteAgent(agentID int64, projectPath, task, model string) (*dat
 		return nil, err
 	}
 	run.ID = runID
+	emitAgentRunChanged(a.eventHub, run, "pending", run.PID, nil, "")
 
 	prompt := agent.SystemPrompt
 	if task != "" {
@@ -264,11 +296,16 @@ func (a *App) ExecuteAgent(agentID int64, projectPath, task, model string) (*dat
 
 	sessionID, err := a.providerManager.StartSession("claude", config)
 	if err != nil {
-		a.dbManager.UpdateAgentRunStatus(runID, "failed", 0, nil, nil)
+		if updateErr := a.dbManager.UpdateAgentRunStatus(runID, "failed", 0, nil, nil); updateErr == nil {
+			emitAgentRunChanged(a.eventHub, run, "failed", 0, nil, err.Error())
+		}
 		return nil, err
 	}
 
 	run.SessionID = sessionID
+	if err := a.dbManager.UpdateAgentRunSession(runID, sessionID); err != nil {
+		return nil, err
+	}
 	run.Status = "running"
 	now := run.CreatedAt
 	run.ProcessStartedAt = &now
@@ -277,7 +314,9 @@ func (a *App) ExecuteAgent(agentID int64, projectPath, task, model string) (*dat
 		run.PID = status.PID
 	}
 
-	a.dbManager.UpdateAgentRunStatus(runID, "running", run.PID, run.ProcessStartedAt, nil)
+	if err := a.dbManager.UpdateAgentRunStatus(runID, "running", run.PID, run.ProcessStartedAt, nil); err == nil {
+		emitAgentRunChanged(a.eventHub, run, "running", run.PID, nil, "")
+	}
 	return run, nil
 }
 

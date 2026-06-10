@@ -210,8 +210,8 @@
     "selectClaudeChat": "请选择一个正在运行交互式会话的 Claude 聊天标签。"
   },
   "agents": {
-    "title": "智能体",
-    "subtitle": "管理和运行 AI 智能体",
+    "title": "智能体包",
+    "subtitle": "安装、配置和更新可复用智能体",
     "tabAgents": "智能体",
     "tabRunning": "运行中",
     "tabHistory": "历史",

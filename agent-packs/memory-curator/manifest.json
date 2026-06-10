@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "ropcode.memory-curator",
+  "version": "0.1.0",
+  "name": "Memory Curator",
+  "description": "Curates durable project memory after a coding session.",
+  "agents": [
+    {
+      "id": "memory-curator",
+      "name": "Memory Curator",
+      "icon": "brain",
+      "description": "Extracts durable facts, decisions, and follow-up context from completed sessions.",
+      "role": "roles/memory-curator.md",
+      "capabilities": [
+        "capabilities/session-memory.md",
+        "capabilities/project-context.md"
+      ],
+      "default_task": "Extract durable memory from the completed session.",
+      "suggested_triggers": [
+        {
+          "mode": "on_session_complete"
+        }
+      ]
+    }
+  ],
+  "compatibility": {
+    "ropcode": ">=0.1.0"
+  }
+}

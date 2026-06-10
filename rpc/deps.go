@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"ropcode/internal/agentpacks"
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
@@ -31,4 +32,5 @@ type Deps struct {
 	EventHub    *eventhub.EventHub
 	Activity    *claudeactivity.Service
 	BulkHub     *stream.BulkHub
+	AgentPacks  *agentpacks.Manager
 }

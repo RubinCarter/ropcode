@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"ropcode/internal/agentpacks"
 	"ropcode/internal/claudeactivity"
 	"ropcode/internal/config"
 	"ropcode/internal/database"
@@ -57,6 +58,8 @@ type App struct {
 	notificationService *notifications.Service
 	sessionTitles       *sessionTitleStore
 	projectChatManager  *projectchat.Manager
+	agentPackManager    *agentpacks.Manager
+	agentPackScheduler  *agentPackScheduler
 }
 
 // NewApp creates a new App application struct
@@ -77,6 +80,7 @@ func (a *App) startup(ctx context.Context) {
 		return
 	}
 	a.config = cfg
+	a.agentPackManager = agentpacks.NewManager(cfg.RopcodeDir)
 
 	// Initialize database
 	db, err := database.Open(cfg.DatabasePath)
@@ -151,6 +155,11 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize GitWatcher (EventHub already initialized above)
 	a.gitWatcher = git.NewGitWatcher(a.eventHub)
 
+	if a.dbManager != nil && a.providerManager != nil && a.eventHub != nil && a.agentPackManager != nil {
+		a.agentPackScheduler = newAgentPackScheduler(a)
+		a.agentPackScheduler.Start(ctx)
+	}
+
 	log.Println("ropcode started successfully")
 }
 
@@ -159,6 +168,10 @@ func (a *App) shutdown(ctx context.Context) {
 	// Close GitWatcher
 	if a.gitWatcher != nil {
 		a.gitWatcher.Close()
+	}
+
+	if a.agentPackScheduler != nil {
+		a.agentPackScheduler.Close()
 	}
 
 	// Close PTY sessions
@@ -299,7 +312,11 @@ func (e *providerStreamEmitter) updateAgentRunFromProcessEvent(data interface{})
 		pid = run.PID
 	}
 	completedAt := time.Now()
-	_ = e.db.UpdateAgentRunStatus(run.ID, status, pid, run.ProcessStartedAt, &completedAt)
+	if err := e.db.UpdateAgentRunStatus(run.ID, status, pid, run.ProcessStartedAt, &completedAt); err != nil {
+		log.Printf("[agents] update agent run status failed: %v", err)
+		return
+	}
+	emitAgentRunChanged(e.eventHub, run, status, pid, &completedAt, "")
 }
 
 func replayClaudeActivityOutput(activity *claudeactivity.Service, sessionID, output string) {
@@ -382,6 +399,7 @@ func (a *App) rpcDeps() *rpc.Deps {
 		EventHub:    a.eventHub,
 		Activity:    a.claudeActivity,
 		BulkHub:     a.bulkHub,
+		AgentPacks:  a.agentPackManager,
 	}
 }
 

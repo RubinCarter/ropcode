@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "ropcode.git-commit-bot",
+  "version": "0.1.0",
+  "name": "Git Commit Bot",
+  "description": "Reviews local changes, creates a focused commit, and optionally prepares a push.",
+  "agents": [
+    {
+      "id": "git-commit-bot",
+      "name": "Git Commit Bot",
+      "icon": "git-commit",
+      "description": "Turns local repository changes into a clear, focused git commit.",
+      "role": "roles/git-commit-bot.md",
+      "capabilities": [
+        "capabilities/change-review.md",
+        "capabilities/commit-authoring.md"
+      ],
+      "default_task": "Review local changes and create a focused commit.",
+      "suggested_triggers": [
+        {
+          "mode": "manual"
+        }
+      ]
+    }
+  ],
+  "compatibility": {
+    "ropcode": ">=0.1.0"
+  }
+}

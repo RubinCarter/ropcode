@@ -708,6 +708,12 @@ func (d *Database) UpdateAgentRunStatus(id int64, status string, pid int, proces
 	return err
 }
 
+// UpdateAgentRunSession attaches a provider runtime session to an agent run.
+func (d *Database) UpdateAgentRunSession(id int64, sessionID string) error {
+	_, err := d.db.Exec("UPDATE agent_runs SET session_id = ? WHERE id = ?", sessionID, id)
+	return err
+}
+
 // DeleteAgentRun deletes an agent run by ID
 func (d *Database) DeleteAgentRun(id int64) error {
 	_, err := d.db.Exec("DELETE FROM agent_runs WHERE id = ?", id)

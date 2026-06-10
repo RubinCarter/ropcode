@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "packs": [
+    {
+      "id": "ropcode.memory-curator",
+      "name": "Memory Curator",
+      "version": "0.1.0",
+      "path": "agent-packs/memory-curator",
+      "description": "Curates durable project memory after a coding session."
+    },
+    {
+      "id": "ropcode.git-commit-bot",
+      "name": "Git Commit Bot",
+      "version": "0.1.0",
+      "path": "agent-packs/git-commit-bot",
+      "description": "Reviews local changes, creates a focused commit, and optionally prepares a push."
+    }
+  ]
+}

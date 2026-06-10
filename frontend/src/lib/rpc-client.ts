@@ -40,6 +40,154 @@ export interface ProviderCapabilityLayers {
   fetched_at: string;
 }
 
+export namespace agentpacks {
+  export interface PackManifest {
+    schema_version: number;
+    id: string;
+    version: string;
+    name: string;
+    description?: string;
+    agents: AgentDefinition[];
+    compatibility?: { ropcode?: string };
+  }
+
+  export interface AgentDefinition {
+    id: string;
+    name: string;
+    icon?: string;
+    description?: string;
+    role: string;
+    capabilities?: string[];
+    default_task?: string;
+    suggested_triggers?: TriggerTemplate[];
+    metadata?: Record<string, unknown>;
+  }
+
+  export interface TriggerTemplate {
+    mode: string;
+    event?: string;
+    event_type?: string;
+    session_type?: string;
+    session_agent_id?: string;
+    agent_id?: string;
+    schedule?: string;
+    scope?: Record<string, unknown>;
+    timezone?: string;
+  }
+
+  export interface PackIndex {
+    schema_version: number;
+    packs: PackListing[];
+  }
+
+  export interface PackListing {
+    id: string;
+    name: string;
+    version: string;
+    path: string;
+    description?: string;
+  }
+
+  export interface InstallSource {
+    type: 'github' | 'local' | string;
+    repo?: string;
+    path?: string;
+    ref?: string;
+    url?: string;
+  }
+
+  export interface RuntimeConfig {
+    provider: string;
+    model: string;
+    provider_api_id?: string;
+    permission_mode?: string;
+    config?: Record<string, string>;
+  }
+
+  export interface TriggerConfig {
+    mode: string;
+    enabled: boolean;
+    event?: string;
+    event_type?: string;
+    session_type?: string;
+    session_agent_id?: string;
+    agent_id?: string;
+    scope?: Record<string, unknown>;
+    schedule?: string;
+    timezone?: string;
+  }
+
+  export interface CreateLocalPackRequest {
+    pack_id?: string;
+    name: string;
+    description?: string;
+    version?: string;
+    agent: ManualAgentDefinition;
+    runtime: RuntimeConfig;
+    enabled: boolean;
+    triggers?: TriggerConfig[];
+  }
+
+  export interface ManualAgentDefinition {
+    id?: string;
+    name: string;
+    icon?: string;
+    description?: string;
+    role_prompt: string;
+    skills?: ManualSkill[];
+    default_task?: string;
+  }
+
+  export interface ManualSkill {
+    id?: string;
+    name?: string;
+    description?: string;
+    source_path?: string;
+    instructions: string;
+  }
+
+  export interface InstalledAgentConfig {
+    enabled: boolean;
+    runtime: RuntimeConfig;
+    triggers?: TriggerConfig[];
+  }
+
+  export interface InstallOptions {
+    source: InstallSource;
+    agents?: Record<string, InstalledAgentConfig>;
+    replace?: boolean;
+  }
+
+  export interface AgentSummary {
+    id: string;
+    name: string;
+    icon?: string;
+    enabled: boolean;
+    runtime: RuntimeConfig;
+    triggers?: TriggerConfig[];
+  }
+
+  export interface InstalledPackSummary {
+    pack_id: string;
+    name: string;
+    description?: string;
+    installed_version: string;
+    latest_version?: string;
+    update_available: boolean;
+    source: InstallSource;
+    path: string;
+    agents: AgentSummary[];
+  }
+
+  export interface UpdateResult {
+    pack_id: string;
+    previous_version: string;
+    new_version: string;
+    updated: boolean;
+    backup_path?: string;
+  }
+}
+
 // Type definitions - consistent with Go backend
 export namespace ssh {
   export interface SshConnection {
@@ -1331,6 +1479,55 @@ export function FetchGitHubAgentContent(url: string): Promise<any> {
 
 export function LoadAgentSessionHistory(sessionId: string): Promise<claude.Message[]> {
   return wsClient.call('LoadAgentSessionHistory', sessionId);
+}
+
+// ==================== Agent Packs ====================
+
+export function ListAgentPacks(): Promise<agentpacks.InstalledPackSummary[]> {
+  return wsClient.call('ListAgentPacks');
+}
+
+export function GetAgentPack(packId: string): Promise<agentpacks.InstalledPackSummary> {
+  return wsClient.call('GetAgentPack', packId);
+}
+
+export function ListRemoteAgentPacks(source?: agentpacks.InstallSource): Promise<agentpacks.PackIndex> {
+  return wsClient.call('ListRemoteAgentPacks', source ?? { type: 'github' });
+}
+
+export function InstallAgentPack(options: agentpacks.InstallOptions): Promise<agentpacks.InstalledPackSummary> {
+  return wsClient.call('InstallAgentPack', options);
+}
+
+export function CreateLocalAgentPack(request: agentpacks.CreateLocalPackRequest): Promise<agentpacks.InstalledPackSummary> {
+  return wsClient.call('CreateLocalAgentPack', request);
+}
+
+export function InstallLocalAgentPack(
+  path: string,
+  agents?: Record<string, agentpacks.InstalledAgentConfig>,
+  replace = false
+): Promise<agentpacks.InstalledPackSummary> {
+  return wsClient.call('InstallLocalAgentPack', path, agents ?? {}, replace);
+}
+
+export function SaveAgentPackConfig(
+  packId: string,
+  agents: Record<string, agentpacks.InstalledAgentConfig>
+): Promise<agentpacks.InstalledPackSummary> {
+  return wsClient.call('SaveAgentPackConfig', packId, agents);
+}
+
+export function CheckAgentPackUpdate(packId: string): Promise<agentpacks.InstalledPackSummary> {
+  return wsClient.call('CheckAgentPackUpdate', packId);
+}
+
+export function UpdateAgentPack(packId: string): Promise<agentpacks.UpdateResult> {
+  return wsClient.call('UpdateAgentPack', packId);
+}
+
+export function UninstallAgentPack(packId: string): Promise<void> {
+  return wsClient.call('UninstallAgentPack', packId);
 }
 
 // ==================== MCP Management ====================
